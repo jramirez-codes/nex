@@ -1,10 +1,7 @@
 //! Everything the user can ask for (keyboard shortcuts, buttons), and carrying it out.
 
-
 use alacritty_terminal::grid::Scroll;
-use egui::{
-    Key, ViewportCommand,
-};
+use egui::{Key, ViewportCommand};
 
 use crate::config::Config;
 use crate::fonts;
@@ -17,6 +14,7 @@ use super::App;
 pub(super) enum Action {
     NewTab,
     NewWindow,
+    /// Close a pane; `ClosePane(0)` means the focused one.
     ClosePane(PaneId),
     CloseTab(usize),
     Split(Axis),
@@ -47,9 +45,11 @@ pub(super) enum Action {
     CloseFiles,
 }
 
+/// A keyboard shortcut: (ctrl, shift, alt, key, action).
+pub(super) type Binding = (bool, bool, bool, Key, Action);
+
 /// Keyboard shortcuts, following Ghostty's Linux defaults where they exist.
-/// Each entry is (ctrl, shift, alt, key, action).
-pub(super) fn keybindings() -> Vec<(bool, bool, bool, Key, Action)> {
+pub(super) fn keybindings() -> Vec<Binding> {
     use Action::*;
     let mut b = vec![
         (true, true, false, Key::T, NewTab),
@@ -104,15 +104,7 @@ impl App {
                 let cwd = self.focused_cwd();
                 self.new_tab(ctx, cwd);
             }
-            Action::NewWindow => {
-                if let Ok(exe) = std::env::current_exe() {
-                    let mut cmd = std::process::Command::new(exe);
-                    if let Some(cwd) = self.focused_cwd() {
-                        cmd.current_dir(cwd);
-                    }
-                    let _ = cmd.spawn();
-                }
-            }
+            Action::NewWindow => self.new_window(),
             Action::ClosePane(0) => {
                 if let Some(id) = focused {
                     self.close_pane(id)
@@ -126,15 +118,7 @@ impl App {
                 }
             }
             Action::SplitPane(id, axis) => self.split(ctx, id, axis),
-            Action::Focus(dir) => {
-                if let Some(id) = focused {
-                    if let Some(next) = layout::neighbor(&self.card_rects, id, dir) {
-                        if let Some(tab) = self.cur_tab_mut() {
-                            tab.focused = next;
-                        }
-                    }
-                }
-            }
+            Action::Focus(dir) => self.focus_direction(dir),
             Action::FocusPane(id) => {
                 if let Some(tab) = self.tab_with(id) {
                     tab.focused = id;
@@ -145,71 +129,22 @@ impl App {
                     tab.root.resize(id, dir, 0.05);
                 }
             }
-            Action::ToggleZoom => {
-                if let Some(tab) = self.cur_tab_mut() {
-                    tab.zoomed = !tab.zoomed && tab.root.panes().len() > 1;
-                }
-            }
-            Action::ToggleZoomPane(id) => {
-                if let Some(tab) = self.cur_tab_mut() {
-                    tab.focused = id;
-                    tab.zoomed = !tab.zoomed && tab.root.panes().len() > 1;
-                }
-            }
+            Action::ToggleZoom => self.toggle_zoom(None),
+            Action::ToggleZoomPane(id) => self.toggle_zoom(Some(id)),
             Action::Equalize => {
                 if let Some(tab) = self.cur_tab_mut() {
                     tab.root.equalize();
                 }
             }
-            // The Files tab, when open, sits before the first terminal tab in the cycle.
-            Action::NextTab => {
-                let n = self.tabs.len();
-                if self.files_active {
-                    if n > 0 {
-                        self.show_tab(0);
-                    }
-                } else if self.active + 1 == n && self.files.is_some() {
-                    self.files_active = true;
-                } else if n > 0 {
-                    self.show_tab((self.active + 1) % n);
-                }
-            }
-            Action::PrevTab => {
-                let n = self.tabs.len();
-                if self.files_active {
-                    if n > 0 {
-                        self.show_tab(n - 1);
-                    }
-                } else if self.active == 0 && self.files.is_some() {
-                    self.files_active = true;
-                } else if n > 0 {
-                    self.show_tab((self.active + n - 1) % n);
-                }
-            }
-            Action::GotoTab(i) => {
-                // Like Ghostty, alt+9 is "last tab".
-                if i == 8 && !self.tabs.is_empty() {
-                    self.show_tab(self.tabs.len() - 1);
-                } else if i < self.tabs.len() {
-                    self.show_tab(i);
-                }
-            }
+            Action::NextTab => self.cycle_tab(true),
+            Action::PrevTab => self.cycle_tab(false),
+            Action::GotoTab(i) => self.goto_tab(i),
             Action::Copy => {
                 if let Some(text) = focused.and_then(|id| self.panes.get(&id)).and_then(|t| t.selection_text()) {
                     ctx.copy_text(text);
                 }
             }
-            Action::FontBigger | Action::FontSmaller | Action::FontReset => {
-                if let Some(id) = focused {
-                    let size = self.pane_font(id);
-                    let size = match action {
-                        Action::FontBigger => Some(size + 1.0),
-                        Action::FontSmaller => Some(size - 1.0),
-                        _ => None,
-                    };
-                    self.set_pane_font(ctx, id, size);
-                }
-            }
+            Action::FontBigger | Action::FontSmaller | Action::FontReset => self.change_font(ctx, action),
             Action::ReloadConfig => {
                 self.cfg = Config::load();
                 fonts::install(ctx, &self.cfg);
@@ -218,28 +153,11 @@ impl App {
             }
             Action::Quit => ctx.send_viewport_cmd(ViewportCommand::Close),
             Action::ScrollPageUp | Action::ScrollPageDown | Action::ScrollTop | Action::ScrollBottom => {
-                if let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) {
-                    t.scroll_to(match action {
-                        Action::ScrollPageUp => Scroll::PageUp,
-                        Action::ScrollPageDown => Scroll::PageDown,
-                        Action::ScrollTop => Scroll::Top,
-                        _ => Scroll::Bottom,
-                    });
-                }
+                self.scroll_focused(action)
             }
             Action::ToggleFiles => self.toggle_files(),
             Action::CloseFiles => self.close_files(),
-            Action::ToggleSearch => {
-                // Nothing to search in a file browser.
-                let focused = focused.filter(|id| !self.browsers.contains_key(id));
-                self.search = match (self.search.take(), focused) {
-                    // Pressing it again in the same pane closes search; in another pane, moves it.
-                    (Some(s), Some(id)) if s.pane != id => Some(Search::new(id)),
-                    (Some(_), _) => None,
-                    (None, Some(id)) => Some(Search::new(id)),
-                    (None, None) => None,
-                };
-            }
+            Action::ToggleSearch => self.toggle_search(),
             Action::ClearScreen => {
                 // Ask the shell to redraw on a clean screen: clear + form feed (Ctrl+L).
                 if let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) {
@@ -247,5 +165,95 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Start another nex process in the focused directory.
+    fn new_window(&self) {
+        if let Ok(exe) = std::env::current_exe() {
+            let mut cmd = std::process::Command::new(exe);
+            if let Some(cwd) = self.focused_cwd() {
+                cmd.current_dir(cwd);
+            }
+            let _ = cmd.spawn();
+        }
+    }
+
+    /// Move focus to the pane next to the focused one, by on-screen position.
+    fn focus_direction(&mut self, dir: Direction) {
+        let Some(id) = self.focused_pane() else { return };
+        let Some(next) = layout::neighbor(&self.card_rects, id, dir) else { return };
+        if let Some(tab) = self.cur_tab_mut() {
+            tab.focused = next;
+        }
+    }
+
+    /// Zoom the focused pane (or `pane`, focusing it first) to fill the tab, or unzoom.
+    fn toggle_zoom(&mut self, pane: Option<PaneId>) {
+        if let Some(tab) = self.cur_tab_mut() {
+            if let Some(id) = pane {
+                tab.focused = id;
+            }
+            tab.zoomed = !tab.zoomed && tab.root.panes().len() > 1;
+        }
+    }
+
+    /// Next/previous tab. The Files tab, when open, sits before the first terminal tab in
+    /// the cycle.
+    fn cycle_tab(&mut self, forward: bool) {
+        let n = self.tabs.len();
+        let at_edge = if forward { self.active + 1 == n } else { self.active == 0 };
+        if self.files_active {
+            if n > 0 {
+                self.show_tab(if forward { 0 } else { n - 1 });
+            }
+        } else if at_edge && self.files.is_some() {
+            self.files_active = true;
+        } else if n > 0 {
+            self.show_tab(if forward { (self.active + 1) % n } else { (self.active + n - 1) % n });
+        }
+    }
+
+    /// Alt+1..9. Like Ghostty, Alt+9 is "last tab".
+    fn goto_tab(&mut self, i: usize) {
+        if i == 8 && !self.tabs.is_empty() {
+            self.show_tab(self.tabs.len() - 1);
+        } else if i < self.tabs.len() {
+            self.show_tab(i);
+        }
+    }
+
+    /// Zoom the focused pane's font in, out, or back to the config size.
+    fn change_font(&mut self, ctx: &egui::Context, action: Action) {
+        let Some(id) = self.focused_pane() else { return };
+        let size = self.pane_font(id);
+        let size = match action {
+            Action::FontBigger => Some(size + 1.0),
+            Action::FontSmaller => Some(size - 1.0),
+            _ => None,
+        };
+        self.set_pane_font(ctx, id, size);
+    }
+
+    fn scroll_focused(&mut self, action: Action) {
+        let Some(t) = self.focused_pane().and_then(|id| self.panes.get_mut(&id)) else { return };
+        t.scroll_to(match action {
+            Action::ScrollPageUp => Scroll::PageUp,
+            Action::ScrollPageDown => Scroll::PageDown,
+            Action::ScrollTop => Scroll::Top,
+            _ => Scroll::Bottom,
+        });
+    }
+
+    /// Open search in the focused terminal. Pressing it again in the same pane closes search;
+    /// in another pane, moves it there.
+    fn toggle_search(&mut self) {
+        // Nothing to search in a file browser.
+        let focused = self.focused_pane().filter(|id| !self.browsers.contains_key(id));
+        self.search = match (self.search.take(), focused) {
+            (Some(s), Some(id)) if s.pane != id => Some(Search::new(id)),
+            (Some(_), _) => None,
+            (None, Some(id)) => Some(Search::new(id)),
+            (None, None) => None,
+        };
     }
 }

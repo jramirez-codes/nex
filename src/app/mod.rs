@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use egui::{
-    Color32, Key, Pos2, Rect, Stroke, StrokeKind,
+    Color32, Pos2, Rect, Stroke, StrokeKind,
     Vec2, ViewportCommand,
 };
 
@@ -27,7 +27,7 @@ use crate::render::CellMetrics;
 use crate::search::{Link, LinkFinder, Search};
 use crate::terminal::Terminal;
 
-use actions::{keybindings, Action};
+use actions::{keybindings, Action, Binding};
 use mouse::MouseState;
 use tab::Tab;
 use crate::glide::Glide;
@@ -57,7 +57,7 @@ pub struct App {
     hostname: String,
     last_proc_poll: Instant,
     window_title: String,
-    bindings: Vec<(bool, bool, bool, Key, Action)>,
+    bindings: Vec<Binding>,
     /// Area available for panes in the current window (used to size new terminals).
     content_area: Rect,
     started: bool,

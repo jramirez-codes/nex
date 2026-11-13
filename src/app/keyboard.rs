@@ -1,11 +1,10 @@
 //! Keyboard and clipboard input: shortcuts, search typing, and keys sent to the shell.
 
+use egui::{Event, Key, Modifiers};
 
-use egui::{
-    Event, Key,
-};
-
-use crate::input::{self};
+use crate::files::FileBrowser;
+use crate::input;
+use crate::terminal::Terminal;
 
 use super::App;
 use super::actions::Action;
@@ -13,110 +12,132 @@ use super::actions::Action;
 impl App {
     pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let (events, mods) = ctx.input(|i| (i.events.clone(), i.modifiers));
-        let focused = self.focused_pane();
         for event in events {
             match event {
-                Event::Key { key, pressed: true, modifiers, .. } => {
-                    let binding = self.bindings.iter().find(|(c, s, a, k, _)| {
-                        *k == key && *c == modifiers.ctrl && *s == modifiers.shift && *a == modifiers.alt
-                    });
-                    if let Some(&(.., action)) = binding {
-                        self.pending.push(action);
-                        continue;
-                    }
-                    if let Some(b) = focused.and_then(|id| self.browsers.get_mut(&id)) {
-                        b.key(key, modifiers);
-                        continue;
-                    }
-                    if let Some(s) = self.search.as_mut() {
-                        match key {
-                            Key::Escape => self.search = None,
-                            Key::Backspace => {
-                                s.query.pop();
-                            }
-                            Key::Enter | Key::F3 => {
-                                // Enter = older match (up), Shift+Enter = newer.
-                                if let Some(p) = s.step(!modifiers.shift) {
-                                    if let Some(t) = self.panes.get(&s.pane) {
-                                        t.term.lock().scroll_to_point(p);
-                                    }
-                                }
-                            }
-                            Key::ArrowUp | Key::ArrowDown => {
-                                if let Some(p) = s.step(key == Key::ArrowUp) {
-                                    if let Some(t) = self.panes.get(&s.pane) {
-                                        t.term.lock().scroll_to_point(p);
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                        continue;
-                    }
-                    let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) else { continue };
-                    let mode = *t.term.lock().mode();
-                    if let Some(bytes) = input::encode_key(key, modifiers, mode) {
-                        t.input(bytes);
-                    }
-                }
-                Event::Text(text) => {
-                    if mods.ctrl || focused.is_some_and(|id| self.browsers.contains_key(&id)) {
-                        continue;
-                    }
-                    if let Some(s) = self.search.as_mut() {
-                        s.query.push_str(&text);
-                        continue;
-                    }
-                    let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) else { continue };
-                    let mut bytes = Vec::with_capacity(text.len() + 1);
-                    if mods.alt {
-                        bytes.push(0x1b);
-                    }
-                    bytes.extend_from_slice(text.as_bytes());
-                    t.input(bytes);
-                }
+                Event::Key { key, pressed: true, modifiers, .. } => self.on_key(key, modifiers),
+                Event::Text(text) => self.on_text(&text, mods),
                 Event::Ime(egui::ImeEvent::Commit(text)) => {
-                    if let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) {
+                    if let Some(t) = self.focused_terminal() {
                         t.input(text.into_bytes());
                     }
                 }
-                // egui-winit turns Ctrl+C / Ctrl+X / Ctrl+V into clipboard events. In a terminal
-                // only the Ctrl+Shift variants are clipboard operations; plain Ctrl sends the
-                // control character to the program (Ctrl+C → SIGINT).
-                // In a file browser these copy / cut / paste files.
-                Event::Copy | Event::Cut | Event::Paste(_) if focused.is_some_and(|id| self.browsers.contains_key(&id)) => {
-                    let Some(b) = focused.and_then(|id| self.browsers.get_mut(&id)) else { continue };
-                    match event {
-                        Event::Paste(text) => b.paste(ctx, None, Some(&text)),
-                        e => b.copy(ctx, e == Event::Cut),
-                    }
-                }
-                Event::Copy => {
-                    if mods.shift || !mods.ctrl {
-                        self.pending.push(Action::Copy);
-                    } else if let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) {
-                        t.input(vec![0x03]);
-                    }
-                }
-                Event::Cut => {
-                    if let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) {
-                        t.input(vec![0x18]);
-                    }
-                }
-                Event::Paste(text) => {
-                    if let Some(s) = self.search.as_mut() {
-                        s.query.push_str(text.lines().next().unwrap_or_default());
-                        continue;
-                    }
-                    let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) else { continue };
-                    if mods.shift {
-                        t.paste(&text);
-                    } else {
-                        t.input(vec![0x16]);
-                    }
-                }
+                Event::Copy | Event::Cut | Event::Paste(_) => self.on_clipboard(ctx, event, mods),
                 _ => {}
             }
+        }
+    }
+
+    fn focused_terminal(&mut self) -> Option<&mut Terminal> {
+        self.focused_pane().and_then(|id| self.panes.get_mut(&id))
+    }
+
+    fn focused_browser(&mut self) -> Option<&mut FileBrowser> {
+        self.focused_pane().and_then(|id| self.browsers.get_mut(&id))
+    }
+
+    /// A key press goes to the first taker: a shortcut, a file browser, the search field, or
+    /// the shell.
+    fn on_key(&mut self, key: Key, modifiers: Modifiers) {
+        let binding = self.bindings.iter().find(|(c, s, a, k, _)| {
+            *k == key && *c == modifiers.ctrl && *s == modifiers.shift && *a == modifiers.alt
+        });
+        if let Some(&(.., action)) = binding {
+            self.pending.push(action);
+            return;
+        }
+        if let Some(b) = self.focused_browser() {
+            b.key(key, modifiers);
+            return;
+        }
+        if self.search.is_some() {
+            self.search_key(key, modifiers);
+            return;
+        }
+        let Some(t) = self.focused_terminal() else { return };
+        let mode = *t.term.lock().mode();
+        if let Some(bytes) = input::encode_key(key, modifiers, mode) {
+            t.input(bytes);
+        }
+    }
+
+    /// Keys while the search field is open.
+    fn search_key(&mut self, key: Key, modifiers: Modifiers) {
+        match key {
+            Key::Escape => self.search = None,
+            Key::Backspace => {
+                if let Some(s) = self.search.as_mut() {
+                    s.query.pop();
+                }
+            }
+            // Enter = older match (up), Shift+Enter = newer.
+            Key::Enter | Key::F3 => self.search_step(!modifiers.shift),
+            Key::ArrowUp | Key::ArrowDown => self.search_step(key == Key::ArrowUp),
+            _ => {}
+        }
+    }
+
+    /// Move to the next search match (older if `up`) and scroll it into view.
+    fn search_step(&mut self, up: bool) {
+        let Some(s) = self.search.as_mut() else { return };
+        if let Some(p) = s.step(up) {
+            if let Some(t) = self.panes.get(&s.pane) {
+                t.term.lock().scroll_to_point(p);
+            }
+        }
+    }
+
+    /// Typed text: into the search field or the shell (Alt prefixes ESC). File browsers and
+    /// Ctrl chords don't take text.
+    fn on_text(&mut self, text: &str, mods: Modifiers) {
+        if mods.ctrl || self.focused_browser().is_some() {
+            return;
+        }
+        if let Some(s) = self.search.as_mut() {
+            s.query.push_str(text);
+            return;
+        }
+        let Some(t) = self.focused_terminal() else { return };
+        let mut bytes = Vec::with_capacity(text.len() + 1);
+        if mods.alt {
+            bytes.push(0x1b);
+        }
+        bytes.extend_from_slice(text.as_bytes());
+        t.input(bytes);
+    }
+
+    /// egui-winit turns Ctrl+C / Ctrl+X / Ctrl+V into clipboard events. In a terminal only the
+    /// Ctrl+Shift variants are clipboard operations; plain Ctrl sends the control character to
+    /// the program (Ctrl+C → SIGINT). In a file browser these copy / cut / paste files.
+    fn on_clipboard(&mut self, ctx: &egui::Context, event: Event, mods: Modifiers) {
+        if let Some(b) = self.focused_browser() {
+            match event {
+                Event::Paste(text) => b.paste(ctx, None, Some(&text)),
+                e => b.copy(ctx, e == Event::Cut),
+            }
+            return;
+        }
+        match event {
+            Event::Copy if mods.shift || !mods.ctrl => self.pending.push(Action::Copy),
+            Event::Copy => self.send_to_focused(&[0x03]),
+            Event::Cut => self.send_to_focused(&[0x18]),
+            Event::Paste(text) => {
+                if let Some(s) = self.search.as_mut() {
+                    s.query.push_str(text.lines().next().unwrap_or_default());
+                } else if mods.shift {
+                    if let Some(t) = self.focused_terminal() {
+                        t.paste(&text);
+                    }
+                } else {
+                    self.send_to_focused(&[0x16]);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn send_to_focused(&mut self, bytes: &[u8]) {
+        if let Some(t) = self.focused_terminal() {
+            t.input(bytes.to_vec());
         }
     }
 }
