@@ -1,9 +1,6 @@
 //! Font sizes (per-pane zoom) and the terminal cell geometry they produce.
 
-
-use egui::{
-    FontFamily, FontId, Pos2, Rect,
-};
+use egui::{FontFamily, FontId, Pos2, Rect};
 
 use crate::layout::PaneId;
 use crate::render::{CellMetrics, FONT_REGULAR};

@@ -14,29 +14,30 @@ mod workspace;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use egui::{
-    Color32, Pos2, Rect, Stroke, StrokeKind,
-    Vec2, ViewportCommand,
-};
+use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, Vec2, ViewportCommand};
 
 use crate::config::Config;
-use crate::files::{self, FileBrowser};
+use crate::file_explorer::{self, FileExplorer};
 use crate::fonts;
 use crate::layout::PaneId;
 use crate::render::CellMetrics;
 use crate::search::{Link, LinkFinder, Search};
 use crate::terminal::Terminal;
+use crate::ui::glide::Glide;
+use crate::ui::theme::{Theme, white_alpha};
+use crate::ui::widgets::is_maximized;
 
 use actions::{keybindings, Action, Binding};
 use mouse::MouseState;
 use tab::Tab;
-use crate::glide::Glide;
-use crate::theme::Theme;
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;
 const PANE_GAP: f32 = 8.0;
 const WINDOW_RADIUS: u8 = 14;
+const WINDOW_BORDER: Color32 = white_alpha(22);
+/// How often process names, working directories and file listings are refreshed.
+const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(750);
 
 pub struct App {
     cfg: Config,
@@ -67,13 +68,13 @@ pub struct App {
     hover_link: Option<(PaneId, Link)>,
     /// Animated position of the active-tab highlight, in tab slots.
     pill_glide: Glide,
-    /// File-browser panes (the Files tab). They share the pane id space and split tree with
+    /// File-explorer panes (the Files tab). They share the pane id space and split tree with
     /// terminals.
-    browsers: HashMap<PaneId, FileBrowser>,
+    explorers: HashMap<PaneId, FileExplorer>,
     /// The Files tab. It lives outside `tabs`: the title-bar directory label is its tab.
-    files: Option<Tab>,
+    explorer_tab: Option<Tab>,
     /// Whether the Files tab is showing (`active` keeps the last terminal tab).
-    files_active: bool,
+    explorer_active: bool,
     /// Last known pointer position (touch releases report the pointer as gone).
     last_pointer: Option<Pos2>,
 }
@@ -111,9 +112,9 @@ impl App {
             links: LinkFinder::new(),
             hover_link: None,
             pill_glide: Glide::new(0.2),
-            browsers: HashMap::new(),
-            files: None,
-            files_active: false,
+            explorers: HashMap::new(),
+            explorer_tab: None,
+            explorer_active: false,
             last_pointer: None,
         }
     }
@@ -124,13 +125,11 @@ impl eframe::App for App {
         [0.0, 0.0, 0.0, 0.0]
     }
 
+    /// One frame: read PTY output, handle keys, draw, handle the mouse, then apply whatever
+    /// the user asked for along the way.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_metrics(ctx);
-        let full = ctx.content_rect();
-        self.content_area = Rect::from_min_max(
-            Pos2::new(full.left() + PANE_GAP, full.top() + TITLEBAR_HEIGHT),
-            Pos2::new(full.right() - PANE_GAP, full.bottom() - PANE_GAP),
-        );
+        self.update_content_area(ctx);
         if !self.started {
             // The first shell is spawned on the first frame, once the window size is known.
             self.started = true;
@@ -138,34 +137,11 @@ impl eframe::App for App {
             self.new_tab(ctx, cwd);
         }
 
-        // PTY events; panes whose shell exited are closed (like Ghostty).
-        let mut exited = Vec::new();
-        for (id, t) in &mut self.panes {
-            t.process_events(ctx, &self.cfg);
-            if t.exited {
-                exited.push(*id);
-            }
-        }
-        for id in exited {
-            self.close_pane(id);
-        }
-        if self.tabs.is_empty() && self.files.is_none() {
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+        self.poll_ptys(ctx);
+        if self.close_if_empty(ctx) {
             return;
         }
-        if self.tabs.is_empty() {
-            self.files_active = true;
-        }
-
-        if self.last_proc_poll.elapsed() > Duration::from_millis(750) {
-            self.last_proc_poll = Instant::now();
-            for t in self.panes.values_mut() {
-                t.refresh_process_info();
-            }
-            for b in self.browsers.values_mut() {
-                b.refresh_if_stale();
-            }
-        }
+        self.poll_background();
         ctx.request_repaint_after(Duration::from_secs(1));
 
         // We draw everything ourselves; never let egui give keyboard focus to a widget
@@ -177,51 +153,105 @@ impl eframe::App for App {
         });
 
         self.handle_keyboard(ctx);
-        for action in std::mem::take(&mut self.pending) {
-            self.apply(ctx, action);
-        }
-        if self.tabs.is_empty() && self.files.is_none() {
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+        self.drain_pending(ctx);
+        if self.close_if_empty(ctx) {
             return;
         }
-        if self.tabs.is_empty() {
-            self.files_active = true;
-        }
 
-        let theme = Theme::from_config(&self.cfg);
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
-            let full = ui.max_rect();
-            let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-            let radius = if maximized || self.cfg.window_decorations { 0 } else { WINDOW_RADIUS };
-            ui.painter().rect_filled(full, radius, theme.window);
-            if radius > 0 {
-                ui.painter().rect_stroke(full, radius, Stroke::new(1.0, Color32::from_white_alpha(22)), StrokeKind::Inside);
-            }
-
-            let titlebar = Rect::from_min_size(full.min, Vec2::new(full.width(), TITLEBAR_HEIGHT));
-            self.titlebar(ui, titlebar, &theme);
-
-            let area = self.content_area;
-            self.panes_area(ui, area, &theme);
-            self.file_drops(ctx);
-            files::paint_drag_ghost(ctx, &files::Colors { text: theme.text, text_dim: theme.text_dim, text_bright: theme.text_bright });
-            self.window_resize_edges(ctx, full);
-        });
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.draw_window(ui));
 
         self.handle_mouse(ctx);
         if !self.pending.is_empty() {
-            for action in std::mem::take(&mut self.pending) {
-                self.apply(ctx, action);
-            }
+            self.drain_pending(ctx);
             ctx.request_repaint();
         }
+        self.sync_window_title(ctx);
+    }
+}
 
-        // Window title follows the focused pane.
-        if let Some(title) = self.focused_pane().map(|id| self.pane_label(id).0).filter(|t| !t.is_empty()) {
-            if title != self.window_title {
-                ctx.send_viewport_cmd(ViewportCommand::Title(format!("{title} — nex")));
-                self.window_title = title;
+impl App {
+    /// The area below the title bar where panes go.
+    fn update_content_area(&mut self, ctx: &egui::Context) {
+        let full = ctx.content_rect();
+        self.content_area = Rect::from_min_max(
+            Pos2::new(full.left() + PANE_GAP, full.top() + TITLEBAR_HEIGHT),
+            Pos2::new(full.right() - PANE_GAP, full.bottom() - PANE_GAP),
+        );
+    }
+
+    /// Read PTY events; panes whose shell exited are closed (like Ghostty).
+    fn poll_ptys(&mut self, ctx: &egui::Context) {
+        let mut exited = Vec::new();
+        for (id, t) in &mut self.panes {
+            t.process_events(ctx, &self.cfg);
+            if t.exited {
+                exited.push(*id);
             }
+        }
+        for id in exited {
+            self.close_pane(id);
+        }
+    }
+
+    /// Close the window once no tabs are left. With only the Files tab left, show it.
+    /// Returns `true` if the window is closing.
+    fn close_if_empty(&mut self, ctx: &egui::Context) -> bool {
+        if self.tabs.is_empty() && self.explorer_tab.is_none() {
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+            return true;
+        }
+        if self.tabs.is_empty() {
+            self.explorer_active = true;
+        }
+        false
+    }
+
+    /// Every so often: refresh process names / cwds and re-read stale file listings.
+    fn poll_background(&mut self) {
+        if self.last_proc_poll.elapsed() <= PROCESS_POLL_INTERVAL {
+            return;
+        }
+        self.last_proc_poll = Instant::now();
+        for t in self.panes.values_mut() {
+            t.refresh_process_info();
+        }
+        for b in self.explorers.values_mut() {
+            b.refresh_if_stale();
+        }
+    }
+
+    fn drain_pending(&mut self, ctx: &egui::Context) {
+        for action in std::mem::take(&mut self.pending) {
+            self.apply(ctx, action);
+        }
+    }
+
+    /// Window background, title bar, panes, and anything dragged over them.
+    fn draw_window(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let theme = Theme::from_config(&self.cfg);
+        let full = ui.max_rect();
+        let radius = if is_maximized(&ctx) || self.cfg.window_decorations { 0 } else { WINDOW_RADIUS };
+        ui.painter().rect_filled(full, radius, theme.window);
+        if radius > 0 {
+            ui.painter().rect_stroke(full, radius, Stroke::new(1.0, WINDOW_BORDER), StrokeKind::Inside);
+        }
+
+        let titlebar = Rect::from_min_size(full.min, Vec2::new(full.width(), TITLEBAR_HEIGHT));
+        self.titlebar(ui, titlebar, &theme);
+        let area = self.content_area;
+        self.panes_area(ui, area, &theme);
+        self.file_drops(&ctx);
+        file_explorer::paint_drag_ghost(&ctx, &theme);
+        self.window_resize_edges(&ctx, full);
+    }
+
+    /// The window title follows the focused pane.
+    fn sync_window_title(&mut self, ctx: &egui::Context) {
+        let Some(title) = self.focused_pane().map(|id| self.pane_label(id).0).filter(|t| !t.is_empty()) else { return };
+        if title != self.window_title {
+            ctx.send_viewport_cmd(ViewportCommand::Title(format!("{title} — nex")));
+            self.window_title = title;
         }
     }
 }

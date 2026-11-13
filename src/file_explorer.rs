@@ -1,10 +1,10 @@
-//! The file-browser pane shown in the Files tab: a directory listing (as a list or a grid of
+//! The file-explorer pane shown in the Files tab: a directory listing (as a list or a grid of
 //! tiles) you can navigate with the mouse, keyboard or a touch screen. Folders open in place;
 //! files open with the desktop's default app.
 //!
 //! Files can be copied, cut and pasted (Ctrl+C / Ctrl+X / Ctrl+V, the right-click menu, or the
 //! action bar that appears while items are selected), and dragged onto folders, onto another
-//! browser pane, or onto a terminal (which inserts their paths). Hold Ctrl while dropping to
+//! explorer pane, or onto a terminal (which inserts their paths). Hold Ctrl while dropping to
 //! copy instead of move. On touch screens a tap opens, a long press starts selecting, dragging
 //! scrolls, and a long press followed by a drag moves the selection.
 
@@ -18,8 +18,9 @@ use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, DragAndDrop, FontId, Id, Key, LayerId, Modifiers, Order, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::chrome;
+use crate::ui::{icons, paint};
 use crate::layout::PaneId;
+use crate::ui::theme::Theme;
 use crate::search;
 use crate::terminal::tilde;
 
@@ -46,7 +47,7 @@ pub enum Op {
     Move,
 }
 
-/// Sizes of the browser's parts; touch screens get larger hit targets.
+/// Sizes of the explorer's parts; touch screens get larger hit targets.
 struct Sizes {
     bar: f32,
     row: f32,
@@ -65,7 +66,7 @@ fn sizes(touch: bool) -> Sizes {
     }
 }
 
-/// Files picked up by Copy or Cut, waiting to be pasted. Shared by every browser pane.
+/// Files picked up by Copy or Cut, waiting to be pasted. Shared by every explorer pane.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Clip {
     pub paths: Vec<PathBuf>,
@@ -84,11 +85,11 @@ fn set_clipboard(clip: Option<Clip>) {
     }
 }
 
-/// Bumped whenever a file operation finishes, so every browser re-reads its listing.
+/// Bumped whenever a file operation finishes, so every explorer re-reads its listing.
 static FS_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// Drag-and-drop payload for files dragged out of a browser.
-pub struct FileDrag {
+/// Drag-and-drop payload for files dragged out of a explorer.
+pub struct ExplorerDrag {
     pub paths: Vec<PathBuf>,
 }
 
@@ -99,12 +100,6 @@ pub struct Entry {
     pub is_dir: bool,
     /// File size in bytes (`None` for directories).
     pub size: Option<u64>,
-}
-
-pub struct Colors {
-    pub text: Color32,
-    pub text_dim: Color32,
-    pub text_bright: Color32,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -177,7 +172,7 @@ enum Command {
     ToggleHidden,
 }
 
-pub struct FileBrowser {
+pub struct FileExplorer {
     pub dir: PathBuf,
     pub entries: Vec<Entry>,
     /// Keyboard cursor (and the single selection when nothing is marked).
@@ -209,7 +204,7 @@ pub struct FileBrowser {
     status: Option<(String, bool, Instant)>,
 }
 
-impl FileBrowser {
+impl FileExplorer {
     pub fn new(dir: PathBuf) -> Self {
         let mut b = Self {
             dir,
@@ -491,7 +486,7 @@ impl FileBrowser {
 
     /// Draw the path bar, listing and action bar in `rect`, handling clicks, touch gestures,
     /// scrolling and drops.
-    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: PaneId, c: &Colors) {
+    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: PaneId, c: &Theme) {
         let ctx = ui.ctx().clone();
         self.poll_jobs(&ctx);
         let s = sizes(self.touch);
@@ -511,7 +506,7 @@ impl FileBrowser {
         if pos.is_some() {
             self.last_pos = pos;
         }
-        let drag = DragAndDrop::payload::<FileDrag>(&ctx);
+        let drag = DragAndDrop::payload::<ExplorerDrag>(&ctx);
         let mut commands = Vec::new();
 
         // ---- Path bar: up button, current directory, select + view toggles.
@@ -521,7 +516,7 @@ impl FileBrowser {
         let can_go_up = self.dir.parent().is_some();
         let parent_drop = drag.is_some() && can_go_up && pos.is_some_and(|p| up_r.contains(p));
         if icon_button(ui, painter, up_r, Id::new(("files-up", pane)), "Parent folder  (Backspace)", can_go_up, parent_drop, c, |p, r, col| {
-            chrome::icon_chevron_up(p, r, col)
+            icons::icon_chevron_up(p, r, col)
         }) {
             self.up();
         }
@@ -536,8 +531,8 @@ impl FileBrowser {
                 painter.rect_filled(r, 6, Color32::from_white_alpha(30));
             }
             let (tip, icon): (&str, fn(&Painter, Rect, Color32)) = match view {
-                View::List => ("List view  (Ctrl+G)", chrome::icon_list),
-                View::Grid => ("Grid view  (Ctrl+G)", chrome::icon_grid),
+                View::List => ("List view  (Ctrl+G)", icons::icon_list),
+                View::Grid => ("Grid view  (Ctrl+G)", icons::icon_grid),
             };
             let resp = ui.interact(r, Id::new(("files-view", pane, k)), Sense::click());
             let col = if on || resp.hovered() { c.text_bright } else { c.text_dim };
@@ -550,13 +545,13 @@ impl FileBrowser {
         let sel_r = Rect::from_center_size(Pos2::new(seg.left() - 6.0 - btn / 2.0, bar.center().y), Vec2::splat(btn));
         let selecting = self.selecting;
         if icon_button(ui, painter, sel_r, Id::new(("files-select", pane)), "Select items", true, selecting, c, |p, r, col| {
-            chrome::icon_check(p, r.shrink(1.0), if selecting { ACCENT } else { col }, selecting)
+            icons::icon_check(p, r.shrink(1.0), if selecting { ACCENT } else { col }, selecting)
         }) {
             commands.push(if selecting { Command::ClearSelection } else { Command::SelectMode });
         }
 
         let path_left = up_r.right() + 8.0;
-        chrome::faded_text(
+        paint::faded_text(
             painter,
             Pos2::new(path_left, bar.center().y),
             &self.title(),
@@ -682,7 +677,7 @@ impl FileBrowser {
         let content_h = layout.rows(len) as f32 * layout.item.y;
         self.scroll = self.scroll.clamp(0.0, (content_h - list.height()).max(0.0));
 
-        // Drops of files dragged out of a browser: onto a folder, onto the listing (this
+        // Drops of files dragged out of a explorer: onto a folder, onto the listing (this
         // folder), or onto the up button (the parent folder).
         let mut drop_target = None;
         if let (Some(drag), Some(p)) = (&drag, pos) {
@@ -699,7 +694,7 @@ impl FileBrowser {
             if useful {
                 drop_target = target.clone();
                 if released {
-                    if let Some(drag) = DragAndDrop::take_payload::<FileDrag>(&ctx) {
+                    if let Some(drag) = DragAndDrop::take_payload::<ExplorerDrag>(&ctx) {
                         self.start_op(&ctx, op, drag.paths.clone(), target.unwrap_or_default());
                         self.clear_selection();
                     }
@@ -785,7 +780,7 @@ impl FileBrowser {
         painter: &Painter,
         ab: Rect,
         pane: PaneId,
-        c: &Colors,
+        c: &Theme,
         s: &Sizes,
         clip: Option<&Clip>,
         status: Option<&(String, bool, Instant)>,
@@ -844,7 +839,7 @@ impl FileBrowser {
             _ => (String::new(), c.text_dim),
         };
         let left = ab.left() + 8.0;
-        chrome::faded_text(painter, Pos2::new(left, ab.center().y), &text, font, col, x - left - 4.0, 18.0);
+        paint::faded_text(painter, Pos2::new(left, ab.center().y), &text, font, col, x - left - 4.0, 18.0);
     }
 
     /// Start dragging item `i` (with the rest of the selection, if it's part of it).
@@ -855,7 +850,7 @@ impl FileBrowser {
         }
         let paths = self.targets();
         if !paths.is_empty() {
-            DragAndDrop::set_payload(ctx, FileDrag { paths });
+            DragAndDrop::set_payload(ctx, ExplorerDrag { paths });
         }
     }
 
@@ -931,8 +926,8 @@ impl FileBrowser {
 }
 
 /// Draw the floating label that follows the pointer while files are dragged.
-pub fn paint_drag_ghost(ctx: &egui::Context, c: &Colors) {
-    let Some(drag) = DragAndDrop::payload::<FileDrag>(ctx) else { return };
+pub fn paint_drag_ghost(ctx: &egui::Context, c: &Theme) {
+    let Some(drag) = DragAndDrop::payload::<ExplorerDrag>(ctx) else { return };
     let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) else { return };
     let copy = ctx.input(|i| i.modifiers.ctrl);
     let p = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("file-drag-ghost")));
@@ -947,15 +942,15 @@ pub fn paint_drag_ghost(ctx: &egui::Context, c: &Colors) {
     p.rect_stroke(r, 8, Stroke::new(1.0, ACCENT.gamma_multiply(0.6)), StrokeKind::Inside);
     let icon = Rect::from_center_size(Pos2::new(r.left() + 15.0, r.center().y), Vec2::new(13.0, 13.0));
     if drag.paths.len() == 1 && drag.paths[0].is_dir() {
-        chrome::icon_folder(&p, icon, ACCENT);
+        icons::icon_folder(&p, icon, ACCENT);
     } else {
-        chrome::icon_file(&p, icon, c.text);
+        icons::icon_file(&p, icon, c.text);
     }
     p.galley(Pos2::new(r.left() + 28.0, r.center().y - galley.size().y / 2.0), galley, c.text_bright);
     if copy {
         let badge = Pos2::new(r.right(), r.top());
         p.circle_filled(badge, 8.0, ACCENT);
-        chrome::icon_plus(&p, Rect::from_center_size(badge, Vec2::splat(12.0)), Color32::WHITE);
+        icons::icon_plus(&p, Rect::from_center_size(badge, Vec2::splat(12.0)), Color32::WHITE);
     }
 }
 
@@ -981,51 +976,51 @@ fn item_background(p: &Painter, r: Rect, st: &ItemState) {
     }
 }
 
-fn paint_row(p: &Painter, row: Rect, e: &Entry, st: &ItemState, c: &Colors, s: &Sizes) {
+fn paint_row(p: &Painter, row: Rect, e: &Entry, st: &ItemState, c: &Theme, s: &Sizes) {
     item_background(p, row.shrink2(Vec2::new(0.0, 1.0)), st);
     let mut left = row.left() + 8.0;
     if st.selecting {
         let r = Rect::from_center_size(Pos2::new(left + 8.0, row.center().y), Vec2::splat(16.0));
-        chrome::icon_check(p, r, if st.marked { ACCENT } else { c.text_dim }, st.marked);
+        icons::icon_check(p, r, if st.marked { ACCENT } else { c.text_dim }, st.marked);
         left += 22.0;
     }
     let fade = if st.dimmed { 0.45 } else { 1.0 };
     let glyph_h = (s.row * 0.55).min(18.0);
     let glyph = Rect::from_center_size(Pos2::new(left + 8.0, row.center().y), Vec2::new(glyph_h * 1.15, glyph_h));
     if e.is_dir {
-        chrome::icon_folder(p, glyph, ACCENT.gamma_multiply(fade));
+        icons::icon_folder(p, glyph, ACCENT.gamma_multiply(fade));
     } else {
-        chrome::icon_file(p, glyph, c.text_dim.gamma_multiply(fade));
+        icons::icon_file(p, glyph, c.text_dim.gamma_multiply(fade));
     }
     let size = e.size.map(human_size).unwrap_or_default();
     let size_galley = p.layout_no_wrap(size, FontId::proportional(s.font - 1.5), c.text_dim);
     let size_x = row.right() - 10.0 - size_galley.size().x;
     let name_left = glyph.right() + 10.0;
     let name_color = if st.marked || st.cursor { c.text_bright } else { c.text };
-    chrome::faded_text(p, Pos2::new(name_left, row.center().y), &e.name, FontId::proportional(s.font), name_color.gamma_multiply(fade), size_x - 12.0 - name_left, 20.0);
+    paint::faded_text(p, Pos2::new(name_left, row.center().y), &e.name, FontId::proportional(s.font), name_color.gamma_multiply(fade), size_x - 12.0 - name_left, 20.0);
     p.galley(Pos2::new(size_x, row.center().y - size_galley.size().y / 2.0), size_galley, c.text_dim);
 }
 
-fn paint_tile(p: &Painter, cell: Rect, e: &Entry, st: &ItemState, c: &Colors, s: &Sizes) {
+fn paint_tile(p: &Painter, cell: Rect, e: &Entry, st: &ItemState, c: &Theme, s: &Sizes) {
     let tile = cell.shrink(4.0);
     item_background(p, tile, st);
     let fade = if st.dimmed { 0.45 } else { 1.0 };
     let icon_center = Pos2::new(tile.center().x, tile.top() + 8.0 + s.icon / 2.0);
     if e.is_dir {
         let r = Rect::from_center_size(icon_center, Vec2::new(s.icon * 1.12, s.icon * 0.86));
-        chrome::icon_folder(p, r, ACCENT.gamma_multiply(fade));
+        icons::icon_folder(p, r, ACCENT.gamma_multiply(fade));
     } else {
         let r = Rect::from_center_size(icon_center, Vec2::new(s.icon, s.icon));
-        chrome::icon_file(p, r, c.text_dim.gamma_multiply(fade));
+        icons::icon_file(p, r, c.text_dim.gamma_multiply(fade));
         // The extension, printed on the page.
         let ext = e.path.extension().map(|x| x.to_string_lossy().to_uppercase()).filter(|x| x.chars().count() <= 4);
         if let Some(ext) = ext {
-            p.text(icon_center + Vec2::new(0.0, s.icon * 0.18), Align2::CENTER_CENTER, ext, chrome::bold(s.icon * 0.22), c.text_dim.gamma_multiply(fade));
+            p.text(icon_center + Vec2::new(0.0, s.icon * 0.18), Align2::CENTER_CENTER, ext, paint::bold(s.icon * 0.22), c.text_dim.gamma_multiply(fade));
         }
     }
     if st.selecting {
         let r = Rect::from_center_size(tile.left_top() + Vec2::splat(13.0), Vec2::splat(16.0));
-        chrome::icon_check(p, r, if st.marked { ACCENT } else { c.text_dim }, st.marked);
+        icons::icon_check(p, r, if st.marked { ACCENT } else { c.text_dim }, st.marked);
     }
     // Name, centered under the icon (faded at the edge when too long).
     let font = FontId::proportional(s.font - 1.0);
@@ -1034,7 +1029,7 @@ fn paint_tile(p: &Painter, cell: Rect, e: &Entry, st: &ItemState, c: &Colors, s:
     let max_w = tile.width() - 10.0;
     let w = p.layout_no_wrap(e.name.clone(), font.clone(), name_color).size().x;
     let left = if w <= max_w { tile.center().x - w / 2.0 } else { tile.left() + 5.0 };
-    chrome::faded_text(p, Pos2::new(left, y), &e.name, font, name_color, max_w, 16.0);
+    paint::faded_text(p, Pos2::new(left, y), &e.name, font, name_color, max_w, 16.0);
 }
 
 /// A small square icon button in the path bar. `active` draws it highlighted (also used to
@@ -1048,7 +1043,7 @@ fn icon_button(
     tip: &str,
     enabled: bool,
     active: bool,
-    c: &Colors,
+    c: &Theme,
     draw: impl Fn(&Painter, Rect, Color32),
 ) -> bool {
     let resp = ui.interact(r, id, Sense::click());
@@ -1229,14 +1224,14 @@ mod tests {
         dir
     }
 
-    fn names(b: &FileBrowser) -> Vec<&str> {
+    fn names(b: &FileExplorer) -> Vec<&str> {
         b.entries.iter().map(|e| e.name.as_str()).collect()
     }
 
     #[test]
     fn folders_first_then_case_insensitive() {
         let dir = fixture("sort");
-        let b = FileBrowser::new(dir.clone());
+        let b = FileExplorer::new(dir.clone());
         assert_eq!(names(&b), ["Alpha", "beta", "Apple.md", "zeta.txt"]);
         assert_eq!(b.entries[2].size, Some(5));
         assert_eq!(b.entries[0].size, None);
@@ -1246,7 +1241,7 @@ mod tests {
     #[test]
     fn hidden_files_toggle() {
         let dir = fixture("hidden");
-        let mut b = FileBrowser::new(dir.clone());
+        let mut b = FileExplorer::new(dir.clone());
         assert!(!names(&b).iter().any(|n| n.starts_with('.')));
         b.toggle_hidden();
         assert_eq!(names(&b), [".hidden_dir", "Alpha", "beta", ".env", "Apple.md", "zeta.txt"]);
@@ -1256,7 +1251,7 @@ mod tests {
     #[test]
     fn up_selects_the_folder_we_came_from() {
         let dir = fixture("up");
-        let mut b = FileBrowser::new(dir.join("beta"));
+        let mut b = FileExplorer::new(dir.join("beta"));
         b.up();
         assert_eq!(b.dir, dir);
         assert_eq!(b.entries[b.selected].name, "beta");
@@ -1265,7 +1260,7 @@ mod tests {
 
     #[test]
     fn unreadable_dir_reports_error() {
-        let b = FileBrowser::new(PathBuf::from("/definitely/not/a/real/dir"));
+        let b = FileExplorer::new(PathBuf::from("/definitely/not/a/real/dir"));
         assert!(b.error.is_some());
         assert!(b.entries.is_empty());
     }
@@ -1306,7 +1301,7 @@ mod tests {
     #[test]
     fn targets_follow_marks_in_listing_order() {
         let dir = fixture("targets");
-        let mut b = FileBrowser::new(dir.clone());
+        let mut b = FileExplorer::new(dir.clone());
         assert_eq!(b.targets(), [dir.join("Alpha")]);
         b.toggle_mark(3);
         b.toggle_mark(1);

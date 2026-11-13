@@ -1,16 +1,14 @@
 mod app;
-mod glide;
-mod theme;
 mod boxdraw;
-mod chrome;
 mod config;
-mod files;
+mod file_explorer;
 mod fonts;
 mod input;
 mod layout;
 mod render;
 mod search;
 mod terminal;
+mod ui;
 
 fn main() -> eframe::Result {
     let cfg = config::Config::load();

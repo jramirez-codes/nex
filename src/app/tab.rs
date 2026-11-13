@@ -1,10 +1,7 @@
 //! A tab: a split tree of panes plus its header's pane-icon deck.
 
-
-
 use crate::layout::{Node, PaneId};
-
-use crate::glide::Glide;
+use crate::ui::glide::Glide;
 
 pub(super) struct Tab {
     /// Stable identity (survives reordering) for egui widget ids.
@@ -14,14 +11,31 @@ pub(super) struct Tab {
     pub(super) zoomed: bool,
     /// Pane-icon deck in the tab header: rotation (in cards) of the stack, plus the focus and
     /// pane count it was last drawn for, to tell focus moves (animate) from splits (snap).
-    pub(super) deck: Glide,
-    pub(super) deck_focus: PaneId,
-    pub(super) deck_len: usize,
+    deck: Glide,
+    deck_focus: PaneId,
+    deck_len: usize,
 }
 
 impl Tab {
     pub(super) fn new(uid: u64, pane: PaneId) -> Self {
         Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
+    }
+
+    pub(super) fn contains(&self, pane: PaneId) -> bool {
+        self.root.panes().contains(&pane)
+    }
+
+    /// Take `pane` out of the split tree, moving focus off it if needed. Returns `false` if it
+    /// was the last pane (the tab itself should close).
+    pub(super) fn remove_pane(&mut self, pane: PaneId) -> bool {
+        if !self.root.remove(pane) {
+            return false;
+        }
+        if self.focused == pane {
+            self.focused = self.root.panes()[0];
+        }
+        self.zoomed = false;
+        true
     }
 
     /// `(process, depth)` for every pane's card in the header deck, 0 being the top.

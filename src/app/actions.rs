@@ -41,8 +41,8 @@ pub(super) enum Action {
     ClearScreen,
     ToggleSearch,
     /// Open the Files tab, switch to it, or (from it) back to the previous tab.
-    ToggleFiles,
-    CloseFiles,
+    ToggleExplorer,
+    CloseExplorer,
 }
 
 /// A keyboard shortcut: (ctrl, shift, alt, key, action).
@@ -155,8 +155,8 @@ impl App {
             Action::ScrollPageUp | Action::ScrollPageDown | Action::ScrollTop | Action::ScrollBottom => {
                 self.scroll_focused(action)
             }
-            Action::ToggleFiles => self.toggle_files(),
-            Action::CloseFiles => self.close_files(),
+            Action::ToggleExplorer => self.toggle_explorer(),
+            Action::CloseExplorer => self.close_explorer(),
             Action::ToggleSearch => self.toggle_search(),
             Action::ClearScreen => {
                 // Ask the shell to redraw on a clean screen: clear + form feed (Ctrl+L).
@@ -202,12 +202,12 @@ impl App {
     fn cycle_tab(&mut self, forward: bool) {
         let n = self.tabs.len();
         let at_edge = if forward { self.active + 1 == n } else { self.active == 0 };
-        if self.files_active {
+        if self.explorer_active {
             if n > 0 {
                 self.show_tab(if forward { 0 } else { n - 1 });
             }
-        } else if at_edge && self.files.is_some() {
-            self.files_active = true;
+        } else if at_edge && self.explorer_tab.is_some() {
+            self.explorer_active = true;
         } else if n > 0 {
             self.show_tab(if forward { (self.active + 1) % n } else { (self.active + n - 1) % n });
         }
@@ -247,8 +247,8 @@ impl App {
     /// Open search in the focused terminal. Pressing it again in the same pane closes search;
     /// in another pane, moves it there.
     fn toggle_search(&mut self) {
-        // Nothing to search in a file browser.
-        let focused = self.focused_pane().filter(|id| !self.browsers.contains_key(id));
+        // Nothing to search in a file explorer.
+        let focused = self.focused_pane().filter(|id| !self.explorers.contains_key(id));
         self.search = match (self.search.take(), focused) {
             (Some(s), Some(id)) if s.pane != id => Some(Search::new(id)),
             (Some(_), _) => None,

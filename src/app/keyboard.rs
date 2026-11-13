@@ -2,7 +2,7 @@
 
 use egui::{Event, Key, Modifiers};
 
-use crate::files::FileBrowser;
+use crate::file_explorer::FileExplorer;
 use crate::input;
 use crate::terminal::Terminal;
 
@@ -31,11 +31,11 @@ impl App {
         self.focused_pane().and_then(|id| self.panes.get_mut(&id))
     }
 
-    fn focused_browser(&mut self) -> Option<&mut FileBrowser> {
-        self.focused_pane().and_then(|id| self.browsers.get_mut(&id))
+    fn focused_explorer(&mut self) -> Option<&mut FileExplorer> {
+        self.focused_pane().and_then(|id| self.explorers.get_mut(&id))
     }
 
-    /// A key press goes to the first taker: a shortcut, a file browser, the search field, or
+    /// A key press goes to the first taker: a shortcut, a file explorer, the search field, or
     /// the shell.
     fn on_key(&mut self, key: Key, modifiers: Modifiers) {
         let binding = self.bindings.iter().find(|(c, s, a, k, _)| {
@@ -45,7 +45,7 @@ impl App {
             self.pending.push(action);
             return;
         }
-        if let Some(b) = self.focused_browser() {
+        if let Some(b) = self.focused_explorer() {
             b.key(key, modifiers);
             return;
         }
@@ -86,10 +86,10 @@ impl App {
         }
     }
 
-    /// Typed text: into the search field or the shell (Alt prefixes ESC). File browsers and
+    /// Typed text: into the search field or the shell (Alt prefixes ESC). File explorers and
     /// Ctrl chords don't take text.
     fn on_text(&mut self, text: &str, mods: Modifiers) {
-        if mods.ctrl || self.focused_browser().is_some() {
+        if mods.ctrl || self.focused_explorer().is_some() {
             return;
         }
         if let Some(s) = self.search.as_mut() {
@@ -107,9 +107,9 @@ impl App {
 
     /// egui-winit turns Ctrl+C / Ctrl+X / Ctrl+V into clipboard events. In a terminal only the
     /// Ctrl+Shift variants are clipboard operations; plain Ctrl sends the control character to
-    /// the program (Ctrl+C → SIGINT). In a file browser these copy / cut / paste files.
+    /// the program (Ctrl+C → SIGINT). In a file explorer these copy / cut / paste files.
     fn on_clipboard(&mut self, ctx: &egui::Context, event: Event, mods: Modifiers) {
-        if let Some(b) = self.focused_browser() {
+        if let Some(b) = self.focused_explorer() {
             match event {
                 Event::Paste(text) => b.paste(ctx, None, Some(&text)),
                 e => b.copy(ctx, e == Event::Cut),

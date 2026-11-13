@@ -7,6 +7,7 @@ use egui::{FontData, FontDefinitions, FontFamily};
 
 use crate::config::Config;
 use crate::render::{FONT_BOLD, FONT_BOLD_ITALIC, FONT_ITALIC, FONT_REGULAR};
+use crate::ui::paint;
 
 /// Resolve a fontconfig pattern to (file, family).
 fn fc_match(pattern: &str) -> Option<(String, String)> {
@@ -138,7 +139,7 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
     ui_bold.extend(prop.iter().cloned());
     ui.extend(prop);
     defs.families.insert(FontFamily::Proportional, ui);
-    defs.families.insert(FontFamily::Name("ui-bold".into()), ui_bold);
+    defs.families.insert(FontFamily::Name(paint::UI_BOLD.into()), ui_bold);
 
     ctx.set_fonts(defs);
 }
