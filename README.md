@@ -52,6 +52,9 @@ rendering, input handling, multiplexing and window chrome.
 
 - **Tabs and splits, built in.** Split right or down, zoom a pane, drag the gaps to resize,
   and move between splits with the keyboard. You don't need tmux for layout.
+- **Files tab.** The directory label in the title bar is a tab of its own: click it to browse
+  the current folder. Folders open in place, files open in their default app, and splitting
+  the browser starts a terminal in the folder you're looking at.
 - **Native-feeling chrome.** Tabs sit in a segmented track with a raised "glass" active pill,
   glossy per-app icons and titles that fade out instead of being cut off.
 - **Smart titles.** Every tab and pane shows the foreground program and its directory, such as
@@ -179,6 +182,10 @@ Mouse actions:
 - Hold Shift to select text inside apps that capture the mouse.
 - Ctrl+click opens a link.
 - Middle-click closes a tab, and dragging a tab reorders it.
+- Click the directory label in the title bar to show the Files tab, click it again to go back,
+  and middle-click it to close it. Ctrl+Tab cycles through it too. In the browser,
+  double-click (or Enter) opens an entry, Backspace goes up a folder, and Ctrl+H shows hidden
+  files.
 
 ## Architecture
 
@@ -193,6 +200,7 @@ src/
 ├── boxdraw.rs    procedural box / block / braille / Powerline glyphs
 ├── input.rs      keyboard & mouse → xterm escape sequences
 ├── search.rs     scrollback search, URL and OSC 8 link detection
+├── files.rs      file-browser pane for the Files tab
 ├── fonts.rs      fontconfig lookup + embedded Nerd Font
 └── config.rs     config parsing
 ```

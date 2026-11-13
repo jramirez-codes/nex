@@ -2,6 +2,7 @@ mod app;
 mod boxdraw;
 mod chrome;
 mod config;
+mod files;
 mod fonts;
 mod input;
 mod layout;

@@ -15,6 +15,7 @@ use egui::{
 
 use crate::chrome::{self, bold};
 use crate::config::Config;
+use crate::files::{self, FileBrowser};
 use crate::fonts;
 use crate::input::{self, MouseAction, MouseButton};
 use crate::layout::{self, Axis, Direction, Node, PaneId};
@@ -36,6 +37,50 @@ struct Tab {
     root: Node,
     focused: PaneId,
     zoomed: bool,
+    /// Pane-icon deck in the tab header: rotation (in cards) of the stack, plus the focus and
+    /// pane count it was last drawn for, to tell focus moves (animate) from splits (snap).
+    deck: Glide,
+    deck_focus: PaneId,
+    deck_len: usize,
+}
+
+impl Tab {
+    fn new(uid: u64, pane: PaneId) -> Self {
+        Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
+    }
+
+    /// `(process, depth)` for every pane's card in the header deck, 0 being the top.
+    /// Focus moves rotate the deck the short way round, flipping through the cards between.
+    fn deck_cards(&mut self, ctx: &egui::Context, process_of: impl Fn(PaneId) -> String) -> Vec<(String, f32)> {
+        let ids = self.root.panes();
+        let n = ids.len();
+        let Some(idx) = ids.iter().position(|&p| p == self.focused) else { return Vec::new() };
+        let prev = ids.iter().position(|&p| p == self.deck_focus);
+        match prev {
+            Some(prev) if n == self.deck_len => {
+                if prev != idx {
+                    // Shortest signed step in (-n/2, n/2].
+                    let mut k = (idx as i64 - prev as i64).rem_euclid(n as i64);
+                    if k > n as i64 / 2 {
+                        k -= n as i64;
+                    }
+                    let target = self.deck.to + k as f32;
+                    self.deck.value(ctx, target);
+                }
+            }
+            _ => self.deck.snap(ctx, idx as f32),
+        }
+        self.deck_focus = self.focused;
+        self.deck_len = n;
+        let target = self.deck.to;
+        let d = self.deck.value(ctx, target);
+        ids.iter()
+            .enumerate()
+            .map(|(j, id)| {
+                (process_of(*id), (j as f32 - d).rem_euclid(n as f32))
+            })
+            .collect()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -67,6 +112,9 @@ enum Action {
     ScrollBottom,
     ClearScreen,
     ToggleSearch,
+    /// Open the Files tab, switch to it, or (from it) back to the previous tab.
+    ToggleFiles,
+    CloseFiles,
 }
 
 /// Keyboard shortcuts, following Ghostty's Linux defaults where they exist.
@@ -136,8 +184,10 @@ pub struct App {
     tabs: Vec<Tab>,
     active: usize,
     next_id: PaneId,
-    font_size: f32,
-    metrics: CellMetrics,
+    /// Per-pane font size overrides (zoom is per pane); panes not listed use the config size.
+    pane_fonts: HashMap<PaneId, f32>,
+    /// Cell metrics for every font size in use this frame, keyed by `f32::to_bits`.
+    metrics: HashMap<u32, CellMetrics>,
     mouse: MouseState,
     pending: Vec<Action>,
     /// Terminal (content) rects from the current frame, used for mouse hit-testing.
@@ -156,26 +206,44 @@ pub struct App {
     /// Link under the pointer while Ctrl is held.
     hover_link: Option<(PaneId, Link)>,
     /// Animated position of the active-tab highlight, in tab slots.
-    pill_glide: PillGlide,
+    pill_glide: Glide,
+    /// File-browser panes (the Files tab). They share the pane id space and split tree with
+    /// terminals.
+    browsers: HashMap<PaneId, FileBrowser>,
+    /// The Files tab. It lives outside `tabs`: the title-bar directory label is its tab.
+    files: Option<Tab>,
+    /// Whether the Files tab is showing (`active` keeps the last terminal tab).
+    files_active: bool,
+    /// Last known pointer position (touch releases report the pointer as gone).
+    last_pointer: Option<Pos2>,
 }
 
-/// The active-tab pill glides between slots with an ease-out curve.
-#[derive(Default)]
-struct PillGlide {
+/// A value that glides toward its target with an ease-out curve (the active-tab pill, the
+/// pane-icon decks).
+struct Glide {
     from: f32,
     to: f32,
     start: f64,
     init: bool,
+    duration: f64,
 }
 
-impl PillGlide {
-    const DURATION: f64 = 0.2;
+impl Glide {
+    fn new(duration: f64) -> Self {
+        Self { from: 0.0, to: 0.0, start: 0.0, init: false, duration }
+    }
 
-    /// Current slot position; retargets (from wherever the pill is now) when `target` changes.
+    /// Jump straight to `v` without animating.
+    fn snap(&mut self, ctx: &egui::Context, v: f32) {
+        let now = ctx.input(|i| i.time);
+        *self = Self { from: v, to: v, start: now, init: true, duration: self.duration };
+    }
+
+    /// Current position; retargets (from wherever the value is now) when `target` changes.
     fn value(&mut self, ctx: &egui::Context, target: f32) -> f32 {
         let now = ctx.input(|i| i.time);
         if !self.init {
-            *self = Self { from: target, to: target, start: now, init: true };
+            self.snap(ctx, target);
         } else if self.to != target {
             self.from = self.current(now);
             self.to = target;
@@ -189,7 +257,7 @@ impl PillGlide {
     }
 
     fn current(&self, now: f64) -> f32 {
-        let t = ((now - self.start) / Self::DURATION).clamp(0.0, 1.0) as f32;
+        let t = ((now - self.start) / self.duration).clamp(0.0, 1.0) as f32;
         if t >= 1.0 {
             return self.to;
         }
@@ -210,13 +278,13 @@ impl App {
             .unwrap_or_else(|_| "localhost".into());
 
         Self {
-            font_size: cfg.font_size,
             cfg,
             panes: HashMap::new(),
             tabs: Vec::new(),
             active: 0,
             next_id: 1,
-            metrics: CellMetrics { width: 8.0, height: 17.0, baseline_offset: 0.0, font_size: 14.0, ppp: 1.0 },
+            pane_fonts: HashMap::new(),
+            metrics: HashMap::new(),
             mouse: MouseState::default(),
             pending: Vec::new(),
             term_rects: Vec::new(),
@@ -230,7 +298,11 @@ impl App {
             search: None,
             links: LinkFinder::new(),
             hover_link: None,
-            pill_glide: PillGlide::default(),
+            pill_glide: Glide::new(0.2),
+            browsers: HashMap::new(),
+            files: None,
+            files_active: false,
+            last_pointer: None,
         }
     }
 
@@ -248,26 +320,31 @@ impl App {
         Rect::from_min_size(Pos2::new((r.left() * ppp).round() / ppp, (r.top() * ppp).round() / ppp), r.size())
     }
 
-    fn grid_for(&self, card: Rect, ppp: f32) -> GridSize {
+    fn grid_for(&self, card: Rect, ppp: f32, m: CellMetrics) -> GridSize {
         if !card.is_positive() {
             return GridSize { cols: 80, lines: 24 };
         }
         let r = self.term_rect_for(card, ppp);
         GridSize {
-            cols: ((r.width() / self.metrics.width).floor() as usize).max(2),
-            lines: ((r.height() / self.metrics.height).floor() as usize).max(1),
+            cols: ((r.width() / m.width).floor() as usize).max(2),
+            lines: ((r.height() / m.height).floor() as usize).max(1),
         }
     }
 
     /// Spawn a shell sized for `card`, so its first output is already laid out correctly.
-    fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, card: Rect) -> Option<PaneId> {
+    /// `font_size` is the new pane's own zoom level (`None` = config default).
+    fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
         let id = self.next_id;
         self.next_id += 1;
-        let size = self.grid_for(card, ctx.pixels_per_point());
-        let cell_px = self.cell_px(ctx);
+        let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
+        let size = self.grid_for(card, ctx.pixels_per_point(), m);
+        let cell_px = cell_px(ctx, m);
         match Terminal::spawn(id, &self.cfg, cwd, size, cell_px, ctx) {
             Ok(t) => {
                 self.panes.insert(id, t);
+                if let Some(fs) = font_size {
+                    self.pane_fonts.insert(id, fs);
+                }
                 Some(id)
             }
             Err(e) => {
@@ -278,24 +355,90 @@ impl App {
     }
 
     fn focused_pane(&self) -> Option<PaneId> {
-        self.tabs.get(self.active).map(|t| t.focused)
+        self.cur_tab().map(|t| t.focused)
+    }
+
+    /// The tab being shown: the Files tab or the active terminal tab.
+    fn cur_tab(&self) -> Option<&Tab> {
+        if self.files_active { self.files.as_ref() } else { self.tabs.get(self.active) }
+    }
+
+    fn cur_tab_mut(&mut self) -> Option<&mut Tab> {
+        if self.files_active { self.files.as_mut() } else { self.tabs.get_mut(self.active) }
+    }
+
+    /// The tab (Files or terminal) containing `pane`.
+    fn tab_with(&mut self, pane: PaneId) -> Option<&mut Tab> {
+        self.files.iter_mut().chain(self.tabs.iter_mut()).find(|t| t.root.panes().contains(&pane))
+    }
+
+    fn show_tab(&mut self, index: usize) {
+        self.active = index;
+        self.files_active = false;
     }
 
     fn focused_cwd(&self) -> Option<PathBuf> {
-        self.focused_pane()
-            .and_then(|id| self.panes.get(&id))
-            .and_then(|t| t.cwd.clone())
+        self.focused_pane().and_then(|id| self.pane_cwd(id))
+    }
+
+    /// Working directory of a pane: the shell's cwd, or the folder a browser is showing.
+    fn pane_cwd(&self, id: PaneId) -> Option<PathBuf> {
+        match self.browsers.get(&id) {
+            Some(b) => Some(b.dir.clone()),
+            None => self.panes.get(&id).and_then(|t| t.cwd.clone()),
+        }
+    }
+
+    /// `(title, process)` for a pane's tab and header.
+    fn pane_label(&self, id: PaneId) -> (String, String) {
+        if let Some(b) = self.browsers.get(&id) {
+            return (b.title(), chrome::FILES_PROCESS.into());
+        }
+        self.panes.get(&id).map(|t| (t.title(), t.process.clone())).unwrap_or_default()
+    }
+
+    /// Show the Files tab (opening it at the focused directory the first time), or hide it
+    /// again, back to the terminal tab that was showing.
+    fn toggle_files(&mut self) {
+        if self.files_active {
+            if !self.tabs.is_empty() {
+                self.files_active = false;
+            }
+            return;
+        }
+        if self.files.is_none() {
+            let dir = self
+                .focused_cwd()
+                .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+                .unwrap_or_else(|| PathBuf::from("/"));
+            let id = self.next_id;
+            self.next_id += 1;
+            self.browsers.insert(id, FileBrowser::new(dir));
+            self.files = Some(Tab::new(id, id));
+        }
+        self.files_active = true;
+    }
+
+    fn close_files(&mut self) {
+        if let Some(tab) = self.files.take() {
+            for id in tab.root.panes() {
+                self.panes.remove(&id);
+                self.pane_fonts.remove(&id);
+                self.browsers.remove(&id);
+            }
+        }
+        self.files_active = false;
     }
 
     fn new_tab(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>) {
-        if let Some(id) = self.spawn_pane(ctx, cwd, self.content_area) {
-            self.tabs.push(Tab { uid: id, root: Node::Leaf(id), focused: id, zoomed: false });
-            self.active = self.tabs.len() - 1;
+        if let Some(id) = self.spawn_pane(ctx, cwd, self.content_area, None) {
+            self.tabs.push(Tab::new(id, id));
+            self.show_tab(self.tabs.len() - 1);
         }
     }
 
     fn split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
-        let cwd = self.panes.get(&target).and_then(|t| t.cwd.clone());
+        let cwd = self.pane_cwd(target);
         let card = self
             .card_rects
             .iter()
@@ -305,8 +448,10 @@ impl App {
                 Axis::Vertical => Rect::from_min_max(Pos2::new(r.left(), r.center().y + PANE_GAP / 2.0), r.max),
             })
             .unwrap_or(Rect::NOTHING);
-        if let Some(new) = self.spawn_pane(ctx, cwd, card) {
-            if let Some(tab) = self.tabs.iter_mut().find(|t| t.root.panes().contains(&target)) {
+        // The new pane starts at the zoom level of the pane it was split from.
+        let font_size = self.pane_fonts.get(&target).copied();
+        if let Some(new) = self.spawn_pane(ctx, cwd, card, font_size) {
+            if let Some(tab) = self.tab_with(target) {
                 tab.root.split(target, axis, new);
                 tab.focused = new;
                 tab.zoomed = false;
@@ -316,6 +461,19 @@ impl App {
 
     fn close_pane(&mut self, id: PaneId) {
         self.panes.remove(&id);
+        self.pane_fonts.remove(&id);
+        self.browsers.remove(&id);
+        if let Some(tab) = self.files.as_mut().filter(|t| t.root.panes().contains(&id)) {
+            if tab.root.remove(id) {
+                if tab.focused == id {
+                    tab.focused = tab.root.panes()[0];
+                }
+                tab.zoomed = false;
+            } else {
+                self.close_files();
+            }
+            return;
+        }
         let Some(ti) = self.tabs.iter().position(|t| t.root.panes().contains(&id)) else { return };
         let tab = &mut self.tabs[ti];
         if tab.root.remove(id) {
@@ -335,6 +493,8 @@ impl App {
         let tab = self.tabs.remove(index);
         for id in tab.root.panes() {
             self.panes.remove(&id);
+            self.pane_fonts.remove(&id);
+            self.browsers.remove(&id);
         }
         if self.active >= index && self.active > 0 {
             self.active -= 1;
@@ -342,28 +502,62 @@ impl App {
         self.active = self.active.min(self.tabs.len().saturating_sub(1));
     }
 
-    fn set_font_size(&mut self, ctx: &egui::Context, size: f32) {
-        self.font_size = size.clamp(6.0, 72.0);
+    /// Font size of one pane (its own zoom level, or the config default).
+    fn pane_font(&self, id: PaneId) -> f32 {
+        self.pane_fonts.get(&id).copied().unwrap_or(self.cfg.font_size)
+    }
+
+    /// Zoom only pane `id`; `None` resets it to the config size.
+    fn set_pane_font(&mut self, ctx: &egui::Context, id: PaneId, size: Option<f32>) {
+        match size.map(|s| s.clamp(6.0, 72.0)) {
+            Some(s) if s != self.cfg.font_size => {
+                self.pane_fonts.insert(id, s);
+            }
+            _ => {
+                self.pane_fonts.remove(&id);
+            }
+        }
         self.update_metrics(ctx);
     }
 
-    fn update_metrics(&mut self, ctx: &egui::Context) {
-        let fid = FontId::new(self.font_size, FontFamily::Name(FONT_REGULAR.into()));
+    fn compute_metrics(&self, ctx: &egui::Context, font_size: f32) -> CellMetrics {
+        let fid = FontId::new(font_size, FontFamily::Name(FONT_REGULAR.into()));
         let (w, h) = ctx.fonts_mut(|f| (f.glyph_width(&fid, 'M'), f.row_height(&fid)));
         let ppp = ctx.pixels_per_point();
         let height = (h * (1.0 + self.cfg.cell_height_adjust) * ppp).round() / ppp;
-        self.metrics = CellMetrics {
-            width: w,
-            height,
-            baseline_offset: (((height - h) / 2.0) * ppp).round() / ppp,
-            font_size: self.font_size,
-            ppp,
-        };
+        let width = ((w * ppp).round().max(1.0)) / ppp;
+        CellMetrics { width, advance: w, height, baseline_offset: (((height - h) / 2.0) * ppp).round() / ppp, font_size, ppp }
     }
 
-    fn cell_px(&self, ctx: &egui::Context) -> (u16, u16) {
-        let ppp = ctx.pixels_per_point();
-        ((self.metrics.width * ppp) as u16, (self.metrics.height * ppp) as u16)
+    /// Metrics for `font_size`, from this frame's cache when available.
+    fn metrics_for(&self, ctx: &egui::Context, font_size: f32) -> CellMetrics {
+        match self.metrics.get(&font_size.to_bits()) {
+            Some(m) => *m,
+            None => self.compute_metrics(ctx, font_size),
+        }
+    }
+
+    /// Cell metrics of pane `id` (filled by `update_metrics` each frame).
+    fn pane_metrics(&self, id: PaneId) -> CellMetrics {
+        let size = self.pane_font(id);
+        self.metrics
+            .get(&size.to_bits())
+            .or_else(|| self.metrics.get(&self.cfg.font_size.to_bits()))
+            .copied()
+            .unwrap_or(CellMetrics { width: 8.0, advance: 8.0, height: 17.0, baseline_offset: 0.0, font_size: size, ppp: 1.0 })
+    }
+
+    /// Recompute metrics for the default size and every per-pane size in use.
+    fn update_metrics(&mut self, ctx: &egui::Context) {
+        let mut sizes: Vec<f32> = self.pane_fonts.values().copied().collect();
+        sizes.push(self.cfg.font_size);
+        self.metrics.clear();
+        for s in sizes {
+            if !self.metrics.contains_key(&s.to_bits()) {
+                let m = self.compute_metrics(ctx, s);
+                self.metrics.insert(s.to_bits(), m);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- actions
@@ -400,52 +594,69 @@ impl App {
             Action::Focus(dir) => {
                 if let Some(id) = focused {
                     if let Some(next) = layout::neighbor(&self.card_rects, id, dir) {
-                        self.tabs[self.active].focused = next;
+                        if let Some(tab) = self.cur_tab_mut() {
+                            tab.focused = next;
+                        }
                     }
                 }
             }
             Action::FocusPane(id) => {
-                if let Some(tab) = self.tabs.iter_mut().find(|t| t.root.panes().contains(&id)) {
+                if let Some(tab) = self.tab_with(id) {
                     tab.focused = id;
                 }
             }
             Action::ResizeSplit(dir) => {
-                if let (Some(id), Some(tab)) = (focused, self.tabs.get_mut(self.active)) {
+                if let (Some(id), Some(tab)) = (focused, self.cur_tab_mut()) {
                     tab.root.resize(id, dir, 0.05);
                 }
             }
             Action::ToggleZoom => {
-                if let Some(tab) = self.tabs.get_mut(self.active) {
+                if let Some(tab) = self.cur_tab_mut() {
                     tab.zoomed = !tab.zoomed && tab.root.panes().len() > 1;
                 }
             }
             Action::ToggleZoomPane(id) => {
-                if let Some(tab) = self.tabs.get_mut(self.active) {
+                if let Some(tab) = self.cur_tab_mut() {
                     tab.focused = id;
                     tab.zoomed = !tab.zoomed && tab.root.panes().len() > 1;
                 }
             }
             Action::Equalize => {
-                if let Some(tab) = self.tabs.get_mut(self.active) {
+                if let Some(tab) = self.cur_tab_mut() {
                     tab.root.equalize();
                 }
             }
+            // The Files tab, when open, sits before the first terminal tab in the cycle.
             Action::NextTab => {
-                if !self.tabs.is_empty() {
-                    self.active = (self.active + 1) % self.tabs.len();
+                let n = self.tabs.len();
+                if self.files_active {
+                    if n > 0 {
+                        self.show_tab(0);
+                    }
+                } else if self.active + 1 == n && self.files.is_some() {
+                    self.files_active = true;
+                } else if n > 0 {
+                    self.show_tab((self.active + 1) % n);
                 }
             }
             Action::PrevTab => {
-                if !self.tabs.is_empty() {
-                    self.active = (self.active + self.tabs.len() - 1) % self.tabs.len();
+                let n = self.tabs.len();
+                if self.files_active {
+                    if n > 0 {
+                        self.show_tab(n - 1);
+                    }
+                } else if self.active == 0 && self.files.is_some() {
+                    self.files_active = true;
+                } else if n > 0 {
+                    self.show_tab((self.active + n - 1) % n);
                 }
             }
             Action::GotoTab(i) => {
                 // Like Ghostty, alt+9 is "last tab".
-                if i == 8 {
-                    self.active = self.tabs.len().saturating_sub(1);
+                if i == 8 && !self.tabs.is_empty() {
+                    self.show_tab(self.tabs.len() - 1);
                 } else if i < self.tabs.len() {
-                    self.active = i;
+                    self.show_tab(i);
                 }
             }
             Action::Copy => {
@@ -453,13 +664,22 @@ impl App {
                     ctx.copy_text(text);
                 }
             }
-            Action::FontBigger => self.set_font_size(ctx, self.font_size + 1.0),
-            Action::FontSmaller => self.set_font_size(ctx, self.font_size - 1.0),
-            Action::FontReset => self.set_font_size(ctx, self.cfg.font_size),
+            Action::FontBigger | Action::FontSmaller | Action::FontReset => {
+                if let Some(id) = focused {
+                    let size = self.pane_font(id);
+                    let size = match action {
+                        Action::FontBigger => Some(size + 1.0),
+                        Action::FontSmaller => Some(size - 1.0),
+                        _ => None,
+                    };
+                    self.set_pane_font(ctx, id, size);
+                }
+            }
             Action::ReloadConfig => {
                 self.cfg = Config::load();
                 fonts::install(ctx, &self.cfg);
-                self.font_size = self.cfg.font_size;
+                self.pane_fonts.clear();
+                self.update_metrics(ctx);
             }
             Action::Quit => ctx.send_viewport_cmd(ViewportCommand::Close),
             Action::ScrollPageUp | Action::ScrollPageDown | Action::ScrollTop | Action::ScrollBottom => {
@@ -472,7 +692,11 @@ impl App {
                     });
                 }
             }
+            Action::ToggleFiles => self.toggle_files(),
+            Action::CloseFiles => self.close_files(),
             Action::ToggleSearch => {
+                // Nothing to search in a file browser.
+                let focused = focused.filter(|id| !self.browsers.contains_key(id));
                 self.search = match (self.search.take(), focused) {
                     // Pressing it again in the same pane closes search; in another pane, moves it.
                     (Some(s), Some(id)) if s.pane != id => Some(Search::new(id)),
@@ -503,6 +727,10 @@ impl App {
                     });
                     if let Some(&(.., action)) = binding {
                         self.pending.push(action);
+                        continue;
+                    }
+                    if let Some(b) = focused.and_then(|id| self.browsers.get_mut(&id)) {
+                        b.key(key, modifiers);
                         continue;
                     }
                     if let Some(s) = self.search.as_mut() {
@@ -537,7 +765,7 @@ impl App {
                     }
                 }
                 Event::Text(text) => {
-                    if mods.ctrl {
+                    if mods.ctrl || focused.is_some_and(|id| self.browsers.contains_key(&id)) {
                         continue;
                     }
                     if let Some(s) = self.search.as_mut() {
@@ -560,6 +788,14 @@ impl App {
                 // egui-winit turns Ctrl+C / Ctrl+X / Ctrl+V into clipboard events. In a terminal
                 // only the Ctrl+Shift variants are clipboard operations; plain Ctrl sends the
                 // control character to the program (Ctrl+C → SIGINT).
+                // In a file browser these copy / cut / paste files.
+                Event::Copy | Event::Cut | Event::Paste(_) if focused.is_some_and(|id| self.browsers.contains_key(&id)) => {
+                    let Some(b) = focused.and_then(|id| self.browsers.get_mut(&id)) else { continue };
+                    match event {
+                        Event::Paste(text) => b.paste(ctx, None, Some(&text)),
+                        e => b.copy(ctx, e == Event::Cut),
+                    }
+                }
                 Event::Copy => {
                     if mods.shift || !mods.ctrl {
                         self.pending.push(Action::Copy);
@@ -593,7 +829,10 @@ impl App {
 
     fn handle_mouse(&mut self, ctx: &egui::Context) {
         let (events, hover) = ctx.input(|i| (i.events.clone(), i.pointer.hover_pos()));
-        let m = self.metrics;
+        // Each pane has its own zoom level, so cell geometry is looked up per pane.
+        let pane_m: HashMap<PaneId, CellMetrics> = self.term_rects.iter().map(|&(id, _)| (id, self.pane_metrics(id))).collect();
+        let fallback = self.pane_metrics(0);
+        let m = |id: PaneId| pane_m.get(&id).copied().unwrap_or(fallback);
 
         for event in events {
             match event {
@@ -612,7 +851,7 @@ impl App {
                     self.pending.push(Action::FocusPane(id));
                     let Some(t) = self.panes.get_mut(&id) else { continue };
                     let mode = *t.term.lock().mode();
-                    let (point, side, col, line) = render::point_at(pos, rect, m, t);
+                    let (point, side, col, line) = render::point_at(pos, rect, m(id), t);
                     self.mouse.capture = Some((id, rect));
                     self.mouse.last_cell = (col, line);
                     self.mouse.moved = false;
@@ -657,7 +896,7 @@ impl App {
                 Event::PointerMoved(pos) => {
                     if let Some((id, rect)) = self.mouse.capture {
                         let Some(t) = self.panes.get_mut(&id) else { continue };
-                        let (point, side, col, line) = render::point_at(pos, rect, m, t);
+                        let (point, side, col, line) = render::point_at(pos, rect, m(id), t);
                         let cell_changed = (col, line) != self.mouse.last_cell;
                         self.mouse.last_cell = (col, line);
                         if let Some(btn) = self.mouse.reporting {
@@ -687,7 +926,7 @@ impl App {
                         let Some(t) = self.panes.get_mut(&id) else { continue };
                         let mode = *t.term.lock().mode();
                         if mode.contains(TermMode::MOUSE_MOTION) {
-                            let (_, _, col, line) = render::point_at(pos, rect, m, t);
+                            let (_, _, col, line) = render::point_at(pos, rect, m(id), t);
                             if (col, line) != self.mouse.last_cell {
                                 self.mouse.last_cell = (col, line);
                                 let mods = ctx.input(|i| i.modifiers);
@@ -703,7 +942,7 @@ impl App {
                     let Some(t) = self.panes.get_mut(&id) else { continue };
                     if let Some(btn) = self.mouse.reporting.take() {
                         let mode = *t.term.lock().mode();
-                        let (_, _, col, line) = render::point_at(pos, rect, m, t);
+                        let (_, _, col, line) = render::point_at(pos, rect, m(id), t);
                         if let Some(b) = input::encode_mouse(MouseAction::Release, btn, col, line, modifiers, mode) {
                             t.write(b);
                         }
@@ -727,7 +966,7 @@ impl App {
                     };
                     let Some(t) = self.panes.get_mut(&id) else { continue };
                     let lines_f = match unit {
-                        egui::MouseWheelUnit::Point => delta.y / m.height,
+                        egui::MouseWheelUnit::Point => delta.y / m(id).height,
                         egui::MouseWheelUnit::Line => delta.y * 3.0,
                         egui::MouseWheelUnit::Page => delta.y * t.size().lines as f32,
                     };
@@ -739,7 +978,7 @@ impl App {
                     }
                     let mode = *t.term.lock().mode();
                     if mode.intersects(TermMode::MOUSE_MODE) && !modifiers.shift {
-                        let (_, _, col, line) = render::point_at(pos, rect, m, t);
+                        let (_, _, col, line) = render::point_at(pos, rect, m(id), t);
                         let btn = if lines > 0 { MouseButton::WheelUp } else { MouseButton::WheelDown };
                         for _ in 0..lines.unsigned_abs() {
                             if let Some(b) = input::encode_mouse(MouseAction::Press, btn, col, line, modifiers, mode) {
@@ -770,7 +1009,7 @@ impl App {
         if let (true, Some(pos), None) = (ctrl, hover, self.mouse.capture) {
             if let Some(&(id, rect)) = self.term_rects.iter().find(|(_, r)| r.contains(pos)) {
                 if let Some(t) = self.panes.get(&id) {
-                    let (point, ..) = render::point_at(pos, rect, m, t);
+                    let (point, ..) = render::point_at(pos, rect, m(id), t);
                     let term = t.term.lock();
                     self.hover_link = self.links.link_at(&term, point).map(|l| (id, l));
                 }
@@ -871,15 +1110,33 @@ impl App {
         }
         x += 18.0;
 
-        // Workspace label: current directory name + hostname.
+        // Workspace label: current directory name + hostname. Clicking it toggles the Files tab.
         let project = self
             .focused_cwd()
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
             .unwrap_or_else(|| "~".into());
-        chrome::workspace_glyph(&painter, Rect::from_center_size(Pos2::new(x + 8.0, cy), Vec2::new(16.0, 13.0)), theme.text_dim);
-        x += 26.0;
+        // The label *is* the Files tab: it gets the glass pill while Files is showing.
         let label_w = 96.0;
-        chrome::faded_text(&painter, Pos2::new(x, cy - 7.0), &project, bold(13.0), theme.text, label_w, 16.0);
+        let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 26.0 + label_w + 4.0, cy + 15.0));
+        let label = ui.interact(label_r, Id::new("workspace-label"), Sense::click());
+        let files_active = self.files_active;
+        if files_active {
+            chrome::glass_pill(&painter, label_r, 8);
+        } else if label.hovered() {
+            painter.rect_filled(label_r, 8, Color32::from_white_alpha(14));
+        }
+        let label_tip = if files_active { "Back to terminal  (middle-click closes)" } else { "Files" };
+        let label = label.on_hover_text(label_tip);
+        if label.clicked_by(PointerButton::Middle) {
+            self.pending.push(Action::CloseFiles);
+        } else if label.clicked_by(PointerButton::Primary) {
+            self.pending.push(Action::ToggleFiles);
+        }
+        let glyph_color = if files_active { theme.text_bright } else { theme.text_dim };
+        chrome::workspace_glyph(&painter, Rect::from_center_size(Pos2::new(x + 8.0, cy), Vec2::new(16.0, 13.0)), glyph_color);
+        x += 26.0;
+        let project_color = if files_active { theme.text_bright } else { theme.text };
+        chrome::faded_text(&painter, Pos2::new(x, cy - 7.0), &project, bold(13.0), project_color, label_w, 16.0);
         chrome::faded_text(&painter, Pos2::new(x, cy + 8.0), &self.hostname, FontId::proportional(11.0), theme.text_dim, label_w, 16.0);
         x += label_w + 10.0;
 
@@ -901,7 +1158,7 @@ impl App {
         let shown = visible.min(self.tabs.len());
 
         // The active pill is painted once, beneath the tabs, and glides between slots.
-        let pill = (self.active < shown).then(|| self.pill_glide.value(&ctx, self.active as f32));
+        let pill = (!self.files_active && self.active < shown).then(|| self.pill_glide.value(&ctx, self.active as f32));
         if let Some(slot) = pill {
             let r = Rect::from_min_size(Pos2::new(x0 + slot * tab_w, track.top() + pad), Vec2::new(tab_w, tab_h));
             chrome::glass_pill(&painter, r, 8);
@@ -918,16 +1175,16 @@ impl App {
                     if target != i {
                         let tab = self.tabs.remove(i);
                         self.tabs.insert(target, tab);
-                        self.active = target;
+                        self.show_tab(target);
                         ctx.request_repaint();
                         break;
                     }
                 }
             }
             if resp.drag_started_by(PointerButton::Primary) {
-                self.active = i;
+                self.show_tab(i);
             }
-            let active = i == self.active;
+            let active = i == self.active && !self.files_active;
             let hovered = resp.hovered();
             if !active && hovered {
                 painter.rect_filled(r.shrink(1.0), 8, Color32::from_white_alpha(10));
@@ -944,17 +1201,29 @@ impl App {
                 );
             }
 
-            let tab = &self.tabs[i];
-            let (title, process) = self
-                .panes
-                .get(&tab.focused)
-                .map(|t| (t.title(), t.process.clone()))
-                .unwrap_or_default();
+            let (title, process) = self.pane_label(self.tabs[i].focused);
+            let (panes, browsers) = (&self.panes, &self.browsers);
+            let tab = &mut self.tabs[i];
             let icon = Rect::from_center_size(Pos2::new(r.left() + 19.0, r.center().y), Vec2::splat(20.0));
-            chrome::app_tile(&painter, icon, &process);
+            let cards = tab.deck_cards(&ctx, |id| {
+                if browsers.contains_key(&id) {
+                    chrome::FILES_PROCESS.into()
+                } else {
+                    panes.get(&id).map(|t| t.process.clone()).unwrap_or_default()
+                }
+            });
+            let mut text_left = icon.right() + 9.0;
+            if cards.len() > 1 {
+                // One card per pane, focused on top; up to 3 peek out behind it.
+                let cards: Vec<(&str, f32)> = cards.iter().map(|(p, d)| (p.as_str(), *d)).collect();
+                chrome::icon_stack(&painter, icon, &cards);
+                let behind = (cards.len() as f32 - 1.0).min(chrome::STACK_DEPTH - 1.0);
+                text_left += chrome::STACK_STEP.x * behind;
+            } else {
+                chrome::app_tile(&painter, icon, &process);
+            }
 
             let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
-            let text_left = icon.right() + 9.0;
             let text_right = if hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
             chrome::faded_text(
                 &painter,
@@ -979,7 +1248,7 @@ impl App {
             if close_clicked || resp.clicked_by(PointerButton::Middle) {
                 self.pending.push(Action::CloseTab(i));
             } else if resp.clicked_by(PointerButton::Primary) {
-                self.active = i;
+                self.show_tab(i);
             }
         }
 
@@ -998,7 +1267,8 @@ impl App {
     fn panes_area(&mut self, ui: &mut Ui, area: Rect, theme: &Theme) {
         self.term_rects.clear();
         self.card_rects.clear();
-        let Some(tab) = self.tabs.get(self.active) else { return };
+        let Some(tab) = self.cur_tab() else { return };
+        let tab_uid = tab.uid;
 
         let mut rects = Vec::new();
         let mut dividers = Vec::new();
@@ -1012,7 +1282,7 @@ impl App {
 
         // Divider dragging.
         for div in &dividers {
-            let id = Id::new(("divider", self.active, &div.path));
+            let id = Id::new(("divider", tab_uid, &div.path));
             let resp = ui.interact(div.rect, id, Sense::drag());
             if resp.hovered() || resp.dragged() {
                 ui.ctx().set_cursor_icon(match div.axis {
@@ -1026,7 +1296,7 @@ impl App {
                         Axis::Horizontal => (pos.x - div.parent.left()) / div.parent.width(),
                         Axis::Vertical => (pos.y - div.parent.top()) / div.parent.height(),
                     };
-                    if let Some(r) = self.tabs[self.active].root.ratio_mut(&div.path) {
+                    if let Some(r) = self.cur_tab_mut().and_then(|t| t.root.ratio_mut(&div.path)) {
                         *r = ratio.clamp(0.08, 0.92);
                     }
                 }
@@ -1035,8 +1305,6 @@ impl App {
 
         let ctx = ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
-        let m = self.metrics;
-        let cell_px = self.cell_px(&ctx);
         let painter = ui.painter().clone();
         let blink_on = {
             let ms = ctx.input(|i| i.time * 1000.0) as u128;
@@ -1045,6 +1313,11 @@ impl App {
 
         for (id, card) in rects {
             let is_focused = id == focused;
+            if self.browsers.contains_key(&id) {
+                self.browser_pane(ui, &painter, id, card, is_focused, multi, theme);
+                self.card_rects.push((id, card));
+                continue;
+            }
             let Some(t) = self.panes.get(&id) else { continue };
 
             // Card.
@@ -1059,7 +1332,7 @@ impl App {
                 let header = Rect::from_min_size(card.min, Vec2::new(card.width(), HEADER_HEIGHT));
                 let title = t.title();
                 let process = t.process.clone();
-                let zoomed = self.tabs[self.active].zoomed;
+                let zoomed = self.cur_tab().is_some_and(|t| t.zoomed);
                 let show_buttons = is_focused || ui.rect_contains_pointer(card);
                 self.pane_header(ui, &painter, header, id, &title, &process, is_focused, show_buttons, zoomed, theme);
                 header.bottom()
@@ -1067,6 +1340,8 @@ impl App {
                 card.top() + pad * 0.5
             };
 
+            let m = self.pane_metrics(id);
+            let cell_px = cell_px(&ctx, m);
             let cols = ((term_rect.width() / m.width).floor() as usize).max(2);
             let lines = ((term_rect.height() / m.height).floor() as usize).max(1);
 
@@ -1138,6 +1413,32 @@ impl App {
         ctx.request_repaint_after(Duration::from_millis(next as u64 + 1));
     }
 
+    /// Draw a file-browser pane: card, header (with the usual split/zoom/close buttons) and
+    /// the listing. It isn't added to `term_rects`, so terminal mouse handling ignores it.
+    #[allow(clippy::too_many_arguments)]
+    fn browser_pane(&mut self, ui: &mut Ui, painter: &Painter, id: PaneId, card: Rect, is_focused: bool, multi: bool, theme: &Theme) {
+        chrome::card(painter, card, PANE_RADIUS, theme.card, is_focused && multi, None);
+        if self.cfg.pane_headers {
+            let header = Rect::from_min_size(card.min, Vec2::new(card.width(), HEADER_HEIGHT));
+            let (title, process) = self.pane_label(id);
+            let zoomed = self.cur_tab().is_some_and(|t| t.zoomed);
+            let show_buttons = is_focused || ui.rect_contains_pointer(card);
+            self.pane_header(ui, painter, header, id, &title, &process, is_focused, show_buttons, zoomed, theme);
+        }
+        let content = self.term_rect_for(card, ui.ctx().pixels_per_point());
+        if ui.rect_contains_pointer(content) && ui.input(|i| i.pointer.primary_pressed()) {
+            self.pending.push(Action::FocusPane(id));
+        }
+        let colors = files::Colors { text: theme.text, text_dim: theme.text_dim, text_bright: theme.text_bright };
+        if let Some(b) = self.browsers.get_mut(&id) {
+            b.paint(ui, &painter.with_clip_rect(card.shrink(1.0)), content, id, &colors);
+        }
+        if multi && !is_focused && self.cfg.unfocused_split_opacity < 1.0 {
+            let a = 1.0 - self.cfg.unfocused_split_opacity;
+            painter.rect_filled(card, PANE_RADIUS, darken(self.cfg.background, 0.5).gamma_multiply(a));
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn pane_header(
         &mut self,
@@ -1195,6 +1496,51 @@ impl App {
         }
     }
 
+    /// Files dropped onto a pane: dragged out of a browser onto a terminal (inserts their
+    /// paths), or dropped in from another application (into a browser: copied there; onto a
+    /// terminal: paths inserted).
+    fn file_drops(&mut self, ctx: &egui::Context) {
+        let (pos, released, dropped) = ctx.input(|i| {
+            let dropped: Vec<PathBuf> = i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect();
+            (i.pointer.interact_pos(), i.pointer.any_released(), dropped)
+        });
+        let pos = pos.or(self.last_pointer);
+        self.last_pointer = pos;
+        let terminal_at = |p: Pos2| self.term_rects.iter().find(|(_, r)| r.contains(p)).map(|&(id, _)| id);
+
+        // Browser → terminal. (Browser → browser drops are handled by the browsers.)
+        if released && egui::DragAndDrop::has_payload_of_type::<files::FileDrag>(ctx) {
+            if let Some(id) = pos.and_then(terminal_at) {
+                if let Some(drag) = egui::DragAndDrop::take_payload::<files::FileDrag>(ctx) {
+                    self.insert_paths(id, &drag.paths);
+                    self.pending.push(Action::FocusPane(id));
+                }
+            }
+        }
+
+        if dropped.is_empty() {
+            return;
+        }
+        // The pane under the pointer, else the focused one.
+        let target = pos
+            .and_then(|p| self.card_rects.iter().find(|(_, r)| r.contains(p)).map(|&(id, _)| id))
+            .or_else(|| self.focused_pane());
+        let Some(id) = target else { return };
+        if let Some(b) = self.browsers.get_mut(&id) {
+            b.drop_external(ctx, dropped, pos);
+        } else {
+            self.insert_paths(id, &dropped);
+        }
+    }
+
+    /// Type shell-quoted paths into a terminal, as if pasted.
+    fn insert_paths(&mut self, id: PaneId, paths: &[PathBuf]) {
+        if let Some(t) = self.panes.get_mut(&id) {
+            let text = paths.iter().map(|p| files::shell_quote(p)).collect::<Vec<_>>().join(" ");
+            t.paste(&format!("{text} "));
+        }
+    }
+
     /// Frameless windows need their own resize handles at the edges.
     fn window_resize_edges(&self, ctx: &egui::Context, rect: Rect) {
         if self.cfg.window_decorations || ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
@@ -1227,6 +1573,12 @@ impl App {
     }
 }
 
+/// Cell size in physical pixels (reported to the pty for image protocols).
+fn cell_px(ctx: &egui::Context, m: CellMetrics) -> (u16, u16) {
+    let ppp = ctx.pixels_per_point();
+    ((m.width * ppp) as u16, (m.height * ppp) as u16)
+}
+
 impl eframe::App for App {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
@@ -1257,15 +1609,21 @@ impl eframe::App for App {
         for id in exited {
             self.close_pane(id);
         }
-        if self.tabs.is_empty() {
+        if self.tabs.is_empty() && self.files.is_none() {
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return;
+        }
+        if self.tabs.is_empty() {
+            self.files_active = true;
         }
 
         if self.last_proc_poll.elapsed() > Duration::from_millis(750) {
             self.last_proc_poll = Instant::now();
             for t in self.panes.values_mut() {
                 t.refresh_process_info();
+            }
+            for b in self.browsers.values_mut() {
+                b.refresh_if_stale();
             }
         }
         ctx.request_repaint_after(Duration::from_secs(1));
@@ -1282,9 +1640,12 @@ impl eframe::App for App {
         for action in std::mem::take(&mut self.pending) {
             self.apply(ctx, action);
         }
-        if self.tabs.is_empty() {
+        if self.tabs.is_empty() && self.files.is_none() {
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return;
+        }
+        if self.tabs.is_empty() {
+            self.files_active = true;
         }
 
         let theme = self.colors();
@@ -1302,6 +1663,8 @@ impl eframe::App for App {
 
             let area = self.content_area;
             self.panes_area(ui, area, &theme);
+            self.file_drops(ctx);
+            files::paint_drag_ghost(ctx, &files::Colors { text: theme.text, text_dim: theme.text_dim, text_bright: theme.text_bright });
             self.window_resize_edges(ctx, full);
         });
 
@@ -1314,8 +1677,7 @@ impl eframe::App for App {
         }
 
         // Window title follows the focused pane.
-        if let Some(t) = self.focused_pane().and_then(|id| self.panes.get(&id)) {
-            let title = t.title();
+        if let Some(title) = self.focused_pane().map(|id| self.pane_label(id).0).filter(|t| !t.is_empty()) {
             if title != self.window_title {
                 ctx.send_viewport_cmd(ViewportCommand::Title(format!("{title} — nex")));
                 self.window_title = title;

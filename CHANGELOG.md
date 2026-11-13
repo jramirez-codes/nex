@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A Files tab: the directory label in the title bar is now a tab that browses the current
+  folder (click again to go back, middle-click to close). Folders open in place, files open
+  in their default app, and the pane splits like any other, starting new terminals in the
+  folder you're browsing.
+
 ## [0.1.1] - 2026-11-13
 
 ### Changed

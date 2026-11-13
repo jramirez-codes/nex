@@ -10,6 +10,7 @@ use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
+use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 use crate::config::Config;
@@ -17,7 +18,11 @@ use crate::terminal::Terminal;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CellMetrics {
+    /// Cell width, snapped to whole physical pixels so every column starts on the same
+    /// sub-pixel phase (fractional widths smear glyph stems across two pixels).
     pub width: f32,
+    /// The font's natural advance; text runs are letter-spaced from this up to `width`.
+    pub advance: f32,
     pub height: f32,
     /// Offset that vertically centers the font's row inside the (possibly taller) cell.
     pub baseline_offset: f32,
@@ -172,7 +177,18 @@ pub fn paint_terminal(
             if trimmed.is_empty() {
                 return;
             }
-            let galley = painter.layout_no_wrap(trimmed.to_string(), font_for(run.flags, m.font_size), run.color);
+            // Stretch the font's advance to the pixel-snapped cell width so each glyph lands
+            // exactly on its column's pixel boundary.
+            let job = LayoutJob::single_section(
+                trimmed.to_string(),
+                TextFormat {
+                    font_id: font_for(run.flags, m.font_size),
+                    color: run.color,
+                    extra_letter_spacing: m.width - m.advance,
+                    ..Default::default()
+                },
+            );
+            let galley = painter.layout_job(job);
             let pos = cell_rect(line, run.col, 1).min + Vec2::new(0.0, m.baseline_offset);
             out.push(Shape::galley(pos, galley, run.color));
         }
