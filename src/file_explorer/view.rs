@@ -46,7 +46,7 @@ impl FileExplorer {
             painter,
             pane,
             c,
-            s: sizes(self.touch),
+            s: sizes(self.touch, self.zoom),
             input,
             drag: DragAndDrop::payload::<ExplorerDrag>(&ctx),
             commands: Vec::new(),
@@ -68,8 +68,9 @@ impl FileExplorer {
     fn path_bar(&mut self, f: &mut Frame, rect: Rect) -> (Rect, bool) {
         let (ui, painter, c, pane) = (f.ui, f.painter, f.c, f.pane);
         let bar = Rect::from_min_size(rect.min, Vec2::new(rect.width(), f.s.bar));
-        let btn = f.s.bar - 8.0;
-        let icon_rect = |r: Rect| Rect::from_center_size(r.center(), Vec2::splat(r.width().min(26.0) - 10.0));
+        let scale = f.s.scale;
+        let btn = f.s.bar - 8.0 * scale;
+        let icon_rect = |r: Rect| Rect::from_center_size(r.center(), Vec2::splat(r.width().min(26.0 * scale) - 10.0 * scale));
 
         // Up button (also a drop target for the parent folder).
         let up_r = Rect::from_center_size(Pos2::new(bar.left() + btn / 2.0 + 1.0, bar.center().y), Vec2::splat(btn));
@@ -100,7 +101,7 @@ impl FileExplorer {
             };
             let resp = ui.interact(r, Id::new(("files-view", pane, k)), Sense::click());
             let col = if on || resp.hovered() { c.text_bright } else { c.text_dim };
-            icon(painter, Rect::from_center_size(r.center(), Vec2::splat(12.0)), col);
+            icon(painter, Rect::from_center_size(r.center(), Vec2::splat(12.0 * scale)), col);
             if resp.on_hover_text(tip).clicked() && !on {
                 f.commands.push(Command::ToggleView);
             }
@@ -144,12 +145,13 @@ impl FileExplorer {
     /// The listing: pointer gestures, scrolling, drops, items and the right-click menu.
     fn listing(&mut self, f: &mut Frame, list: Rect, parent_drop: bool, clip: Option<&Clip>) {
         let layout = self.update_layout(&f.s, list);
+        self.apply_zoom_anchor(&layout);
         let resp = f.ui.interact(list, Id::new(("files-list", f.pane)), Sense::click_and_drag());
         self.track_press(f.ui.ctx(), &f.input, &layout, list);
         if resp.secondary_clicked() {
             self.right_click_select(f.input.pos.and_then(|p| layout.item_at(p, self.scroll, self.entries.len())));
         }
-        self.update_scroll(f.ui, &layout, list);
+        self.update_scroll(f.ui, &layout, list, f.input.mods.ctrl);
 
         let drop_target = self.handle_drop(f, list, parent_drop);
         // Files dragged in from other applications.
@@ -178,9 +180,10 @@ impl FileExplorer {
         layout
     }
 
-    /// Wheel scrolling, then keep the keyboard cursor in view and the scroll in range.
-    fn update_scroll(&mut self, ui: &Ui, layout: &Layout, list: Rect) {
-        if ui.rect_contains_pointer(list) {
+    /// Wheel scrolling (Ctrl+wheel zooms instead), then keep the keyboard cursor in view and
+    /// the scroll in range.
+    fn update_scroll(&mut self, ui: &Ui, layout: &Layout, list: Rect, ctrl: bool) {
+        if !ctrl && ui.rect_contains_pointer(list) {
             self.scroll -= ui.input(|i| i.raw_scroll_delta.y);
         }
         let len = self.entries.len();
@@ -326,7 +329,7 @@ impl FileExplorer {
         let font = FontId::proportional(s.font - 0.5);
         let mut x = ab.right() - 4.0;
         for (k, (label, cmd, primary)) in buttons.iter().enumerate().rev() {
-            let w = painter.layout_no_wrap(label.to_string(), font.clone(), c.text).size().x + if self.touch { 28.0 } else { 20.0 };
+            let w = painter.layout_no_wrap(label.to_string(), font.clone(), c.text).size().x + (if self.touch { 28.0 } else { 20.0 }) * s.scale;
             let r = Rect::from_min_size(Pos2::new(x - w, ab.center().y - s.button / 2.0), Vec2::new(w, s.button));
             if r.left() < ab.left() + 4.0 {
                 break;

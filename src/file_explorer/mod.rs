@@ -13,6 +13,7 @@ mod input;
 mod items;
 mod transfer;
 mod view;
+mod zoom;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -68,6 +69,10 @@ pub struct FileExplorer {
     /// The last press came from a touch screen: use larger hit targets.
     pub touch: bool,
     scroll: f32,
+    /// Zoom level of this pane (1.0 = normal); see `zoom.rs`.
+    zoom: f32,
+    /// What to keep in place while zooming, applied on the next paint; see `zoom.rs`.
+    zoom_anchor: Option<zoom::Anchor>,
     /// Scroll the selection into view on the next paint (after keyboard moves).
     reveal: bool,
     /// Columns and items per page, from the last paint (for keyboard movement).
@@ -98,6 +103,8 @@ impl FileExplorer {
             error: None,
             touch: false,
             scroll: 0.0,
+            zoom: 1.0,
+            zoom_anchor: None,
             reveal: false,
             cols: 1,
             page_items: 10,

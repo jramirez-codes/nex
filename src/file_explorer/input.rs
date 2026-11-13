@@ -67,6 +67,8 @@ pub(super) struct PointerInput {
     pub(super) delta: Vec2,
     pub(super) mods: Modifiers,
     pub(super) touches: bool,
+    /// Two or more fingers are down (a pinch): the press is no longer a tap, pan or drag.
+    pub(super) pinching: bool,
     pub(super) now: f64,
 }
 
@@ -82,6 +84,7 @@ impl PointerInput {
             delta: i.pointer.delta(),
             mods: i.modifiers,
             touches: i.any_touches(),
+            pinching: i.multi_touch().is_some(),
             now: i.time,
         });
         if input.released {
@@ -104,6 +107,13 @@ impl FileExplorer {
             self.touch = input.touches;
             let item = layout.item_at(p, self.scroll, self.entries.len());
             self.press = Some(Press { item, origin: p, at: input.now, touch: input.touches, gesture: Gesture::Pending });
+        }
+        if input.pinching {
+            // The first finger of a pinch also arrives as a press; it must not pan, open,
+            // start selecting or drag. `Idle` keeps it inert until it lifts.
+            if let Some(press) = self.press.as_mut() {
+                press.gesture = Gesture::Idle;
+            }
         }
         if let (Some(p), true) = (input.pos, input.down) {
             self.advance_gesture(ctx, p, input);

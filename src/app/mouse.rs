@@ -28,11 +28,17 @@ pub(super) struct MouseState {
     moved: bool,
     last_click: Option<(Instant, Pos2, u8)>,
     click_count: u8,
+    /// A two-finger pinch is (or was, until every finger lifts) in progress: the finger that
+    /// arrived as a pointer press must not select or click.
+    pinching: bool,
 }
 
 impl App {
     pub(super) fn handle_mouse(&mut self, ctx: &egui::Context) {
         let (events, hover) = ctx.input(|i| (i.events.clone(), i.pointer.hover_pos()));
+        if self.track_pinch(ctx) {
+            return;
+        }
         for event in events {
             match event {
                 Event::PointerButton { pos, button, pressed: true, modifiers } => self.on_press(pos, button, modifiers),
@@ -48,6 +54,34 @@ impl App {
         }
         self.update_hover_link(ctx, hover);
         self.update_pointer_cursor(ctx, hover);
+    }
+
+    /// Start or end ignoring the pointer for a pinch. Returns true while it is ignored.
+    fn track_pinch(&mut self, ctx: &egui::Context) -> bool {
+        let (multi, touching) = ctx.input(|i| (i.multi_touch().is_some(), i.any_touches()));
+        if multi && !self.mouse.pinching {
+            self.mouse.pinching = true;
+            self.cancel_press();
+        } else if !touching {
+            self.mouse.pinching = false;
+        }
+        self.mouse.pinching
+    }
+
+    /// Forget the current press: clear the selection it started, or, if it was reported to
+    /// the program, report its release now (the real one will be ignored).
+    fn cancel_press(&mut self) {
+        let Some((id, _)) = self.mouse.capture.take() else { return };
+        let Some(t) = self.panes.get_mut(&id) else { return };
+        if let Some(btn) = self.mouse.reporting.take() {
+            let mode = *t.term.lock().mode();
+            let (col, line) = self.mouse.last_cell;
+            if let Some(b) = input::encode_mouse(MouseAction::Release, btn, col, line, Modifiers::NONE, mode) {
+                t.write(b);
+            }
+        } else {
+            t.term.lock().selection = None;
+        }
     }
 
     /// The terminal under `pos`, with its content rect.

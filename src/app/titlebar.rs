@@ -76,7 +76,8 @@ struct TabSlots {
     top: f32,
     width: f32,
     shown: usize,
-    /// Position of the active-tab pill, in slots (it glides between them).
+    /// Position of the active pill, in slots (it glides between them). `-1.0` is the
+    /// Files label, so the pill glides between it and the tabs too.
     pill: Option<f32>,
 }
 
@@ -88,6 +89,13 @@ impl TabSlots {
     /// The slot under horizontal position `x`.
     fn slot_at(&self, x: f32) -> usize {
         (((x - self.x0) / self.width).floor().max(0.0) as usize).min(self.shown - 1)
+    }
+
+    /// Where the pill is this frame. Between the Files label (`-1.0`) and the first tab it
+    /// morphs from the label's rect into the slot's.
+    fn pill_rect(&self, label: Rect) -> Option<Rect> {
+        let p = self.pill?;
+        Some(if p >= 0.0 { self.rect(p) } else { label.lerp_towards(&self.rect(0.0), p + 1.0) })
     }
 }
 
@@ -106,25 +114,30 @@ impl App {
 
         let cy = rect.center().y;
         let x = window_controls(ui, rect.left() + 18.0, cy);
-        let x = self.workspace_label(ui, x, cy, theme);
-        self.tab_strip(ui, x, rect.right() - PLUS_SIZE - 22.0, cy, theme);
+        let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 30.0 + LABEL_WIDTH, cy + 15.0));
+        let slots = self.tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy);
+        // The active pill is painted once, beneath the label and the tabs, and glides
+        // between them.
+        if let Some(pill) = slots.pill_rect(label_r) {
+            paint::glass_pill(ui.painter(), pill, 8);
+        }
+        self.workspace_label(ui, label_r, theme);
+        self.tab_strip(ui, &slots, theme);
         self.new_tab_button(ui, rect, cy, theme);
     }
 
     /// The current directory name and hostname. This label *is* the Files tab: clicking it
-    /// toggles the tab, and it gets the glass pill while Files is showing.
-    fn workspace_label(&mut self, ui: &Ui, x: f32, cy: f32, theme: &Theme) -> f32 {
+    /// toggles the tab, and the glass pill glides onto it while Files is showing.
+    fn workspace_label(&mut self, ui: &Ui, label_r: Rect, theme: &Theme) {
         let painter = ui.painter();
         let project = self
             .focused_cwd()
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
             .unwrap_or_else(|| "~".into());
-        let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 26.0 + LABEL_WIDTH + 4.0, cy + 15.0));
+        let (x, cy) = (label_r.left() + 7.0, label_r.center().y);
         let label = ui.interact(label_r, Id::new("workspace-label"), Sense::click());
         let active = self.explorer_active;
-        if active {
-            paint::glass_pill(painter, label_r, 8);
-        } else if label.hovered() {
+        if !active && label.hovered() {
             painter.rect_filled(label_r, 8, HOVER);
         }
         let tip = if active { "Back to terminal  (middle-click closes)" } else { "Files" };
@@ -141,11 +154,12 @@ impl App {
         let project_color = if active { theme.text_bright } else { theme.text };
         paint::faded_text(painter, Pos2::new(x, cy - 7.0), &project, paint::bold(13.0), project_color, LABEL_WIDTH, 16.0);
         paint::faded_text(painter, Pos2::new(x, cy + 8.0), &self.hostname, FontId::proportional(11.0), theme.text_dim, LABEL_WIDTH, 16.0);
-        x + LABEL_WIDTH + 10.0
     }
 
-    /// The terminal tabs, in a recessed segmented-control style track between `x` and `right`.
-    fn tab_strip(&mut self, ui: &Ui, x: f32, right: f32, cy: f32, theme: &Theme) {
+    /// Lays out the terminal tabs in a recessed segmented-control style track between `x`
+    /// and `right`, paints the track, and advances the pill toward the active tab (or the
+    /// Files label).
+    fn tab_slots(&mut self, ui: &Ui, x: f32, right: f32, cy: f32) -> TabSlots {
         let ctx = ui.ctx().clone();
         let painter = ui.painter();
         let n = self.tabs.len().max(1);
@@ -159,14 +173,15 @@ impl App {
         paint::tab_track(painter, track);
 
         let shown = visible.min(self.tabs.len());
-        let pill = (!self.explorer_active && self.active < shown).then(|| self.pill_glide.value(&ctx, self.active as f32));
-        let slots = TabSlots { x0: track.left() + TRACK_PAD, top: track.top() + TRACK_PAD, width, shown, pill };
-        // The active pill is painted once, beneath the tabs, and glides between slots.
-        if let Some(slot) = pill {
-            paint::glass_pill(painter, slots.rect(slot), 8);
-        }
-        for i in 0..shown {
-            if self.tab_item(ui, &slots, i, theme) {
+        let target = if self.explorer_active { Some(-1.0) } else { (self.active < shown).then_some(self.active as f32) };
+        let pill = target.map(|t| self.pill_glide.value(&ctx, t));
+        TabSlots { x0: track.left() + TRACK_PAD, top: track.top() + TRACK_PAD, width, shown, pill }
+    }
+
+    /// The terminal tabs, drawn into `slots` over the track and pill.
+    fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
+        for i in 0..slots.shown {
+            if self.tab_item(ui, slots, i, theme) {
                 break;
             }
         }

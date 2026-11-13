@@ -10,6 +10,7 @@ mod tab;
 mod titlebar;
 mod window;
 mod workspace;
+mod zoom;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -50,6 +51,8 @@ pub struct App {
     /// Cell metrics for every font size in use this frame, keyed by `f32::to_bits`.
     metrics: HashMap<u32, CellMetrics>,
     mouse: MouseState,
+    /// Pinch zoom of a terminal not yet applied (font sizes change in whole points).
+    pinch_accum: f32,
     pending: Vec<Action>,
     /// Terminal (content) rects from the current frame, used for mouse hit-testing.
     term_rects: Vec<(PaneId, Rect)>,
@@ -99,6 +102,7 @@ impl App {
             pane_fonts: HashMap::new(),
             metrics: HashMap::new(),
             mouse: MouseState::default(),
+            pinch_accum: 1.0,
             pending: Vec::new(),
             term_rects: Vec::new(),
             card_rects: Vec::new(),
@@ -160,6 +164,7 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.draw_window(ui));
 
+        self.handle_pinch(ctx);
         self.handle_mouse(ctx);
         if !self.pending.is_empty() {
             self.drain_pending(ctx);

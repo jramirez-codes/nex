@@ -9,6 +9,7 @@ use crate::layout::{self, Axis, Direction, PaneId};
 use crate::search::Search;
 
 use super::App;
+use super::zoom::EXPLORER_ZOOM_STEP;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Action {
@@ -222,9 +223,18 @@ impl App {
         }
     }
 
-    /// Zoom the focused pane's font in, out, or back to the config size.
+    /// Zoom the focused pane's font in, out, or back to the config size. A file explorer
+    /// zooms its whole listing instead.
     fn change_font(&mut self, ctx: &egui::Context, action: Action) {
         let Some(id) = self.focused_pane() else { return };
+        if let Some(explorer) = self.explorers.get_mut(&id) {
+            match action {
+                Action::FontBigger => explorer.zoom_by(EXPLORER_ZOOM_STEP, None),
+                Action::FontSmaller => explorer.zoom_by(1.0 / EXPLORER_ZOOM_STEP, None),
+                _ => explorer.reset_zoom(),
+            }
+            return;
+        }
         let size = self.pane_font(id);
         let size = match action {
             Action::FontBigger => Some(size + 1.0),
