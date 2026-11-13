@@ -155,6 +155,47 @@ pub struct App {
     links: LinkFinder,
     /// Link under the pointer while Ctrl is held.
     hover_link: Option<(PaneId, Link)>,
+    /// Animated position of the active-tab highlight, in tab slots.
+    pill_glide: PillGlide,
+}
+
+/// The active-tab pill glides between slots with an ease-out curve.
+#[derive(Default)]
+struct PillGlide {
+    from: f32,
+    to: f32,
+    start: f64,
+    init: bool,
+}
+
+impl PillGlide {
+    const DURATION: f64 = 0.2;
+
+    /// Current slot position; retargets (from wherever the pill is now) when `target` changes.
+    fn value(&mut self, ctx: &egui::Context, target: f32) -> f32 {
+        let now = ctx.input(|i| i.time);
+        if !self.init {
+            *self = Self { from: target, to: target, start: now, init: true };
+        } else if self.to != target {
+            self.from = self.current(now);
+            self.to = target;
+            self.start = now;
+        }
+        let v = self.current(now);
+        if v != self.to {
+            ctx.request_repaint();
+        }
+        v
+    }
+
+    fn current(&self, now: f64) -> f32 {
+        let t = ((now - self.start) / Self::DURATION).clamp(0.0, 1.0) as f32;
+        if t >= 1.0 {
+            return self.to;
+        }
+        let eased = 1.0 - (1.0 - t).powi(3);
+        self.from + (self.to - self.from) * eased
+    }
 }
 
 impl App {
@@ -189,6 +230,7 @@ impl App {
             search: None,
             links: LinkFinder::new(),
             hover_link: None,
+            pill_glide: PillGlide::default(),
         }
     }
 
@@ -856,16 +898,23 @@ impl App {
         );
         chrome::tab_track(&painter, track);
         let x0 = track.left() + pad;
+        let shown = visible.min(self.tabs.len());
 
-        // Paint order: the active pill first so neighbouring separators can be skipped.
-        for i in 0..visible.min(self.tabs.len()) {
+        // The active pill is painted once, beneath the tabs, and glides between slots.
+        let pill = (self.active < shown).then(|| self.pill_glide.value(&ctx, self.active as f32));
+        if let Some(slot) = pill {
+            let r = Rect::from_min_size(Pos2::new(x0 + slot * tab_w, track.top() + pad), Vec2::new(tab_w, tab_h));
+            chrome::glass_pill(&painter, r, 8);
+        }
+
+        for i in 0..shown {
             let r = Rect::from_min_size(Pos2::new(x0 + i as f32 * tab_w, track.top() + pad), Vec2::new(tab_w, tab_h));
             let uid = self.tabs[i].uid;
             let resp = ui.interact(r, Id::new(("tab", uid)), Sense::click_and_drag());
             if resp.dragged_by(PointerButton::Primary) {
                 // Drag to reorder: move to the slot under the pointer.
                 if let Some(pos) = resp.interact_pointer_pos() {
-                    let target = (((pos.x - x0) / tab_w).floor().max(0.0) as usize).min(visible.min(self.tabs.len()) - 1);
+                    let target = (((pos.x - x0) / tab_w).floor().max(0.0) as usize).min(shown - 1);
                     if target != i {
                         let tab = self.tabs.remove(i);
                         self.tabs.insert(target, tab);
@@ -880,14 +929,14 @@ impl App {
             }
             let active = i == self.active;
             let hovered = resp.hovered();
-            if active {
-                chrome::glass_pill(&painter, r, 8);
-            } else if hovered {
+            if !active && hovered {
                 painter.rect_filled(r.shrink(1.0), 8, Color32::from_white_alpha(10));
             }
 
-            // Hairline separators between inactive neighbours.
-            if i + 1 < visible.min(self.tabs.len()) && !active && i + 1 != self.active {
+            // Hairline separators between neighbours, hidden wherever the pill covers them.
+            let boundary = (i + 1) as f32;
+            let covered = pill.is_some_and(|p| boundary > p - 0.05 && boundary < p + 1.05);
+            if i + 1 < shown && !covered {
                 let sx = r.right();
                 painter.line_segment(
                     [Pos2::new(sx, r.center().y - 8.0), Pos2::new(sx, r.center().y + 8.0)],
