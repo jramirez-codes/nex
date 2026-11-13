@@ -1,6 +1,6 @@
 [package]
 name = "nex"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 description = "nex — the nex-gen terminal. GPU-rendered tabs and split panes, built in Rust."
