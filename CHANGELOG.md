@@ -12,6 +12,12 @@ All notable changes to nex are documented here. The format follows
   folder (click again to go back, middle-click to close). Folders open in place, files open
   in their default app, and the pane splits like any other, starting new terminals in the
   folder you're browsing.
+- `Ctrl+E` splits a file explorer off the focused pane, open at that pane's folder.
+- File management in the explorer: list and grid views, multi-select (keyboard, Ctrl/Shift+click,
+  long-press), copy, cut and paste, a right-click menu and an action bar, and drag and drop
+  (into folders, onto terminals as paths, and from other apps).
+- Pinch zoom (touchscreen or touchpad) and Ctrl+wheel, for terminal fonts and explorer
+  listings.
 
 ## [0.1.1] - 2026-11-13
 
