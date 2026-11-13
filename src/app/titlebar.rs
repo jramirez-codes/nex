@@ -113,7 +113,11 @@ impl App {
         }
 
         let cy = rect.center().y;
-        let x = window_controls(ui, rect.left() + 18.0, cy);
+        let x = if self.cfg.window_controls {
+            window_controls(ui, rect.left() + 18.0, cy)
+        } else {
+            rect.left() + 18.0
+        };
         let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 30.0 + LABEL_WIDTH, cy + 15.0));
         let slots = self.tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy);
         // The active pill is painted once, beneath the label and the tabs, and glides

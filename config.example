@@ -21,6 +21,7 @@ background-opacity = 0.90
 unfocused-split-opacity = 0.90
 window-padding = 10
 window-decorations = false
+window-controls = true      # close / minimize / maximize buttons in the title bar
 pane-headers = true
 
 cursor-style = block        # block | bar | underline
