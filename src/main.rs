@@ -1,4 +1,6 @@
 mod app;
+mod glide;
+mod theme;
 mod boxdraw;
 mod chrome;
 mod config;

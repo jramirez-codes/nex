@@ -189,18 +189,6 @@ fn strip_comment(value: &str) -> &str {
     v
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn inline_comments_are_stripped_but_colors_kept() {
-        assert_eq!(strip_comment(" block        # block | bar").trim(), "block");
-        assert_eq!(strip_comment(" #1f1b1e").trim(), "#1f1b1e");
-        assert_eq!(strip_comment(" 4=#6cb6ff  # blue").trim(), "4=#6cb6ff");
-    }
-}
-
 fn unquote(s: &str) -> &str {
     s.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(s)
 }
@@ -216,4 +204,16 @@ pub fn parse_color(s: &str) -> Option<Color32> {
 
 fn hex(s: &str) -> Color32 {
     parse_color(s).expect("valid builtin color")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inline_comments_are_stripped_but_colors_kept() {
+        assert_eq!(strip_comment(" block        # block | bar").trim(), "block");
+        assert_eq!(strip_comment(" #1f1b1e").trim(), "#1f1b1e");
+        assert_eq!(strip_comment(" 4=#6cb6ff  # blue").trim(), "4=#6cb6ff");
+    }
 }
