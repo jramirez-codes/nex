@@ -17,7 +17,7 @@ use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle as AnsiCursorStyle, Rgb};
 
 use crate::config::{Config, CursorStyle};
-use crate::render;
+use crate::render::{self, FrameKey};
 use crate::snapshot::Snapshot;
 
 /// Forwards terminal events from the PTY thread to the UI thread and wakes egui up.
@@ -87,6 +87,8 @@ pub struct Terminal {
     visible: Arc<AtomicBool>,
     /// The last copy of the screen taken for painting; its buffers are reused.
     snapshot: Option<Snapshot>,
+    /// The shapes last drawn for this pane and what they were built from.
+    frame: Option<(FrameKey, Vec<egui::Shape>)>,
 }
 
 impl Terminal {
@@ -147,14 +149,17 @@ impl Terminal {
             generation: 0,
             visible,
             snapshot: None,
+            frame: None,
         };
         t.refresh_process_info();
         Ok(t)
     }
 
-    /// Apply a reloaded config to this running terminal (scrollback and cursor).
-    pub fn apply_config(&self, cfg: &Config) {
+    /// Apply a reloaded config to this running terminal (scrollback and cursor). Colors may
+    /// have changed too, so the next frame is drawn from scratch.
+    pub fn apply_config(&mut self, cfg: &Config) {
         self.term.lock().set_options(term_config(cfg));
+        self.frame = None;
     }
 
     pub fn size(&self) -> GridSize {
@@ -166,11 +171,15 @@ impl Terminal {
         self.visible.store(visible, Ordering::Relaxed);
     }
 
-    /// Copy the screen for painting, holding the terminal lock only for the copy.
-    pub fn snapshot(&mut self) -> &Snapshot {
-        let previous = self.snapshot.take();
-        let snap = Snapshot::capture(&self.term.lock(), previous);
-        self.snapshot.insert(snap)
+    /// The shapes to draw this pane: the last frame's if `key` is unchanged, otherwise
+    /// `build` run on a fresh copy of the screen (the lock is held only for the copy).
+    pub fn frame_shapes(&mut self, key: FrameKey, build: impl FnOnce(&Snapshot) -> Vec<egui::Shape>) -> &[egui::Shape] {
+        if self.frame.as_ref().is_none_or(|(k, _)| *k != key) {
+            let previous = self.snapshot.take();
+            let snap = self.snapshot.insert(Snapshot::capture(&self.term.lock(), previous));
+            self.frame = Some((key, build(snap)));
+        }
+        self.frame.as_ref().map_or(&[], |(_, shapes)| shapes)
     }
 
     /// Drain events produced by the PTY thread since the last frame.

@@ -12,6 +12,8 @@ All notable changes to nex are documented here. The format follows
   glyph cache, instead of text laid out every frame. A full screen of changing colored text
   (htop-style redraws) uses about 2.4x less CPU, with identical output.
 - Output in background tabs no longer redraws the window, so many busy tabs cost much less.
+- Panes whose contents haven't changed reuse their last frame instead of being rebuilt, so
+  one busy pane among many idle splits only costs about what that one pane does.
 
 ## [0.2.0] - 2026-11-13
 

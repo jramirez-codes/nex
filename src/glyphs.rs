@@ -59,6 +59,8 @@ pub struct GlyphCache {
     atlas_fill: f32,
     /// Atlas size the current frame's meshes were built against.
     atlas_size: [usize; 2],
+    /// Bumped whenever cached glyphs are thrown away.
+    epoch: u64,
 }
 
 impl GlyphCache {
@@ -68,10 +70,17 @@ impl GlyphCache {
         let (fill, size) = ctx.fonts(|f| (f.font_atlas_fill_ratio(), f.font_image_size()));
         if ppp != self.ppp || fill < self.atlas_fill {
             self.sizes.clear();
+            self.epoch += 1;
         }
         self.ppp = ppp;
         self.atlas_fill = fill;
         self.atlas_size = size;
+    }
+
+    /// Identifies the atlas layout that texture coordinates built now refer to. Meshes built
+    /// under a different value must be rebuilt.
+    pub fn epoch(&self) -> (u64, [usize; 2]) {
+        (self.epoch, self.atlas_size)
     }
 
     /// Call once per frame after painting. If laying out new text grew the atlas after some
@@ -112,7 +121,7 @@ pub struct GridMesh<'a> {
 impl<'a> GridMesh<'a> {
     /// A mesh for one pane at `font_size`, with room for about `cells` glyphs.
     pub fn new(cache: &'a mut GlyphCache, painter: &'a Painter, font_size: f32, cells: usize) -> Self {
-        let GlyphCache { sizes, ppp, atlas_fill, atlas_size } = cache;
+        let GlyphCache { sizes, ppp, atlas_fill, atlas_size, .. } = cache;
         let mesh = |quads: usize| {
             let mut m = Mesh::with_texture(TextureId::default());
             m.vertices.reserve(quads * 4);

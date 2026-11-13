@@ -18,7 +18,7 @@ use crate::glyphs::{GlyphCache, GridMesh};
 use crate::snapshot::{SnapCell, Snapshot};
 use crate::terminal::Terminal;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CellMetrics {
     /// Cell width, snapped to whole physical pixels so every column starts on the same
     /// sub-pixel phase (fractional widths smear glyph stems across two pixels).
@@ -103,8 +103,30 @@ pub struct PaintOptions<'a> {
 const MATCH_BG: Color32 = Color32::from_rgb(0x8a, 0x6d, 0x2c);
 const CURRENT_MATCH_BG: Color32 = Color32::from_rgb(0xff, 0x9e, 0x3d);
 
-/// Paint a terminal snapshot into `rect`. Works from the copy so the terminal stays unlocked.
-pub fn paint_terminal(
+/// Everything a pane's terminal shapes depend on, apart from the cells, which only change
+/// along with `generation` (or the view: scrolling and selection). When nothing here has
+/// changed since the last frame, the pane's shapes are reused instead of rebuilt.
+#[derive(PartialEq)]
+pub struct FrameKey {
+    /// Bumped by PTY output.
+    pub generation: u64,
+    pub display_offset: usize,
+    pub selection: Option<SelectionRange>,
+    pub rect: Rect,
+    pub metrics: CellMetrics,
+    pub focused: bool,
+    pub cursor_visible: bool,
+    pub bg_alpha: f32,
+    pub matches: Vec<Match>,
+    pub current_match: Option<Match>,
+    pub link: Option<Match>,
+    /// Changes when the glyph cache (and so every texture coordinate) is invalidated.
+    pub glyph_epoch: (u64, [usize; 2]),
+}
+
+/// Build the shapes for a terminal snapshot drawn into `rect`, in paint order. Works from
+/// the copy so the terminal stays unlocked.
+pub fn terminal_shapes(
     painter: &Painter,
     rect: Rect,
     snap: &Snapshot,
@@ -112,7 +134,7 @@ pub fn paint_terminal(
     cfg: &Config,
     m: CellMetrics,
     opts: PaintOptions<'_>,
-) {
+) -> Vec<Shape> {
     let offset = snap.display_offset;
     let cursor = snap.cursor;
 
@@ -153,7 +175,7 @@ pub fn paint_terminal(
         let r = layers.cell_rect(cursor_line as usize, cursor.point.column.0, cursor_cell_width);
         layers.cursor(r, cursor_shape, styler.cursor_color, opts.focused);
     }
-    layers.finish(opts.bg_alpha);
+    layers.finish(opts.bg_alpha)
 }
 
 /// Works out each cell's colors: its own, then dim / inverse, selection, search matches and
@@ -340,10 +362,11 @@ impl<'a> Layers<'a> {
     }
 
     /// Hand the layers to the painter, backgrounds faded by the window opacity.
-    fn finish(self, bg_alpha: f32) {
-        self.painter.extend(self.mesh.into_shapes(bg_alpha));
-        self.painter.extend(self.texts);
-        self.painter.extend(self.decorations);
+    fn finish(self, bg_alpha: f32) -> Vec<Shape> {
+        let mut shapes = Vec::from(self.mesh.into_shapes(bg_alpha));
+        shapes.extend(self.texts);
+        shapes.extend(self.decorations);
+        shapes
     }
 }
 
