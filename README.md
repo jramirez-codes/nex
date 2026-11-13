@@ -166,6 +166,7 @@ See [`config.example`](config.example) for every option.
 | Resize split           | `Ctrl+Shift+Alt+Arrows`                               |
 | Equalize splits        | `Ctrl+Shift+Alt+=`                                    |
 | Zoom pane              | `Ctrl+Shift+Enter`                                    |
+| Explorer split here    | `Ctrl+E`                                              |
 | Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn/PgUp`)   |
 | Go to tab *N*          | `Alt+1` … `Alt+8`, `Alt+9` for the last tab           |
 | Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       |

@@ -43,6 +43,8 @@ pub(super) enum Action {
     ToggleSearch,
     /// Open the Files tab, switch to it, or (from it) back to the previous tab.
     ToggleExplorer,
+    /// Split a file explorer off the focused pane, showing its directory.
+    ExploreHere,
     CloseExplorer,
 }
 
@@ -85,6 +87,7 @@ pub(super) fn keybindings() -> Vec<Binding> {
         (true, true, false, Key::Comma, ReloadConfig),
         (true, true, false, Key::K, ClearScreen),
         (true, true, false, Key::F, ToggleSearch),
+        (true, false, false, Key::E, ExploreHere),
         (false, true, false, Key::PageUp, ScrollPageUp),
         (false, true, false, Key::PageDown, ScrollPageDown),
         (false, true, false, Key::Home, ScrollTop),
@@ -157,6 +160,11 @@ impl App {
                 self.scroll_focused(action)
             }
             Action::ToggleExplorer => self.toggle_explorer(),
+            Action::ExploreHere => {
+                if let Some(id) = focused {
+                    self.split_explorer(id, Axis::Horizontal)
+                }
+            }
             Action::CloseExplorer => self.close_explorer(),
             Action::ToggleSearch => self.toggle_search(),
             Action::ClearScreen => {

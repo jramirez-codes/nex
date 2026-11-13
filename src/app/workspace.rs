@@ -132,23 +132,46 @@ impl App {
 
     pub(super) fn split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
         let cwd = self.pane_cwd(target);
-        let card = self
-            .card_rects
+        let card = self.split_card(target, axis);
+        // The new pane starts at the zoom level of the pane it was split from.
+        let font_size = self.pane_fonts.get(&target).copied();
+        if let Some(new) = self.spawn_pane(ctx, cwd, card, font_size) {
+            self.attach_split(target, axis, new);
+        }
+    }
+
+    /// Split a file explorer off `target`, showing `target`'s directory, in the same tab.
+    pub(super) fn split_explorer(&mut self, target: PaneId, axis: Axis) {
+        let dir = self
+            .pane_cwd(target)
+            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let new = self.alloc_pane_id();
+        self.explorers.insert(new, FileExplorer::new(dir));
+        self.attach_split(target, axis, new);
+    }
+
+    /// Where a pane split off `target` will land: the half of its card on the new side.
+    fn split_card(&self, target: PaneId, axis: Axis) -> Rect {
+        self.card_rects
             .iter()
             .find(|(id, _)| *id == target)
             .map(|&(_, r)| match axis {
                 Axis::Horizontal => Rect::from_min_max(Pos2::new(r.center().x + PANE_GAP / 2.0, r.top()), r.max),
                 Axis::Vertical => Rect::from_min_max(Pos2::new(r.left(), r.center().y + PANE_GAP / 2.0), r.max),
             })
-            .unwrap_or(Rect::NOTHING);
-        // The new pane starts at the zoom level of the pane it was split from.
-        let font_size = self.pane_fonts.get(&target).copied();
-        if let Some(new) = self.spawn_pane(ctx, cwd, card, font_size) {
-            if let Some(tab) = self.tab_with(target) {
+            .unwrap_or(Rect::NOTHING)
+    }
+
+    /// Put `new` beside `target` in whichever tab holds it, and focus it.
+    fn attach_split(&mut self, target: PaneId, axis: Axis, new: PaneId) {
+        match self.tab_with(target) {
+            Some(tab) => {
                 tab.root.split(target, axis, new);
                 tab.focused = new;
                 tab.zoomed = false;
             }
+            None => self.forget_pane(new),
         }
     }
 
