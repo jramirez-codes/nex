@@ -7,6 +7,7 @@ mod input;
 mod layout;
 mod render;
 mod search;
+mod snapshot;
 mod terminal;
 mod ui;
 

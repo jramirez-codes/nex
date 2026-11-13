@@ -47,6 +47,9 @@ impl App {
         }
         let focused = tab.focused;
         let multi = rects.len() > 1;
+        for (id, t) in &self.panes {
+            t.set_visible(rects.iter().any(|(r, _)| r == id));
+        }
         self.drag_dividers(ui, tab_uid, &dividers);
 
         let blink_on = {
@@ -131,9 +134,7 @@ impl App {
         let lines = ((term_rect.height() / m.height).floor() as usize).max(1);
         let Some(t) = self.panes.get_mut(&id) else { return };
         t.resize(GridSize { cols, lines }, cell_px);
-        let blinking = t.term.lock().cursor_style().blinking;
         let typing = t.last_input.elapsed() < BLINK_INTERVAL;
-        let cursor_visible = !pane.focused || !blinking || typing || blink_on;
 
         // Keep search results in sync with the terminal contents.
         let search = self.search.as_mut().filter(|s| s.pane == id).map(|s| {
@@ -144,11 +145,15 @@ impl App {
             &*s
         });
         let link = self.hover_link.as_ref().filter(|(pid, _)| *pid == id).map(|(_, l)| &l.range);
+        // Taken after the search refresh, which may scroll to a match.
+        let snap = t.snapshot();
+        let cursor_visible = !pane.focused || !snap.cursor_blinking || typing || blink_on;
+        let offset = snap.display_offset;
 
         render::paint_terminal(
             &painter.with_clip_rect(pane.card.shrink(1.0)),
             term_rect,
-            t,
+            snap,
             &self.cfg,
             m,
             PaintOptions {
@@ -165,7 +170,6 @@ impl App {
         }
         self.dim_unfocused(painter, pane);
 
-        let offset = self.panes.get(&id).map_or(0, |t| t.term.lock().grid().display_offset());
         if offset > 0 {
             scrollback_badge(painter, pane.card, content_top, offset, theme);
         }

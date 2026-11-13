@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -17,18 +18,27 @@ use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle as AnsiCursorStyle,
 
 use crate::config::{Config, CursorStyle};
 use crate::render;
+use crate::snapshot::Snapshot;
 
 /// Forwards terminal events from the PTY thread to the UI thread and wakes egui up.
 #[derive(Clone)]
 pub struct EventProxy {
     tx: Sender<Event>,
     ctx: egui::Context,
+    /// Whether the pane is on screen. New output in a hidden pane (a background tab) doesn't
+    /// repaint the window; it's picked up whenever the next frame runs anyway.
+    visible: Arc<AtomicBool>,
 }
 
 impl EventListener for EventProxy {
     fn send_event(&self, event: Event) {
+        let wakeup = matches!(event, Event::Wakeup);
         let _ = self.tx.send(event);
-        self.ctx.request_repaint();
+        // Everything but plain output (titles, bells, replies the program waits on, exit)
+        // is handled promptly even when hidden.
+        if !wakeup || self.visible.load(Ordering::Relaxed) {
+            self.ctx.request_repaint();
+        }
     }
 }
 
@@ -74,6 +84,9 @@ pub struct Terminal {
     pub scroll_accum: f32,
     /// Bumped whenever the PTY produced output (used to refresh search results).
     pub generation: u64,
+    visible: Arc<AtomicBool>,
+    /// The last copy of the screen taken for painting; its buffers are reused.
+    snapshot: Option<Snapshot>,
 }
 
 impl Terminal {
@@ -108,7 +121,8 @@ impl Terminal {
         let pid = pty.child().id();
 
         let (tx, events) = mpsc::channel();
-        let proxy = EventProxy { tx, ctx: ctx.clone() };
+        let visible = Arc::new(AtomicBool::new(true));
+        let proxy = EventProxy { tx, ctx: ctx.clone(), visible: visible.clone() };
         let term = Arc::new(FairMutex::new(Term::new(term_config(cfg), &size, proxy.clone())));
 
         let event_loop = EventLoop::new(term.clone(), proxy, pty, true, false)?;
@@ -131,6 +145,8 @@ impl Terminal {
             last_input: Instant::now(),
             scroll_accum: 0.0,
             generation: 0,
+            visible,
+            snapshot: None,
         };
         t.refresh_process_info();
         Ok(t)
@@ -143,6 +159,18 @@ impl Terminal {
 
     pub fn size(&self) -> GridSize {
         self.size
+    }
+
+    /// Mark the pane as on or off screen (see [`EventProxy`]).
+    pub fn set_visible(&self, visible: bool) {
+        self.visible.store(visible, Ordering::Relaxed);
+    }
+
+    /// Copy the screen for painting, holding the terminal lock only for the copy.
+    pub fn snapshot(&mut self) -> &Snapshot {
+        let previous = self.snapshot.take();
+        let snap = Snapshot::capture(&self.term.lock(), previous);
+        self.snapshot.insert(snap)
     }
 
     /// Drain events produced by the PTY thread since the last frame.

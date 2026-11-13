@@ -3,7 +3,6 @@
 //! Text is batched into runs of identically-styled ASCII/box-drawing cells so a typical row
 //! becomes a handful of cached galleys instead of one per cell.
 
-use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::SelectionRange;
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -15,6 +14,7 @@ use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 use crate::config::Config;
+use crate::snapshot::{SnapCell, Snapshot};
 use crate::terminal::Terminal;
 
 #[derive(Clone, Copy, Debug)]
@@ -117,17 +117,14 @@ pub struct PaintOptions<'a> {
 const MATCH_BG: Color32 = Color32::from_rgb(0x8a, 0x6d, 0x2c);
 const CURRENT_MATCH_BG: Color32 = Color32::from_rgb(0xff, 0x9e, 0x3d);
 
-/// Paint the visible part of `terminal` into `rect`.
-pub fn paint_terminal(painter: &Painter, rect: Rect, terminal: &Terminal, cfg: &Config, m: CellMetrics, opts: PaintOptions<'_>) {
-    let term = terminal.term.lock();
-    let content = term.renderable_content();
-    let offset = content.display_offset;
-    let cursor = content.cursor;
-    let screen_lines = term.screen_lines();
+/// Paint a terminal snapshot into `rect`. Works from the copy so the terminal stays unlocked.
+pub fn paint_terminal(painter: &Painter, rect: Rect, snap: &Snapshot, cfg: &Config, m: CellMetrics, opts: PaintOptions<'_>) {
+    let offset = snap.display_offset;
+    let cursor = snap.cursor;
 
-    let mut styler = CellStyler::new(content.colors, cfg, &opts, content.selection, offset);
+    let mut styler = CellStyler::new(&snap.colors, cfg, &opts, snap.selection, offset);
     let cursor_line = cursor.point.line.0 + offset as i32;
-    let cursor_shape = if opts.cursor_visible && offset == 0 && content.mode.contains(TermMode::SHOW_CURSOR) {
+    let cursor_shape = if opts.cursor_visible && offset == 0 && snap.mode.contains(TermMode::SHOW_CURSOR) {
         cursor.shape
     } else {
         CursorShape::Hidden
@@ -136,12 +133,10 @@ pub fn paint_terminal(painter: &Painter, rect: Rect, terminal: &Terminal, cfg: &
     let mut layers = Layers::new(painter, rect, m);
     let mut cursor_cell_width = 1;
 
-    for indexed in content.display_iter {
-        let (cell, point) = (indexed.cell, indexed.point);
-        let Ok(line) = usize::try_from(point.line.0 + offset as i32) else { continue };
-        if line >= screen_lines || cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
-            continue;
-        }
+    for SnapCell { cell, point } in &snap.cells {
+        let point = *point;
+        // Snapshot cells are all on screen (see `Snapshot::capture`).
+        let line = (point.line.0 + offset as i32) as usize;
         let col = point.column.0;
         let width = if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
         let is_cursor = line as i32 == cursor_line && col == cursor.point.column.0;
@@ -161,7 +156,7 @@ pub fn paint_terminal(painter: &Painter, rect: Rect, terminal: &Terminal, cfg: &
     layers.flush_bg();
     layers.flush_text();
 
-    if cursor_shape != CursorShape::Hidden && cursor_line >= 0 && (cursor_line as usize) < screen_lines {
+    if cursor_shape != CursorShape::Hidden && cursor_line >= 0 && (cursor_line as usize) < snap.screen_lines {
         let r = layers.cell_rect(cursor_line as usize, cursor.point.column.0, cursor_cell_width);
         layers.cursor(r, cursor_shape, styler.cursor_color, opts.focused);
     }
