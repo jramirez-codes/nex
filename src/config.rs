@@ -31,6 +31,8 @@ pub struct Config {
     pub unfocused_split_opacity: f32,
     pub window_padding: f32,
     pub window_decorations: bool,
+    /// Show the close / minimize / maximize buttons in the title bar.
+    pub window_controls: bool,
     pub pane_headers: bool,
 
     pub cursor_style: CursorStyle,
@@ -77,6 +79,7 @@ impl Default for Config {
             unfocused_split_opacity: 0.90,
             window_padding: 10.0,
             window_decorations: false,
+            window_controls: true,
             pane_headers: true,
 
             cursor_style: CursorStyle::Block,
@@ -155,6 +158,7 @@ impl Config {
             }
             "window-padding" | "window-padding-x" => self.window_padding = float(value)?.max(0.0),
             "window-decorations" => self.window_decorations = boolean(value)?,
+            "window-controls" => self.window_controls = boolean(value)?,
             "pane-headers" => self.pane_headers = boolean(value)?,
             "cursor-style" => {
                 self.cursor_style = match value {

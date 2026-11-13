@@ -51,10 +51,18 @@ rendering, input handling, multiplexing and window chrome.
 ## Features
 
 - **Tabs and splits, built in.** Split right or down, zoom a pane, drag the gaps to resize,
-  and move between splits with the keyboard. You don't need tmux for layout.
-- **Files tab.** The directory label in the title bar is a tab of its own: click it to browse
-  the current folder. Folders open in place, files open in their default app, and splitting
-  the browser starts a terminal in the folder you're looking at.
+  and move between splits with the keyboard. Each pane's header has split, zoom and close
+  buttons. You don't need tmux for layout.
+- **File explorer, built in.** `Ctrl+E` splits a file explorer off the current pane, open at
+  that pane's folder. The directory label in the title bar is also a Files tab of its own.
+  Folders open in place, files open in their default app, and splitting an explorer starts a
+  terminal in the folder you're looking at.
+- **Real file management.** List or grid view, multi-select, and copy, cut and paste between
+  explorers, with a right-click menu and an action bar. Drag files into another folder to move
+  them, onto a terminal to type their paths, or drop them in from other apps. Name clashes get
+  a `(2)` suffix instead of overwriting anything.
+- **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
+  an explorer's listing. In an explorer, drag to scroll and long-press to select.
 - **Native-feeling chrome.** Tabs sit in a segmented track with a raised "glass" active pill,
   glossy per-app icons and titles that fade out instead of being cut off.
 - **Smart titles.** Every tab and pane shows the foreground program and its directory, such as
@@ -73,6 +81,10 @@ rendering, input handling, multiplexing and window chrome.
 - **Mouse everywhere.** Selection (word, line and block), SGR mouse reporting for TUIs,
   alternate-scroll for `less` and `man`, and bracketed paste.
 - **Simple config.** Ghostty-style `key = value` file that you can reload live.
+
+<p align="center">
+  <img src="docs/screenshots/explorer.png" alt="A terminal tab with a Ctrl+E file explorer split, three files selected, and a terminal split off the explorer" width="900">
+</p>
 
 <p align="center">
   <img src="docs/screenshots/search.png" alt="Scrollback search highlighting every match" width="900">
@@ -172,7 +184,7 @@ See [`config.example`](config.example) for every option.
 | Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       |
 | Search scrollback      | `Ctrl+Shift+F`, then `Enter` / `Shift+Enter`, `Esc`   |
 | Scroll                 | `Shift+PgUp/PgDn/Home/End`, mouse wheel               |
-| Font size              | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`                        |
+| Font size / zoom       | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   |
 | Clear screen           | `Ctrl+Shift+K`                                        |
 | Reload config          | `Ctrl+Shift+,`                                        |
 | Quit                   | `Ctrl+Shift+Q`                                        |
@@ -183,28 +195,63 @@ Mouse actions:
 - Hold Shift to select text inside apps that capture the mouse.
 - Ctrl+click opens a link.
 - Middle-click closes a tab, and dragging a tab reorders it.
+- Drag the gap between two panes to resize them.
 - Click the directory label in the title bar to show the Files tab, click it again to go back,
-  and middle-click it to close it. Ctrl+Tab cycles through it too. In the browser,
-  double-click (or Enter) opens an entry, Backspace goes up a folder, and Ctrl+H shows hidden
-  files.
+  and middle-click it to close it. Ctrl+Tab cycles through it too.
+
+### File explorer
+
+| Action                       | Keys / mouse                                          |
+| ---------------------------- | ----------------------------------------------------- |
+| Open an explorer split here  | `Ctrl+E`                                              |
+| Move the selection           | Arrows, `PgUp/PgDn`, `Home/End`                       |
+| Open folder or file          | `Enter`, double-click (or tap)                        |
+| Parent folder                | `Backspace`, `Alt+Up`, or the ⌃ button                |
+| Select                       | `Space`, Ctrl+click, Shift+click, `Ctrl+A`            |
+| Copy / cut / paste files     | `Ctrl+C` / `Ctrl+X` / `Ctrl+V`                        |
+| Clear selection / clipboard  | `Esc`                                                 |
+| List / grid view             | `Ctrl+G`                                              |
+| Show hidden files            | `Ctrl+H`                                              |
+| Zoom the listing             | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   |
+
+- Right-click for Open, Copy, Cut, Paste here, Paste into folder, Copy path and the view
+  options.
+- Drag files onto a folder to move them, or onto a terminal to type their shell-quoted paths.
+  Files dropped in from another app are copied into the folder under the pointer.
+- On a touchscreen, drag to scroll and long-press to start selecting.
 
 ## Architecture
 
 ```
 src/
-├── main.rs       window setup (eframe / winit)
-├── app.rs        tabs, panes, keybindings, mouse, window chrome
-├── chrome.rs     tab track, glass pills, cards, app tiles, icons
-├── layout.rs     binary split tree + directional focus
-├── terminal.rs   PTY + VT state per pane, /proc process info
-├── render.rs     grid painting: runs, colors, cursor, selection, search
-├── boxdraw.rs    procedural box / block / braille / Powerline glyphs
-├── input.rs      keyboard & mouse → xterm escape sequences
-├── search.rs     scrollback search, URL and OSC 8 link detection
-├── files.rs      file-browser pane for the Files tab
-├── fonts.rs      fontconfig lookup + embedded Nerd Font
-└── config.rs     config parsing
+├── main.rs           window setup (eframe / winit)
+├── app/              the application: state and frame loop (mod.rs), plus
+│   ├── actions.rs        shortcuts and carrying out actions
+│   ├── keyboard.rs       keys, text and clipboard routing
+│   ├── mouse.rs          selection, mouse reporting, wheel, links
+│   ├── panes.rs          pane cards, headers, divider dragging
+│   ├── titlebar.rs       window buttons, tab track, Files label
+│   ├── workspace.rs      tabs, splits, opening and closing panes
+│   └── …                 tab, window, zoom, metrics
+├── file_explorer/    the explorer pane
+│   ├── mod.rs            state, navigation, selection
+│   ├── view.rs           path bar, listing, action bar, context menu
+│   ├── input.rs          clicks, touch gestures, drags, keys
+│   ├── transfer.rs       file clipboard, copy/move jobs, drops
+│   ├── fs_ops.rs         listing, copying, moving, path quoting
+│   └── items.rs, zoom.rs rows, tiles and pinch zoom
+├── ui/               shared UI kit: theme, glide animation, painting, icons, widgets
+├── layout.rs         binary split tree + directional focus
+├── terminal.rs       PTY + VT state per pane, /proc process info
+├── render.rs         grid painting: runs, colors, cursor, selection, search
+├── boxdraw.rs        procedural box / block / braille / Powerline glyphs
+├── input.rs          keyboard & mouse → xterm escape sequences
+├── search.rs         scrollback search, URL and OSC 8 link detection
+├── fonts.rs          fontconfig lookup + embedded Nerd Font
+└── config.rs         config parsing
 ```
+
+Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hyprland).
 
 ## Roadmap
 
