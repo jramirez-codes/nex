@@ -20,3 +20,21 @@ egui = "0.33.3"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# `cargo deb --no-build` packaging used by the release workflow.
+[package.metadata.deb]
+maintainer = "Jordan Ramirez <87620356+jramirez-codes@users.noreply.github.com>"
+copyright = "2026, Jordan Ramirez"
+extended-description = """\
+nex is a GPU-rendered terminal emulator with tabs and split panes built in, \
+scrollback search, clickable links, and an embedded Nerd Font."""
+section = "x11"
+priority = "optional"
+depends = "$auto, fontconfig, libxkbcommon0, libegl1, libgl1"
+assets = [
+    ["target/release/nex", "usr/bin/", "755"],
+    ["assets/nex.desktop", "usr/share/applications/", "644"],
+    ["assets/nex.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["config.example", "usr/share/doc/nex/config.example", "644"],
+    ["README.md", "usr/share/doc/nex/README.md", "644"],
+]

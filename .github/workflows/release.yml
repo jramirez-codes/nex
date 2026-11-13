@@ -1,0 +1,130 @@
+name: Release
+
+# Push a tag like `v0.2.0` (matching the version in Cargo.toml) to build and publish a release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04 # older glibc = binaries that run on more distros
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          version="v$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev fontconfig dpkg-dev
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.arch }}
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+
+      - name: Package
+        run: |
+          name="nex-${GITHUB_REF_NAME}-${{ matrix.arch }}-linux"
+          mkdir -p "dist/$name/assets"
+          cp target/release/nex install.sh LICENSE README.md CHANGELOG.md config.example "dist/$name/"
+          cp assets/nex.desktop assets/nex.svg "dist/$name/assets/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -rf "dist/$name"
+
+          cargo deb --no-build --output dist/
+          cd dist && sha256sum * > "SHA256SUMS-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: Combine checksums
+        run: |
+          cat dist/SHA256SUMS-*.txt | sort -k2 > dist/SHA256SUMS.txt
+          rm dist/SHA256SUMS-*.txt
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[.*\]: / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          cat >> notes.md <<NOTES
+
+          ## Install
+
+          **Debian / Ubuntu**
+          \`\`\`sh
+          sudo apt install ./nex_*_amd64.deb   # or _arm64.deb
+          \`\`\`
+
+          **Any Linux (tarball)**
+          \`\`\`sh
+          tar xzf nex-${GITHUB_REF_NAME}-x86_64-linux.tar.gz
+          ./nex-${GITHUB_REF_NAME}-x86_64-linux/install.sh   # installs to ~/.local
+          \`\`\`
+
+          Verify downloads with \`sha256sum -c SHA256SUMS.txt --ignore-missing\`.
+          NOTES
+          cat notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "nex $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --verify-tag

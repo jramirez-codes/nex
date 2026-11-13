@@ -1,16 +1,26 @@
 #!/usr/bin/env bash
-# Build nex and install it for the current user (~/.local).
+# Install nex for the current user (~/.local by default; override with PREFIX=...).
+# Works from a release tarball (uses the prebuilt ./nex) or a source checkout (builds it).
 set -euo pipefail
 cd "$(dirname "$0")"
 
-cargo build --release
-install -Dm755 target/release/nex "$HOME/.local/bin/nex"
-install -Dm644 assets/nex.desktop "$HOME/.local/share/applications/nex.desktop"
-install -Dm644 assets/nex.svg "$HOME/.local/share/icons/hicolor/scalable/apps/nex.svg"
-if [ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/nex/config" ]; then
-  install -Dm644 config.example "${XDG_CONFIG_HOME:-$HOME/.config}/nex/config"
+if [ -f Cargo.toml ]; then
+  cargo build --release --locked
+  BIN=target/release/nex
+else
+  BIN=./nex
 fi
-command -v update-desktop-database >/dev/null && update-desktop-database -q "$HOME/.local/share/applications" || true
 
-echo "Installed nex to ~/.local/bin/nex"
-case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Note: ~/.local/bin is not on your PATH";; esac
+PREFIX="${PREFIX:-$HOME/.local}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nex"
+
+install -Dm755 "$BIN" "$PREFIX/bin/nex"
+install -Dm644 assets/nex.desktop "$PREFIX/share/applications/nex.desktop"
+install -Dm644 assets/nex.svg "$PREFIX/share/icons/hicolor/scalable/apps/nex.svg"
+if [ ! -e "$CONFIG_DIR/config" ]; then
+  install -Dm644 config.example "$CONFIG_DIR/config"
+fi
+command -v update-desktop-database >/dev/null && update-desktop-database -q "$PREFIX/share/applications" || true
+
+echo "Installed nex to $PREFIX/bin/nex"
+case ":$PATH:" in *":$PREFIX/bin:"*) ;; *) echo "Note: $PREFIX/bin is not on your PATH";; esac

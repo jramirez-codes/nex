@@ -22,6 +22,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/jramirez-codes/nex/releases/latest"><img src="https://img.shields.io/github/v/release/jramirez-codes/nex?sort=semver" alt="Latest release"></a>
   <a href="https://github.com/jramirez-codes/nex/actions/workflows/ci.yml"><img src="https://github.com/jramirez-codes/nex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange.svg?logo=rust" alt="Rust 1.88+">
@@ -75,6 +76,26 @@ rendering, input handling, multiplexing and window chrome.
 </p>
 
 ## Installation
+
+### Prebuilt releases
+
+Download the latest build for x86_64 or aarch64 from the
+[Releases page](https://github.com/jramirez-codes/nex/releases/latest).
+
+**Debian / Ubuntu:**
+
+```sh
+sudo apt install ./nex_*_amd64.deb      # or nex_*_arm64.deb
+```
+
+**Any Linux (tarball):**
+
+```sh
+tar xzf nex-v*-x86_64-linux.tar.gz
+./nex-v*-x86_64-linux/install.sh         # installs to ~/.local (override with PREFIX=...)
+```
+
+Each release includes a `SHA256SUMS.txt` you can verify the downloads against.
 
 ### From source
 
@@ -193,6 +214,19 @@ src/
 - [Ghostty](https://ghostty.org) for the inspiration on defaults, keybindings and config style.
 - [JetBrains Mono](https://www.jetbrains.com/lp/mono/) and [Nerd Fonts](https://www.nerdfonts.com),
   embedded under the [SIL Open Font License](assets/fonts/OFL.txt).
+
+## Releasing
+
+1. Bump `version` in `Cargo.toml`, and move the `Unreleased` notes in
+   [`CHANGELOG.md`](CHANGELOG.md) under the new version.
+2. Commit, then tag and push:
+
+   ```sh
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 binaries, packages
+tarballs and `.deb`s, and publishes a GitHub Release with notes taken from the changelog.
 
 ## License
 
