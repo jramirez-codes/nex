@@ -154,6 +154,7 @@ impl App {
             &painter.with_clip_rect(pane.card.shrink(1.0)),
             term_rect,
             snap,
+            &mut self.glyphs,
             &self.cfg,
             m,
             PaintOptions {

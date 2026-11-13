@@ -1,7 +1,8 @@
 //! Paint a terminal grid with egui's painter.
 //!
-//! Text is batched into runs of identically-styled ASCII/box-drawing cells so a typical row
-//! becomes a handful of cached galleys instead of one per cell.
+//! Backgrounds and glyphs become textured quads in one mesh per pane (see [`crate::glyphs`]),
+//! so no text is laid out per frame. Box-drawing characters are drawn as geometry, and
+//! characters with combining marks are laid out by egui.
 
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::SelectionRange;
@@ -10,10 +11,10 @@ use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
-use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 use crate::config::Config;
+use crate::glyphs::{GlyphCache, GridMesh};
 use crate::snapshot::{SnapCell, Snapshot};
 use crate::terminal::Terminal;
 
@@ -22,8 +23,6 @@ pub struct CellMetrics {
     /// Cell width, snapped to whole physical pixels so every column starts on the same
     /// sub-pixel phase (fractional widths smear glyph stems across two pixels).
     pub width: f32,
-    /// The font's natural advance; text runs are letter-spaced from this up to `width`.
-    pub advance: f32,
     pub height: f32,
     /// Offset that vertically centers the font's row inside the (possibly taller) cell.
     pub baseline_offset: f32,
@@ -36,7 +35,7 @@ pub const FONT_BOLD: &str = "term-bold";
 pub const FONT_ITALIC: &str = "term-italic";
 pub const FONT_BOLD_ITALIC: &str = "term-bold-italic";
 
-fn font_for(flags: Flags, size: f32) -> FontId {
+pub fn font_for(flags: Flags, size: f32) -> FontId {
     let name = match (flags.contains(Flags::BOLD), flags.contains(Flags::ITALIC)) {
         (false, false) => FONT_REGULAR,
         (true, false) => FONT_BOLD,
@@ -90,19 +89,6 @@ fn resolve(color: Color, colors: &Colors, cfg: &Config) -> Color32 {
     }
 }
 
-/// Characters that are safe to batch into a run: they come from the primary monospace font
-/// and have exactly one cell of advance.
-fn batchable(c: char) -> bool {
-    c.is_ascii_graphic()
-}
-
-struct Run {
-    text: String,
-    col: usize,
-    color: Color32,
-    flags: Flags,
-}
-
 pub struct PaintOptions<'a> {
     pub focused: bool,
     pub cursor_visible: bool,
@@ -118,7 +104,15 @@ const MATCH_BG: Color32 = Color32::from_rgb(0x8a, 0x6d, 0x2c);
 const CURRENT_MATCH_BG: Color32 = Color32::from_rgb(0xff, 0x9e, 0x3d);
 
 /// Paint a terminal snapshot into `rect`. Works from the copy so the terminal stays unlocked.
-pub fn paint_terminal(painter: &Painter, rect: Rect, snap: &Snapshot, cfg: &Config, m: CellMetrics, opts: PaintOptions<'_>) {
+pub fn paint_terminal(
+    painter: &Painter,
+    rect: Rect,
+    snap: &Snapshot,
+    glyphs: &mut GlyphCache,
+    cfg: &Config,
+    m: CellMetrics,
+    opts: PaintOptions<'_>,
+) {
     let offset = snap.display_offset;
     let cursor = snap.cursor;
 
@@ -130,7 +124,7 @@ pub fn paint_terminal(painter: &Painter, rect: Rect, snap: &Snapshot, cfg: &Conf
         CursorShape::Hidden
     };
     styler.block_cursor = opts.focused && cursor_shape == CursorShape::Block;
-    let mut layers = Layers::new(painter, rect, m);
+    let mut layers = Layers::new(painter, glyphs, rect, m, snap.cells.len());
     let mut cursor_cell_width = 1;
 
     for SnapCell { cell, point } in &snap.cells {
@@ -154,7 +148,6 @@ pub fn paint_terminal(painter: &Painter, rect: Rect, snap: &Snapshot, cfg: &Conf
         layers.text(at, c, cell.zerowidth(), fg, cell.flags & (Flags::BOLD | Flags::ITALIC));
     }
     layers.flush_bg();
-    layers.flush_text();
 
     if cursor_shape != CursorShape::Hidden && cursor_line >= 0 && (cursor_line as usize) < snap.screen_lines {
         let r = layers.cell_rect(cursor_line as usize, cursor.point.column.0, cursor_cell_width);
@@ -249,23 +242,22 @@ struct BgRun {
     color: Color32,
 }
 
-/// The frame's shapes, built cell by cell in three layers (backgrounds under text under
-/// decorations). Adjacent backgrounds of one color and runs of same-styled ASCII text are
-/// merged as they arrive.
+/// The frame's shapes, built cell by cell in layers: the mesh (backgrounds, then glyphs),
+/// other text (box drawing, combining marks), then decorations. Adjacent backgrounds of one
+/// color are merged into one quad as they arrive.
 struct Layers<'a> {
     painter: &'a Painter,
     rect: Rect,
     m: CellMetrics,
-    backgrounds: Vec<Shape>,
+    mesh: GridMesh<'a>,
     texts: Vec<Shape>,
     decorations: Vec<Shape>,
     bg_run: Option<BgRun>,
-    text_run: Option<(usize, Run)>,
 }
 
 impl<'a> Layers<'a> {
-    fn new(painter: &'a Painter, rect: Rect, m: CellMetrics) -> Self {
-        Self { painter, rect, m, backgrounds: Vec::new(), texts: Vec::new(), decorations: Vec::new(), bg_run: None, text_run: None }
+    fn new(painter: &'a Painter, glyphs: &'a mut GlyphCache, rect: Rect, m: CellMetrics, cells: usize) -> Self {
+        Self { painter, rect, m, mesh: GridMesh::new(glyphs, painter, m.font_size, cells), texts: Vec::new(), decorations: Vec::new(), bg_run: None }
     }
 
     fn cell_rect(&self, line: usize, col: usize, width: usize) -> Rect {
@@ -291,7 +283,7 @@ impl<'a> Layers<'a> {
     fn flush_bg(&mut self) {
         if let Some(run) = self.bg_run.take() {
             let r = self.cell_rect(run.line, run.start, run.end - run.start);
-            self.backgrounds.push(Shape::rect_filled(r, 0.0, run.color));
+            self.mesh.background(r, run.color);
         }
     }
 
@@ -309,65 +301,25 @@ impl<'a> Layers<'a> {
         }
     }
 
-    /// One cell's character: added to the open text run when possible, drawn as box-drawing
-    /// geometry, or (wide / non-ASCII / combining) laid out on its own.
+    /// One cell's character: a quad from the glyph cache, box-drawing geometry, or (with
+    /// combining marks) laid out by egui.
     fn text(&mut self, at: CellPos, c: char, zerowidth: Option<&[char]>, fg: Color32, style: Flags) {
         let CellPos { line, col, width } = at;
         if c == ' ' && zerowidth.is_none() {
-            // Spaces extend whatever run is open (their color doesn't matter).
-            if let Some((l, run)) = &mut self.text_run {
-                if *l == line && run.col + run.text.chars().count() == col {
-                    run.text.push(' ');
-                }
-            }
             return;
         }
         let r = self.cell_rect(line, col, width);
-        if width == 1 && crate::boxdraw::draw(c, r, fg, self.m.ppp, &mut self.texts) {
+        if width == 1 && !c.is_ascii() && crate::boxdraw::draw(c, r, fg, self.m.ppp, &mut self.texts) {
             return;
         }
-        if batchable(c) && width == 1 && zerowidth.is_none() {
-            match &mut self.text_run {
-                Some((l, run)) if *l == line && run.color == fg && run.flags == style && run.col + run.text.chars().count() == col => {
-                    run.text.push(c);
-                }
-                _ => {
-                    self.flush_text();
-                    self.text_run = Some((line, Run { text: c.to_string(), col, color: fg, flags: style }));
-                }
-            }
+        let Some(extra) = zerowidth else {
+            self.mesh.glyph(r, self.m, c, style, fg);
             return;
-        }
-        self.flush_text();
-        let mut s = String::from(c);
-        if let Some(extra) = zerowidth {
-            s.extend(extra);
-        }
+        };
+        let s: String = std::iter::once(c).chain(extra.iter().copied()).collect();
         let galley = self.painter.layout_no_wrap(s, font_for(style, self.m.font_size), fg);
         let x = r.left() + ((r.width() - galley.size().x) / 2.0).max(0.0).min(self.m.width * 0.5);
         self.texts.push(Shape::galley(Pos2::new(x, r.top() + self.m.baseline_offset), galley, fg));
-    }
-
-    fn flush_text(&mut self) {
-        let Some((line, run)) = self.text_run.take() else { return };
-        let trimmed = run.text.trim_end();
-        if trimmed.is_empty() {
-            return;
-        }
-        // Stretch the font's advance to the pixel-snapped cell width so each glyph lands
-        // exactly on its column's pixel boundary.
-        let job = LayoutJob::single_section(
-            trimmed.to_string(),
-            TextFormat {
-                font_id: font_for(run.flags, self.m.font_size),
-                color: run.color,
-                extra_letter_spacing: self.m.width - self.m.advance,
-                ..Default::default()
-            },
-        );
-        let galley = self.painter.layout_job(job);
-        let pos = self.cell_rect(line, run.col, 1).min + Vec2::new(0.0, self.m.baseline_offset);
-        self.texts.push(Shape::galley(pos, galley, run.color));
     }
 
     /// Cursor shapes other than the focused block (already painted as inverted colors).
@@ -388,13 +340,8 @@ impl<'a> Layers<'a> {
     }
 
     /// Hand the layers to the painter, backgrounds faded by the window opacity.
-    fn finish(mut self, bg_alpha: f32) {
-        for shape in &mut self.backgrounds {
-            if let Shape::Rect(r) = shape {
-                r.fill = r.fill.gamma_multiply(bg_alpha.max(0.85));
-            }
-        }
-        self.painter.extend(self.backgrounds);
+    fn finish(self, bg_alpha: f32) {
+        self.painter.extend(self.mesh.into_shapes(bg_alpha));
         self.painter.extend(self.texts);
         self.painter.extend(self.decorations);
     }

@@ -56,7 +56,7 @@ impl App {
         let ppp = ctx.pixels_per_point();
         let height = (h * (1.0 + self.cfg.cell_height_adjust) * ppp).round() / ppp;
         let width = ((w * ppp).round().max(1.0)) / ppp;
-        CellMetrics { width, advance: w, height, baseline_offset: (((height - h) / 2.0) * ppp).round() / ppp, font_size, ppp }
+        CellMetrics { width, height, baseline_offset: (((height - h) / 2.0) * ppp).round() / ppp, font_size, ppp }
     }
 
     /// Metrics for `font_size`, from this frame's cache when available.
@@ -74,7 +74,7 @@ impl App {
             .get(&size.to_bits())
             .or_else(|| self.metrics.get(&self.cfg.font_size.to_bits()))
             .copied()
-            .unwrap_or(CellMetrics { width: 8.0, advance: 8.0, height: 17.0, baseline_offset: 0.0, font_size: size, ppp: 1.0 })
+            .unwrap_or(CellMetrics { width: 8.0, height: 17.0, baseline_offset: 0.0, font_size: size, ppp: 1.0 })
     }
 
     /// Recompute metrics for the default size and every per-pane size in use.
