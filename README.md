@@ -1,0 +1,199 @@
+<!-- LOGO -->
+<h1>
+<p align="center">
+  <img src="assets/nex.svg" alt="nex logo" width="128">
+  <br>nex
+</h1>
+  <p align="center">
+    The nex-gen terminal.
+    <br />
+    Fast, GPU-rendered, with tabs and split panes built in. Written in Rust.
+    <br />
+    <a href="#about">About</a>
+    ·
+    <a href="#features">Features</a>
+    ·
+    <a href="#installation">Install</a>
+    ·
+    <a href="#configuration">Configuration</a>
+    ·
+    <a href="#keybindings">Keybindings</a>
+  </p>
+</p>
+
+<p align="center">
+  <a href="https://github.com/jramirez-codes/nex/actions/workflows/ci.yml"><img src="https://github.com/jramirez-codes/nex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/rust-1.88%2B-orange.svg?logo=rust" alt="Rust 1.88+">
+  <img src="https://img.shields.io/badge/platform-Linux-lightgrey.svg?logo=linux&logoColor=white" alt="Platform: Linux">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/hero.png" alt="nex with nvim, Nerd Font icons and a test run in split panes" width="900">
+</p>
+
+## About
+
+nex is a terminal emulator that looks and feels like a native, modern desktop app. Tabs live
+in the title bar, and every split is a rounded card with its own header showing what's running
+and where. The UI is drawn with the GPU, so typing, scrolling and resizing stay smooth even
+under heavy TUIs like `btop` or `nvim`.
+
+It is built on [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal), the same
+battle-tested VT engine behind Alacritty and Zed's terminal. nex's own code covers the
+rendering, input handling, multiplexing and window chrome.
+
+> [!NOTE]
+> nex is young and Linux-only for now (X11 and Wayland). Expect rough edges, and please
+> [open an issue](https://github.com/jramirez-codes/nex/issues) when you hit one.
+
+## Features
+
+- **Tabs and splits, built in.** Split right or down, zoom a pane, drag the gaps to resize,
+  and move between splits with the keyboard. You don't need tmux for layout.
+- **Native-feeling chrome.** Tabs sit in a segmented track with a raised "glass" active pill,
+  glossy per-app icons and titles that fade out instead of being cut off.
+- **Smart titles.** Every tab and pane shows the foreground program and its directory, such as
+  `Node ~/code/nex`, or the title the program sets itself.
+- **GPU rendering.** Text is batched into styled runs. Box-drawing, block, braille and
+  Powerline glyphs are drawn as geometry, so TUI borders and graphs line up exactly.
+- **Nerd Fonts out of the box.** JetBrains Mono Nerd Font Mono is built in, so icons in nvim,
+  starship and lazygit work with nothing installed. An installed Nerd Font Mono is used if
+  present.
+- **Full color.** 16, 256 and 24-bit truecolor, with bold, italic, underline (including
+  double), strikethrough, dim and inverse.
+- **Scrollback search.** `Ctrl+Shift+F` opens a floating search field that highlights every
+  match and steps through them.
+- **Clickable links.** Ctrl+hover underlines URLs and OSC 8 hyperlinks, and Ctrl+click opens
+  them.
+- **Mouse everywhere.** Selection (word, line and block), SGR mouse reporting for TUIs,
+  alternate-scroll for `less` and `man`, and bracketed paste.
+- **Simple config.** Ghostty-style `key = value` file that you can reload live.
+
+<p align="center">
+  <img src="docs/screenshots/search.png" alt="Scrollback search highlighting every match" width="900">
+</p>
+
+## Installation
+
+### From source
+
+You need Rust 1.88+ and a few system libraries. On Debian/Ubuntu:
+
+```sh
+sudo apt install build-essential libxkbcommon-dev libwayland-dev libgl1-mesa-dev fontconfig
+```
+
+Then build and install:
+
+```sh
+git clone https://github.com/jramirez-codes/nex.git
+cd nex
+./install.sh
+```
+
+`install.sh` builds a release binary and installs:
+
+- the binary to `~/.local/bin/nex`;
+- a desktop entry and icon, so nex appears in your app launcher (GNOME, KDE, rofi and others);
+- a starter config at `~/.config/nex/config`, unless you already have one.
+
+To run it without installing:
+
+```sh
+cargo run --release
+```
+
+## Configuration
+
+nex reads `~/.config/nex/config` (or `$XDG_CONFIG_HOME/nex/config`). The syntax is
+Ghostty-style `key = value`, and `#` starts a comment. Reload it live with `Ctrl+Shift+,`.
+
+```ini
+font-family = JetBrainsMono Nerd Font Mono   # unset = auto-pick a Nerd Font Mono
+font-size = 14
+adjust-cell-height = 12%
+
+background = #1f1b1e
+foreground = #d9d4dd
+palette = 4=#6cb6ff                          # override any of the 16 ANSI colors
+
+background-opacity = 0.90
+unfocused-split-opacity = 0.90
+cursor-style = block                         # block | bar | underline
+copy-on-select = false
+command = fish                               # defaults to your login shell
+```
+
+See [`config.example`](config.example) for every option.
+
+> [!TIP]
+> Translucent backgrounds look best with compositor blur. On Hyprland, set
+> `decoration { blur { enabled = true } }`.
+
+## Keybindings
+
+| Action                 | Keys                                                  |
+| ---------------------- | ----------------------------------------------------- |
+| New tab / window       | `Ctrl+Shift+T` / `Ctrl+Shift+N`                       |
+| Split right / down     | `Ctrl+Shift+O` / `Ctrl+Shift+E`                       |
+| Close pane             | `Ctrl+Shift+W`                                        |
+| Focus split            | `Ctrl+Alt+Arrows`                                     |
+| Resize split           | `Ctrl+Shift+Alt+Arrows`                               |
+| Equalize splits        | `Ctrl+Shift+Alt+=`                                    |
+| Zoom pane              | `Ctrl+Shift+Enter`                                    |
+| Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn/PgUp`)   |
+| Go to tab *N*          | `Alt+1` … `Alt+8`, `Alt+9` for the last tab           |
+| Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       |
+| Search scrollback      | `Ctrl+Shift+F`, then `Enter` / `Shift+Enter`, `Esc`   |
+| Scroll                 | `Shift+PgUp/PgDn/Home/End`, mouse wheel               |
+| Font size              | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`                        |
+| Clear screen           | `Ctrl+Shift+K`                                        |
+| Reload config          | `Ctrl+Shift+,`                                        |
+| Quit                   | `Ctrl+Shift+Q`                                        |
+
+Mouse actions:
+
+- Double-click selects a word, triple-click a line, and Alt+drag a block.
+- Hold Shift to select text inside apps that capture the mouse.
+- Ctrl+click opens a link.
+- Middle-click closes a tab, and dragging a tab reorders it.
+
+## Architecture
+
+```
+src/
+├── main.rs       window setup (eframe / winit)
+├── app.rs        tabs, panes, keybindings, mouse, window chrome
+├── chrome.rs     tab track, glass pills, cards, app tiles, icons
+├── layout.rs     binary split tree + directional focus
+├── terminal.rs   PTY + VT state per pane, /proc process info
+├── render.rs     grid painting: runs, colors, cursor, selection, search
+├── boxdraw.rs    procedural box / block / braille / Powerline glyphs
+├── input.rs      keyboard & mouse → xterm escape sequences
+├── search.rs     scrollback search, URL and OSC 8 link detection
+├── fonts.rs      fontconfig lookup + embedded Nerd Font
+└── config.rs     config parsing
+```
+
+## Roadmap
+
+- [ ] Color emoji
+- [ ] Quick terminal (drop-down on a global hotkey)
+- [ ] Command palette
+- [ ] Shell integration (OSC 7 cwd, prompt marks, jump between prompts)
+- [ ] Themes collection
+- [ ] macOS support
+
+## Acknowledgments
+
+- [Alacritty](https://github.com/alacritty/alacritty) for `alacritty_terminal`, the VT parser
+  and grid that power nex.
+- [egui](https://github.com/emilk/egui) for immediate-mode GPU rendering.
+- [Ghostty](https://ghostty.org) for the inspiration on defaults, keybindings and config style.
+- [JetBrains Mono](https://www.jetbrains.com/lp/mono/) and [Nerd Fonts](https://www.nerdfonts.com),
+  embedded under the [SIL Open Font License](assets/fonts/OFL.txt).
+
+## License
+
+nex is licensed under the [MIT License](LICENSE).

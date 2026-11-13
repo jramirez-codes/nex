@@ -1,0 +1,31 @@
+# nex config — copy to ~/.config/nex/config
+# Ghostty-style `key = value`. Reload with Ctrl+Shift+, (comma).
+
+# Default (unset): the first installed "… Nerd Font Mono" family, otherwise the built-in
+# JetBrainsMono Nerd Font Mono. Nerd Font icons always work as a fallback.
+# font-family = JetBrainsMono Nerd Font Mono
+font-size = 14
+adjust-cell-height = 12%
+
+background = #1f1b1e
+foreground = #d9d4dd
+cursor-color = #e8e3ec
+selection-background = #4a4048
+# selection-foreground = #ffffff
+
+# palette = 0=#2b2830
+# palette = 1=#f2777a
+# ... entries 0-15
+
+background-opacity = 0.90
+unfocused-split-opacity = 0.90
+window-padding = 10
+window-decorations = false
+pane-headers = true
+
+cursor-style = block        # block | bar | underline
+cursor-style-blink = true
+copy-on-select = false
+scrollback-limit = 10000
+
+# command = fish

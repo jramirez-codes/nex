@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=nex
+GenericName=Terminal
+Comment=A Ghostty-inspired terminal emulator
+Exec=nex
+Icon=nex
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;shell;prompt;command;
+StartupWMClass=nex
