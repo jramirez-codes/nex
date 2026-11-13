@@ -3,8 +3,6 @@
 use alacritty_terminal::grid::Scroll;
 use egui::{Key, ViewportCommand};
 
-use crate::config::Config;
-use crate::fonts;
 use crate::layout::{self, Axis, Direction, PaneId};
 use crate::search::Search;
 
@@ -149,12 +147,7 @@ impl App {
                 }
             }
             Action::FontBigger | Action::FontSmaller | Action::FontReset => self.change_font(ctx, action),
-            Action::ReloadConfig => {
-                self.cfg = Config::load();
-                fonts::install(ctx, &self.cfg);
-                self.pane_fonts.clear();
-                self.update_metrics(ctx);
-            }
+            Action::ReloadConfig => self.reload_config(ctx),
             Action::Quit => ctx.send_viewport_cmd(ViewportCommand::Close),
             Action::ScrollPageUp | Action::ScrollPageDown | Action::ScrollTop | Action::ScrollBottom => {
                 self.scroll_focused(action)

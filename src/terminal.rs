@@ -109,17 +109,7 @@ impl Terminal {
 
         let (tx, events) = mpsc::channel();
         let proxy = EventProxy { tx, ctx: ctx.clone() };
-        let shape = match cfg.cursor_style {
-            CursorStyle::Block => CursorShape::Block,
-            CursorStyle::Bar => CursorShape::Beam,
-            CursorStyle::Underline => CursorShape::Underline,
-        };
-        let term_config = term::Config {
-            scrolling_history: cfg.scrollback_limit,
-            default_cursor_style: AnsiCursorStyle { shape, blinking: cfg.cursor_blink },
-            ..Default::default()
-        };
-        let term = Arc::new(FairMutex::new(Term::new(term_config, &size, proxy.clone())));
+        let term = Arc::new(FairMutex::new(Term::new(term_config(cfg), &size, proxy.clone())));
 
         let event_loop = EventLoop::new(term.clone(), proxy, pty, true, false)?;
         let notifier = Notifier(event_loop.channel());
@@ -144,6 +134,11 @@ impl Terminal {
         };
         t.refresh_process_info();
         Ok(t)
+    }
+
+    /// Apply a reloaded config to this running terminal (scrollback and cursor).
+    pub fn apply_config(&self, cfg: &Config) {
+        self.term.lock().set_options(term_config(cfg));
     }
 
     pub fn size(&self) -> GridSize {
@@ -320,4 +315,18 @@ pub fn tilde(path: &std::path::Path) -> String {
         }
     }
     path.display().to_string()
+}
+
+/// The emulator settings that come from the user's config.
+fn term_config(cfg: &Config) -> term::Config {
+    let shape = match cfg.cursor_style {
+        CursorStyle::Block => CursorShape::Block,
+        CursorStyle::Bar => CursorShape::Beam,
+        CursorStyle::Underline => CursorShape::Underline,
+    };
+    term::Config {
+        scrolling_history: cfg.scrollback_limit,
+        default_cursor_style: AnsiCursorStyle { shape, blinking: cfg.cursor_blink },
+        ..Default::default()
+    }
 }
