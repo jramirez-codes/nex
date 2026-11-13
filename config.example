@@ -1,5 +1,5 @@
 # nex config — copy to ~/.config/nex/config
-# Ghostty-style `key = value`. Reload with Ctrl+Shift+, (comma).
+# Ghostty-style `key = value`. Saved changes apply right away (Ctrl+Shift+, reloads by hand).
 
 # Default (unset): the first installed "… Nerd Font Mono" family, otherwise the built-in
 # JetBrainsMono Nerd Font Mono. Nerd Font icons always work as a fallback.

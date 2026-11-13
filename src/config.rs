@@ -2,9 +2,11 @@
 //! `$XDG_CONFIG_HOME/nex/config` (falls back to `~/.config/nex/config`).
 //!
 //! Unknown keys are reported on stderr and ignored, so a typo never prevents startup.
+//! The file is reloaded when it changes, or on Ctrl+Shift+, (see `app/reload.rs`).
 
 use egui::Color32;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CursorStyle {
@@ -97,6 +99,11 @@ pub fn config_path() -> PathBuf {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("nex").join("config")
+}
+
+/// When the config file was last changed (`None` if it doesn't exist).
+pub fn modified() -> Option<SystemTime> {
+    std::fs::metadata(config_path()).and_then(|m| m.modified()).ok()
 }
 
 impl Config {

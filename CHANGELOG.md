@@ -18,6 +18,17 @@ All notable changes to nex are documented here. The format follows
   (into folders, onto terminals as paths, and from other apps).
 - Pinch zoom (touchscreen or touchpad) and Ctrl+wheel, for terminal fonts and explorer
   listings.
+- `window-controls = false` hides the close, minimize and maximize buttons in the title bar.
+
+### Changed
+
+- The config reloads automatically when you save the file, not only on `Ctrl+Shift+,`.
+
+### Fixed
+
+- Reloading the config now updates `scrollback-limit`, `cursor-style`, `cursor-style-blink` and
+  `window-decorations` in the running window, and keeps per-pane zoom unless `font-size`
+  changed.
 
 ## [0.1.1] - 2026-11-13
 

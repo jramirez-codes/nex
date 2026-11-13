@@ -80,7 +80,7 @@ rendering, input handling, multiplexing and window chrome.
   them.
 - **Mouse everywhere.** Selection (word, line and block), SGR mouse reporting for TUIs,
   alternate-scroll for `less` and `man`, and bracketed paste.
-- **Simple config.** Ghostty-style `key = value` file that you can reload live.
+- **Simple config.** Ghostty-style `key = value` file that applies as soon as you save it.
 
 <p align="center">
   <img src="docs/screenshots/explorer.png" alt="A terminal tab with a Ctrl+E file explorer split, three files selected, and a terminal split off the explorer" width="900">
@@ -143,7 +143,9 @@ cargo run --release
 ## Configuration
 
 nex reads `~/.config/nex/config` (or `$XDG_CONFIG_HOME/nex/config`). The syntax is
-Ghostty-style `key = value`, and `#` starts a comment. Reload it live with `Ctrl+Shift+,`.
+Ghostty-style `key = value`, and `#` starts a comment. Changes apply as soon as you save the
+file, or press `Ctrl+Shift+,` to reload it by hand. `command` only affects shells started
+after the change.
 
 ```ini
 font-family = JetBrainsMono Nerd Font Mono   # unset = auto-pick a Nerd Font Mono
@@ -157,6 +159,7 @@ palette = 4=#6cb6ff                          # override any of the 16 ANSI color
 background-opacity = 0.90
 unfocused-split-opacity = 0.90
 cursor-style = block                         # block | bar | underline
+window-controls = false                      # hide the close / minimize / maximize buttons
 copy-on-select = false
 command = fish                               # defaults to your login shell
 ```

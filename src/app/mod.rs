@@ -6,6 +6,7 @@ mod keyboard;
 mod metrics;
 mod mouse;
 mod panes;
+mod reload;
 mod tab;
 mod titlebar;
 mod window;
@@ -13,11 +14,11 @@ mod workspace;
 mod zoom;
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, Vec2, ViewportCommand};
 
-use crate::config::Config;
+use crate::config::{self, Config};
 use crate::file_explorer::{self, FileExplorer};
 use crate::fonts;
 use crate::layout::PaneId;
@@ -42,6 +43,8 @@ const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(750);
 
 pub struct App {
     cfg: Config,
+    /// Modification time of the config file when it was last read; a change triggers a reload.
+    config_mtime: Option<SystemTime>,
     panes: HashMap<PaneId, Terminal>,
     tabs: Vec<Tab>,
     active: usize,
@@ -95,6 +98,7 @@ impl App {
 
         Self {
             cfg,
+            config_mtime: config::modified(),
             panes: HashMap::new(),
             tabs: Vec::new(),
             active: 0,
@@ -211,12 +215,16 @@ impl App {
         false
     }
 
-    /// Every so often: refresh process names / cwds and re-read stale file listings.
+    /// Every so often: refresh process names / cwds, re-read stale file listings, and reload
+    /// the config if its file changed.
     fn poll_background(&mut self) {
         if self.last_proc_poll.elapsed() <= PROCESS_POLL_INTERVAL {
             return;
         }
         self.last_proc_poll = Instant::now();
+        if config::modified() != self.config_mtime {
+            self.pending.push(Action::ReloadConfig);
+        }
         for t in self.panes.values_mut() {
             t.refresh_process_info();
         }
