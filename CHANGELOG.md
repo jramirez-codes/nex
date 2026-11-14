@@ -8,7 +8,8 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
-- macOS support (build from source). Shortcuts follow Ghostty's macOS defaults (Cmd+T, Cmd+D,
+- macOS support. Releases include a universal binary (Apple Silicon and Intel) as a tarball
+  with `install.sh`; it isn't notarized yet. Shortcuts follow Ghostty's macOS defaults (Cmd+T, Cmd+D,
   Cmd+C / Cmd+V, Cmd+1…9; Ctrl+C always reaches the shell), the window uses the native traffic
   lights, pane headers show the foreground process and folder, and fonts are found without
   fontconfig. Dragging files out to Finder isn't supported yet.

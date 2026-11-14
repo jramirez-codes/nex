@@ -50,8 +50,8 @@ battle-tested VT engine behind Alacritty and Zed's terminal. nex's own code cove
 rendering, input handling, multiplexing and window chrome.
 
 > [!NOTE]
-> nex is young. It runs on Linux (X11 and Wayland) and macOS; macOS is newer and built from
-> source for now. Expect rough edges, and please
+> nex is young. It runs on Linux (X11 and Wayland) and macOS; macOS support is newer.
+> Expect rough edges, and please
 > [open an issue](https://github.com/jramirez-codes/nex/issues) when you hit one. If nex is
 > useful to you, a ⭐ helps other people find it.
 
@@ -151,6 +151,14 @@ sudo apt install ./nex_*_amd64.deb      # or nex_*_arm64.deb
 ```sh
 tar xzf nex-v*-x86_64-linux.tar.gz
 ./nex-v*-x86_64-linux/install.sh         # installs to ~/.local (override with PREFIX=...)
+```
+
+**macOS (Apple Silicon and Intel):**
+
+```sh
+tar xzf nex-v*-universal-macos.tar.gz
+xattr -dr com.apple.quarantine nex-v*-universal-macos   # the build isn't notarized yet
+./nex-v*-universal-macos/install.sh       # installs to ~/.local (override with PREFIX=...)
 ```
 
 Each release includes a `SHA256SUMS.txt` you can verify the downloads against.
@@ -315,8 +323,8 @@ No. JetBrains Mono Nerd Font is embedded, so icons in Neovim, starship and lazyg
 the box. An installed Nerd Font Mono is used instead if you have one.
 
 **Is nex available on macOS or Windows?**
-macOS, yes: build it from source (see [From source](#from-source)). Prebuilt macOS releases and
-an app bundle are on the [roadmap](#roadmap). Windows isn't supported yet, but the platform
+macOS, yes: releases include a universal binary for Apple Silicon and Intel Macs (see
+[Installation](#installation)). An app bundle is on the [roadmap](#roadmap). Windows isn't supported yet, but the platform
 layer (`src/platform/`) is set up for it.
 
 **How is nex related to Alacritty?**
@@ -380,8 +388,8 @@ Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hy
 - [ ] Command palette
 - [ ] Shell integration (OSC 7 cwd, prompt marks, jump between prompts)
 - [ ] Themes collection
-- [x] macOS support (build from source)
-- [ ] macOS app bundle and prebuilt releases
+- [x] macOS support
+- [ ] macOS app bundle, signed and notarized
 - [ ] Drag files out to Finder
 - [ ] Windows support
 
@@ -404,8 +412,9 @@ Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hy
    git tag v0.6.3 && git push origin v0.6.3
    ```
 
-The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 binaries, packages
-tarballs and `.deb`s, and publishes a GitHub Release with notes taken from the changelog.
+The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 Linux binaries
+(tarballs and `.deb`s) and a universal macOS binary (tarball), and publishes a GitHub Release
+with notes taken from the changelog.
 
 ## License
 

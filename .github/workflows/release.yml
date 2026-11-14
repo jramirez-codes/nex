@@ -74,9 +74,59 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  build-macos:
+    name: Build macOS (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          version="v$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos
+
+      - name: Test
+        run: cargo test --release --locked
+
+      # One binary that runs on Apple Silicon and Intel Macs.
+      - name: Build
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          mkdir -p target/universal
+          lipo -create -output target/universal/nex \
+            target/aarch64-apple-darwin/release/nex target/x86_64-apple-darwin/release/nex
+          lipo -info target/universal/nex
+
+      - name: Package
+        run: |
+          name="nex-${GITHUB_REF_NAME}-universal-macos"
+          mkdir -p "dist/$name"
+          cp target/universal/nex install.sh LICENSE README.md CHANGELOG.md config.example "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -rf "dist/$name"
+          cd dist && shasum -a 256 * > "SHA256SUMS-macos.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: dist/*
+          if-no-files-found: error
+
   publish:
     name: Publish release
-    needs: build
+    needs: [build, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -116,7 +166,15 @@ jobs:
           ./nex-${GITHUB_REF_NAME}-x86_64-linux/install.sh   # installs to ~/.local
           \`\`\`
 
-          Verify downloads with \`sha256sum -c SHA256SUMS.txt --ignore-missing\`.
+          **macOS (Apple Silicon and Intel)**
+          \`\`\`sh
+          tar xzf nex-${GITHUB_REF_NAME}-universal-macos.tar.gz
+          xattr -dr com.apple.quarantine nex-${GITHUB_REF_NAME}-universal-macos   # not notarized yet
+          ./nex-${GITHUB_REF_NAME}-universal-macos/install.sh   # installs to ~/.local
+          \`\`\`
+
+          Verify downloads with \`sha256sum -c SHA256SUMS.txt --ignore-missing\`
+          (\`shasum -a 256 -c\` on macOS).
           NOTES
           cat notes.md
 
