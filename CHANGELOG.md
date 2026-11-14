@@ -6,6 +6,12 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Launching nex from an app launcher (rofi, Hyprland, etc.) did nothing when the session's PATH
+  didn't include `~/.local/bin`. `install.sh` now writes the absolute binary path into the
+  installed desktop entry's `Exec=` line.
+
 ## [0.6.2] - 2026-11-14
 
 ### Fixed
