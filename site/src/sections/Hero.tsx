@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
-import HeroDemo from './HeroDemo'
-import { REPO, RELEASES } from '../links'
+import { REPO, RELEASES, asset } from '../links'
 import './hero.css'
 
 export default function Hero() {
@@ -43,7 +42,15 @@ export default function Hero() {
       </div>
       <div className="hero-stage" ref={stage}>
         <div className="hero-glow" aria-hidden="true" />
-        <div className="hero-window"><HeroDemo /></div>
+        <div className="hero-window">
+          <img
+            className="hero-shot"
+            src={asset('demo/tour.gif')}
+            alt="nex splitting into git, btop and nvim panes, moving focus between them, and switching tabs"
+            width={1200}
+            height={750}
+          />
+        </div>
       </div>
     </section>
   )

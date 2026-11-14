@@ -29,6 +29,7 @@
   margin: 0 auto;
 }
 .hero-window {
+  position: relative; /* above the glow */
   transform: rotateX(var(--tilt)) translateY(var(--lift));
   transform-origin: 50% 100%;
   animation: rise 1.2s 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
@@ -42,18 +43,15 @@
   border-radius: 50%;
 }
 
-/* Terminal palette for the demo session. */
-.c-green { color: #8cd17d; }
-.c-yellow { color: #e5c07b; }
-.c-orange { color: #e5864b; }
-.c-red { color: #f2777a; }
-.c-blue { color: #6cb6ff; }
-.c-cyan { color: #56c8d8; }
-.c-violet { color: #c792ea; }
-.c-dim { color: #7d7783; }
-.c-text { color: #f5f2f6; }
-.bold { font-weight: 700; }
-.row-sel { background: rgba(108, 168, 255, 0.22); border-radius: 5px; margin: 0 -6px; padding: 0 6px; }
+/* A recording of the real app (docs/demo/record.py). */
+.hero-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 50px 120px -30px rgba(0, 0, 0, 0.85);
+}
 
 @media (max-width: 640px) {
   .hero { padding-top: 56px; }
