@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-14
+
 ### Added
 
 - macOS support. Releases include a universal binary (Apple Silicon and Intel) as a tarball
@@ -189,7 +191,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/jramirez-codes/nex/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/jramirez-codes/nex/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/jramirez-codes/nex/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/jramirez-codes/nex/compare/v0.6.0...v0.6.1
