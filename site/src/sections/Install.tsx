@@ -6,6 +6,12 @@ import './install.css'
 
 const METHODS = [
   {
+    id: 'mac',
+    label: 'macOS',
+    note: <>Unzip <code>nex-v*-macos-app.zip</code> from the <a href={RELEASES}>latest release</a> and drag <code>nex.app</code> to Applications. It isn't notarized yet, so clear the download flag once:</>,
+    lines: ['xattr -dr com.apple.quarantine /Applications/nex.app'],
+  },
+  {
     id: 'deb',
     label: 'Debian / Ubuntu',
     note: <>Grab the <code>.deb</code> for x86_64 or aarch64 from the <a href={RELEASES}>latest release</a>, then:</>,
@@ -20,7 +26,7 @@ const METHODS = [
   {
     id: 'src',
     label: 'From source',
-    note: <>Needs Rust 1.88+ plus <code>libxkbcommon</code>, <code>wayland</code>, <code>mesa</code> and <code>fontconfig</code> dev packages.</>,
+    note: <>Needs Rust 1.88+. On Linux, also the <code>libxkbcommon</code>, <code>wayland</code>, <code>mesa</code> and <code>fontconfig</code> dev packages; on macOS, the Xcode command line tools.</>,
     lines: [`git clone ${REPO}.git`, 'cd nex && ./install.sh'],
   },
 ]
@@ -33,7 +39,7 @@ export default function Install() {
       <Reveal className="section-head">
         <p className="eyebrow">Install</p>
         <h2 className="title">Up and running in<br />one command.</h2>
-        <p className="lede">Linux, X11 or Wayland. Prebuilt for x86_64 and aarch64.</p>
+        <p className="lede">macOS (Apple Silicon and Intel) and Linux (X11 or Wayland, x86_64 and aarch64).</p>
       </Reveal>
       <Reveal className="glass install">
         <div className="seg" role="tablist" aria-label="Install method">

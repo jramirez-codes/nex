@@ -7,7 +7,7 @@ export default function Footer() {
       <div className="footer-cta">
         <img src={asset('nex.svg')} alt="" width={72} height={72} />
         <h2>Try nex today.</h2>
-        <p>Free and open source. Coming next: a quick drop-down terminal, a command palette, shell integration and macOS.</p>
+        <p>Free and open source. Now on macOS too. Coming next: a quick drop-down terminal, a command palette and shell integration.</p>
         <a className="btn btn-primary" href={REPO}>Star on GitHub</a>
       </div>
       <div className="footer-meta">

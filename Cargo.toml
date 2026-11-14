@@ -1,6 +1,6 @@
 [package]
 name = "nex"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 rust-version = "1.88"
 description = "A fast, GPU-accelerated terminal emulator for Linux and macOS with tabs, split panes and a file explorer built in."
