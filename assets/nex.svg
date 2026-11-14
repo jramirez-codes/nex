@@ -4,16 +4,27 @@
       <stop offset="0" stop-color="#3a3346"/>
       <stop offset="1" stop-color="#16141a"/>
     </linearGradient>
-    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="coat" gradientUnits="userSpaceOnUse" x1="26" y1="24" x2="102" y2="108">
       <stop offset="0" stop-color="#c792ea"/>
       <stop offset="1" stop-color="#6cb6ff"/>
     </linearGradient>
+    <path id="head" d="M45 46 Q64 38 83 46 L96 64 L103 78 L92 81 Q88 97 73 105 Q64 109 55 105 Q40 97 36 81 L25 78 L32 64 Z"/>
+    <clipPath id="face"><use href="#head"/></clipPath>
   </defs>
   <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
   <rect x="8.5" y="8.5" width="111" height="111" rx="25.5" fill="none" stroke="#ffffff" stroke-opacity=".14"/>
-  <circle cx="28" cy="28" r="4" fill="#ff5f57"/>
-  <circle cx="41" cy="28" r="4" fill="#febc2e"/>
-  <circle cx="54" cy="28" r="4" fill="#28c840"/>
-  <path d="M34 54 L54 70 L34 86" fill="none" stroke="url(#glow)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="62" y="80" width="32" height="9" rx="4.5" fill="#d9d4dd"/>
+  <g fill="url(#coat)" stroke="url(#coat)" stroke-width="5" stroke-linejoin="round">
+    <!-- ears: left pricked, right tipped over -->
+    <path d="M35 61 L31 27 L56 45 Z"/>
+    <path d="M93 61 L97 37 L80 31 L72 45 Z"/>
+    <use href="#head"/>
+  </g>
+  <path d="M80 31 L97 37 L90 51 Z" fill="#5b6fc4" stroke="#5b6fc4" stroke-width="5" stroke-linejoin="round"/>
+  <!-- blaze and muzzle -->
+  <g clip-path="url(#face)">
+    <path d="M61 36 H67 Q69 50 69.500 61 Q70 71 80 77 Q91 84 88 96 L80 113 H48 L40 96 Q37 84 48 77 Q58 71 58.500 61 Q59 50 61 36 Z" fill="#f4f1f7"/>
+  </g>
+  <circle cx="47" cy="67" r="4.500" fill="#16141a"/>
+  <circle cx="81" cy="67" r="4.500" fill="#16141a"/>
+  <path d="M57 84 Q64 80.500 71 84 Q71 89 64 94 Q57 89 57 84 Z" fill="#16141a" stroke="#16141a" stroke-width="2" stroke-linejoin="round"/>
 </svg>
