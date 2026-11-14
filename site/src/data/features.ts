@@ -11,7 +11,7 @@ export const SPOTLIGHT: Feature[] = [
   {
     eyebrow: 'Tabs and splits, built in',
     title: 'Every split is a card.',
-    body: 'Tabs live in the title bar on a segmented track with a glass pill that glides to the one you pick. Split right or down, zoom a pane, drag the gaps to resize. Each pane has its own header with what is running and where.',
+    body: 'Tabs live in the title bar on a segmented track with a glass pill that glides to the one you pick. Split right or down and the new pane slides out of the old one’s edge; close one and its neighbor grows into the space. Zoom a pane, drag the gaps to resize. Each pane has its own header with what is running and where.',
     keys: ['Ctrl+Shift+O', 'Ctrl+Shift+E', 'Ctrl+Shift+Enter'],
     shot: { src: 'demo/splits.gif', alt: 'Splitting a tab right and down, zooming the nvim pane, then resizing and equalizing the splits' },
   },
@@ -33,7 +33,7 @@ export const SPOTLIGHT: Feature[] = [
 
 /** The smaller grid of details. */
 export const DETAILS: { icon: string; title: string; body: string }[] = [
-  { icon: '⚡', title: 'Drawn by the GPU', body: 'Text is batched into styled runs, so typing, scrolling and resizing stay smooth under btop or nvim.' },
+  { icon: '⚡', title: 'Drawn by the GPU', body: 'Each pane is one mesh of cached glyphs, and idle panes reuse their last frame, so btop or nvim stay smooth with CPU to spare.' },
   { icon: '▦', title: 'Pixel-perfect TUIs', body: 'Box-drawing, block, braille and Powerline glyphs are drawn as geometry, so borders and graphs line up exactly.' },
   { icon: 'Aa', title: 'Nerd Font included', body: 'JetBrains Mono Nerd Font is embedded. Icons in nvim, starship and lazygit work with nothing installed.' },
   { icon: '◎', title: 'Smart titles', body: 'Tabs and panes show the program and its folder, like “Node ~/code/nex”, or the title the program sets.' },

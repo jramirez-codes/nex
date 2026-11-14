@@ -5,7 +5,7 @@
   <br>nex
 </h1>
   <p align="center">
-    The nex-gen terminal.
+    The nex terminal.
     <br />
     Fast, GPU-rendered, with tabs and split panes built in. Written in Rust.
     <br />
