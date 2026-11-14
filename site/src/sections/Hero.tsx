@@ -28,7 +28,7 @@ export default function Hero() {
 
   return (
     <section className="hero" id="top">
-      <p className="eyebrow hero-in">Version 0.3 · Linux · Open source</p>
+      <p className="eyebrow hero-in">Version 0.6 · Linux · Open source</p>
       <h1 className="hero-title hero-in">
         The <span className="gradient-text">nex</span> terminal.
       </h1>
