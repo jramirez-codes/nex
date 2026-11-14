@@ -1,11 +1,13 @@
 //! Ghostty-style configuration: a plain `key = value` file at
-//! `$XDG_CONFIG_HOME/nex/config` (falls back to `~/.config/nex/config`).
+//! `$XDG_CONFIG_HOME/nex/config` (falls back to `~/.config/nex/config`), or the file given
+//! with `--config`.
 //!
 //! Unknown keys are reported on stderr and ignored, so a typo never prevents startup.
 //! The file is reloaded when it changes, or on Ctrl+Shift+, (see `app/reload.rs`).
 
 use egui::Color32;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::SystemTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,7 +98,18 @@ impl Default for Config {
     }
 }
 
+/// A config file given with `--config`, used instead of the default location.
+static PATH_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Read the config from `path` from now on (for `--config`). Call before the first `load`.
+pub fn set_path(path: PathBuf) {
+    let _ = PATH_OVERRIDE.set(path);
+}
+
 pub fn config_path() -> PathBuf {
+    if let Some(p) = PATH_OVERRIDE.get() {
+        return p.clone();
+    }
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))

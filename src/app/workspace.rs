@@ -35,7 +35,8 @@ impl App {
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);
         let cell_px = cell_px(ctx, m);
-        match Terminal::spawn(id, &self.cfg, cwd, size, cell_px, ctx) {
+        let command = self.first_command.take();
+        match Terminal::spawn(id, &self.cfg, command, cwd, size, cell_px, ctx) {
             Ok(t) => {
                 self.panes.insert(id, t);
                 if let Some(fs) = font_size {

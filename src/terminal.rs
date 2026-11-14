@@ -95,15 +95,19 @@ impl Terminal {
     pub fn spawn(
         id: u64,
         cfg: &Config,
+        command: Option<Vec<String>>,
         cwd: Option<PathBuf>,
         size: GridSize,
         cell_px: (u16, u16),
         ctx: &egui::Context,
     ) -> std::io::Result<Self> {
-        let shell = cfg.command.as_ref().map(|cmd| {
-            let mut parts = cmd.split_whitespace().map(str::to_string);
-            let program = parts.next().unwrap_or_default();
-            tty::Shell::new(program, parts.collect())
+        // `-e` (a program and its arguments), else `command` from the config, else the shell.
+        let command = command.or_else(|| {
+            cfg.command.as_ref().map(|cmd| cmd.split_whitespace().map(str::to_string).collect())
+        });
+        let shell = command.filter(|p| !p.is_empty()).map(|mut parts| {
+            let program = parts.remove(0);
+            tty::Shell::new(program, parts)
         });
         let env = HashMap::from([
             ("TERM".to_string(), "xterm-256color".to_string()),

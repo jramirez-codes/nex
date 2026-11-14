@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Command-line flags: `--config=PATH` reads another config file, `--app-id=ID` sets the
+  window's Wayland app_id (X11 class), `--working-directory=DIR` starts the first shell there,
+  and `-e COMMAND [ARGS...]` runs a program in the first pane instead of the shell. Also
+  `--help` and `--version`. A new window (Ctrl+Shift+N) keeps `--config` and `--app-id`.
+
 ## [0.3.0] - 2026-11-13
 
 ### Added
