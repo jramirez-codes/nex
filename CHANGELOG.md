@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-14
+
+### Fixed
+
+- macOS: the close / minimize / zoom buttons sat above the middle of nex's title bar. They
+  are now centered in it, in line with the tabs.
+
 ## [0.7.1] - 2026-11-14
 
 ### Added
@@ -205,7 +212,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/jramirez-codes/nex/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/jramirez-codes/nex/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/jramirez-codes/nex/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/jramirez-codes/nex/compare/v0.6.2...v0.6.3

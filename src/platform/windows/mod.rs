@@ -22,6 +22,9 @@ pub const FALLBACK_FAMILIES: &[&str] = &["Consolas", "Segoe UI Symbol", "Cambria
 pub(super) const SANS_SERIF: &str = "Segoe UI";
 pub(super) const MONOSPACE: &str = "Consolas";
 
+/// nex draws its own window buttons here, so there is nothing to align (macOS only).
+pub fn align_window_buttons(_frame: &eframe::Frame, _height: f32) {}
+
 pub fn opened_from_desktop() -> bool {
     false
 }

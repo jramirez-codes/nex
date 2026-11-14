@@ -167,7 +167,7 @@ impl eframe::App for App {
 
     /// One frame: read PTY output, handle keys, draw, handle the mouse, then apply whatever
     /// the user asked for along the way.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.update_metrics(ctx);
         self.update_content_area(ctx);
         if !self.started {
@@ -209,6 +209,9 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         self.sync_window_title(ctx);
+        if self.cfg.window_decorations && crate::platform::WINDOW.overlays_titlebar() {
+            crate::platform::align_window_buttons(frame, TITLEBAR_HEIGHT * ctx.zoom_factor());
+        }
     }
 }
 
