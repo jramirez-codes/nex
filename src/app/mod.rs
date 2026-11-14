@@ -4,6 +4,7 @@
 mod actions;
 mod keyboard;
 mod metrics;
+mod motion;
 mod mouse;
 mod panes;
 mod reload;
@@ -94,6 +95,7 @@ impl App {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_visuals(egui::Visuals::dark());
         fonts::install(ctx, &cfg);
+        crate::ui::glide::set_animations(ctx, cfg.animations);
 
         let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname")
             .map(|s| s.trim().to_string())
@@ -204,7 +206,7 @@ impl App {
             }
         }
         for id in exited {
-            self.close_pane(id);
+            self.close_pane(ctx, id);
         }
     }
 

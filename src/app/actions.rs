@@ -109,10 +109,10 @@ impl App {
             Action::NewWindow => self.new_window(),
             Action::ClosePane(0) => {
                 if let Some(id) = focused {
-                    self.close_pane(id)
+                    self.close_pane(ctx, id)
                 }
             }
-            Action::ClosePane(id) => self.close_pane(id),
+            Action::ClosePane(id) => self.close_pane(ctx, id),
             Action::CloseTab(i) => self.close_tab(i),
             Action::Split(axis) => {
                 if let Some(id) = focused {
@@ -155,7 +155,7 @@ impl App {
             Action::ToggleExplorer => self.toggle_explorer(),
             Action::ExploreHere => {
                 if let Some(id) = focused {
-                    self.split_explorer(id, Axis::Horizontal)
+                    self.split_explorer(ctx, id, Axis::Horizontal)
                 }
             }
             Action::CloseExplorer => self.close_explorer(),

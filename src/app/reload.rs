@@ -4,6 +4,7 @@ use egui::ViewportCommand;
 
 use crate::config::{self, Config};
 use crate::fonts;
+use crate::ui::glide;
 
 use super::App;
 
@@ -25,6 +26,7 @@ impl App {
         if cfg.window_decorations != old.window_decorations {
             ctx.send_viewport_cmd(ViewportCommand::Decorations(cfg.window_decorations));
         }
+        glide::set_animations(ctx, cfg.animations);
         for t in self.panes.values_mut() {
             t.apply_config(cfg);
         }

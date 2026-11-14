@@ -136,19 +136,19 @@ impl App {
         // The new pane starts at the zoom level of the pane it was split from.
         let font_size = self.pane_fonts.get(&target).copied();
         if let Some(new) = self.spawn_pane(ctx, cwd, card, font_size) {
-            self.attach_split(target, axis, new);
+            self.attach_split(ctx, target, axis, new);
         }
     }
 
     /// Split a file explorer off `target`, showing `target`'s directory, in the same tab.
-    pub(super) fn split_explorer(&mut self, target: PaneId, axis: Axis) {
+    pub(super) fn split_explorer(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
         let dir = self
             .pane_cwd(target)
             .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("/"));
         let new = self.alloc_pane_id();
         self.explorers.insert(new, FileExplorer::new(dir));
-        self.attach_split(target, axis, new);
+        self.attach_split(ctx, target, axis, new);
     }
 
     /// Where a pane split off `target` will land: the half of its card on the new side.
@@ -163,29 +163,39 @@ impl App {
             .unwrap_or(Rect::NOTHING)
     }
 
-    /// Put `new` beside `target` in whichever tab holds it, and focus it.
-    fn attach_split(&mut self, target: PaneId, axis: Axis, new: PaneId) {
+    /// Put `new` beside `target` in whichever tab holds it, and focus it. The new pane slides
+    /// out of `target`'s far edge.
+    fn attach_split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis, new: PaneId) {
         match self.tab_with(target) {
             Some(tab) => {
                 tab.root.split(target, axis, new);
                 tab.focused = new;
                 tab.zoomed = false;
+                tab.motion.kick_split(ctx, target, axis, new);
             }
             None => self.forget_pane(new),
         }
     }
 
-    /// Close one pane; closing a tab's last pane closes the tab.
-    pub(super) fn close_pane(&mut self, id: PaneId) {
+    /// Close one pane; closing a tab's last pane closes the tab. A pane closed out of a
+    /// split collapses and fades out (its last frame is kept for that).
+    pub(super) fn close_pane(&mut self, ctx: &egui::Context, id: PaneId) {
+        let (title, process) = self.pane_label(id);
+        let shapes = self.panes.get_mut(&id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
         if let Some(tab) = self.explorer_tab.as_mut().filter(|t| t.contains(id)) {
-            if !tab.remove_pane(id) {
+            if tab.remove_pane(id) {
+                tab.motion.kick_close(ctx, id, title, process, shapes);
+            } else {
                 self.close_explorer();
             }
             return;
         }
         let Some(ti) = self.tabs.iter().position(|t| t.contains(id)) else { return };
-        if !self.tabs[ti].remove_pane(id) {
+        let tab = &mut self.tabs[ti];
+        if tab.remove_pane(id) {
+            tab.motion.kick_close(ctx, id, title, process, shapes);
+        } else {
             self.close_tab(ti);
         }
     }

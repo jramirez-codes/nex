@@ -182,6 +182,11 @@ impl Terminal {
         self.frame.as_ref().map_or(&[], |(_, shapes)| shapes)
     }
 
+    /// Take the last frame's shapes (to keep drawing a closed pane while it fades out).
+    pub fn take_shapes(&mut self) -> Vec<egui::Shape> {
+        self.frame.take().map(|(_, shapes)| shapes).unwrap_or_default()
+    }
+
     /// Drain events produced by the PTY thread since the last frame.
     pub fn process_events(&mut self, ctx: &egui::Context, cfg: &Config) {
         while let Ok(event) = self.events.try_recv() {
