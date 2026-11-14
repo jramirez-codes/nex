@@ -6,11 +6,15 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
 ### Added
 
-- `mobile = true` for phone-sized touch screens: the title bar becomes a narrow sidebar on
-  the left, with the window buttons, the Files tab, one large app icon per tab and the
-  new-tab button stacked top to bottom. Pane headers get taller, with finger-sized buttons.
+- `mobile = true` for phone-sized touch screens: the title bar becomes a sidebar on the
+  left, with the window buttons, the Files tab, one large app icon per tab (title
+  underneath) and the new-tab button stacked top to bottom. Split tabs fan their icon deck
+  out wider, so the shuffle when focus moves is easy to see. Pane headers get taller, with
+  finger-sized buttons.
 - Drag and drop between windows on Wayland: drag files out of the explorer into another nex
   window (onto a terminal types their paths, onto an explorer copies them) or into another
   app, and drop files from other apps into nex. winit has no Wayland drag and drop, so nex
@@ -129,7 +133,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jramirez-codes/nex/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jramirez-codes/nex/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jramirez-codes/nex/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jramirez-codes/nex/compare/v0.1.1...v0.2.0
