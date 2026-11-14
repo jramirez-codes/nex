@@ -143,6 +143,7 @@ impl App {
             Action::GotoTab(i) => self.goto_tab(i),
             Action::Copy => {
                 if let Some(text) = focused.and_then(|id| self.panes.get(&id)).and_then(|t| t.selection_text()) {
+                    self.clipboard_toast(ctx, "Copied", &text);
                     ctx.copy_text(text);
                 }
             }

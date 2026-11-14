@@ -29,6 +29,7 @@ mobile = false              # phone-sized touch screens: tabs in a left sidebar,
 cursor-style = block        # block | bar | underline
 cursor-style-blink = true
 copy-on-select = false
+clipboard-toasts = true     # "Copied …" / "Pasted …" toasts for terminal copy and paste
 scrollback-limit = 10000
 
 # command = fish

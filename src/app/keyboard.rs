@@ -133,6 +133,7 @@ impl App {
                 } else if mods.shift {
                     if let Some(t) = self.focused_terminal() {
                         t.paste(&text);
+                        self.clipboard_toast(ctx, "Pasted", &text);
                     }
                 } else {
                     self.send_to_focused(&[0x16]);

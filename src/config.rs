@@ -47,6 +47,8 @@ pub struct Config {
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
     pub copy_on_select: bool,
+    /// Show a "Copied …" / "Pasted …" toast for terminal copy and paste.
+    pub clipboard_toasts: bool,
     pub scrollback_limit: usize,
     /// Command to run instead of the user's login shell.
     pub command: Option<String>,
@@ -96,6 +98,7 @@ impl Default for Config {
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
             copy_on_select: false,
+            clipboard_toasts: true,
             scrollback_limit: 10_000,
             command: None,
         }
@@ -199,6 +202,7 @@ impl Config {
             }
             "cursor-style-blink" => self.cursor_blink = boolean(value)?,
             "copy-on-select" => self.copy_on_select = value != "false",
+            "clipboard-toasts" => self.clipboard_toasts = boolean(value)?,
             "scrollback-limit" => {
                 self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?
             }
