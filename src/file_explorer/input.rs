@@ -73,12 +73,23 @@ pub(super) struct PointerInput {
     pub(super) now: f64,
 }
 
+/// Where the primary button was released this frame: the event's own position. A touch
+/// release can be followed in the same frame by a pointer move to wherever the (hidden) mouse
+/// cursor sits (sway does this when the finger lifts), which `interact_pos` would report.
+pub fn release_pos(i: &egui::InputState) -> Option<Pos2> {
+    i.raw.events.iter().rev().find_map(|e| match e {
+        egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, .. } => Some(*pos),
+        _ => None,
+    })
+}
+
 impl PointerInput {
-    /// Read the pointer. A touch release also reports the pointer as gone, so on release
-    /// the position falls back to `last_pos` (which this keeps up to date).
+    /// Read the pointer. On release the position is where the button (or finger) came up;
+    /// a touch release also reports the pointer as gone, so it falls back to `last_pos`
+    /// (which this keeps up to date).
     pub(super) fn read(ui: &Ui, last_pos: &mut Option<Pos2>) -> Self {
         let mut input = ui.input(|i| PointerInput {
-            pos: i.pointer.interact_pos(),
+            pos: release_pos(i).or(i.pointer.interact_pos()),
             pressed: i.pointer.primary_pressed(),
             released: i.pointer.primary_released(),
             down: i.pointer.primary_down(),

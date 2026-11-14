@@ -34,7 +34,7 @@ use items::Layout;
 use transfer::FS_GENERATION;
 
 pub use fs_ops::shell_quote;
-pub use input::ExplorerDrag;
+pub use input::{ExplorerDrag, release_pos};
 pub use items::paint_drag_ghost;
 
 /// How often an idle listing is re-read so files created elsewhere show up.
