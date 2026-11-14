@@ -5,7 +5,7 @@ use egui::{Event, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, T
 use std::path::{Path, PathBuf};
 
 use super::App;
-use crate::layout::{Axis, PaneId};
+use crate::app::layout::{Axis, PaneId};
 
 struct Sim {
     ctx: egui::Context,

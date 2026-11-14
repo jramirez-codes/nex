@@ -1,8 +1,12 @@
 //! Paint a terminal grid with egui's painter.
 //!
-//! Backgrounds and glyphs become textured quads in one mesh per pane (see [`crate::glyphs`]),
+//! Backgrounds and glyphs become textured quads in one mesh per pane (see [`crate::render::glyphs`]),
 //! so no text is laid out per frame. Box-drawing characters are drawn as geometry, and
 //! characters with combining marks are laid out by egui.
+
+pub mod boxdraw;
+pub mod fonts;
+pub mod glyphs;
 
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::SelectionRange;
@@ -14,8 +18,8 @@ use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
 use egui::{Color32, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 use crate::config::Config;
-use crate::glyphs::{GlyphCache, GridMesh};
-use crate::snapshot::{SnapCell, Snapshot};
+use crate::render::glyphs::{GlyphCache, GridMesh};
+use crate::terminal::snapshot::{SnapCell, Snapshot};
 use crate::terminal::Terminal;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -331,7 +335,7 @@ impl<'a> Layers<'a> {
             return;
         }
         let r = self.cell_rect(line, col, width);
-        if width == 1 && !c.is_ascii() && crate::boxdraw::draw(c, r, fg, self.m.ppp, &mut self.texts) {
+        if width == 1 && !c.is_ascii() && crate::render::boxdraw::draw(c, r, fg, self.m.ppp, &mut self.texts) {
             return;
         }
         let Some(extra) = zerowidth else {

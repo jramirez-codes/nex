@@ -6,10 +6,10 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
 use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, Vec2};
 
-use crate::input::{self, MouseAction, MouseButton};
-use crate::layout::PaneId;
+use crate::terminal::input::{self, MouseAction, MouseButton};
+use crate::app::layout::PaneId;
 use crate::render;
-use crate::search;
+use crate::terminal::search;
 
 use super::App;
 use super::actions::Action;

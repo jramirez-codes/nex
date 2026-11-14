@@ -1,15 +1,8 @@
 mod app;
 mod cli;
-mod boxdraw;
 mod config;
 mod file_explorer;
-mod fonts;
-mod glyphs;
-mod input;
-mod layout;
 mod render;
-mod search;
-mod snapshot;
 mod terminal;
 mod ui;
 mod wl_dnd;

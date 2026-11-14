@@ -311,14 +311,27 @@ renderer, tabs, splits, file explorer and window chrome are nex's own.
 ```
 src/
 ├── main.rs           window setup (eframe / winit)
+├── cli.rs            command-line flags
+├── config.rs         config parsing and reloading
 ├── app/              the application: state and frame loop (mod.rs), plus
 │   ├── actions.rs        shortcuts and carrying out actions
 │   ├── keyboard.rs       keys, text and clipboard routing
 │   ├── mouse.rs          selection, mouse reporting, wheel, links
 │   ├── panes.rs          pane cards, headers, divider dragging
+│   ├── layout.rs         binary split tree + directional focus
 │   ├── titlebar.rs       window buttons, tab track, Files label
 │   ├── workspace.rs      tabs, splits, opening and closing panes
 │   └── …                 tab, window, zoom, metrics
+├── terminal/         one terminal per pane
+│   ├── mod.rs            PTY + VT state, /proc process info
+│   ├── input.rs          keyboard & mouse → xterm escape sequences
+│   ├── search.rs         scrollback search, URL and OSC 8 link detection
+│   └── snapshot.rs       copy of the visible screen, taken under the lock
+├── render/           drawing the terminal grid
+│   ├── mod.rs            runs, colors, cursor, selection, search highlights
+│   ├── glyphs.rs         glyph cache + per-pane mesh
+│   ├── boxdraw.rs        procedural box / block / braille / Powerline glyphs
+│   └── fonts.rs          fontconfig lookup + embedded Nerd Font
 ├── file_explorer/    the explorer pane
 │   ├── mod.rs            state, navigation, selection
 │   ├── view.rs           path bar, listing, action bar, context menu
@@ -327,14 +340,7 @@ src/
 │   ├── fs_ops.rs         listing, copying, moving, path quoting
 │   └── items.rs, zoom.rs rows, tiles and pinch zoom
 ├── ui/               shared UI kit: theme, glide animation, painting, icons, widgets
-├── layout.rs         binary split tree + directional focus
-├── terminal.rs       PTY + VT state per pane, /proc process info
-├── render.rs         grid painting: runs, colors, cursor, selection, search
-├── boxdraw.rs        procedural box / block / braille / Powerline glyphs
-├── input.rs          keyboard & mouse → xterm escape sequences
-├── search.rs         scrollback search, URL and OSC 8 link detection
-├── fonts.rs          fontconfig lookup + embedded Nerd Font
-└── config.rs         config parsing
+└── wl_dnd/           Wayland drag and drop with other apps
 ```
 
 Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hyprland).

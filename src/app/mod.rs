@@ -3,6 +3,7 @@
 
 mod actions;
 mod keyboard;
+pub mod layout;
 mod metrics;
 mod motion;
 mod mouse;
@@ -24,11 +25,11 @@ use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, Vec2, ViewportCommand};
 
 use crate::config::{self, Config};
 use crate::file_explorer::{self, FileExplorer};
-use crate::fonts;
-use crate::glyphs::GlyphCache;
-use crate::layout::PaneId;
+use crate::render::fonts;
+use crate::render::glyphs::GlyphCache;
+use crate::app::layout::PaneId;
 use crate::render::CellMetrics;
-use crate::search::{Link, LinkFinder, Search};
+use crate::terminal::search::{Link, LinkFinder, Search};
 use crate::terminal::Terminal;
 use crate::ui::glide::Glide;
 use crate::ui::theme::{Theme, white_alpha};

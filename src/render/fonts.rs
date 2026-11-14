@@ -49,10 +49,10 @@ fn load(pattern: &str) -> Option<FontData> {
 /// License: SIL OFL 1.1, see assets/fonts/OFL.txt.
 const EMBEDDED_FAMILY: &str = "JetBrainsMonoNL Nerd Font Mono";
 const EMBEDDED: [&[u8]; 4] = [
-    include_bytes!("../assets/fonts/JetBrainsMonoNLNerdFontMono-Regular.ttf"),
-    include_bytes!("../assets/fonts/JetBrainsMonoNLNerdFontMono-Bold.ttf"),
-    include_bytes!("../assets/fonts/JetBrainsMonoNLNerdFontMono-Italic.ttf"),
-    include_bytes!("../assets/fonts/JetBrainsMonoNLNerdFontMono-BoldItalic.ttf"),
+    include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-Regular.ttf"),
+    include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-Bold.ttf"),
+    include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-Italic.ttf"),
+    include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-BoldItalic.ttf"),
 ];
 const EMBEDDED_KEY: &str = "embedded-nerd-regular";
 

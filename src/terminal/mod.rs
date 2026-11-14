@@ -1,6 +1,10 @@
 //! One terminal "surface": a PTY + child process, the alacritty VT state machine, and the
 //! bookkeeping (title, cwd, foreground process) shown in pane headers and tabs.
 
+pub mod input;
+pub mod search;
+pub mod snapshot;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -18,7 +22,7 @@ use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle as AnsiCursorStyle,
 
 use crate::config::{Config, CursorStyle};
 use crate::render::{self, FrameKey};
-use crate::snapshot::Snapshot;
+use crate::terminal::snapshot::Snapshot;
 
 /// Forwards terminal events from the PTY thread to the UI thread and wakes egui up.
 #[derive(Clone)]

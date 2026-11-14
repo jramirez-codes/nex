@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use egui::{Color32, CursorIcon, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::layout::{Axis, Divider, PaneId};
+use crate::app::layout::{Axis, Divider, PaneId};
 use crate::render::{self, FrameKey, PaintOptions};
-use crate::search::Search;
+use crate::terminal::search::Search;
 use crate::terminal::GridSize;
 use crate::ui::theme::{ERROR, Theme, darken};
 use crate::ui::widgets::{IconButton, IconFn, pressed_in};

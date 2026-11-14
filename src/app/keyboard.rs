@@ -3,7 +3,7 @@
 use egui::{Event, Key, Modifiers};
 
 use crate::file_explorer::FileExplorer;
-use crate::input;
+use crate::terminal::input;
 use crate::terminal::Terminal;
 
 use super::App;
