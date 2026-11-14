@@ -225,6 +225,7 @@ impl App {
                 t.term.lock().selection = None;
             } else if self.cfg.copy_on_select {
                 if let Some(text) = t.selection_text() {
+                    self.clipboard_toast(ctx, "Copied", &text);
                     ctx.copy_text(text);
                 }
             }

@@ -32,6 +32,7 @@ use crate::search::{Link, LinkFinder, Search};
 use crate::terminal::Terminal;
 use crate::ui::glide::Glide;
 use crate::ui::theme::{Theme, white_alpha};
+use crate::ui::toast::{self, Toast};
 use crate::ui::widgets::is_maximized;
 
 use actions::{keybindings, Action, Binding};
@@ -98,6 +99,8 @@ pub struct App {
     first_command: Option<Vec<String>>,
     /// Drag and drop with other windows (Wayland only).
     dnd: Option<crate::wl_dnd::WlDnd>,
+    /// The "Copied …" / "Pasted …" message currently on screen.
+    toast: Option<Toast>,
 }
 
 impl App {
@@ -144,6 +147,7 @@ impl App {
             new_window_args: args.for_new_window(),
             first_command: args.command,
             dnd: crate::wl_dnd::WlDnd::new(cc),
+            toast: None,
         }
     }
 }
@@ -298,6 +302,16 @@ impl App {
         self.file_drops(&ctx);
         file_explorer::paint_drag_ghost(&ctx, &theme);
         self.window_resize_edges(&ctx, full);
+        if self.toast.as_ref().is_some_and(|t| !t.paint(&ctx, area, &theme)) {
+            self.toast = None;
+        }
+    }
+
+    /// Confirm a terminal copy or paste with a toast (unless turned off in the config).
+    fn clipboard_toast(&mut self, ctx: &egui::Context, verb: &str, text: &str) {
+        if self.cfg.clipboard_toasts && !text.is_empty() {
+            self.toast = Some(Toast::new(ctx, toast::describe(verb, text)));
+        }
     }
 
     /// The window title follows the focused pane.

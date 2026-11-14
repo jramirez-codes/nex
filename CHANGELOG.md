@@ -6,6 +6,12 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Clipboard toasts: copying (Ctrl+Shift+C or copy-on-select) or pasting (Ctrl+Shift+V) in a
+  terminal shows a short "Copied 42 characters" / "Pasted 3 lines" toast at the bottom of the
+  window. `clipboard-toasts = false` turns them off.
+
 ## [0.5.0] - 2026-11-14
 
 ### Added
