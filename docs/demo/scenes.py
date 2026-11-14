@@ -52,7 +52,8 @@ def tour(d) -> None:
 
 
 def splits(d) -> None:
-    """Spotlight 1: split right and down, zoom a pane, resize and equalize."""
+    """Spotlight 1: panes slide out of the seam as they split, zoom, resize and equalize,
+    then close (collapsing and fading) back down to one."""
     d.extra_panes = 0
     d.mark("splits", "start")
     d.wait(0.6)
@@ -69,6 +70,12 @@ def splits(d) -> None:
         d.key("Left", "CTRL_SHIFT_ALT", after=0.25)  # grow the right column
     d.wait(0.8)
     d.key("equal", "CTRL_SHIFT_ALT", after=1.2)  # equalize
+    d.key("Up", CTRL_ALT, after=0.9)             # focus fades across to ls...
+    d.key("Left", CTRL_ALT, after=0.9)           # ...and to git log
+    d.key("Right", CTRL_ALT, after=0.6)
+    d.key("W", CTRL_SHIFT, after=1.0)            # close ls: nvim grows into its space
+    d.key("W", CTRL_SHIFT, after=1.4)            # close nvim: back to one pane
+    d.extra_panes -= 2
     d.mark("splits", "end")
     close_others(d)
 

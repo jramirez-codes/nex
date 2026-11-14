@@ -15,7 +15,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-FPS = 20
+# GIF frame delays are whole hundredths of a second: 3 cs (33 fps) is smooth enough for the
+# 0.18 s pane animations without the size of 2 cs.
+FPS = "100/3"
 # Output width per clip: the hero shows up to 1000px wide, feature rows about half a page;
 # a little extra keeps text crisp on HiDPI screens.
 WIDTH = {"tour": 1200}
