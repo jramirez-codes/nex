@@ -169,10 +169,11 @@ impl App {
         }
     }
 
-    /// Start another nex process in the focused directory.
+    /// Start another nex process in the focused directory, with the same config and app id.
     fn new_window(&self) {
         if let Ok(exe) = std::env::current_exe() {
             let mut cmd = std::process::Command::new(exe);
+            cmd.args(&self.new_window_args);
             if let Some(cwd) = self.focused_cwd() {
                 cmd.current_dir(cwd);
             }

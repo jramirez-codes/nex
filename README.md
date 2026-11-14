@@ -169,6 +169,18 @@ command = fish                               # defaults to your login shell
 
 See [`config.example`](config.example) for every option.
 
+### Command line
+
+```sh
+nex --config ~/kiosk.conf          # another config file instead of ~/.config/nex/config
+nex --app-id=dev.me.Scratch        # Wayland app_id (X11 class), for window rules
+nex --working-directory ~/code     # where the first shell starts
+nex -e htop                        # run a program instead of the shell (the rest of the line)
+```
+
+`-e` only applies to the first pane; new tabs and splits start your shell. The window closes
+when the program exits. A new window (`Ctrl+Shift+N`) keeps `--config` and `--app-id`.
+
 > [!TIP]
 > Translucent backgrounds look best with compositor blur. On Hyprland, set
 > `decoration { blur { enabled = true } }`.

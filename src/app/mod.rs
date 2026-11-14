@@ -87,10 +87,14 @@ pub struct App {
     explorer_active: bool,
     /// Last known pointer position (touch releases report the pointer as gone).
     last_pointer: Option<Pos2>,
+    /// Flags passed on to the nex started by Ctrl+Shift+N (`--config`, `--app-id`).
+    new_window_args: Vec<String>,
+    /// `-e` command, run by the first pane only; later panes start the shell.
+    first_command: Option<Vec<String>>,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config, args: crate::cli::Args) -> Self {
         let ctx = &cc.egui_ctx;
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_visuals(egui::Visuals::dark());
@@ -130,6 +134,8 @@ impl App {
             explorer_tab: None,
             explorer_active: false,
             last_pointer: None,
+            new_window_args: args.for_new_window(),
+            first_command: args.command,
         }
     }
 }
