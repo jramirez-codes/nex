@@ -42,7 +42,7 @@ fn main() -> eframe::Result {
 
     // On macOS the system draws its traffic lights over nex's own title bar.
     let overlay = platform::WINDOW.overlays_titlebar();
-    let viewport = egui::ViewportBuilder::default()
+    let mut viewport = egui::ViewportBuilder::default()
         .with_title("nex")
         .with_app_id(args.app_id.as_deref().unwrap_or("nex"))
         .with_inner_size([1100.0, 700.0])
@@ -52,6 +52,9 @@ fn main() -> eframe::Result {
         .with_fullsize_content_view(overlay)
         .with_titlebar_shown(!overlay)
         .with_title_shown(!overlay);
+    if let Some(icon) = platform::app_icon() {
+        viewport = viewport.with_icon(icon);
+    }
 
     let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args)))))

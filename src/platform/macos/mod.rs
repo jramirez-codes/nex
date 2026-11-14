@@ -19,6 +19,12 @@ pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Cmd;
 /// The system's own traffic lights, drawn over nex's title bar (see `main.rs`).
 pub const WINDOW: WindowDefaults = WindowDefaults { decorations: true, controls: false, titlebar_inset: 72.0 };
 
+/// An empty icon: eframe then leaves the Dock icon alone, so nex.app keeps its own `nex.icns`
+/// (with no icon set, eframe swaps in the egui logo once the app is running).
+pub fn app_icon() -> Option<egui::IconData> {
+    Some(egui::IconData::default())
+}
+
 /// Menlo draws symbols to the cell width; the rest cover symbols, math and CJK.
 pub const FALLBACK_FAMILIES: &[&str] = &["Menlo", "Apple Symbols", "STIX Two Math", "PingFang SC", "Hiragino Sans"];
 
