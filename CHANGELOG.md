@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-11-14
+
+### Fixed
+
+- macOS: in full screen, the title bar kept an empty gap where the hidden window buttons
+  would be. The workspace label and tabs now start at the left edge.
+
 ## [0.7.3] - 2026-11-14
 
 ### Fixed
@@ -221,7 +228,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/jramirez-codes/nex/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/jramirez-codes/nex/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/jramirez-codes/nex/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/jramirez-codes/nex/compare/v0.7.0...v0.7.1
