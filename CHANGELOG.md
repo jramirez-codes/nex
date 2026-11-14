@@ -6,6 +6,18 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `nex.app` for macOS, with the nex icon and the name "nex" in the menu bar. Releases include
+  it as `nex-<version>-macos-app.zip`, and `install.sh` installs it to `/Applications` (or
+  `~/Applications`). Built by `packaging/macos/make-app.sh`; ad-hoc signed, not notarized.
+
+### Fixed
+
+- macOS: opened from Finder or the Dock, the first shell started in `/` instead of your home
+  folder, and without `LANG`, so programs fell back to ASCII. nex now starts it at home and
+  sets `LANG` from your region (e.g. `en_US.UTF-8`) when it's missing.
+
 ## [0.7.0] - 2026-11-14
 
 ### Added

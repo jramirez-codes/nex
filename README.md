@@ -153,12 +153,19 @@ tar xzf nex-v*-x86_64-linux.tar.gz
 ./nex-v*-x86_64-linux/install.sh         # installs to ~/.local (override with PREFIX=...)
 ```
 
-**macOS (Apple Silicon and Intel):**
+**macOS (Apple Silicon and Intel):** unzip `nex-v*-macos-app.zip` and drag `nex.app` to
+Applications. The app isn't notarized yet, so clear the download flag once before opening it:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/nex.app
+```
+
+Or use the tarball, which installs `nex.app` and the `nex` command:
 
 ```sh
 tar xzf nex-v*-universal-macos.tar.gz
-xattr -dr com.apple.quarantine nex-v*-universal-macos   # the build isn't notarized yet
-./nex-v*-universal-macos/install.sh       # installs to ~/.local (override with PREFIX=...)
+xattr -dr com.apple.quarantine nex-v*-universal-macos
+./nex-v*-universal-macos/install.sh       # nex.app + ~/.local/bin/nex
 ```
 
 Each release includes a `SHA256SUMS.txt` you can verify the downloads against.
@@ -186,6 +193,7 @@ cd nex
 - the binary to `~/.local/bin/nex`;
 - on Linux, a desktop entry and icon, so nex appears in your app launcher (GNOME, KDE, rofi
   and others);
+- on macOS, `nex.app` in `/Applications` (or `~/Applications`; set `APP_DIR=...` to choose);
 - a starter config at `~/.config/nex/config`, unless you already have one.
 
 To run it without installing:
@@ -323,8 +331,8 @@ No. JetBrains Mono Nerd Font is embedded, so icons in Neovim, starship and lazyg
 the box. An installed Nerd Font Mono is used instead if you have one.
 
 **Is nex available on macOS or Windows?**
-macOS, yes: releases include a universal binary for Apple Silicon and Intel Macs (see
-[Installation](#installation)). An app bundle is on the [roadmap](#roadmap). Windows isn't supported yet, but the platform
+macOS, yes: releases include `nex.app`, a universal build for Apple Silicon and Intel Macs
+(see [Installation](#installation)). Signing and notarization are on the [roadmap](#roadmap). Windows isn't supported yet, but the platform
 layer (`src/platform/`) is set up for it.
 
 **How is nex related to Alacritty?**
@@ -372,9 +380,12 @@ src/
     ├── fontdb.rs         font lookup without fontconfig (macOS, Windows)
     ├── no_dnd.rs         drag and drop stub where winit handles it
     ├── linux/            /proc process info, fontconfig, Wayland drag and drop
-    ├── macos/            libproc process info, native traffic lights
+    ├── macos/            libproc process info, traffic lights, starting from nex.app
     └── windows/          compiles, not supported yet
 ```
+
+`packaging/macos/` holds `nex.app`'s `Info.plist`, icon and `make-app.sh`, which wraps a
+binary into the app (used by `install.sh` and the release workflow).
 
 Nothing outside `platform/` checks the OS. Porting nex to another OS means adding a folder
 there that provides the same items (`platform/mod.rs` lists them).
@@ -389,7 +400,8 @@ Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hy
 - [ ] Shell integration (OSC 7 cwd, prompt marks, jump between prompts)
 - [ ] Themes collection
 - [x] macOS support
-- [ ] macOS app bundle, signed and notarized
+- [x] macOS app bundle
+- [ ] Signed and notarized macOS app
 - [ ] Drag files out to Finder
 - [ ] Windows support
 
@@ -413,7 +425,7 @@ Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hy
    ```
 
 The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 Linux binaries
-(tarballs and `.deb`s) and a universal macOS binary (tarball), and publishes a GitHub Release
+(tarballs and `.deb`s) and a universal macOS build (`nex.app` zip and a tarball), and publishes a GitHub Release
 with notes taken from the changelog.
 
 ## License

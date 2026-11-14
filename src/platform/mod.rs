@@ -25,6 +25,8 @@
 //! | `FALLBACK_FAMILIES` | system fonts tried for glyphs the grid font lacks |
 //! | `proc_info(pid)` | a shell's foreground process name and cwd ([`ProcInfo`]) |
 //! | `pty_options(..)` / `pty_pid(..)` | build the PTY options, read the child's pid |
+//! | `shell_env()` | variables the shell needs but may not inherit (`LANG` on macOS) |
+//! | `opened_from_desktop()` | started by Finder / a launcher rather than a shell |
 //! | `open_uri(uri)` | open a link or file with the desktop's default app |
 //! | `config_dir()` / `home_dir()` / `hostname()` | where things are, who we are |
 //! | `symlink(src, dst)` / `shell_quote(path)` | file explorer helpers |
