@@ -22,6 +22,11 @@ pub const FALLBACK_FAMILIES: &[&str] = &["Consolas", "Segoe UI Symbol", "Cambria
 pub(super) const SANS_SERIF: &str = "Segoe UI";
 pub(super) const MONOSPACE: &str = "Consolas";
 
+/// The window keeps eframe's default icon (on macOS, the bundle's own icon wins).
+pub fn app_icon() -> Option<egui::IconData> {
+    None
+}
+
 /// nex draws its own window buttons here, so there is nothing to align (macOS only).
 pub fn align_window_buttons(_frame: &eframe::Frame, _height: f32) {}
 

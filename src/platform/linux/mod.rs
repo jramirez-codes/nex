@@ -17,6 +17,11 @@ pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0 };
 
 /// Desktop launchers start nex in the home folder already, so there is nothing to detect.
+/// The window keeps eframe's default icon (on macOS, the bundle's own icon wins).
+pub fn app_icon() -> Option<egui::IconData> {
+    None
+}
+
 /// nex draws its own window buttons here, so there is nothing to align (macOS only).
 pub fn align_window_buttons(_frame: &eframe::Frame, _height: f32) {}
 
