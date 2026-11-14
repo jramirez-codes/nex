@@ -1,0 +1,8 @@
+.footer { position: relative; z-index: 1; width: var(--page); margin: 0 auto; padding: 40px 0 48px; }
+.footer-cta { text-align: center; padding: 40px 0 100px; }
+.footer-cta img { margin: 0 auto 20px; }
+.footer-cta h2 { font-size: clamp(36px, 5vw, 56px); letter-spacing: -0.03em; margin: 0 0 12px; }
+.footer-cta p { color: var(--text-2); max-width: 520px; margin: 0 auto 28px; }
+.footer-meta { border-top: 1px solid var(--hairline); padding-top: 20px; font-size: 13px; color: var(--text-3); }
+.footer-meta p { margin: 0 0 8px; }
+.footer-meta a { color: var(--text-2); }

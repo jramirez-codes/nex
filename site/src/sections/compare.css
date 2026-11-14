@@ -1,0 +1,13 @@
+.compare-wrap { overflow-x: auto; padding: 8px 8px 4px; }
+.compare { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 15px; }
+.compare th, .compare td { padding: 14px 16px; text-align: center; border-bottom: 1px solid var(--hairline); }
+.compare tr:last-child th, .compare tr:last-child td { border-bottom: 0; }
+.compare thead th { font-size: 14px; font-weight: 600; color: var(--text-2); }
+.compare tbody th { text-align: left; font-weight: 400; color: var(--text); }
+.compare .is-nex { background: rgba(108, 168, 255, 0.07); }
+.compare thead .is-nex { color: var(--text); border-radius: 12px 12px 0 0; }
+.yes { color: var(--accent); }
+.is-nex .yes { color: var(--violet); }
+.no { color: var(--text-3); }
+.partial { color: var(--text-3); font-size: 13px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

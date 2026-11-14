@@ -1,0 +1,39 @@
+{
+  "machine": {
+    "cpu": "AMD Ryzen 7 3700X 8-Core Processor",
+    "gpu": "NVIDIA Corporation GA106 [GeForce RTX 3060 Lite Hash Rate] (rev a1)",
+    "kernel": "7.0.0-42-generic"
+  },
+  "runs": {
+    "nex": 3,
+    "kitty": 10,
+    "ghostty": 10,
+    "gnome-terminal": 10
+  },
+  "versions": {
+    "nex": "nex 0.2.0",
+    "kitty": "kitty 0.45.0",
+    "ghostty": "Ghostty 1.3.0-dev+0000000",
+    "gnome-terminal": "GNOME Terminal 3.58.0 using VTE 0.84.0"
+  },
+  "metrics": {
+    "startup_ms": {
+      "nex": 272,
+      "kitty": 839.5,
+      "ghostty": 396.5,
+      "gnome-terminal": 313.5
+    },
+    "throughput_ms": {
+      "nex": 822,
+      "kitty": 1288.0,
+      "ghostty": 1630.5,
+      "gnome-terminal": 1707.5
+    },
+    "idle_rss_mb": {
+      "nex": 115,
+      "kitty": 143.0,
+      "ghostty": 175.0,
+      "gnome-terminal": 52.0
+    }
+  }
+}
