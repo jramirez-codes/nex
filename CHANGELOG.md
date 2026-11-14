@@ -6,11 +6,18 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-14
+
 ### Added
 
 - Clipboard toasts: copying (Ctrl+Shift+C or copy-on-select) or pasting (Ctrl+Shift+V) in a
   terminal shows a short "Copied 42 characters" / "Pasted 3 lines" toast at the bottom of the
   window. `clipboard-toasts = false` turns them off.
+
+### Changed
+
+- nex is now "the nex terminal" (was "the nex-gen terminal") in the README, the site and the
+  package description. The site's version tag shows 0.6.
 
 ## [0.5.0] - 2026-11-14
 
@@ -139,7 +146,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/jramirez-codes/nex/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jramirez-codes/nex/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jramirez-codes/nex/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jramirez-codes/nex/compare/v0.2.0...v0.3.0
