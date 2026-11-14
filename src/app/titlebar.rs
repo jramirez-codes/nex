@@ -4,7 +4,7 @@ use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Stroke, Ui, Ve
 
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
-use crate::ui::widgets::{HoverShape, IconButton, is_maximized};
+use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
 use crate::ui::{icons, paint};
 
 use super::App;
@@ -118,8 +118,10 @@ impl App {
         }
 
         let cy = rect.center().y;
-        // Leave room for window buttons the OS draws over the title bar (macOS traffic lights).
-        let inset = if self.cfg.window_decorations { platform::WINDOW.titlebar_inset } else { 0.0 };
+        // Leave room for window buttons the OS draws over the title bar (macOS traffic lights),
+        // which it hides in full screen.
+        let overlaid = self.cfg.window_decorations && !is_fullscreen(&ctx);
+        let inset = if overlaid { platform::WINDOW.titlebar_inset } else { 0.0 };
         let left = rect.left() + 18.0 + inset;
         let x = if self.cfg.window_controls { window_controls(ui, left, cy) } else { left };
         let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 30.0 + LABEL_WIDTH, cy + 15.0));

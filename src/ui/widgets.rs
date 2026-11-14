@@ -121,6 +121,11 @@ pub fn is_maximized(ctx: &egui::Context) -> bool {
     ctx.input(|i| i.viewport().maximized.unwrap_or(false))
 }
 
+/// Whether the window is in full screen (on macOS this hides the traffic lights).
+pub fn is_fullscreen(ctx: &egui::Context) -> bool {
+    ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))
+}
+
 /// Whether the primary button was pressed this frame with the pointer inside `rect`.
 pub fn pressed_in(ui: &Ui, rect: Rect) -> bool {
     ui.rect_contains_pointer(rect) && ui.input(|i| i.pointer.primary_pressed())
