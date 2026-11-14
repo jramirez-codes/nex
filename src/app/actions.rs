@@ -3,8 +3,8 @@
 use alacritty_terminal::grid::Scroll;
 use egui::{Key, ViewportCommand};
 
-use crate::layout::{self, Axis, Direction, PaneId};
-use crate::search::Search;
+use crate::app::layout::{self, Axis, Direction, PaneId};
+use crate::terminal::search::Search;
 
 use super::App;
 use super::zoom::EXPLORER_ZOOM_STEP;

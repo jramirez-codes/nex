@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, DragAndDrop, FontId, Id, Key, Painter, PointerButton, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::layout::PaneId;
+use crate::app::layout::PaneId;
 use crate::ui::theme::{ACCENT, ERROR, HAIRLINE, Theme, white_alpha};
 use crate::ui::widgets::IconButton;
 use crate::ui::{icons, paint};

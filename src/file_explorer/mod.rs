@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use egui::Pos2;
 
-use crate::search;
+use crate::terminal::search;
 use crate::terminal::tilde;
 
 use fs_ops::read_entries;

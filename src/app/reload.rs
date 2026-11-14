@@ -3,7 +3,7 @@
 use egui::ViewportCommand;
 
 use crate::config::{self, Config};
-use crate::fonts;
+use crate::render::fonts;
 use crate::ui::glide;
 
 use super::App;

@@ -5,7 +5,7 @@ use alacritty_terminal::index::{Boundary, Column, Direction, Point};
 use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
 use alacritty_terminal::Term;
 
-use crate::layout::PaneId;
+use crate::app::layout::PaneId;
 
 /// Upper bound on matches we track, so a one-letter query in a huge scrollback stays cheap.
 const MAX_MATCHES: usize = 10_000;

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use egui::{Pos2, Rect};
 
 use crate::file_explorer::FileExplorer;
-use crate::layout::{Axis, PaneId};
+use crate::app::layout::{Axis, PaneId};
 use crate::terminal::Terminal;
 use crate::ui::icons;
 

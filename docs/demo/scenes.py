@@ -63,7 +63,7 @@ def splits(d) -> None:
     d.type("ls -la src", after=0.9)
     d.key("E", CTRL_SHIFT, after=0.9)
     d.extra_panes += 1
-    d.type("nvim src/layout.rs", after=1.6)
+    d.type("nvim src/app/layout.rs", after=1.6)
     d.key("Return", CTRL_SHIFT, after=1.6)       # zoom it
     d.key("Return", CTRL_SHIFT, after=1.2)       # and back
     for _ in range(3):
