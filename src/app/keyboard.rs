@@ -3,11 +3,13 @@
 use egui::{Event, Key, Modifiers};
 
 use crate::file_explorer::FileExplorer;
+use crate::platform;
 use crate::terminal::input;
 use crate::terminal::Terminal;
 
 use super::App;
 use super::actions::Action;
+use super::keymap::{self, ClipboardKey};
 
 impl App {
     pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {
@@ -47,10 +49,7 @@ impl App {
     /// A key press goes to the first taker: a shortcut, a file explorer, the search field, or
     /// the shell. Returns whether it ran a shortcut.
     fn on_key(&mut self, key: Key, modifiers: Modifiers) -> bool {
-        let binding = self.bindings.iter().find(|(c, s, a, k, _)| {
-            *k == key && *c == modifiers.ctrl && *s == modifiers.shift && *a == modifiers.alt
-        });
-        if let Some(&(.., action)) = binding {
+        if let Some(action) = keymap::lookup(&self.bindings, key, modifiers) {
             self.pending.push(action);
             return true;
         }
@@ -93,10 +92,10 @@ impl App {
         }
     }
 
-    /// Typed text: into the search field or the shell (Alt prefixes ESC). File explorers and
-    /// Ctrl chords don't take text.
+    /// Typed text: into the search field or the shell (Alt prefixes ESC, except on macOS where
+    /// Option types composed characters). File explorers and Ctrl / Cmd chords don't take text.
     fn on_text(&mut self, text: &str, mods: Modifiers) {
-        if mods.ctrl || self.focused_explorer().is_some() {
+        if mods.ctrl || mods.mac_cmd || self.focused_explorer().is_some() {
             return;
         }
         if let Some(s) = self.search.as_mut() {
@@ -105,16 +104,15 @@ impl App {
         }
         let Some(t) = self.focused_terminal() else { return };
         let mut bytes = Vec::with_capacity(text.len() + 1);
-        if mods.alt {
+        if mods.alt && platform::SHORTCUTS.alt_sends_esc() {
             bytes.push(0x1b);
         }
         bytes.extend_from_slice(text.as_bytes());
         t.input(bytes);
     }
 
-    /// egui-winit turns Ctrl+C / Ctrl+X / Ctrl+V into clipboard events. In a terminal only the
-    /// Ctrl+Shift variants are clipboard operations; plain Ctrl sends the control character to
-    /// the program (Ctrl+C → SIGINT). In a file explorer these copy / cut / paste files.
+    /// Copy / cut / paste events. In a file explorer these copy / cut / paste files; in a
+    /// terminal `keymap::clipboard_key` decides between the clipboard and a control character.
     fn on_clipboard(&mut self, ctx: &egui::Context, event: Event, mods: Modifiers) {
         if let Some(b) = self.focused_explorer() {
             match event {
@@ -123,20 +121,17 @@ impl App {
             }
             return;
         }
-        match event {
-            Event::Copy if mods.shift || !mods.ctrl => self.pending.push(Action::Copy),
-            Event::Copy => self.send_to_focused(&[0x03]),
-            Event::Cut => self.send_to_focused(&[0x18]),
-            Event::Paste(text) => {
-                if let Some(s) = self.search.as_mut() {
-                    s.query.push_str(text.lines().next().unwrap_or_default());
-                } else if mods.shift {
-                    if let Some(t) = self.focused_terminal() {
-                        t.paste(&text);
-                        self.clipboard_toast(ctx, "Pasted", &text);
-                    }
-                } else {
-                    self.send_to_focused(&[0x16]);
+        if let (Event::Paste(text), Some(s)) = (&event, self.search.as_mut()) {
+            s.query.push_str(text.lines().next().unwrap_or_default());
+            return;
+        }
+        match (keymap::clipboard_key(&event, mods), event) {
+            (ClipboardKey::Control(byte), _) => self.send_to_focused(&[byte]),
+            (ClipboardKey::Clipboard, Event::Copy) => self.pending.push(Action::Copy),
+            (ClipboardKey::Clipboard, Event::Paste(text)) => {
+                if let Some(t) = self.focused_terminal() {
+                    t.paste(&text);
+                    self.clipboard_toast(ctx, "Pasted", &text);
                 }
             }
             _ => {}

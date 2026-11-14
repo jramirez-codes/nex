@@ -6,6 +6,24 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- macOS support (build from source). Shortcuts follow Ghostty's macOS defaults (Cmd+T, Cmd+D,
+  Cmd+C / Cmd+V, Cmd+1…9; Ctrl+C always reaches the shell), the window uses the native traffic
+  lights, pane headers show the foreground process and folder, and fonts are found without
+  fontconfig. Dragging files out to Finder isn't supported yet.
+
+### Changed
+
+- Everything OS-specific now lives in `src/platform/`, one folder per OS behind the same API
+  (Wayland drag and drop moved there from `src/wl_dnd/`). The keyboard shortcuts are in
+  `src/app/keymap.rs`, with one table per OS. Pane-header tooltips show the shortcuts for the
+  current OS.
+- `config.example` no longer sets `window-decorations` / `window-controls`, since their
+  defaults now depend on the OS.
+- `install.sh` works on macOS (binary and config only; the desktop entry and icon are
+  Linux-only).
+
 ## [0.6.3] - 2026-11-14
 
 ### Fixed

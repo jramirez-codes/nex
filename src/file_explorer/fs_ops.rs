@@ -1,5 +1,5 @@
 //! File system work with no UI: reading folders, copying and moving files, and turning
-//! paths into text (sizes, counts, shell quoting, file:// URIs) and back.
+//! paths into text (sizes, counts, file:// URIs) and back.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -73,7 +73,7 @@ pub(super) fn unique_target(dest: &Path, name: &OsStr) -> PathBuf {
 pub(super) fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     let meta = std::fs::symlink_metadata(src)?;
     if meta.file_type().is_symlink() {
-        std::os::unix::fs::symlink(std::fs::read_link(src)?, dst)
+        crate::platform::symlink(&std::fs::read_link(src)?, dst)
     } else if meta.is_dir() {
         std::fs::create_dir(dst)?;
         for entry in std::fs::read_dir(src)? {
@@ -127,13 +127,6 @@ pub(super) fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
-}
-
-/// Quote a path for a POSIX shell (only when needed).
-pub fn shell_quote(path: &Path) -> String {
-    let s = path.to_string_lossy();
-    let safe = |c: char| c.is_ascii_alphanumeric() || "_./-+:,@%=~".contains(c);
-    if !s.is_empty() && s.chars().all(safe) { s.into_owned() } else { format!("'{}'", s.replace('\'', r"'\''")) }
 }
 
 /// List `dir`: folders first, then files, each sorted case-insensitively by name.
@@ -210,7 +203,7 @@ mod tests {
     fn delete_removes_files_folders_and_links_only() {
         let dir = fixture("delete");
         std::fs::write(dir.join("beta/inner.txt"), "in").unwrap();
-        std::os::unix::fs::symlink(dir.join("Alpha"), dir.join("link")).unwrap();
+        crate::platform::symlink(&dir.join("Alpha"), &dir.join("link")).unwrap();
         assert_eq!(delete_paths(&[dir.join("zeta.txt"), dir.join("beta"), dir.join("link")]), Ok(3));
         assert!(!dir.join("zeta.txt").exists() && !dir.join("beta").exists());
         assert!(std::fs::symlink_metadata(dir.join("link")).is_err());
@@ -221,13 +214,11 @@ mod tests {
     }
 
     #[test]
-    fn paths_and_quoting() {
+    fn parses_paths() {
         let dir = fixture("parse");
         let uri = format!("file://{}", dir.join("Apple.md").display()).replace(' ', "%20");
         assert_eq!(parse_paths(&format!("{uri}\nrelative/path\n/definitely/missing")), [dir.join("Apple.md")]);
         assert_eq!(percent_decode("/a%20b/c%2"), "/a b/c%2");
-        assert_eq!(shell_quote(Path::new("/tmp/plain-file.txt")), "/tmp/plain-file.txt");
-        assert_eq!(shell_quote(Path::new("/tmp/it's here")), r"'/tmp/it'\''s here'");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

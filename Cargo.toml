@@ -3,12 +3,12 @@ name = "nex"
 version = "0.6.3"
 edition = "2024"
 rust-version = "1.88"
-description = "A fast, GPU-accelerated terminal emulator for Linux with tabs, split panes and a file explorer built in."
+description = "A fast, GPU-accelerated terminal emulator for Linux and macOS with tabs, split panes and a file explorer built in."
 license = "MIT"
 repository = "https://github.com/jramirez-codes/nex"
 homepage = "https://jramirez-codes.github.io/nex/"
 readme = "README.md"
-keywords = ["terminal-emulator", "terminal", "gpu", "wayland", "linux"]
+keywords = ["terminal-emulator", "terminal", "gpu", "linux", "macos"]
 categories = ["command-line-utilities", "gui"]
 exclude = ["docs/", "site/", "bench/"]
 
@@ -17,10 +17,20 @@ alacritty_terminal = "0.26.0"
 eframe = "0.33.3"
 egui = "0.33.3"
 memmap2 = "0.9"
-raw-window-handle = "0.6"
-# Drag and drop with other windows on Wayland (see src/wl_dnd/).
+
+# Per-OS dependencies, used only by src/platform/<os>/.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Drag and drop with other windows on Wayland (see src/platform/linux/dnd/).
 wayland-client = { version = "0.31", features = ["system"] }
+raw-window-handle = "0.6"
 serde_json = "1"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+# System font lookup where there is no fontconfig (see src/platform/fontdb.rs).
+fontdb = { version = "0.23", default-features = false, features = ["std", "fs"] }
 
 [profile.release]
 lto = "thin"

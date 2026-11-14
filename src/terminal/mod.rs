@@ -20,6 +20,7 @@ use alacritty_terminal::term::{self, Term};
 use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle as AnsiCursorStyle, Rgb};
 
+use crate::platform;
 use crate::config::{Config, CursorStyle};
 use crate::render::{self, FrameKey};
 use crate::terminal::snapshot::Snapshot;
@@ -119,16 +120,11 @@ impl Terminal {
             ("TERM_PROGRAM".to_string(), "nex".to_string()),
             ("TERM_PROGRAM_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string()),
         ]);
-        let options = tty::Options {
-            shell,
-            working_directory: cwd.clone().filter(|p| p.is_dir()),
-            drain_on_exit: true,
-            env,
-        };
+        let options = platform::pty_options(shell, cwd.clone().filter(|p| p.is_dir()), env);
 
         let window_size = window_size(size, cell_px);
         let pty = tty::new(&options, window_size, id)?;
-        let pid = pty.child().id();
+        let pid = platform::pty_pid(&pty);
 
         let (tx, events) = mpsc::channel();
         let visible = Arc::new(AtomicBool::new(true));
@@ -291,31 +287,14 @@ impl Terminal {
             .filter(|s| !s.is_empty())
     }
 
-    /// Update `process` and `cwd` from /proc: we look at the *foreground* process group of
-    /// the shell's controlling terminal, so running `node` shows "Node" rather than "bash".
+    /// Update `process` and `cwd` from the shell's foreground process, so running `node`
+    /// shows "node" rather than "bash".
     pub fn refresh_process_info(&mut self) {
-        let shell_cwd = std::fs::read_link(format!("/proc/{}/cwd", self.pid)).ok();
-        let fg_pid = std::fs::read_to_string(format!("/proc/{}/stat", self.pid))
-            .ok()
-            .and_then(|stat| {
-                // Fields after the `(comm)` part: state ppid pgrp session tty_nr tpgid ...
-                let rest = &stat[stat.rfind(')')? + 1..];
-                rest.split_whitespace().nth(5)?.parse::<i32>().ok()
-            })
-            .filter(|&p| p > 0)
-            .map(|p| p as u32)
-            .unwrap_or(self.pid);
-
-        let comm = std::fs::read_to_string(format!("/proc/{fg_pid}/comm"))
-            .or_else(|_| std::fs::read_to_string(format!("/proc/{}/comm", self.pid)))
-            .map(|s| s.trim().to_string())
-            .unwrap_or_default();
-        let fg_cwd = std::fs::read_link(format!("/proc/{fg_pid}/cwd")).ok();
-
-        if !comm.is_empty() {
-            self.process = comm;
+        let info = platform::proc_info(self.pid);
+        if let Some(name) = info.name {
+            self.process = name;
         }
-        if let Some(cwd) = fg_cwd.or(shell_cwd) {
+        if let Some(cwd) = info.cwd {
             self.cwd = Some(cwd);
         }
     }
@@ -355,7 +334,7 @@ fn window_size(size: GridSize, cell_px: (u16, u16)) -> WindowSize {
 }
 
 pub fn tilde(path: &std::path::Path) -> String {
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+    if let Some(home) = platform::home_dir() {
         if let Ok(rest) = path.strip_prefix(&home) {
             return if rest.as_os_str().is_empty() {
                 "~".into()

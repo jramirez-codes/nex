@@ -5,7 +5,7 @@
 </h1>
 
 <p align="center">
-  <strong>A fast, GPU-accelerated terminal emulator for Linux, written in Rust.</strong>
+  <strong>A fast, GPU-accelerated terminal emulator for Linux and macOS, written in Rust.</strong>
   <br />
   Tabs, split panes and a file explorer, built in. No tmux, no plugins, no setup.
   <br /><br />
@@ -30,7 +30,7 @@
   <a href="https://github.com/jramirez-codes/nex/stargazers"><img src="https://img.shields.io/github/stars/jramirez-codes/nex?style=flat" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange.svg?logo=rust" alt="Rust 1.88+">
-  <img src="https://img.shields.io/badge/platform-Linux%20(Wayland%20%7C%20X11)-lightgrey.svg?logo=linux&logoColor=white" alt="Platform: Linux, Wayland and X11">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg" alt="Platform: Linux (Wayland and X11) and macOS">
 </p>
 
 <p align="center">
@@ -39,7 +39,7 @@
 
 ## About
 
-**nex** is a free, open-source terminal emulator for Linux that looks and feels like a native,
+**nex** is a free, open-source terminal emulator for Linux and macOS that looks and feels like a native,
 modern desktop app. Tabs live in the title bar, and every split pane is a rounded card with its
 own header showing what's running and where. A file explorer opens right next to your shell.
 The UI is drawn with the GPU, so typing, scrolling and resizing stay smooth even under heavy
@@ -50,7 +50,8 @@ battle-tested VT engine behind Alacritty and Zed's terminal. nex's own code cove
 rendering, input handling, multiplexing and window chrome.
 
 > [!NOTE]
-> nex is young and Linux-only for now (X11 and Wayland). Expect rough edges, and please
+> nex is young. It runs on Linux (X11 and Wayland) and macOS; macOS is newer and built from
+> source for now. Expect rough edges, and please
 > [open an issue](https://github.com/jramirez-codes/nex/issues) when you hit one. If nex is
 > useful to you, a ⭐ helps other people find it.
 
@@ -162,6 +163,8 @@ You need Rust 1.88+ and a few system libraries. On Debian/Ubuntu:
 sudo apt install build-essential libxkbcommon-dev libwayland-dev libgl1-mesa-dev fontconfig
 ```
 
+On macOS you only need the Xcode command line tools (`xcode-select --install`).
+
 Then build and install:
 
 ```sh
@@ -173,7 +176,8 @@ cd nex
 `install.sh` builds a release binary and installs:
 
 - the binary to `~/.local/bin/nex`;
-- a desktop entry and icon, so nex appears in your app launcher (GNOME, KDE, rofi and others);
+- on Linux, a desktop entry and icon, so nex appears in your app launcher (GNOME, KDE, rofi
+  and others);
 - a starter config at `~/.config/nex/config`, unless you already have one.
 
 To run it without installing:
@@ -184,9 +188,9 @@ cargo run --release
 
 ## Configuration
 
-nex reads `~/.config/nex/config` (or `$XDG_CONFIG_HOME/nex/config`). The syntax is
-Ghostty-style `key = value`, and `#` starts a comment. Changes apply as soon as you save the
-file, or press `Ctrl+Shift+,` to reload it by hand. `command` only affects shells started
+nex reads `~/.config/nex/config` (or `$XDG_CONFIG_HOME/nex/config`), on macOS too. The
+syntax is Ghostty-style `key = value`, and `#` starts a comment. Changes apply as soon as you
+save the file, or press `Ctrl+Shift+,` (`Cmd+Shift+,` on macOS) to reload it by hand. `command` only affects shells started
 after the change.
 
 ```ini
@@ -221,7 +225,8 @@ nex -e htop                        # run a program instead of the shell (the res
 ```
 
 `-e` only applies to the first pane; new tabs and splits start your shell. The window closes
-when the program exits. A new window (`Ctrl+Shift+N`) keeps `--config` and `--app-id`.
+when the program exits. A new window (`Ctrl+Shift+N`, `Cmd+N` on macOS) keeps `--config` and
+`--app-id`.
 
 > [!TIP]
 > Translucent backgrounds look best with compositor blur. On Hyprland, set
@@ -229,27 +234,33 @@ when the program exits. A new window (`Ctrl+Shift+N`) keeps `--config` and `--ap
 
 ## Keybindings
 
-| Action                 | Keys                                                  |
-| ---------------------- | ----------------------------------------------------- |
-| New tab / window       | `Ctrl+Shift+T` / `Ctrl+Shift+N`                       |
-| Split right / down     | `Ctrl+Shift+O` / `Ctrl+Shift+E`                       |
-| Close pane             | `Ctrl+Shift+W`                                        |
-| Focus split            | `Ctrl+Alt+Arrows`                                     |
-| Resize split           | `Ctrl+Shift+Alt+Arrows`                               |
-| Equalize splits        | `Ctrl+Shift+Alt+=`                                    |
-| Zoom pane              | `Ctrl+Shift+Enter`                                    |
-| Explorer split here    | `Ctrl+E`                                              |
-| Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn/PgUp`)   |
-| Go to tab *N*          | `Alt+1` … `Alt+8`, `Alt+9` for the last tab           |
-| Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       |
-| Search scrollback      | `Ctrl+Shift+F`, then `Enter` / `Shift+Enter`, `Esc`   |
-| Scroll                 | `Shift+PgUp/PgDn/Home/End`, mouse wheel               |
-| Font size / zoom       | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   |
-| Clear screen           | `Ctrl+Shift+K`                                        |
-| Reload config          | `Ctrl+Shift+,`                                        |
-| Quit                   | `Ctrl+Shift+Q`                                        |
+nex follows Ghostty's defaults on each OS. Both tables live in
+[`src/app/keymap.rs`](src/app/keymap.rs).
 
-Mouse actions:
+| Action                 | Linux                                                 | macOS                                           |
+| ---------------------- | ----------------------------------------------------- | ----------------------------------------------- |
+| New tab / window       | `Ctrl+Shift+T` / `Ctrl+Shift+N`                       | `Cmd+T` / `Cmd+N`                               |
+| Split right / down     | `Ctrl+Shift+O` / `Ctrl+Shift+E`                       | `Cmd+D` / `Cmd+Shift+D`                         |
+| Close pane             | `Ctrl+Shift+W`                                        | `Cmd+W`                                         |
+| Focus split            | `Ctrl+Alt+Arrows`                                     | `Cmd+Option+Arrows`                             |
+| Resize split           | `Ctrl+Shift+Alt+Arrows`                               | `Cmd+Ctrl+Arrows`                               |
+| Equalize splits        | `Ctrl+Shift+Alt+=`                                    | `Cmd+Ctrl+=`                                    |
+| Zoom pane              | `Ctrl+Shift+Enter`                                    | `Cmd+Shift+Enter`                               |
+| Explorer split here    | `Ctrl+E`                                              | `Cmd+E`                                         |
+| Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn/PgUp`)   | `Cmd+Shift+]` / `Cmd+Shift+[`, `Ctrl+Tab`       |
+| Go to tab *N*          | `Alt+1` … `Alt+8`, `Alt+9` for the last tab           | `Cmd+1` … `Cmd+8`, `Cmd+9` for the last tab     |
+| Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       | `Cmd+C` / `Cmd+V`                               |
+| Search scrollback      | `Ctrl+Shift+F`, then `Enter` / `Shift+Enter`, `Esc`   | `Cmd+F`, then `Enter` / `Shift+Enter`, `Esc`    |
+| Scroll                 | `Shift+PgUp/PgDn/Home/End`, mouse wheel               | the same, plus `Cmd+Up` / `Cmd+Down`            |
+| Font size / zoom       | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   | `Cmd+=` / `Cmd+-` / `Cmd+0`, `Cmd+wheel`, pinch |
+| Clear screen           | `Ctrl+Shift+K`                                        | `Cmd+K`                                         |
+| Reload config          | `Ctrl+Shift+,`                                        | `Cmd+Shift+,`                                   |
+| Quit                   | `Ctrl+Shift+Q`                                        | `Cmd+Q`                                         |
+
+On macOS, `Ctrl+C` and other Ctrl keys always go to the shell, and Option types accented
+characters as usual (it isn't sent as Alt/Meta).
+
+Mouse actions (use Cmd instead of Ctrl on macOS):
 
 - Double-click selects a word, triple-click a line, and Alt+drag a block.
 - Hold Shift to select text inside apps that capture the mouse.
@@ -260,6 +271,8 @@ Mouse actions:
   and middle-click it to close it. Ctrl+Tab cycles through it too.
 
 ### File explorer
+
+On macOS, use Cmd where this table says Ctrl.
 
 | Action                       | Keys / mouse                                          |
 | ---------------------------- | ----------------------------------------------------- |
@@ -277,8 +290,10 @@ Mouse actions:
 
 - Right-click for Open, Copy, Cut, Paste here, Paste into folder, Copy path, Delete and the
   view options.
-- Drag files onto a folder to move them, or onto a terminal to type their shell-quoted paths.
-  Files dropped in from another app are copied into the folder under the pointer.
+- Drag files onto a folder to move them (hold Ctrl, or Option on macOS, to copy), or onto a
+  terminal to type their shell-quoted paths. Files dropped in from another app are copied
+  into the folder under the pointer. Dragging files out to other apps works on Wayland, not
+  yet on macOS.
 - On a touchscreen, drag to scroll and long-press to start selecting. Long-press and keep
   moving (or, while selecting, drag a selected item) to drag the selection onto a folder,
   another explorer or a terminal. The action bar's Delete button asks before deleting
@@ -300,7 +315,9 @@ No. JetBrains Mono Nerd Font is embedded, so icons in Neovim, starship and lazyg
 the box. An installed Nerd Font Mono is used instead if you have one.
 
 **Is nex available on macOS or Windows?**
-Not yet. macOS is on the [roadmap](#roadmap).
+macOS, yes: build it from source (see [From source](#from-source)). Prebuilt macOS releases and
+an app bundle are on the [roadmap](#roadmap). Windows isn't supported yet, but the platform
+layer (`src/platform/`) is set up for it.
 
 **How is nex related to Alacritty?**
 nex uses `alacritty_terminal`, Alacritty's VT parser and grid, as its terminal engine. The
@@ -314,7 +331,8 @@ src/
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
 ├── app/              the application: state and frame loop (mod.rs), plus
-│   ├── actions.rs        shortcuts and carrying out actions
+│   ├── actions.rs        the actions and carrying them out
+│   ├── keymap.rs         shortcut tables per OS (Ctrl style, Cmd style)
 │   ├── keyboard.rs       keys, text and clipboard routing
 │   ├── mouse.rs          selection, mouse reporting, wheel, links
 │   ├── panes.rs          pane cards, headers, divider dragging
@@ -323,7 +341,7 @@ src/
 │   ├── workspace.rs      tabs, splits, opening and closing panes
 │   └── …                 tab, window, zoom, metrics
 ├── terminal/         one terminal per pane
-│   ├── mod.rs            PTY + VT state, /proc process info
+│   ├── mod.rs            PTY + VT state, title and cwd
 │   ├── input.rs          keyboard & mouse → xterm escape sequences
 │   ├── search.rs         scrollback search, URL and OSC 8 link detection
 │   └── snapshot.rs       copy of the visible screen, taken under the lock
@@ -331,7 +349,7 @@ src/
 │   ├── mod.rs            runs, colors, cursor, selection, search highlights
 │   ├── glyphs.rs         glyph cache + per-pane mesh
 │   ├── boxdraw.rs        procedural box / block / braille / Powerline glyphs
-│   └── fonts.rs          fontconfig lookup + embedded Nerd Font
+│   └── fonts.rs          font setup + embedded Nerd Font
 ├── file_explorer/    the explorer pane
 │   ├── mod.rs            state, navigation, selection
 │   ├── view.rs           path bar, listing, action bar, context menu
@@ -340,8 +358,18 @@ src/
 │   ├── fs_ops.rs         listing, copying, moving, path quoting
 │   └── items.rs, zoom.rs rows, tiles and pinch zoom
 ├── ui/               shared UI kit: theme, glide animation, painting, icons, widgets
-└── wl_dnd/           Wayland drag and drop with other apps
+└── platform/         everything OS-specific, behind one API (see platform/mod.rs)
+    ├── mod.rs            the shared types and the per-OS switch
+    ├── unix.rs           POSIX pieces shared by Linux and macOS
+    ├── fontdb.rs         font lookup without fontconfig (macOS, Windows)
+    ├── no_dnd.rs         drag and drop stub where winit handles it
+    ├── linux/            /proc process info, fontconfig, Wayland drag and drop
+    ├── macos/            libproc process info, native traffic lights
+    └── windows/          compiles, not supported yet
 ```
+
+Nothing outside `platform/` checks the OS. Porting nex to another OS means adding a folder
+there that provides the same items (`platform/mod.rs` lists them).
 
 Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hyprland).
 
@@ -352,7 +380,10 @@ Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hy
 - [ ] Command palette
 - [ ] Shell integration (OSC 7 cwd, prompt marks, jump between prompts)
 - [ ] Themes collection
-- [ ] macOS support
+- [x] macOS support (build from source)
+- [ ] macOS app bundle and prebuilt releases
+- [ ] Drag files out to Finder
+- [ ] Windows support
 
 ## Acknowledgments
 

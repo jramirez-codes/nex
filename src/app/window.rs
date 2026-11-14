@@ -35,7 +35,7 @@ impl App {
         if let (Some(dnd), Some(p)) = (&mut self.dnd, pos) {
             if !released && !ctx.content_rect().contains(p) {
                 if let Some(drag) = egui::DragAndDrop::payload::<file_explorer::ExplorerDrag>(ctx) {
-                    crate::wl_dnd::log(format_args!("explorer drag left the window at {p:?} (window {:?})", ctx.content_rect()));
+                    crate::platform::dnd_log(format_args!("explorer drag left the window at {p:?} (window {:?})", ctx.content_rect()));
                     if dnd.start_drag(&drag.paths, p) {
                         egui::DragAndDrop::clear_payload(ctx);
                         ctx.request_repaint();
@@ -85,7 +85,7 @@ impl App {
             b.drop_external(ctx, dropped, pos);
         } else {
             self.insert_paths(id, &dropped);
-            crate::wl_dnd::log(format_args!("typed {} path(s) into pane {id:?}", dropped.len()));
+            crate::platform::dnd_log(format_args!("typed {} path(s) into pane {id:?}", dropped.len()));
         }
     }
 
@@ -97,7 +97,7 @@ impl App {
     /// Type shell-quoted paths into a terminal, as if pasted.
     pub(super) fn insert_paths(&mut self, id: PaneId, paths: &[PathBuf]) {
         if let Some(t) = self.panes.get_mut(&id) {
-            let text = paths.iter().map(|p| file_explorer::shell_quote(p)).collect::<Vec<_>>().join(" ");
+            let text = paths.iter().map(|p| crate::platform::shell_quote(p)).collect::<Vec<_>>().join(" ");
             t.paste(&format!("{text} "));
         }
     }

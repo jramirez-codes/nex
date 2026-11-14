@@ -1,6 +1,6 @@
-//! Ghostty-style configuration: a plain `key = value` file at
-//! `$XDG_CONFIG_HOME/nex/config` (falls back to `~/.config/nex/config`), or the file given
-//! with `--config`.
+//! Ghostty-style configuration: a plain `key = value` file in the platform's config folder
+//! (`$XDG_CONFIG_HOME/nex/config`, falling back to `~/.config/nex/config`, on Linux and
+//! macOS), or the file given with `--config`.
 //!
 //! Unknown keys are reported on stderr and ignored, so a typo never prevents startup.
 //! The file is reloaded when it changes, or on Ctrl+Shift+, (see `app/reload.rs`).
@@ -89,8 +89,8 @@ impl Default for Config {
             background_opacity: 0.90,
             unfocused_split_opacity: 0.90,
             window_padding: 10.0,
-            window_decorations: false,
-            window_controls: true,
+            window_decorations: crate::platform::WINDOW.decorations,
+            window_controls: crate::platform::WINDOW.controls,
             pane_headers: true,
             animations: true,
             mobile: false,
@@ -117,11 +117,7 @@ pub fn config_path() -> PathBuf {
     if let Some(p) = PATH_OVERRIDE.get() {
         return p.clone();
     }
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("nex").join("config")
+    crate::platform::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("config")
 }
 
 /// When the config file was last changed (`None` if it doesn't exist).

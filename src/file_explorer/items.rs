@@ -69,7 +69,7 @@ impl Layout {
 pub fn paint_drag_ghost(ctx: &egui::Context, c: &Theme) {
     let Some(drag) = DragAndDrop::payload::<ExplorerDrag>(ctx) else { return };
     let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) else { return };
-    let copy = ctx.input(|i| i.modifiers.ctrl);
+    let copy = ctx.input(|i| crate::platform::SHORTCUTS.copy_drag(&i.modifiers));
     let p = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("file-drag-ghost")));
     let text = match drag.paths.as_slice() {
         [one] => one.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
