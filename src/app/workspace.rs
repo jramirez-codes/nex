@@ -106,7 +106,7 @@ impl App {
         if self.explorer_tab.is_none() {
             let dir = self
                 .focused_cwd()
-                .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+                .or_else(crate::platform::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
             let id = self.alloc_pane_id();
             self.explorers.insert(id, FileExplorer::new(dir));
@@ -145,7 +145,7 @@ impl App {
     pub(super) fn split_explorer(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
         let dir = self
             .pane_cwd(target)
-            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+            .or_else(crate::platform::home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
         let new = self.alloc_pane_id();
         self.explorers.insert(new, FileExplorer::new(dir));

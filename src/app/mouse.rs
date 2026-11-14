@@ -9,7 +9,6 @@ use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, Re
 use crate::terminal::input::{self, MouseAction, MouseButton};
 use crate::app::layout::PaneId;
 use crate::render;
-use crate::terminal::search;
 
 use super::App;
 use super::actions::Action;
@@ -50,7 +49,7 @@ impl App {
                 Event::PointerMoved(pos) => self.on_move(ctx, pos),
                 Event::PointerButton { pos, button, pressed: false, modifiers } => self.on_release(ctx, pos, button, modifiers),
                 Event::MouseWheel { unit, delta, modifiers } => {
-                    if let (false, Some(pos)) = (modifiers.ctrl, hover) {
+                    if let (false, Some(pos)) = (modifiers.command, hover) {
                         self.on_wheel(pos, unit, delta, modifiers);
                     }
                 }
@@ -94,13 +93,13 @@ impl App {
         self.term_rects.iter().find(|(_, r)| r.contains(pos)).copied()
     }
 
-    /// A button press: open a Ctrl+clicked link, report it to the program, or start a selection.
+    /// A button press: open a Ctrl+clicked (Cmd+clicked on macOS) link, report it to the program, or start a selection.
     fn on_press(&mut self, pos: Pos2, button: PointerButton, modifiers: Modifiers) {
         let Some((id, rect)) = self.terminal_at(pos) else { return };
-        if modifiers.ctrl && button == PointerButton::Primary {
+        if modifiers.command && button == PointerButton::Primary {
             if let Some((link_pane, link)) = &self.hover_link {
                 if *link_pane == id {
-                    search::open(&link.uri);
+                    crate::platform::open_uri(link.uri.as_ref());
                     return;
                 }
             }
@@ -273,9 +272,10 @@ impl App {
         }
     }
 
-    /// Ctrl+hover: find the link under the pointer (drawn underlined, opened by Ctrl+click).
+    /// Ctrl+hover (Cmd on macOS): find the link under the pointer (drawn underlined, opened
+    /// by Ctrl/Cmd+click).
     fn update_hover_link(&mut self, ctx: &egui::Context, hover: Option<Pos2>) {
-        let ctrl = ctx.input(|i| i.modifiers.ctrl);
+        let ctrl = ctx.input(|i| i.modifiers.command);
         let previous = self.hover_link.as_ref().map(|(id, l)| (*id, l.range.clone()));
         self.hover_link = None;
         if let (true, Some(pos), None) = (ctrl, hover, self.mouse.capture) {

@@ -1,4 +1,5 @@
-//! Drag and drop with other Wayland clients: another nex window, a file manager, a browser.
+//! Linux backend for `platform::Dnd`: drag and drop with other Wayland clients (another nex
+//! window, a file manager, a browser).
 //!
 //! winit 0.30 has no drag and drop on Wayland (only on X11), so nex talks to the compositor
 //! itself. It shares winit's connection but has its own event queue, dispatched on a
@@ -35,16 +36,8 @@ use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::protocol::wl_touch::{self, WlTouch};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum};
 
-use crate::file_explorer::parse_paths;
-
-/// `NEX_DEBUG_DND=1` logs each step of a drag between windows to stderr.
-pub fn log(args: std::fmt::Arguments) {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *ON.get_or_init(|| std::env::var_os("NEX_DEBUG_DND").is_some()) {
-        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-        eprintln!("nex dnd {} {}.{:03}: {args}", std::process::id(), t.as_secs() % 100, t.subsec_millis());
-    }
-}
+use crate::file_explorer::fs_ops::parse_paths;
+use crate::platform::dnd_log as log;
 
 macro_rules! trace {
     ($($t:tt)*) => { log(format_args!($($t)*)) };
@@ -73,7 +66,7 @@ impl Shared {
     }
 }
 
-pub struct WlDnd {
+pub struct Dnd {
     conn: Connection,
     qh: QueueHandle<State>,
     manager: WlDataDeviceManager,
@@ -92,7 +85,7 @@ pub struct WlDnd {
     touch_down: Option<(TouchDeviceId, TouchId, Pos2)>,
 }
 
-impl WlDnd {
+impl Dnd {
     /// Set up on the window's Wayland connection; `None` on X11 or if the compositor lacks
     /// drag and drop.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Option<Self> {
@@ -163,7 +156,7 @@ impl WlDnd {
         trace!("start_drag: {} path(s), serial {serial}", paths.len());
         let data = SourceData {
             uri_list: paths.iter().map(|p| file_uri(p) + "\r\n").collect(),
-            text: paths.iter().map(|p| crate::file_explorer::shell_quote(p)).collect::<Vec<_>>().join(" "),
+            text: paths.iter().map(|p| crate::platform::shell_quote(p)).collect::<Vec<_>>().join(" "),
         };
         let source = self.manager.create_data_source(&self.qh, data);
         source.offer(URI_LIST.into());

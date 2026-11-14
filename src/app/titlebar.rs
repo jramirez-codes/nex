@@ -2,6 +2,7 @@
 
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Stroke, Ui, Vec2, ViewportCommand};
 
+use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_maximized};
 use crate::ui::{icons, paint};
@@ -117,11 +118,10 @@ impl App {
         }
 
         let cy = rect.center().y;
-        let x = if self.cfg.window_controls {
-            window_controls(ui, rect.left() + 18.0, cy)
-        } else {
-            rect.left() + 18.0
-        };
+        // Leave room for window buttons the OS draws over the title bar (macOS traffic lights).
+        let inset = if self.cfg.window_decorations { platform::WINDOW.titlebar_inset } else { 0.0 };
+        let left = rect.left() + 18.0 + inset;
+        let x = if self.cfg.window_controls { window_controls(ui, left, cy) } else { left };
         let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 30.0 + LABEL_WIDTH, cy + 15.0));
         let slots = self.horizontal_tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy);
         // The active pill is painted once, beneath the label and the tabs, and glides

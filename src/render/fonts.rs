@@ -1,47 +1,40 @@
-//! Font discovery via fontconfig (`fc-match`) and registration with egui.
+//! Font setup for egui: the terminal grid's font (a system family or the embedded Nerd Font),
+//! fallbacks for symbols and CJK, and the UI's sans-serif. Finding fonts on the system is the
+//! platform's job (`platform::find_font`).
 
 use std::fs::File;
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use egui::{FontData, FontDefinitions, FontFamily};
 
 use crate::config::Config;
+use crate::platform::{self, Family, FontFace, Weight};
 use crate::render::{FONT_BOLD, FONT_BOLD_ITALIC, FONT_ITALIC, FONT_REGULAR};
 use crate::ui::paint;
-
-/// Resolve a fontconfig pattern to (file, family).
-fn fc_match(pattern: &str) -> Option<(String, String)> {
-    let out = Command::new("fc-match").args(["-f", "%{file}\n%{family}", pattern]).output().ok()?;
-    let text = String::from_utf8(out.stdout).ok()?;
-    let mut lines = text.lines();
-    let file = lines.next()?.to_string();
-    let family = lines.next().unwrap_or_default().to_string();
-    (!file.is_empty()).then_some((file, family))
-}
 
 /// Font files are memory-mapped, not read. egui uses borrowed font bytes as they are but
 /// clones owned ones, so reading a file kept it in memory twice; a mapping costs nothing up
 /// front and only pulls in the pages glyphs are drawn from (most of a 19 MB CJK font is never
 /// touched). Mappings live for the rest of the process and are shared by path, so reloading
 /// the config doesn't map a file again.
-fn map_font(path: &str) -> Option<FontData> {
-    static MAPS: Mutex<Vec<(String, &'static [u8])>> = Mutex::new(Vec::new());
+fn map_font(face: &FontFace) -> Option<FontData> {
+    static MAPS: Mutex<Vec<(std::path::PathBuf, &'static [u8])>> = Mutex::new(Vec::new());
+    let with_index = |bytes| FontData { index: face.index, ..FontData::from_static(bytes) };
     let mut maps = MAPS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, bytes)) = maps.iter().find(|(p, _)| p == path) {
-        return Some(FontData::from_static(bytes));
+    if let Some((_, bytes)) = maps.iter().find(|(p, _)| *p == face.path) {
+        return Some(with_index(bytes));
     }
-    let file = File::open(path).ok()?;
+    let file = File::open(&face.path).ok()?;
     // SAFETY: the mapping is read-only and never unmapped. Like FreeType, this assumes font
     // files aren't truncated while nex is running.
     let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
     let bytes: &'static [u8] = Box::leak(Box::new(map));
-    maps.push((path.to_string(), bytes));
-    Some(FontData::from_static(bytes))
+    maps.push((face.path.clone(), bytes));
+    Some(with_index(bytes))
 }
 
-fn load(pattern: &str) -> Option<FontData> {
-    map_font(&fc_match(pattern)?.0)
+fn load(family: Family, weight: Weight, italic: bool) -> Option<FontData> {
+    map_font(&platform::find_font(family, weight, italic)?)
 }
 
 /// JetBrains Mono patched with Nerd Font icons, compiled into the binary (like Ghostty's
@@ -58,30 +51,13 @@ const EMBEDDED_KEY: &str = "embedded-nerd-regular";
 
 /// The first installed "… Nerd Font Mono" family, preferring JetBrains Mono.
 fn installed_nerd_mono() -> Option<String> {
-    let out = Command::new("fc-list").args([":", "family"]).output().ok()?;
-    let text = String::from_utf8(out.stdout).ok()?;
-    let mut families: Vec<String> = text
-        .lines()
-        .flat_map(|l| l.split(','))
-        .map(|f| f.trim().to_string())
-        .filter(|f| f.ends_with("Nerd Font Mono"))
-        .collect();
-    families.sort();
-    families.dedup();
-    families
-        .iter()
-        .find(|f| f.starts_with("JetBrainsMono"))
-        .or_else(|| families.first())
-        .cloned()
+    let families = platform::nerd_mono_families();
+    families.iter().find(|f| f.starts_with("JetBrainsMono")).or_else(|| families.first()).cloned()
 }
 
-/// File for `family` in `style`, but only if fontconfig really has that family (fc-match
-/// always returns *something*, usually a proportional sans that would wreck the grid).
-fn family_file(family: &str, style: &str) -> Option<String> {
-    let (file, matched) = fc_match(&format!("{family}{style}"))?;
-    let wanted = family.to_lowercase();
-    let ok = family == "monospace" || matched.split(',').any(|m| m.trim().to_lowercase() == wanted);
-    ok.then_some(file)
+/// `monospace` names the system's default monospace font rather than a family.
+fn family(name: &str) -> Family<'_> {
+    if name.eq_ignore_ascii_case("monospace") { Family::Monospace } else { Family::Named(name) }
 }
 
 /// Which system family to use for the terminal grid; `None` means the embedded font.
@@ -90,35 +66,28 @@ fn resolve_family(cfg: &Config) -> Option<String> {
     if requested.is_empty() {
         return installed_nerd_mono();
     }
-    if family_file(requested, "").is_some() {
+    if platform::find_font(family(requested), Weight::Regular, false).is_some() {
         return Some(requested.to_string());
     }
     eprintln!("nex: font-family `{requested}` not found; using built-in {EMBEDDED_FAMILY}");
     None
 }
 
-/// System families tried, in order, for glyphs the grid font and the embedded Nerd Font
-/// lack. Names must match fontconfig's family name exactly (`fc-list : family`). DejaVu
-/// Sans Mono comes first since its symbols are drawn to the cell width; the Noto symbol
-/// fonts cover Dingbats (✢ ✻ ✘), Misc Technical (⎯) and math operators (⧉).
-const SYSTEM_FALLBACKS: [&str; 5] =
-    ["DejaVu Sans Mono", "Noto Sans Symbols2", "Noto Sans Symbols", "Noto Sans Math", "Noto Sans CJK SC"];
-
 pub fn install(ctx: &egui::Context, cfg: &Config) {
     let mut defs = FontDefinitions::default();
-    let family = resolve_family(cfg);
+    let grid_family = resolve_family(cfg);
     defs.font_data.insert(EMBEDDED_KEY.into(), Arc::new(FontData::from_static(EMBEDDED[0])));
 
     let fallbacks = defs.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
     let styles = [
-        (FONT_REGULAR, ":weight=regular:slant=roman"),
-        (FONT_BOLD, ":weight=bold:slant=roman"),
-        (FONT_ITALIC, ":weight=regular:slant=italic"),
-        (FONT_BOLD_ITALIC, ":weight=bold:slant=italic"),
+        (FONT_REGULAR, Weight::Regular, false),
+        (FONT_BOLD, Weight::Bold, false),
+        (FONT_ITALIC, Weight::Regular, true),
+        (FONT_BOLD_ITALIC, Weight::Bold, true),
     ];
-    for (i, (name, style)) in styles.into_iter().enumerate() {
-        let data = match &family {
-            Some(f) => family_file(f, style).and_then(|file| map_font(&file)),
+    for (i, (name, weight, italic)) in styles.into_iter().enumerate() {
+        let data = match &grid_family {
+            Some(f) => load(family(f), weight, italic),
             None => Some(FontData::from_static(EMBEDDED[i])),
         };
         let mut chain = Vec::new();
@@ -134,10 +103,10 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
         chain.push(EMBEDDED_KEY.to_string());
         chain.extend(fallbacks.iter().cloned());
         // Symbols & CJK coverage from the system, when available.
-        for extra in SYSTEM_FALLBACKS {
+        for &extra in platform::FALLBACK_FAMILIES {
             let key = format!("sys-{extra}");
             if !defs.font_data.contains_key(&key) {
-                if let Some(data) = family_file(extra, "").and_then(|file| map_font(&file)) {
+                if let Some(data) = load(Family::Named(extra), Weight::Regular, false) {
                     defs.font_data.insert(key.clone(), Arc::new(data));
                 }
             }
@@ -151,11 +120,11 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
     // UI chrome uses the system sans font.
     let mut ui = Vec::new();
     let mut ui_bold = Vec::new();
-    if let Some(data) = load("sans-serif:weight=regular") {
+    if let Some(data) = load(Family::SansSerif, Weight::Regular, false) {
         defs.font_data.insert("ui-sans".into(), Arc::new(data));
         ui.push("ui-sans".to_string());
     }
-    if let Some(data) = load("sans-serif:weight=semibold") {
+    if let Some(data) = load(Family::SansSerif, Weight::Semibold, false) {
         defs.font_data.insert("ui-sans-bold".into(), Arc::new(data));
         ui_bold.push("ui-sans-bold".to_string());
     }

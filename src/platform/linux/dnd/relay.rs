@@ -19,7 +19,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::{Shared, log};
-use crate::file_explorer::parse_paths;
+use crate::file_explorer::fs_ops::parse_paths;
 
 fn socket_path(pid: u32) -> Option<PathBuf> {
     let dir = std::env::var_os("XDG_RUNTIME_DIR")?;

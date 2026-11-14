@@ -3,6 +3,7 @@
 
 mod actions;
 mod keyboard;
+mod keymap;
 pub mod layout;
 mod metrics;
 mod motion;
@@ -36,7 +37,8 @@ use crate::ui::theme::{Theme, white_alpha};
 use crate::ui::toast::{self, Toast};
 use crate::ui::widgets::is_maximized;
 
-use actions::{keybindings, Action, Binding};
+use actions::Action;
+use keymap::{Binding, keybindings};
 use mouse::MouseState;
 use tab::Tab;
 
@@ -98,8 +100,8 @@ pub struct App {
     new_window_args: Vec<String>,
     /// `-e` command, run by the first pane only; later panes start the shell.
     first_command: Option<Vec<String>>,
-    /// Drag and drop with other windows (Wayland only).
-    dnd: Option<crate::wl_dnd::WlDnd>,
+    /// Drag and drop with other windows, where the platform needs nex to do it (Wayland).
+    dnd: Option<crate::platform::Dnd>,
     /// The "Copied …" / "Pasted …" message currently on screen.
     toast: Option<Toast>,
 }
@@ -112,9 +114,7 @@ impl App {
         fonts::install(ctx, &cfg);
         crate::ui::glide::set_animations(ctx, cfg.animations);
 
-        let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname")
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|_| "localhost".into());
+        let hostname = crate::platform::hostname();
 
         Self {
             cfg,
@@ -147,7 +147,7 @@ impl App {
             last_pointer: None,
             new_window_args: args.for_new_window(),
             first_command: args.command,
-            dnd: crate::wl_dnd::WlDnd::new(cc),
+            dnd: crate::platform::Dnd::new(cc),
             toast: None,
         }
     }

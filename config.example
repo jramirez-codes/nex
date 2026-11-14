@@ -1,5 +1,6 @@
 # nex config — copy to ~/.config/nex/config
-# Ghostty-style `key = value`. Saved changes apply right away (Ctrl+Shift+, reloads by hand).
+# Ghostty-style `key = value`. Saved changes apply right away (Ctrl+Shift+, reloads by hand;
+# Cmd+Shift+, on macOS).
 
 # Default (unset): the first installed "… Nerd Font Mono" family, otherwise the built-in
 # JetBrainsMono Nerd Font Mono. Nerd Font icons always work as a fallback.
@@ -20,8 +21,10 @@ selection-background = #4a4048
 background-opacity = 0.90
 unfocused-split-opacity = 0.90
 window-padding = 10
-window-decorations = false
-window-controls = true      # close / minimize / maximize buttons in the title bar
+# Defaults depend on the OS: Linux draws nex's own title bar and buttons (decorations off,
+# controls on); macOS uses the native traffic lights (decorations on, controls off).
+# window-decorations = false
+# window-controls = true    # close / minimize / maximize buttons in the title bar
 pane-headers = true
 animations = true           # pane splits / closes, focus fades, title-bar tabs
 mobile = false              # phone-sized touch screens: tabs in a left sidebar, bigger buttons

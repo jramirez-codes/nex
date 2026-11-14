@@ -160,10 +160,11 @@ impl FileExplorer {
             if on {
                 painter.rect_filled(r, 6, SEGMENT_ON);
             }
-            let (tip, icon): (&str, fn(&Painter, Rect, Color32)) = match view {
-                View::List => ("List view  (Ctrl+G)", icons::icon_list),
-                View::Grid => ("Grid view  (Ctrl+G)", icons::icon_grid),
+            let (label, icon): (&str, fn(&Painter, Rect, Color32)) = match view {
+                View::List => ("List view", icons::icon_list),
+                View::Grid => ("Grid view", icons::icon_grid),
             };
+            let tip = format!("{label}  ({}+G)", crate::platform::SHORTCUTS.primary_key_name());
             let resp = ui.interact(r, Id::new(("files-view", pane, k)), Sense::click());
             let col = if on || resp.hovered() { c.text_bright } else { c.text_dim };
             icon(painter, Rect::from_center_size(r.center(), Vec2::splat(12.0 * scale)), col);
@@ -216,7 +217,7 @@ impl FileExplorer {
         if resp.secondary_clicked() {
             self.right_click_select(f.input.pos.and_then(|p| layout.item_at(p, self.scroll, self.entries.len())));
         }
-        self.update_scroll(f.ui, &layout, list, f.input.mods.ctrl);
+        self.update_scroll(f.ui, &layout, list, f.input.mods.command);
 
         // Files dragged in from other applications land where `drop_external` puts them: the
         // folder under the pointer, else this one.
@@ -278,7 +279,7 @@ impl FileExplorer {
         } else {
             None
         }?;
-        let op = if f.input.mods.ctrl { Op::Copy } else { Op::Move };
+        let op = if crate::platform::SHORTCUTS.copy_drag(&f.input.mods) { Op::Copy } else { Op::Move };
         // Moving files into the folder they're already in does nothing; don't advertise it.
         let useful = op == Op::Copy || drag.paths.iter().any(|path| path.parent() != Some(target.as_path()));
         if !useful {

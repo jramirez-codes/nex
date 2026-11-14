@@ -1,7 +1,8 @@
 //! Everything the user can ask for (keyboard shortcuts, buttons), and carrying it out.
+//! Which keys ask for what is in `keymap.rs`.
 
 use alacritty_terminal::grid::Scroll;
-use egui::{Key, ViewportCommand};
+use egui::ViewportCommand;
 
 use crate::app::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
@@ -44,58 +45,6 @@ pub(super) enum Action {
     /// Split a file explorer off the focused pane, showing its directory.
     ExploreHere,
     CloseExplorer,
-}
-
-/// A keyboard shortcut: (ctrl, shift, alt, key, action).
-pub(super) type Binding = (bool, bool, bool, Key, Action);
-
-/// Keyboard shortcuts, following Ghostty's Linux defaults where they exist.
-pub(super) fn keybindings() -> Vec<Binding> {
-    use Action::*;
-    let mut b = vec![
-        (true, true, false, Key::T, NewTab),
-        (true, true, false, Key::N, NewWindow),
-        (true, true, false, Key::W, ClosePane(0)),
-        (true, true, false, Key::Q, Quit),
-        (true, true, false, Key::O, Split(Axis::Horizontal)),
-        (true, true, false, Key::E, Split(Axis::Vertical)),
-        (true, true, false, Key::Enter, ToggleZoom),
-        (true, false, true, Key::ArrowLeft, Focus(Direction::Left)),
-        (true, false, true, Key::ArrowRight, Focus(Direction::Right)),
-        (true, false, true, Key::ArrowUp, Focus(Direction::Up)),
-        (true, false, true, Key::ArrowDown, Focus(Direction::Down)),
-        (true, true, true, Key::ArrowLeft, ResizeSplit(Direction::Left)),
-        (true, true, true, Key::ArrowRight, ResizeSplit(Direction::Right)),
-        (true, true, true, Key::ArrowUp, ResizeSplit(Direction::Up)),
-        (true, true, true, Key::ArrowDown, ResizeSplit(Direction::Down)),
-        (true, true, true, Key::Equals, Equalize),
-        (true, true, true, Key::Plus, Equalize),
-        (true, false, false, Key::Tab, NextTab),
-        (true, true, false, Key::Tab, PrevTab),
-        (true, false, false, Key::PageDown, NextTab),
-        (true, false, false, Key::PageUp, PrevTab),
-        (true, true, false, Key::ArrowRight, NextTab),
-        (true, true, false, Key::ArrowLeft, PrevTab),
-        (true, false, false, Key::Equals, FontBigger),
-        (true, false, false, Key::Plus, FontBigger),
-        (true, true, false, Key::Plus, FontBigger),
-        (true, true, false, Key::Equals, FontBigger),
-        (true, false, false, Key::Minus, FontSmaller),
-        (true, false, false, Key::Num0, FontReset),
-        (true, true, false, Key::Comma, ReloadConfig),
-        (true, true, false, Key::K, ClearScreen),
-        (true, true, false, Key::F, ToggleSearch),
-        (true, false, false, Key::E, ExploreHere),
-        (false, true, false, Key::PageUp, ScrollPageUp),
-        (false, true, false, Key::PageDown, ScrollPageDown),
-        (false, true, false, Key::Home, ScrollTop),
-        (false, true, false, Key::End, ScrollBottom),
-    ];
-    let digits = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
-    for (i, k) in digits.into_iter().enumerate() {
-        b.push((false, false, true, k, GotoTab(i)));
-    }
-    b
 }
 
 impl App {
@@ -217,7 +166,7 @@ impl App {
         }
     }
 
-    /// Alt+1..9. Like Ghostty, Alt+9 is "last tab".
+    /// Go to tab `i` (Alt+1..9, Cmd+1..9 on macOS); the 9th means "last tab".
     fn goto_tab(&mut self, i: usize) {
         if i == 8 && !self.tabs.is_empty() {
             self.show_tab(self.tabs.len() - 1);

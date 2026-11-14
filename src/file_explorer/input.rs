@@ -230,9 +230,9 @@ impl FileExplorer {
                     set_clipboard(None);
                 }
             }
-            Key::A if mods.ctrl => self.select_all(),
-            Key::G if mods.ctrl => self.toggle_view(),
-            Key::H if mods.ctrl => self.toggle_hidden(),
+            Key::A if mods.command => self.select_all(),
+            Key::G if mods.command => self.toggle_view(),
+            Key::H if mods.command => self.toggle_hidden(),
             _ => return false,
         }
         true
@@ -246,7 +246,7 @@ impl FileExplorer {
         }
         let paths = self.targets();
         if !paths.is_empty() {
-            crate::wl_dnd::log(format_args!("explorer drag started: {} path(s)", paths.len()));
+            crate::platform::dnd_log(format_args!("explorer drag started: {} path(s)", paths.len()));
             DragAndDrop::set_payload(ctx, ExplorerDrag { paths });
         }
     }
@@ -254,7 +254,7 @@ impl FileExplorer {
     /// A press released without moving: select, toggle or open.
     pub(super) fn click(&mut self, item: Option<usize>, touch: bool, mods: Modifiers, now: f64) {
         let Some(i) = item else {
-            if !mods.ctrl && !mods.shift {
+            if !mods.command && !mods.shift {
                 self.marked.clear();
             }
             return;
@@ -267,7 +267,7 @@ impl FileExplorer {
         } else if touch {
             self.selected = i;
             self.activate(i);
-        } else if mods.ctrl {
+        } else if mods.command {
             if self.marked.is_empty() && i != self.selected {
                 self.toggle_mark(self.selected);
             }

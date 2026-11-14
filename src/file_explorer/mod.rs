@@ -10,7 +10,7 @@
 //! moves the selection. Delete (the key, the right-click menu or the action bar) asks for
 //! confirmation, then permanently deletes the selection.
 
-mod fs_ops;
+pub mod fs_ops;
 mod input;
 mod items;
 mod transfer;
@@ -25,7 +25,6 @@ use std::time::{Duration, Instant};
 
 use egui::Pos2;
 
-use crate::terminal::search;
 use crate::terminal::tilde;
 
 use fs_ops::read_entries;
@@ -33,7 +32,6 @@ use input::Press;
 use items::Layout;
 use transfer::FS_GENERATION;
 
-pub use fs_ops::{parse_paths, shell_quote};
 pub use input::{ExplorerDrag, release_pos};
 pub use items::paint_drag_ghost;
 
@@ -189,7 +187,7 @@ impl FileExplorer {
             let path = entry.path.clone();
             self.navigate(path);
         } else {
-            search::open(&entry.path);
+            crate::platform::open_uri(entry.path.as_os_str());
         }
     }
 

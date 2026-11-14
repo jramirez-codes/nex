@@ -13,6 +13,7 @@ use crate::ui::widgets::{IconButton, IconFn, pressed_in};
 use crate::ui::{icons, paint};
 
 use super::actions::Action;
+use super::keymap;
 use super::metrics::cell_px;
 use super::motion::Ghost;
 use super::{App, PANE_GAP};
@@ -255,13 +256,19 @@ impl App {
         let (size, step, inset) = if self.cfg.mobile { (36.0, 38.0, 10.0) } else { (22.0, 24.0, 5.5) };
         let mut bx = header.right() - if self.cfg.mobile { 26.0 } else { 20.0 };
         if show_buttons {
-            let buttons: [(&str, Action, &IconFn<'_>); 4] = [
-                ("Close  (Ctrl+Shift+W)", Action::ClosePane(id), &icons::icon_close),
-                ("Zoom  (Ctrl+Shift+Enter)", Action::ToggleZoomPane(id), &|p, r, c| icons::icon_zoom(p, r, c, zoomed)),
-                ("Split down  (Ctrl+Shift+E)", Action::SplitPane(id, Axis::Vertical), &|p, r, c| icons::icon_split(p, r, c, Axis::Vertical)),
-                ("Split right  (Ctrl+Shift+O)", Action::SplitPane(id, Axis::Horizontal), &|p, r, c| icons::icon_split(p, r, c, Axis::Horizontal)),
+            // (label, the shortcut's action for the focused pane, this button's action, icon)
+            let buttons: [(&str, Action, Action, &IconFn<'_>); 4] = [
+                ("Close", Action::ClosePane(0), Action::ClosePane(id), &icons::icon_close),
+                ("Zoom", Action::ToggleZoom, Action::ToggleZoomPane(id), &|p, r, c| icons::icon_zoom(p, r, c, zoomed)),
+                ("Split down", Action::Split(Axis::Vertical), Action::SplitPane(id, Axis::Vertical), &|p, r, c| icons::icon_split(p, r, c, Axis::Vertical)),
+                ("Split right", Action::Split(Axis::Horizontal), Action::SplitPane(id, Axis::Horizontal), &|p, r, c| icons::icon_split(p, r, c, Axis::Horizontal)),
             ];
-            for (tip, action, draw) in buttons {
+            for (label, shortcut, action, draw) in buttons {
+                let tip = match keymap::shortcut_label(&self.bindings, shortcut) {
+                    Some(keys) => format!("{label}  ({keys})"),
+                    None => label.to_string(),
+                };
+                let tip = tip.as_str();
                 let r = Rect::from_center_size(Pos2::new(bx, cy), Vec2::splat(size));
                 bx -= step;
                 if IconButton::new(r, Id::new(("pane-btn", id, tip)), theme.text_dim, theme.text_bright)

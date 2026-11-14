@@ -10,12 +10,17 @@ env:
 
 jobs:
   check:
-    name: Build, test & lint
-    runs-on: ubuntu-latest
+    name: Build, test & lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v5
 
       - name: Install system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev \
@@ -34,4 +39,21 @@ jobs:
         run: cargo test --locked
 
       - name: Clippy
-        run: cargo clippy --locked -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  # The Windows backend (src/platform/windows/) isn't a supported build yet; this keeps it
+  # compiling so the platform layer stays honest.
+  windows-check:
+    name: Check (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings

@@ -163,16 +163,6 @@ impl LinkFinder {
     }
 }
 
-/// Open a URI with the desktop's default handler, without blocking or inheriting stdio.
-pub fn open(uri: impl AsRef<std::ffi::OsStr>) {
-    let _ = std::process::Command::new("xdg-open")
-        .arg(uri)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
