@@ -12,7 +12,7 @@ use egui::Pos2;
 use crate::terminal::tilde;
 
 use super::FileExplorer;
-use super::fs_ops::{count, parse_paths, run_op};
+use super::fs_ops::{count, delete_paths, parse_paths, run_op};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
@@ -105,6 +105,44 @@ impl FileExplorer {
                 let verb = if op == Op::Copy { "Copied" } else { "Moved" };
                 if n == 0 { "Nothing to do — already here".to_string() } else { format!("{verb} {} to {}", count(n), tilde(&dest)) }
             });
+            FS_GENERATION.fetch_add(1, Ordering::Relaxed);
+            let _ = tx.send(result);
+            ctx.request_repaint();
+        });
+        self.jobs.push(rx);
+    }
+
+    /// Ask to delete the targets; nothing is deleted until `confirm_delete` is called.
+    pub fn request_delete(&mut self) {
+        let paths = self.targets();
+        if !paths.is_empty() {
+            self.confirm_delete = Some(paths);
+        }
+    }
+
+    /// The delete confirmation is showing.
+    pub fn confirming_delete(&self) -> bool {
+        self.confirm_delete.is_some()
+    }
+
+    pub(super) fn cancel_delete(&mut self) {
+        self.confirm_delete = None;
+    }
+
+    /// The user confirmed: permanently delete on a background thread.
+    pub(super) fn confirm_delete(&mut self, ctx: &egui::Context) {
+        let Some(paths) = self.confirm_delete.take() else { return };
+        // Deleted files can't be pasted any more.
+        if let Some(mut clip) = clipboard() {
+            clip.paths.retain(|p| !paths.contains(p));
+            set_clipboard((!clip.paths.is_empty()).then_some(clip));
+        }
+        self.clear_selection();
+        self.set_status(format!("Deleting {}…", count(paths.len())), false);
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = delete_paths(&paths).map(|n| format!("Deleted {}", count(n)));
             FS_GENERATION.fetch_add(1, Ordering::Relaxed);
             let _ = tx.send(result);
             ctx.request_repaint();

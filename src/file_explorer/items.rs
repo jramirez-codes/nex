@@ -77,7 +77,9 @@ pub fn paint_drag_ghost(ctx: &egui::Context, c: &Theme) {
     };
     let galley = p.layout_no_wrap(text, FontId::proportional(13.0), c.text_bright);
     let size = Vec2::new(galley.size().x + 40.0, 28.0);
-    let r = Rect::from_min_size(pos + Vec2::new(14.0, 10.0), size);
+    // A finger would cover a label beside it: on touch screens it floats above instead.
+    let offset = if ctx.input(|i| i.any_touches()) { Vec2::new(-size.x / 2.0, -size.y - 36.0) } else { Vec2::new(14.0, 10.0) };
+    let r = Rect::from_min_size(pos + offset, size);
     p.rect_filled(r, 8, Color32::from_rgba_unmultiplied(30, 32, 40, 235));
     p.rect_stroke(r, 8, Stroke::new(1.0, ACCENT.gamma_multiply(0.6)), StrokeKind::Inside);
     let icon = Rect::from_center_size(Pos2::new(r.left() + 15.0, r.center().y), Vec2::new(13.0, 13.0));

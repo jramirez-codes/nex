@@ -41,6 +41,20 @@ pub fn run_op(op: Op, sources: &[PathBuf], dest: &Path) -> Result<usize, String>
     Ok(done)
 }
 
+/// Permanently delete `paths` (folders with everything in them). Symlinks are removed, not
+/// followed. Stops at the first failure. Returns how many items were deleted.
+pub fn delete_paths(paths: &[PathBuf]) -> Result<usize, String> {
+    let mut done = 0;
+    for path in paths {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| tilde(path));
+        let fail = |e: std::io::Error| format!("{name}: {e}");
+        let meta = std::fs::symlink_metadata(path).map_err(fail)?;
+        if meta.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) }.map_err(fail)?;
+        done += 1;
+    }
+    Ok(done)
+}
+
 /// `dest/name`, or `dest/name (2).ext`, `(3)`, … if that's taken.
 pub(super) fn unique_target(dest: &Path, name: &OsStr) -> PathBuf {
     let first = dest.join(name);
@@ -189,6 +203,20 @@ mod tests {
         std::fs::create_dir(dir.join("beta/sub")).unwrap();
         assert!(run_op(Op::Move, &[dir.join("beta")], &dir.join("beta/sub")).is_err());
         assert!(dir.join("beta").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn delete_removes_files_folders_and_links_only() {
+        let dir = fixture("delete");
+        std::fs::write(dir.join("beta/inner.txt"), "in").unwrap();
+        std::os::unix::fs::symlink(dir.join("Alpha"), dir.join("link")).unwrap();
+        assert_eq!(delete_paths(&[dir.join("zeta.txt"), dir.join("beta"), dir.join("link")]), Ok(3));
+        assert!(!dir.join("zeta.txt").exists() && !dir.join("beta").exists());
+        assert!(std::fs::symlink_metadata(dir.join("link")).is_err());
+        // The link's target is untouched.
+        assert!(dir.join("Alpha").is_dir());
+        assert!(delete_paths(&[dir.join("missing")]).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

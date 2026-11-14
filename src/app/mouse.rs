@@ -39,6 +39,11 @@ impl App {
         if self.track_pinch(ctx) {
             return;
         }
+        // A dialog is on top (the delete confirmation): it gets the pointer, not the terminals.
+        if ctx.memory(|m| m.top_modal_layer()).is_some() {
+            self.cancel_press();
+            return;
+        }
         for event in events {
             match event {
                 Event::PointerButton { pos, button, pressed: true, modifiers } => self.on_press(pos, button, modifiers),

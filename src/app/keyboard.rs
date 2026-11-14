@@ -11,6 +11,11 @@ use super::actions::Action;
 
 impl App {
     pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {
+        // The delete confirmation reads Enter / Escape itself; no key may reach a shell or
+        // run a shortcut behind it.
+        if self.explorers.values().any(|b| b.confirming_delete()) {
+            return;
+        }
         let (events, mods) = ctx.input(|i| (i.events.clone(), i.modifiers));
         // A key press that ran a shortcut also arrives as text (Alt+1 → "1"); drop that text so
         // it doesn't reach the shell too.

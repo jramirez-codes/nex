@@ -12,6 +12,13 @@ All notable changes to nex are documented here. The format follows
   window's Wayland app_id (X11 class), `--working-directory=DIR` starts the first shell there,
   and `-e COMMAND [ARGS...]` runs a program in the first pane instead of the shell. Also
   `--help` and `--version`. A new window (Ctrl+Shift+N) keeps `--config` and `--app-id`.
+- Delete files and folders in the explorer: the `Delete` key, "Delete…" in the right-click
+  menu, or the Delete button in the action bar (for touchscreens). A confirmation dialog warns
+  that items are permanently deleted (not moved to the trash) before anything is removed.
+- Touchscreen drag and drop: while selecting, drag a selected item to move the selection
+  without another long press. The drag label floats above your finger, and a terminal under
+  the drag lights up with a "Drop to insert path" hint. Dropping anywhere on a terminal's card,
+  header included, types the paths.
 
 ## [0.3.0] - 2026-11-13
 

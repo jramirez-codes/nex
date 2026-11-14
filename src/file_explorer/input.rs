@@ -51,6 +51,7 @@ pub(super) enum Command {
     PasteInto(usize),
     ClearClipboard,
     CopyPath,
+    Delete,
     SelectMode,
     SelectAll,
     ClearSelection,
@@ -102,6 +103,11 @@ impl FileExplorer {
     /// pan (touch) or a drag of files. A press starts inside the list; the rest of it is
     /// tracked even outside.
     pub(super) fn track_press(&mut self, ctx: &egui::Context, input: &PointerInput, layout: &Layout, list: Rect) {
+        // A dialog (the delete confirmation) is on top: the listing doesn't take presses.
+        if ctx.memory(|m| m.top_modal_layer()).is_some() || self.confirm_delete.is_some() {
+            self.press = None;
+            return;
+        }
         if input.pressed && input.pos.is_some_and(|p| list.contains(p)) {
             let p = input.pos.unwrap_or_default();
             self.touch = input.touches;
@@ -129,12 +135,19 @@ impl FileExplorer {
 
     /// While the button is held: decide what the press is, or keep doing it.
     fn advance_gesture(&mut self, ctx: &egui::Context, p: Pos2, input: &PointerInput) {
+        // While selecting, a touch drag that starts on a selected item moves the selection
+        // (instead of scrolling), so a long press isn't needed again.
+        let on_marked = self.selecting && self.press.as_ref().and_then(|p| p.item).is_some_and(|i| self.is_marked(i));
         let Some(press) = self.press.as_mut() else { return };
         let moved = (p - press.origin).length();
         let slop = if press.touch { 10.0 } else { 6.0 };
         match press.gesture {
             Gesture::Pending if moved > slop => {
-                if press.touch {
+                if press.touch && on_marked {
+                    press.gesture = Gesture::Dragging;
+                    let i = press.item.unwrap_or_default();
+                    self.start_drag(ctx, i);
+                } else if press.touch {
                     press.gesture = Gesture::Panning;
                     self.scroll -= p.y - press.origin.y;
                 } else if let Some(i) = press.item {
@@ -198,6 +211,7 @@ impl FileExplorer {
             Key::Enter => self.activate(self.selected),
             Key::Backspace => self.up(),
             Key::Space => self.toggle_mark(self.selected),
+            Key::Delete => self.request_delete(),
             Key::Escape => {
                 if !self.marked.is_empty() || self.selecting {
                     self.clear_selection();
@@ -278,6 +292,7 @@ impl FileExplorer {
                     let text = self.targets().iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n");
                     ctx.copy_text(text);
                 }
+                Command::Delete => self.request_delete(),
                 Command::SelectMode => {
                     self.selecting = true;
                     if self.marked.is_empty() && self.targets().len() == 1 && !self.touch {
