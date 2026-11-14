@@ -18,6 +18,8 @@
     <a href="#configuration">Configuration</a>
     ·
     <a href="#keybindings">Keybindings</a>
+    ·
+    <a href="https://jramirez-codes.github.io/nex/">Website</a>
   </p>
 </p>
 

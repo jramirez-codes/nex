@@ -5,7 +5,7 @@ use std::time::Duration;
 use egui::{Color32, CursorIcon, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::layout::{Axis, Divider, PaneId};
-use crate::render::{self, PaintOptions};
+use crate::render::{self, FrameKey, PaintOptions};
 use crate::search::Search;
 use crate::terminal::GridSize;
 use crate::ui::theme::{ERROR, Theme, darken};
@@ -47,6 +47,9 @@ impl App {
         }
         let focused = tab.focused;
         let multi = rects.len() > 1;
+        for (id, t) in &self.panes {
+            t.set_visible(rects.iter().any(|(r, _)| r == id));
+        }
         self.drag_dividers(ui, tab_uid, &dividers);
 
         let blink_on = {
@@ -131,9 +134,7 @@ impl App {
         let lines = ((term_rect.height() / m.height).floor() as usize).max(1);
         let Some(t) = self.panes.get_mut(&id) else { return };
         t.resize(GridSize { cols, lines }, cell_px);
-        let blinking = t.term.lock().cursor_style().blinking;
         let typing = t.last_input.elapsed() < BLINK_INTERVAL;
-        let cursor_visible = !pane.focused || !blinking || typing || blink_on;
 
         // Keep search results in sync with the terminal contents.
         let search = self.search.as_mut().filter(|s| s.pane == id).map(|s| {
@@ -144,28 +145,42 @@ impl App {
             &*s
         });
         let link = self.hover_link.as_ref().filter(|(pid, _)| *pid == id).map(|(_, l)| &l.range);
-
-        render::paint_terminal(
-            &painter.with_clip_rect(pane.card.shrink(1.0)),
-            term_rect,
-            t,
-            &self.cfg,
-            m,
-            PaintOptions {
-                focused: pane.focused && ctx.input(|i| i.focused),
-                cursor_visible,
-                bg_alpha: self.cfg.background_opacity,
-                matches: search.map(|s| s.matches.as_slice()).unwrap_or_default(),
-                current_match: search.and_then(|s| s.current()),
-                link,
-            },
-        );
+        // Read after the search refresh, which may scroll to a match.
+        let (offset, selection, blinking) = {
+            let term = t.term.lock();
+            let selection = term.selection.as_ref().and_then(|s| s.to_range(&term));
+            (term.grid().display_offset(), selection, term.cursor_style().blinking)
+        };
+        let opts = PaintOptions {
+            focused: pane.focused && ctx.input(|i| i.focused),
+            cursor_visible: !pane.focused || !blinking || typing || blink_on,
+            bg_alpha: self.cfg.background_opacity,
+            matches: search.map(|s| s.matches.as_slice()).unwrap_or_default(),
+            current_match: search.and_then(|s| s.current()),
+            link,
+        };
+        let key = FrameKey {
+            generation: t.generation,
+            display_offset: offset,
+            selection,
+            rect: term_rect,
+            metrics: m,
+            focused: opts.focused,
+            cursor_visible: opts.cursor_visible,
+            bg_alpha: opts.bg_alpha,
+            matches: opts.matches.to_vec(),
+            current_match: opts.current_match.cloned(),
+            link: link.cloned(),
+            glyph_epoch: self.glyphs.epoch(),
+        };
+        let (glyphs, cfg) = (&mut self.glyphs, &self.cfg);
+        let shapes = t.frame_shapes(key, |snap| render::terminal_shapes(painter, term_rect, snap, glyphs, cfg, m, opts));
+        painter.with_clip_rect(pane.card.shrink(1.0)).extend(shapes.iter().cloned());
         if let Some(s) = search {
             search_bar(painter, pane.card, content_top, s, theme, blink_on);
         }
         self.dim_unfocused(painter, pane);
 
-        let offset = self.panes.get(&id).map_or(0, |t| t.term.lock().grid().display_offset());
         if offset > 0 {
             scrollback_badge(painter, pane.card, content_top, offset, theme);
         }

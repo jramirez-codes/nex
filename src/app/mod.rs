@@ -21,6 +21,7 @@ use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, Vec2, ViewportCommand};
 use crate::config::{self, Config};
 use crate::file_explorer::{self, FileExplorer};
 use crate::fonts;
+use crate::glyphs::GlyphCache;
 use crate::layout::PaneId;
 use crate::render::CellMetrics;
 use crate::search::{Link, LinkFinder, Search};
@@ -69,6 +70,8 @@ pub struct App {
     content_area: Rect,
     started: bool,
     search: Option<Search>,
+    /// Where each character's bitmap is in egui's font atlas (shared by all panes).
+    glyphs: GlyphCache,
     links: LinkFinder,
     /// Link under the pointer while Ctrl is held.
     hover_link: Option<(PaneId, Link)>,
@@ -117,6 +120,7 @@ impl App {
             content_area: Rect::NOTHING,
             started: false,
             search: None,
+            glyphs: GlyphCache::default(),
             links: LinkFinder::new(),
             hover_link: None,
             pill_glide: Glide::new(0.2),
@@ -166,7 +170,9 @@ impl eframe::App for App {
             return;
         }
 
+        self.glyphs.begin_frame(ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.draw_window(ui));
+        self.glyphs.end_frame(ctx);
 
         self.handle_pinch(ctx);
         self.handle_mouse(ctx);

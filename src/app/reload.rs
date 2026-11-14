@@ -25,7 +25,7 @@ impl App {
         if cfg.window_decorations != old.window_decorations {
             ctx.send_viewport_cmd(ViewportCommand::Decorations(cfg.window_decorations));
         }
-        for t in self.panes.values() {
+        for t in self.panes.values_mut() {
             t.apply_config(cfg);
         }
         self.update_metrics(ctx);

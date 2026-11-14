@@ -1,0 +1,31 @@
+.perf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.perf-card { padding: 28px 24px 22px; height: 100%; }
+.perf-card h3 { margin: 0 0 4px; font-size: 21px; letter-spacing: -0.015em; }
+.perf-what { margin: 0 0 22px; color: var(--text-2); font-size: 15px; min-height: 3em; }
+
+.bars { width: 100%; border-collapse: collapse; }
+.bars th {
+  width: 1%;
+  padding: 6px 12px 6px 0;
+  text-align: left;
+  font-weight: 400;
+  font-size: 14px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.bars td { padding: 6px 0; }
+.bar-track { position: relative; display: flex; align-items: center; gap: 8px; height: 26px; }
+.bar-area { flex: 1; height: 100%; }
+.bar {
+  height: 100%;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: filter 0.2s;
+}
+.bar-track:hover .bar { filter: brightness(1.35); }
+.bar-value { width: 4.6em; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.is-nex th { color: var(--text); font-weight: 600; }
+.is-nex .bar { background: var(--grad); }
+.is-nex .bar-value { color: var(--text); font-weight: 600; }
+
+.perf-note { margin: 28px auto 0; max-width: 760px; text-align: center; font-size: 13px; color: var(--text-3); }

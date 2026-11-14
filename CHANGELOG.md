@@ -6,6 +6,21 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Lower memory use: font files are memory-mapped instead of read into memory (egui copied
+  every font it was handed, so each one was held twice). Idle memory drops by about 55 MB with
+  a system Nerd Font and the CJK fallback installed.
+
+### Changed
+
+- Faster terminal drawing: each pane is now one mesh of glyph quads taken from a per-character
+  glyph cache, instead of text laid out every frame. A full screen of changing colored text
+  (htop-style redraws) uses about 2.4x less CPU, with identical output.
+- Output in background tabs no longer redraws the window, so many busy tabs cost much less.
+- Panes whose contents haven't changed reuse their last frame instead of being rebuilt, so
+  one busy pane among many idle splits only costs about what that one pane does.
+
 ## [0.2.0] - 2026-11-13
 
 ### Added

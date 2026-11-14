@@ -1852,6 +1852,7 @@ dependencies = [
  "alacritty_terminal",
  "eframe",
  "egui",
+ "memmap2",
 ]
 
 [[package]]
