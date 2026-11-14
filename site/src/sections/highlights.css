@@ -5,6 +5,13 @@
   padding-top: 80px;
   padding-bottom: 40px;
 }
-.tile { padding: 32px 28px; }
+.tile { padding: 32px 28px; height: 100%; }
 .tile-big { font-size: clamp(48px, 6vw, 64px); font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }
 .tile-small { color: var(--text-2); margin-top: 8px; font-size: 16px; }
+
+@media (max-width: 640px) {
+  .highlights { grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 48px; padding-bottom: 0; }
+  .tile { padding: 20px 16px; border-radius: 16px; }
+  .tile-big { font-size: 38px; }
+  .tile-small { font-size: 13.5px; }
+}

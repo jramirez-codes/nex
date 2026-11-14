@@ -34,6 +34,7 @@ export default function Compare() {
           </tbody>
         </table>
       </Reveal>
+      <p className="compare-hint" aria-hidden="true">Swipe to see every terminal →</p>
     </section>
   )
 }

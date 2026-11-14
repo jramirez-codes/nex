@@ -4,6 +4,7 @@ export type Cell = boolean | string
 export const TERMINALS = ['nex', 'Alacritty', 'kitty', 'Ghostty', 'GNOME Terminal'] as const
 
 export const ROWS: { label: string; cells: Cell[] }[] = [
+  { label: 'Runs on', cells: ['Linux, macOS', 'Linux, macOS, Windows', 'Linux, macOS', 'Linux, macOS', 'Linux'] },
   { label: 'GPU-rendered', cells: [true, true, true, true, false] },
   { label: 'Tabs', cells: [true, false, true, true, true] },
   { label: 'Split panes', cells: [true, false, true, true, false] },
