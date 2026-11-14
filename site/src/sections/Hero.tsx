@@ -28,9 +28,9 @@ export default function Hero() {
 
   return (
     <section className="hero" id="top">
-      <p className="eyebrow hero-in">Version 0.2 · Linux · Open source</p>
+      <p className="eyebrow hero-in">Version 0.3 · Linux · Open source</p>
       <h1 className="hero-title hero-in">
-        The <span className="gradient-text">nex-gen</span> terminal.
+        The <span className="gradient-text">nex</span> terminal.
       </h1>
       <p className="lede hero-sub hero-in">
         GPU-rendered and written in Rust. Tabs, splits and a file explorer,
