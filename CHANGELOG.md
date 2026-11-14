@@ -6,11 +6,16 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
+## [0.3.0] - 2026-11-13
 
-- Lower memory use: font files are memory-mapped instead of read into memory (egui copied
-  every font it was handed, so each one was held twice). Idle memory drops by about 55 MB with
-  a system Nerd Font and the CJK fallback installed.
+### Added
+
+- Pane animations: a split slides the new pane out of the original's edge, a closed pane
+  collapses and fades while its neighbor grows into the space, and focus dimming fades instead
+  of switching. Terminals are sized for the final layout up front, so the shell never sees a
+  resize mid-animation.
+- `animations = false` turns off every UI animation (panes, the title-bar tab pill and the
+  pane-icon deck). It applies on live reload.
 
 ### Changed
 
@@ -20,6 +25,14 @@ All notable changes to nex are documented here. The format follows
 - Output in background tabs no longer redraws the window, so many busy tabs cost much less.
 - Panes whose contents haven't changed reuse their last frame instead of being rebuilt, so
   one busy pane among many idle splits only costs about what that one pane does.
+- Lower memory use: font files are memory-mapped instead of read into memory (egui copied
+  every font it was handed, so each one was held twice). Idle memory drops by about 55 MB with
+  a system Nerd Font and the CJK fallback installed.
+
+### Fixed
+
+- A key press that runs a shortcut (such as `Alt+1`) no longer also sends a stray character
+  to the shell.
 
 ## [0.2.0] - 2026-11-13
 
@@ -77,7 +90,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jramirez-codes/nex/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jramirez-codes/nex/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jramirez-codes/nex/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jramirez-codes/nex/releases/tag/v0.1.0
