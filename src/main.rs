@@ -12,6 +12,7 @@ mod search;
 mod snapshot;
 mod terminal;
 mod ui;
+mod wl_dnd;
 
 fn main() -> eframe::Result {
     let args = match cli::Args::parse(std::env::args_os().skip(1)) {

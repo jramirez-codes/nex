@@ -218,10 +218,12 @@ impl FileExplorer {
         }
         self.update_scroll(f.ui, &layout, list, f.input.mods.ctrl);
 
-        let drop_target = self.handle_drop(f, list, parent_drop);
-        // Files dragged in from other applications.
+        // Files dragged in from other applications land where `drop_external` puts them: the
+        // folder under the pointer, else this one.
         let os_hover = f.ui.input(|i| !i.raw.hovered_files.is_empty()) && f.ui.rect_contains_pointer(list);
-        if drop_target.as_ref() == Some(&self.dir) || os_hover {
+        let os_target = os_hover.then(|| f.input.pos.and_then(|p| self.folder_at(p, &[])).unwrap_or_else(|| self.dir.clone()));
+        let drop_target = self.handle_drop(f, list, parent_drop).or(os_target);
+        if drop_target.as_ref() == Some(&self.dir) {
             f.painter.rect_filled(list, 8, ACCENT.gamma_multiply(0.06));
             f.painter.rect_stroke(list.shrink(1.0), 8, Stroke::new(1.5, ACCENT.gamma_multiply(0.7)), StrokeKind::Inside);
         }

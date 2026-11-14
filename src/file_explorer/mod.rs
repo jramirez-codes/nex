@@ -33,7 +33,7 @@ use input::Press;
 use items::Layout;
 use transfer::FS_GENERATION;
 
-pub use fs_ops::shell_quote;
+pub use fs_ops::{parse_paths, shell_quote};
 pub use input::{ExplorerDrag, release_pos};
 pub use items::paint_drag_ghost;
 
