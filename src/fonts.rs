@@ -1,7 +1,8 @@
 //! Font discovery via fontconfig (`fc-match`) and registration with egui.
 
+use std::fs::File;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use egui::{FontData, FontDefinitions, FontFamily};
 
@@ -19,9 +20,28 @@ fn fc_match(pattern: &str) -> Option<(String, String)> {
     (!file.is_empty()).then_some((file, family))
 }
 
+/// Font files are memory-mapped, not read. egui uses borrowed font bytes as they are but
+/// clones owned ones, so reading a file kept it in memory twice; a mapping costs nothing up
+/// front and only pulls in the pages glyphs are drawn from (most of a 19 MB CJK font is never
+/// touched). Mappings live for the rest of the process and are shared by path, so reloading
+/// the config doesn't map a file again.
+fn map_font(path: &str) -> Option<FontData> {
+    static MAPS: Mutex<Vec<(String, &'static [u8])>> = Mutex::new(Vec::new());
+    let mut maps = MAPS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, bytes)) = maps.iter().find(|(p, _)| p == path) {
+        return Some(FontData::from_static(bytes));
+    }
+    let file = File::open(path).ok()?;
+    // SAFETY: the mapping is read-only and never unmapped. Like FreeType, this assumes font
+    // files aren't truncated while nex is running.
+    let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
+    let bytes: &'static [u8] = Box::leak(Box::new(map));
+    maps.push((path.to_string(), bytes));
+    Some(FontData::from_static(bytes))
+}
+
 fn load(pattern: &str) -> Option<FontData> {
-    let (file, _) = fc_match(pattern)?;
-    std::fs::read(file).ok().map(FontData::from_owned)
+    map_font(&fc_match(pattern)?.0)
 }
 
 /// JetBrains Mono patched with Nerd Font icons, compiled into the binary (like Ghostty's
@@ -91,7 +111,7 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
     ];
     for (i, (name, style)) in styles.into_iter().enumerate() {
         let data = match &family {
-            Some(f) => family_file(f, style).and_then(|file| std::fs::read(file).ok()).map(FontData::from_owned),
+            Some(f) => family_file(f, style).and_then(|file| map_font(&file)),
             None => Some(FontData::from_static(EMBEDDED[i])),
         };
         let mut chain = Vec::new();
@@ -110,10 +130,8 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
         for extra in ["Noto Sans Symbols 2", "Noto Sans CJK SC"] {
             let key = format!("sys-{extra}");
             if !defs.font_data.contains_key(&key) {
-                if let Some(file) = family_file(extra, "") {
-                    if let Ok(bytes) = std::fs::read(file) {
-                        defs.font_data.insert(key.clone(), Arc::new(FontData::from_owned(bytes)));
-                    }
+                if let Some(data) = family_file(extra, "").and_then(|file| map_font(&file)) {
+                    defs.font_data.insert(key.clone(), Arc::new(data));
                 }
             }
             if defs.font_data.contains_key(&key) {

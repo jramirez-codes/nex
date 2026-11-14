@@ -9,12 +9,13 @@ repository = "https://github.com/jramirez-codes/nex"
 readme = "README.md"
 keywords = ["terminal", "terminal-emulator", "tty", "gpu", "egui"]
 categories = ["command-line-utilities"]
-exclude = ["docs/"]
+exclude = ["docs/", "site/", "bench/"]
 
 [dependencies]
 alacritty_terminal = "0.26.0"
 eframe = "0.33.3"
 egui = "0.33.3"
+memmap2 = "0.9"
 
 [profile.release]
 lto = "thin"
