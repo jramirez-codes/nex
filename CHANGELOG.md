@@ -6,6 +6,15 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-14
+
+### Fixed
+
+- macOS: the Dock icon switched from the nex collie to the egui logo once nex had started.
+  nex now keeps the app's own icon.
+- macOS: the nex icon had a white square behind its rounded corners. `nex.icns` is
+  re-rendered with a transparent background by the new `packaging/macos/make-icns.sh`.
+
 ## [0.7.2] - 2026-11-14
 
 ### Fixed
@@ -212,7 +221,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/jramirez-codes/nex/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/jramirez-codes/nex/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/jramirez-codes/nex/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/jramirez-codes/nex/compare/v0.6.3...v0.7.0
