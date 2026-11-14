@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Symbols such as ✢ ✻ ✘ ☒ ⎯ ⧉ (used by Claude Code's spinner, todos and rules) drew as empty
+  boxes. The symbol fallback font was looked up as "Noto Sans Symbols 2" instead of
+  fontconfig's "Noto Sans Symbols2", so it never loaded. nex now also falls back to DejaVu
+  Sans Mono, Noto Sans Symbols and Noto Sans Math when they're installed.
+
 ## [0.6.1] - 2026-11-14
 
 ### Changed

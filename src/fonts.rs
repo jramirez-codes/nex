@@ -97,6 +97,13 @@ fn resolve_family(cfg: &Config) -> Option<String> {
     None
 }
 
+/// System families tried, in order, for glyphs the grid font and the embedded Nerd Font
+/// lack. Names must match fontconfig's family name exactly (`fc-list : family`). DejaVu
+/// Sans Mono comes first since its symbols are drawn to the cell width; the Noto symbol
+/// fonts cover Dingbats (✢ ✻ ✘), Misc Technical (⎯) and math operators (⧉).
+const SYSTEM_FALLBACKS: [&str; 5] =
+    ["DejaVu Sans Mono", "Noto Sans Symbols2", "Noto Sans Symbols", "Noto Sans Math", "Noto Sans CJK SC"];
+
 pub fn install(ctx: &egui::Context, cfg: &Config) {
     let mut defs = FontDefinitions::default();
     let family = resolve_family(cfg);
@@ -127,7 +134,7 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
         chain.push(EMBEDDED_KEY.to_string());
         chain.extend(fallbacks.iter().cloned());
         // Symbols & CJK coverage from the system, when available.
-        for extra in ["Noto Sans Symbols 2", "Noto Sans CJK SC"] {
+        for extra in SYSTEM_FALLBACKS {
             let key = format!("sys-{extra}");
             if !defs.font_data.contains_key(&key) {
                 if let Some(data) = family_file(extra, "").and_then(|file| map_font(&file)) {
