@@ -1,4 +1,4 @@
-.perf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.perf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
 .perf-card { padding: 28px 24px 22px; height: 100%; }
 .perf-card h3 { margin: 0 0 4px; font-size: 21px; letter-spacing: -0.015em; }
 .perf-what { margin: 0 0 22px; color: var(--text-2); font-size: 15px; min-height: 3em; }
@@ -29,3 +29,12 @@
 .is-nex .bar-value { color: var(--text); font-weight: 600; }
 
 .perf-note { margin: 28px auto 0; max-width: 760px; text-align: center; font-size: 13px; color: var(--text-3); }
+
+@media (max-width: 640px) {
+  .perf-grid { gap: 12px; }
+  .perf-card { padding: 22px 18px 16px; border-radius: 18px; }
+  .perf-what { min-height: 0; margin-bottom: 16px; }
+  .bars th { font-size: 13px; padding-right: 10px; }
+  .bar-track { height: 22px; }
+  .bar-value { width: 4.2em; font-size: 12.5px; }
+}

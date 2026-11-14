@@ -1,10 +1,13 @@
 import { useEffect, useRef } from 'react'
 import DemoVideo from '../components/DemoVideo'
 import { REPO, RELEASES } from '../links'
+import { platformName, setPlatform, usePlatform } from '../platform'
 import './hero.css'
 
 export default function Hero() {
   const stage = useRef<HTMLDivElement>(null)
+  const platform = usePlatform()
+  const other = platform === 'mac' ? 'linux' : 'mac'
 
   // Tilt the window back a little and let it flatten as the page scrolls.
   useEffect(() => {
@@ -29,18 +32,29 @@ export default function Hero() {
 
   return (
     <section className="hero" id="top">
-      <p className="eyebrow hero-in">Open-source terminal emulator for Linux and macOS</p>
+      <a className="hero-badge hero-in" href="#mac">
+        <span className="hero-badge-new">New</span>
+        nex 0.7 runs on macOS
+        <span aria-hidden="true">→</span>
+      </a>
       <h1 className="hero-title hero-in">
         The <span className="gradient-text">nex</span> terminal.
       </h1>
       <p className="lede hero-sub hero-in">
-        A fast, GPU-accelerated terminal for Linux and macOS, written in Rust. Tabs, split
+        A fast, GPU-accelerated terminal for macOS and Linux, written in Rust. Tabs, split
         panes and a file explorer, all built in. No tmux, no plugins, no setup.
       </p>
       <div className="hero-actions hero-in">
-        <a className="btn btn-primary" href={RELEASES}>Download nex</a>
+        <a className="btn btn-primary" href={RELEASES}>Download for {platformName(platform)}</a>
         <a className="btn btn-ghost" href={REPO}>View on GitHub →</a>
       </div>
+      <p className="hero-platforms hero-in">
+        <span className="chip"><span aria-hidden="true">⌘</span> macOS · Apple Silicon &amp; Intel</span>
+        <span className="chip"><span aria-hidden="true">🐧</span> Linux · Wayland &amp; X11</span>
+        <button type="button" className="hero-switch" onClick={() => setPlatform(other)}>
+          On {platformName(other)}?
+        </button>
+      </p>
       <div className="hero-stage" ref={stage}>
         <div className="hero-glow" aria-hidden="true" />
         <div className="hero-window">

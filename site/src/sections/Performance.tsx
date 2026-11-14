@@ -37,6 +37,7 @@ export default function Performance() {
         <p className="lede">
           The same benchmark run against every terminal on the same machine.
           Each number is the median of {runsLabel()}. Shorter bars are better.
+          Measured on Linux; macOS numbers are on the way.
         </p>
       </Reveal>
 

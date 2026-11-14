@@ -1,28 +1,16 @@
 .install { max-width: 720px; margin: 0 auto; padding: 24px; }
-.seg {
+.install-os {
   display: flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 11px;
-  background: rgba(0, 0, 0, 0.3);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
   margin-bottom: 20px;
 }
-.seg button {
-  flex: 1;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-2);
-  font: 500 14px var(--font);
-  cursor: pointer;
-}
-.seg button.on {
-  color: var(--text);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 2px 8px rgba(0, 0, 0, 0.35);
-}
+.install-support { font-size: 14px; color: var(--text-3); }
+.install > .seg { margin-bottom: 20px; }
+.install > .seg button { flex: 1; }
 .install-note { color: var(--text-2); font-size: 15px; margin: 0 0 14px; }
+.install-foot { margin: 16px 0 0; font-size: 13px; color: var(--text-3); }
 
 .cmd {
   position: relative;
@@ -30,7 +18,13 @@
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid var(--hairline);
 }
-.cmd pre { margin: 0; padding: 16px 84px 16px 18px; font: 14px/1.7 var(--mono); overflow-x: auto; }
+.cmd pre {
+  margin: 0;
+  padding: 16px 84px 16px 18px;
+  font: 14px/1.7 var(--mono);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .cmd-prompt { color: var(--text-3); user-select: none; }
 .cmd button {
   position: absolute;
@@ -46,6 +40,13 @@
 }
 .cmd button:hover { background: rgba(255, 255, 255, 0.12); }
 
-@media (max-width: 520px) {
-  .seg button { font-size: 12.5px; padding: 8px 4px; }
+@media (max-width: 560px) {
+  .install { padding: 16px; border-radius: 18px; }
+  .install-os { flex-direction: column; align-items: stretch; text-align: center; }
+  .install-os .seg { width: 100%; }
+  .install-os .seg button { flex: 1; }
+  .install > .seg button { font-size: 13px; padding: 9px 4px; }
+  /* The copy button moves to its own row so long commands get the full width. */
+  .cmd pre { padding: 14px 14px 8px; font-size: 13px; }
+  .cmd button { position: static; display: block; width: calc(100% - 20px); margin: 0 10px 10px; padding: 9px; }
 }

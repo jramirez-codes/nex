@@ -2,12 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0b0a0d" />
+    <meta name="format-detection" content="telephone=no" />
 
-    <title>nex: a fast GPU terminal emulator for Linux and macOS, written in Rust</title>
-    <meta name="description" content="nex is a free, open-source, GPU-accelerated terminal emulator for Linux (Wayland and X11) and macOS. Tabs, split panes and a file explorer built in, so you don't need tmux. Written in Rust." />
+    <title>nex: a fast GPU terminal emulator for macOS and Linux, written in Rust</title>
+    <meta name="description" content="nex is a free, open-source, GPU-accelerated terminal emulator for macOS (Apple Silicon and Intel) and Linux (Wayland and X11). Tabs, split panes and a file explorer built in, so you don't need tmux. Written in Rust." />
     <link rel="canonical" href="https://jramirez-codes.github.io/nex/" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
 
@@ -18,14 +19,14 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="nex" />
     <meta property="og:url" content="https://jramirez-codes.github.io/nex/" />
-    <meta property="og:title" content="nex: a fast GPU terminal emulator for Linux and macOS" />
+    <meta property="og:title" content="nex: a fast GPU terminal emulator, now on macOS" />
     <meta property="og:description" content="Tabs, split panes and a file explorer, built into one GPU-rendered Rust terminal. No tmux, no plugins, no setup." />
     <meta property="og:image" content="https://jramirez-codes.github.io/nex/og.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="nex running Neovim, a shell and a test run in three split panes" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="nex: a fast GPU terminal emulator for Linux and macOS" />
+    <meta name="twitter:title" content="nex: a fast GPU terminal emulator, now on macOS" />
     <meta name="twitter:description" content="Tabs, split panes and a file explorer, built into one GPU-rendered Rust terminal." />
     <meta name="twitter:image" content="https://jramirez-codes.github.io/nex/og.jpg" />
 
@@ -43,7 +44,8 @@
         "codeRepository": "https://github.com/jramirez-codes/nex",
         "applicationCategory": "DeveloperApplication",
         "applicationSubCategory": "Terminal emulator",
-        "operatingSystem": "Linux, macOS",
+        "operatingSystem": "macOS, Linux",
+        "processorRequirements": "Apple Silicon, Intel x86_64, ARM aarch64",
         "programmingLanguage": "Rust",
         "license": "https://opensource.org/licenses/MIT",
         "isAccessibleForFree": true,

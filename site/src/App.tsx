@@ -2,7 +2,9 @@ import BubbleBackground from './components/BubbleBackground'
 import Nav from './components/Nav'
 import Hero from './sections/Hero'
 import Highlights from './sections/Highlights'
+import Mac from './sections/Mac'
 import Features from './sections/Features'
+import Shortcuts from './sections/Shortcuts'
 import Performance from './sections/Performance'
 import Compare from './sections/Compare'
 import Install from './sections/Install'
@@ -17,7 +19,9 @@ export default function App() {
       <main>
         <Hero />
         <Highlights />
+        <Mac />
         <Features />
+        <Shortcuts />
         <Performance />
         <Compare />
         <Install />

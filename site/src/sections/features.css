@@ -1,3 +1,14 @@
+.features-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+  margin-top: 28px;
+  font-size: 14px;
+  color: var(--text-3);
+}
+
 .spot {
   display: grid;
   grid-template-columns: 1fr 1.5fr;
@@ -21,7 +32,7 @@
 
 .details {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
   gap: 16px;
 }
 .detail { padding: 28px 24px; height: 100%; }
@@ -43,4 +54,17 @@
 @media (max-width: 860px) {
   .spot, .spot.flip { grid-template-columns: 1fr; gap: 28px; margin-bottom: 80px; }
   .spot.flip .spot-text { order: 0; }
+}
+@media (max-width: 640px) {
+  .spot, .spot.flip { gap: 20px; margin-bottom: 64px; }
+  .shot { border-radius: 10px; }
+  /* Two columns of compact cards instead of a long single-file list. */
+  .details { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .detail { padding: 18px 16px; border-radius: 16px; }
+  .detail-icon { width: 34px; height: 34px; font-size: 16px; margin-bottom: 12px; border-radius: 9px; }
+  .detail h3 { font-size: 15px; }
+  .detail p { font-size: 13.5px; }
+}
+@media (max-width: 360px) {
+  .details { grid-template-columns: 1fr; }
 }

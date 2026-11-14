@@ -1,5 +1,5 @@
 .compare-wrap { overflow-x: auto; padding: 8px 8px 4px; }
-.compare { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 15px; }
+.compare { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 15px; }
 .compare th, .compare td { padding: 14px 16px; text-align: center; border-bottom: 1px solid var(--hairline); }
 .compare tr:last-child th, .compare tr:last-child td { border-bottom: 0; }
 .compare thead th { font-size: 14px; font-weight: 600; color: var(--text-2); }
@@ -10,4 +10,21 @@
 .is-nex .yes { color: var(--violet); }
 .no { color: var(--text-3); }
 .partial { color: var(--text-3); font-size: 13px; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.compare-hint { display: none; }
+@media (max-width: 720px) {
+  .compare-wrap { padding: 0; border-radius: 18px; -webkit-overflow-scrolling: touch; }
+  .compare { font-size: 14px; min-width: 600px; }
+  .compare th, .compare td { padding: 12px 10px; }
+  /* Keep the feature names in view while the terminals scroll sideways. */
+  .compare tbody th, .compare thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    width: 132px;
+    min-width: 132px;
+    background: rgb(24, 22, 28);
+    box-shadow: 1px 0 0 var(--hairline);
+  }
+  .compare-hint { display: block; margin: 12px 0 0; text-align: center; font-size: 13px; color: var(--text-3); }
+}

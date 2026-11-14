@@ -1,15 +1,22 @@
 import Reveal from '../components/Reveal'
 import { DETAILS, SPOTLIGHT } from '../data/features'
 import DemoVideo from '../components/DemoVideo'
+import PlatformToggle from '../components/PlatformToggle'
+import { usePlatform } from '../platform'
 import './features.css'
 
 export default function Features() {
+  const platform = usePlatform()
   return (
     <section className="section" id="features">
       <Reveal className="section-head">
         <p className="eyebrow">Features</p>
-        <h2 className="title">Everything you reach for.<br />Already there.</h2>
-        <p className="lede">nex is a terminal emulator for Linux and macOS that looks and feels like a native desktop app, and does the jobs you would normally bolt on with tmux and a file manager. Shortcuts below are the Linux ones; on macOS they use Cmd (Cmd+T, Cmd+D, Cmd+E).</p>
+        <h2 className="title">Everything you reach for.{' '}<br />Already there.</h2>
+        <p className="lede">nex looks and feels like a native desktop app on macOS and Linux, and does the jobs you would normally bolt on with tmux and a file manager.</p>
+        <div className="features-toggle">
+          <span>Show shortcuts for</span>
+          <PlatformToggle />
+        </div>
       </Reveal>
 
       {SPOTLIGHT.map((f, i) => (
@@ -18,7 +25,7 @@ export default function Features() {
             <p className="eyebrow">{f.eyebrow}</p>
             <h3 className="spot-title">{f.title}</h3>
             <p className="spot-body">{f.body}</p>
-            {f.keys && <p className="spot-keys">{f.keys.map(k => <kbd key={k}>{k}</kbd>)}</p>}
+            {f.keys && <p className="spot-keys">{f.keys[platform].map(k => <kbd key={k}>{k}</kbd>)}</p>}
           </div>
           {f.shot && (
             <div className="shot">
