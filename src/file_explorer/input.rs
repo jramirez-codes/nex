@@ -246,6 +246,7 @@ impl FileExplorer {
         }
         let paths = self.targets();
         if !paths.is_empty() {
+            crate::wl_dnd::log(format_args!("explorer drag started: {} path(s)", paths.len()));
             DragAndDrop::set_payload(ctx, ExplorerDrag { paths });
         }
     }

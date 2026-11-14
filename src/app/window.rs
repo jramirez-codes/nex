@@ -30,6 +30,27 @@ impl App {
         let pos = pos.or(self.last_pointer);
         self.last_pointer = pos;
 
+        // An explorer drag leaving the window goes to the compositor, so another window
+        // (another nex, a file manager, a browser) can take the drop.
+        if let (Some(dnd), Some(p)) = (&mut self.dnd, pos) {
+            if !released && !ctx.content_rect().contains(p) {
+                if let Some(drag) = egui::DragAndDrop::payload::<file_explorer::ExplorerDrag>(ctx) {
+                    crate::wl_dnd::log(format_args!("explorer drag left the window at {p:?} (window {:?})", ctx.content_rect()));
+                    if dnd.start_drag(&drag.paths, p) {
+                        egui::DragAndDrop::clear_payload(ctx);
+                        ctx.request_repaint();
+                    }
+                }
+            }
+        }
+
+        // Files dragged in from another window, over a terminal.
+        if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+            if let Some((_, card)) = pos.and_then(|p| self.terminal_card_at(p)) {
+                paint_terminal_drop(ctx, card);
+            }
+        }
+
         // Explorer → terminal, anywhere on the terminal's card (header included, which helps
         // fingers). Explorer → explorer drops are handled by the explorers.
         if egui::DragAndDrop::has_payload_of_type::<file_explorer::ExplorerDrag>(ctx) {
@@ -48,15 +69,23 @@ impl App {
         if dropped.is_empty() {
             return;
         }
-        // The pane under the pointer, else the focused one.
-        let target = pos
-            .and_then(|p| self.card_rects.iter().find(|(_, r)| r.contains(p)).map(|&(id, _)| id))
-            .or_else(|| self.focused_pane());
+        // The pane under the drop. Only a drop with no position at all goes to the focused pane:
+        // one outside every pane (between panes, or outside the window) does nothing, rather
+        // than copying files somewhere nobody pointed at.
+        let target = match pos {
+            Some(p) => self.card_rects.iter().find(|(_, r)| r.contains(p)).map(|&(id, _)| id),
+            None => self.focused_pane(),
+        };
         let Some(id) = target else { return };
+        if let Some(dnd) = &self.dnd {
+            dnd.focus_window();
+        }
+        self.pending.push(Action::FocusPane(id));
         if let Some(b) = self.explorers.get_mut(&id) {
             b.drop_external(ctx, dropped, pos);
         } else {
             self.insert_paths(id, &dropped);
+            crate::wl_dnd::log(format_args!("typed {} path(s) into pane {id:?}", dropped.len()));
         }
     }
 

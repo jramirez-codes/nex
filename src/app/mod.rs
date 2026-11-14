@@ -93,6 +93,8 @@ pub struct App {
     new_window_args: Vec<String>,
     /// `-e` command, run by the first pane only; later panes start the shell.
     first_command: Option<Vec<String>>,
+    /// Drag and drop with other windows (Wayland only).
+    dnd: Option<crate::wl_dnd::WlDnd>,
 }
 
 impl App {
@@ -138,11 +140,19 @@ impl App {
             last_pointer: None,
             new_window_args: args.for_new_window(),
             first_command: args.command,
+            dnd: crate::wl_dnd::WlDnd::new(cc),
         }
     }
 }
 
 impl eframe::App for App {
+    /// Files dragged in from another window, reported as winit does on X11.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if let Some(dnd) = &mut self.dnd {
+            dnd.feed(ctx, raw_input);
+        }
+    }
+
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
     }

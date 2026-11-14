@@ -6,8 +6,22 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Drag and drop between windows on Wayland: drag files out of the explorer into another nex
+  window (onto a terminal types their paths, onto an explorer copies them) or into another
+  app, and drop files from other apps into nex. winit has no Wayland drag and drop, so nex
+  speaks the protocol itself (`src/wl_dnd.rs`). On sway a finger's drag stays with the window
+  it started in, so nex passes it to the nex window under the finger over a local socket.
+  A window that receives files from another window takes keyboard focus, and the window a
+  drag left no longer thinks the finger (or button) is still down. `NEX_DEBUG_DND=1` logs each
+  step.
+
 ### Fixed
 
+- Files dropped where there's no pane (between panes, or outside the window) are ignored.
+  They used to go to the focused pane, so a drop on nothing could copy files into the
+  explorer's folder.
 - Touchscreen drag and drop onto a terminal now drops where the finger lifts. Before, it
   could use the hidden mouse cursor's position (sway moves the pointer there when a finger
   lifts), so the paths went to the wrong terminal or nowhere.

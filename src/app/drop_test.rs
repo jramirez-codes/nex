@@ -18,13 +18,12 @@ struct Sim {
 
 impl Sim {
     fn frame(&mut self, events: Vec<Event>) {
+        self.frame_with(RawInput { events, ..Default::default() });
+    }
+    fn frame_with(&mut self, mut input: RawInput) {
         self.t += 0.016;
-        let input = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 700.0))),
-            time: Some(self.t),
-            events,
-            ..Default::default()
-        };
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 700.0)));
+        input.time = Some(self.t);
         let app = &mut self.app;
         let _ = self.ctx.run(input, |ctx| {
             let mut frame = eframe::Frame::_new_kittest();
@@ -187,4 +186,29 @@ fn touch_drop_ignores_parked_mouse_cursor() {
     let t = s.terminals()[0];
     s.mouse = Some(s.card(ex).center());
     assert!(s.touch_drop(ex, t, &dir));
+}
+
+/// A file dropped from another window where there's no pane (here the title bar) is ignored,
+/// even though the explorer has focus: it used to be copied into the explorer's folder.
+#[test]
+fn drop_outside_every_pane_does_nothing() {
+    let (mut s, dir) = setup();
+    s.app.toggle_explorer();
+    s.settle();
+    let ex = s.explorer();
+    s.app.explorers.get_mut(&ex).unwrap().navigate(dir.to_path_buf());
+    s.settle();
+    assert_eq!(s.app.focused_pane(), Some(ex));
+    let elsewhere = std::env::temp_dir().join(format!("nex-drop-src-{}", std::process::id()));
+    std::fs::write(&elsewhere, "x").unwrap();
+    s.frame_with(RawInput {
+        events: vec![Event::PointerMoved(Pos2::new(600.0, 10.0))],
+        dropped_files: vec![egui::DroppedFile { path: Some(elsewhere.clone()), ..Default::default() }],
+        ..Default::default()
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    s.settle();
+    let _ = std::fs::remove_file(&elsewhere);
+    let names: Vec<_> = std::fs::read_dir(&*dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert_eq!(names.len(), 2, "the drop was copied in: {names:?}");
 }
