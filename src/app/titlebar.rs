@@ -11,7 +11,7 @@ use super::actions::Action;
 
 const TAB_HEIGHT: f32 = 30.0;
 /// Padding between the tab track's edge and the tabs inside it.
-const TRACK_PAD: f32 = 3.0;
+pub(super) const TRACK_PAD: f32 = 3.0;
 const MIN_TAB_WIDTH: f32 = 80.0;
 const MAX_TAB_WIDTH: f32 = 232.0;
 const PLUS_SIZE: f32 = 28.0;
@@ -38,11 +38,12 @@ impl Light {
         }
     }
 
-    /// The glyph shown on every light while the group is hovered: ×, − or +.
-    fn paint_glyph(self, painter: &egui::Painter, center: Pos2) {
-        let s = Stroke::new(1.2, Color32::from_black_alpha(150));
+    /// The glyph shown on every light while the group is hovered: ×, − or +. `scale` is the
+    /// light's size relative to the title bar's.
+    fn paint_glyph(self, painter: &egui::Painter, center: Pos2, scale: f32) {
+        let s = Stroke::new(1.2 * scale, Color32::from_black_alpha(150));
         let line = |a: Vec2, b: Vec2| {
-            painter.line_segment([center + a, center + b], s);
+            painter.line_segment([center + a * scale, center + b * scale], s);
         };
         match self {
             Light::Close => {
@@ -66,15 +67,16 @@ impl Light {
     }
 }
 
-fn toggle_maximized(ctx: &egui::Context) {
+pub(super) fn toggle_maximized(ctx: &egui::Context) {
     ctx.send_viewport_cmd(ViewportCommand::Maximized(!is_maximized(ctx)));
 }
 
-/// Where the tabs sit this frame: `shown` slots of `width`, starting at `x0`.
-struct TabSlots {
-    x0: f32,
-    top: f32,
-    width: f32,
+/// Where the tabs sit this frame: `shown` slots of `size`, starting at `origin` and running
+/// right (title bar) or down (mobile sidebar).
+pub(super) struct TabSlots {
+    origin: Pos2,
+    size: Vec2,
+    vertical: bool,
     shown: usize,
     /// Position of the active pill, in slots (it glides between them). `-1.0` is the
     /// Files label, so the pill glides between it and the tabs too.
@@ -83,17 +85,19 @@ struct TabSlots {
 
 impl TabSlots {
     fn rect(&self, slot: f32) -> Rect {
-        Rect::from_min_size(Pos2::new(self.x0 + slot * self.width, self.top), Vec2::new(self.width, TAB_HEIGHT))
+        let step = if self.vertical { Vec2::new(0.0, self.size.y) } else { Vec2::new(self.size.x, 0.0) };
+        Rect::from_min_size(self.origin + step * slot, self.size)
     }
 
-    /// The slot under horizontal position `x`.
-    fn slot_at(&self, x: f32) -> usize {
-        (((x - self.x0) / self.width).floor().max(0.0) as usize).min(self.shown - 1)
+    /// The slot under `pos` (along the strip's direction).
+    fn slot_at(&self, pos: Pos2) -> usize {
+        let along = if self.vertical { (pos.y - self.origin.y) / self.size.y } else { (pos.x - self.origin.x) / self.size.x };
+        (along.floor().max(0.0) as usize).min(self.shown - 1)
     }
 
     /// Where the pill is this frame. Between the Files label (`-1.0`) and the first tab it
     /// morphs from the label's rect into the slot's.
-    fn pill_rect(&self, label: Rect) -> Option<Rect> {
+    pub(super) fn pill_rect(&self, label: Rect) -> Option<Rect> {
         let p = self.pill?;
         Some(if p >= 0.0 { self.rect(p) } else { label.lerp_towards(&self.rect(0.0), p + 1.0) })
     }
@@ -119,7 +123,7 @@ impl App {
             rect.left() + 18.0
         };
         let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 30.0 + LABEL_WIDTH, cy + 15.0));
-        let slots = self.tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy);
+        let slots = self.horizontal_tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy);
         // The active pill is painted once, beneath the label and the tabs, and glides
         // between them.
         if let Some(pill) = slots.pill_rect(label_r) {
@@ -163,9 +167,7 @@ impl App {
     /// Lays out the terminal tabs in a recessed segmented-control style track between `x`
     /// and `right`, paints the track, and advances the pill toward the active tab (or the
     /// Files label).
-    fn tab_slots(&mut self, ui: &Ui, x: f32, right: f32, cy: f32) -> TabSlots {
-        let ctx = ui.ctx().clone();
-        let painter = ui.painter();
+    fn horizontal_tab_slots(&mut self, ui: &Ui, x: f32, right: f32, cy: f32) -> TabSlots {
         let n = self.tabs.len().max(1);
         let avail = (right - x - 2.0 * TRACK_PAD).max(MIN_TAB_WIDTH);
         let width = (avail / n as f32).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH);
@@ -174,16 +176,23 @@ impl App {
             Pos2::new(x, cy - TAB_HEIGHT / 2.0 - TRACK_PAD),
             Vec2::new(width * visible as f32 + 2.0 * TRACK_PAD, TAB_HEIGHT + 2.0 * TRACK_PAD),
         );
-        paint::tab_track(painter, track);
+        self.tab_track(ui, track, Vec2::new(width, TAB_HEIGHT), visible, false)
+    }
 
+    /// Paints `track` (holding `visible` slots of `size`) and advances the pill toward the
+    /// active tab, or the Files label.
+    pub(super) fn tab_track(&mut self, ui: &Ui, track: Rect, size: Vec2, visible: usize, vertical: bool) -> TabSlots {
+        let ctx = ui.ctx().clone();
+        paint::tab_track(ui.painter(), track);
         let shown = visible.min(self.tabs.len());
         let target = if self.explorer_active { Some(-1.0) } else { (self.active < shown).then_some(self.active as f32) };
         let pill = target.map(|t| self.pill_glide.value(&ctx, t));
-        TabSlots { x0: track.left() + TRACK_PAD, top: track.top() + TRACK_PAD, width, shown, pill }
+        let origin = track.min + Vec2::splat(TRACK_PAD);
+        TabSlots { origin, size, vertical, shown, pill }
     }
 
     /// The terminal tabs, drawn into `slots` over the track and pill.
-    fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
+    pub(super) fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
         for i in 0..slots.shown {
             if self.tab_item(ui, slots, i, theme) {
                 break;
@@ -192,6 +201,7 @@ impl App {
     }
 
     /// One tab: icon (or pane deck), title, hover close button; click to show, drag to reorder.
+    /// In the vertical (mobile) strip a tab is just a large icon, its title a tooltip.
     /// Returns `true` if the tabs were reordered (the rest of the strip is drawn next frame).
     fn tab_item(&mut self, ui: &Ui, slots: &TabSlots, i: usize, theme: &Theme) -> bool {
         let ctx = ui.ctx().clone();
@@ -201,7 +211,7 @@ impl App {
         let resp = ui.interact(r, Id::new(("tab", uid)), Sense::click_and_drag());
         if resp.dragged_by(PointerButton::Primary) {
             if let Some(pos) = resp.interact_pointer_pos() {
-                let target = slots.slot_at(pos.x);
+                let target = slots.slot_at(pos);
                 if target != i {
                     let tab = self.tabs.remove(i);
                     self.tabs.insert(target, tab);
@@ -224,15 +234,36 @@ impl App {
         let boundary = (i + 1) as f32;
         let covered = slots.pill.is_some_and(|p| boundary > p - 0.05 && boundary < p + 1.05);
         if i + 1 < slots.shown && !covered {
-            let sx = r.right();
-            painter.line_segment(
-                [Pos2::new(sx, r.center().y - 8.0), Pos2::new(sx, r.center().y + 8.0)],
-                Stroke::new(1.0, TAB_SEPARATOR),
-            );
+            let seg = if slots.vertical {
+                let sy = r.bottom();
+                [Pos2::new(r.center().x - 10.0, sy), Pos2::new(r.center().x + 10.0, sy)]
+            } else {
+                let sx = r.right();
+                [Pos2::new(sx, r.center().y - 8.0), Pos2::new(sx, r.center().y + 8.0)]
+            };
+            painter.line_segment(seg, Stroke::new(1.0, TAB_SEPARATOR));
+        }
+
+        if slots.vertical {
+            // A large icon (or pane deck) with the title underneath.
+            let (icon, text) = sidebar_tile_parts(r);
+            // A tad smaller than the tile's icon square, leaving room for the deck to fan out.
+            let icon = Rect::from_center_size(icon.center(), icon.size() * 0.84);
+            self.tab_icon(&ctx, painter, i, icon, icons::SIDEBAR_STACK_STEP, true);
+            let (title, _) = self.pane_label(self.tabs[i].focused);
+            let color = if active { theme.text_bright } else { theme.text_dim };
+            paint::caption(painter, text, &title, FontId::proportional(12.0), color);
+            let resp = resp.on_hover_text(title);
+            if resp.clicked_by(PointerButton::Middle) {
+                self.pending.push(Action::CloseTab(i));
+            } else if resp.clicked_by(PointerButton::Primary) {
+                self.show_tab(i);
+            }
+            return false;
         }
 
         let icon = Rect::from_center_size(Pos2::new(r.left() + 19.0, r.center().y), Vec2::splat(20.0));
-        let text_left = self.tab_icon(&ctx, painter, i, icon);
+        let text_left = self.tab_icon(&ctx, painter, i, icon, icons::STACK_STEP, false);
         let (title, _) = self.pane_label(self.tabs[i].focused);
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
         let text_right = if hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
@@ -254,8 +285,10 @@ impl App {
     }
 
     /// The tab's icon: the focused pane's app tile, or a deck with one card per pane (focused
-    /// on top, up to 3 peeking out behind). Returns where the title text starts.
-    fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect) -> f32 {
+    /// on top, up to 3 peeking out behind, each `step` further). With `center`, the whole deck
+    /// is centered on `icon` rather than fanning out from it. Returns where the title text
+    /// starts.
+    fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect, step: Vec2, center: bool) -> f32 {
         let (_, process) = self.pane_label(self.tabs[i].focused);
         let (panes, explorers) = (&self.panes, &self.explorers);
         let cards = self.tabs[i].deck_cards(ctx, |id| {
@@ -268,9 +301,10 @@ impl App {
         let mut text_left = icon.right() + 9.0;
         if cards.len() > 1 {
             let cards: Vec<(&str, f32)> = cards.iter().map(|(p, d)| (p.as_str(), *d)).collect();
-            icons::icon_stack(painter, icon, &cards);
             let behind = (cards.len() as f32 - 1.0).min(icons::STACK_DEPTH - 1.0);
-            text_left += icons::STACK_STEP.x * behind;
+            let icon = if center { icon.translate(-step * behind / 2.0) } else { icon };
+            icons::icon_stack(painter, icon, &cards, step);
+            text_left += step.x * behind;
         } else {
             icons::app_tile(painter, icon, &process);
         }
@@ -288,23 +322,35 @@ impl App {
     }
 }
 
+/// Splits a mobile-sidebar tile into its icon square and the caption line below it.
+pub(super) fn sidebar_tile_parts(r: Rect) -> (Rect, Rect) {
+    let side = (r.height() - 26.0).min(r.width() - 16.0).max(8.0);
+    let icon = Rect::from_center_size(Pos2::new(r.center().x, r.top() + 5.0 + side / 2.0), Vec2::splat(side));
+    let text = Rect::from_min_max(Pos2::new(r.left() + 5.0, icon.bottom() + 2.0), Pos2::new(r.right() - 5.0, r.bottom() - 2.0));
+    (icon, text)
+}
+
 /// The close / minimize / maximize buttons, starting at `x`. Returns where the next item goes.
 fn window_controls(ui: &Ui, x: f32, cy: f32) -> f32 {
-    let painter = ui.painter();
     let group = Rect::from_min_size(Pos2::new(x - 8.0, cy - 10.0), Vec2::new(60.0, 20.0));
-    let group_hovered = ui.rect_contains_pointer(group);
-    let mut x = x;
-    for (k, light) in Light::ALL.into_iter().enumerate() {
-        let center = Pos2::new(x + 6.0, cy);
-        let resp = ui.interact(Rect::from_center_size(center, Vec2::splat(14.0)), Id::new(("light", k)), Sense::click());
-        painter.circle_filled(center, 6.0, light.color());
-        if group_hovered {
-            light.paint_glyph(painter, center);
+    let show_glyphs = ui.rect_contains_pointer(group);
+    let centers = (0..3).map(|k| Pos2::new(x + 6.0 + 20.0 * k as f32, cy));
+    paint_lights(ui, centers, 1.0, 14.0, show_glyphs);
+    x + 78.0
+}
+
+/// The traffic lights at `centers`, `scale` times their title-bar size, each clickable within
+/// a `hit`-sized square.
+pub(super) fn paint_lights(ui: &Ui, centers: impl Iterator<Item = Pos2>, scale: f32, hit: f32, show_glyphs: bool) {
+    let painter = ui.painter();
+    for ((k, light), center) in Light::ALL.into_iter().enumerate().zip(centers) {
+        let resp = ui.interact(Rect::from_center_size(center, Vec2::splat(hit)), Id::new(("light", k)), Sense::click());
+        painter.circle_filled(center, 6.0 * scale, light.color());
+        if show_glyphs {
+            light.paint_glyph(painter, center, scale);
         }
         if resp.clicked_by(PointerButton::Primary) {
             light.press(ui.ctx());
         }
-        x += 20.0;
     }
-    x + 18.0
 }

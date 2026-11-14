@@ -40,6 +40,9 @@ pub struct Config {
     pub pane_headers: bool,
     /// Animate pane splits / closes, focus changes and the title-bar tabs.
     pub animations: bool,
+    /// Phone-sized touch screens: the title bar becomes a left sidebar of large icon tiles,
+    /// and pane headers get bigger buttons.
+    pub mobile: bool,
 
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
@@ -88,6 +91,7 @@ impl Default for Config {
             window_controls: true,
             pane_headers: true,
             animations: true,
+            mobile: false,
 
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
@@ -184,6 +188,7 @@ impl Config {
             "window-controls" => self.window_controls = boolean(value)?,
             "pane-headers" => self.pane_headers = boolean(value)?,
             "animations" => self.animations = boolean(value)?,
+            "mobile" => self.mobile = boolean(value)?,
             "cursor-style" => {
                 self.cursor_style = match value {
                     "block" => CursorStyle::Block,
@@ -243,5 +248,14 @@ mod tests {
         assert_eq!(strip_comment(" block        # block | bar").trim(), "block");
         assert_eq!(strip_comment(" #1f1b1e").trim(), "#1f1b1e");
         assert_eq!(strip_comment(" 4=#6cb6ff  # blue").trim(), "4=#6cb6ff");
+    }
+
+    #[test]
+    fn mobile_is_a_boolean() {
+        let mut cfg = Config::default();
+        assert!(!cfg.mobile);
+        cfg.apply("mobile", "true").unwrap();
+        assert!(cfg.mobile);
+        assert!(cfg.apply("mobile", "yes").is_err());
     }
 }

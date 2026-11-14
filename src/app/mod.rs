@@ -8,6 +8,7 @@ mod motion;
 mod mouse;
 mod panes;
 mod reload;
+mod sidebar;
 mod tab;
 mod titlebar;
 mod window;
@@ -39,6 +40,8 @@ use tab::Tab;
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;
+/// Pane headers in mobile mode, tall enough for touch-sized buttons.
+const MOBILE_HEADER_HEIGHT: f32 = 44.0;
 const PANE_GAP: f32 = 8.0;
 const WINDOW_RADIUS: u8 = 14;
 const WINDOW_BORDER: Color32 = white_alpha(22);
@@ -205,13 +208,20 @@ impl eframe::App for App {
 }
 
 impl App {
-    /// The area below the title bar where panes go.
+    /// The area below the title bar (or right of the mobile sidebar) where panes go.
     fn update_content_area(&mut self, ctx: &egui::Context) {
         let full = ctx.content_rect();
-        self.content_area = Rect::from_min_max(
-            Pos2::new(full.left() + PANE_GAP, full.top() + TITLEBAR_HEIGHT),
-            Pos2::new(full.right() - PANE_GAP, full.bottom() - PANE_GAP),
-        );
+        let min = if self.cfg.mobile {
+            Pos2::new(full.left() + sidebar::SIDEBAR_WIDTH, full.top() + PANE_GAP)
+        } else {
+            Pos2::new(full.left() + PANE_GAP, full.top() + TITLEBAR_HEIGHT)
+        };
+        self.content_area = Rect::from_min_max(min, Pos2::new(full.right() - PANE_GAP, full.bottom() - PANE_GAP));
+    }
+
+    /// Height of a pane's header (taller in mobile mode).
+    fn header_height(&self) -> f32 {
+        if self.cfg.mobile { MOBILE_HEADER_HEIGHT } else { HEADER_HEIGHT }
     }
 
     /// Read PTY events; panes whose shell exited are closed (like Ghostty).
@@ -276,8 +286,13 @@ impl App {
             ui.painter().rect_stroke(full, radius, Stroke::new(1.0, WINDOW_BORDER), StrokeKind::Inside);
         }
 
-        let titlebar = Rect::from_min_size(full.min, Vec2::new(full.width(), TITLEBAR_HEIGHT));
-        self.titlebar(ui, titlebar, &theme);
+        if self.cfg.mobile {
+            let sidebar = Rect::from_min_size(full.min, Vec2::new(sidebar::SIDEBAR_WIDTH, full.height()));
+            self.sidebar(ui, sidebar, &theme);
+        } else {
+            let titlebar = Rect::from_min_size(full.min, Vec2::new(full.width(), TITLEBAR_HEIGHT));
+            self.titlebar(ui, titlebar, &theme);
+        }
         let area = self.content_area;
         self.panes_area(ui, area, &theme);
         self.file_drops(&ctx);

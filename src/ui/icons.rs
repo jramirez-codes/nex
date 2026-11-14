@@ -118,25 +118,28 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str) {
 
 /// Visible depth of the pane-icon deck; cards further back are hidden.
 pub const STACK_DEPTH: f32 = 3.0;
-/// How far each card behind the top one peeks out (right and up).
+/// How far each card behind the top one peeks out (right and up), in the title bar.
 pub const STACK_STEP: Vec2 = Vec2::new(3.0, -1.5);
+/// The same in the mobile sidebar: fanned out wider, so the deck's shuffle reads at a glance.
+pub const SIDEBAR_STACK_STEP: Vec2 = Vec2::new(9.0, -6.0);
 
 /// Placement of a resting card at fractional depth `t` (0 = top): (offset, scale, opacity).
-fn stack_rest(t: f32) -> (Vec2, f32, f32) {
+fn stack_rest(t: f32, step: Vec2) -> (Vec2, f32, f32) {
     let mut alpha = 1.0 - 0.3 * t.min(2.0);
     if t > 2.0 {
         // Fade out entirely on the way to depth 3, so at most 3 cards ever show.
         alpha *= (STACK_DEPTH - t).max(0.0);
     }
-    (STACK_STEP * t, 1.0 - 0.12 * t, alpha)
+    (step * t, 1.0 - 0.12 * t, alpha)
 }
 
 /// A deck of app tiles, one per pane, with the focused pane on top.
 ///
 /// `cards` holds `(process, depth)` for every pane of the tab, where depth is a continuous
 /// position in `[0, n)` (0 = top). A card between `n - 1` and `n` is mid-flip: travelling
-/// between the top of the deck and the back, squashing like a card turned edge-on.
-pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, f32)]) {
+/// between the top of the deck and the back, squashing like a card turned edge-on. Each card
+/// behind the top one is offset by another `step`.
+pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, f32)], step: Vec2) {
     use std::f32::consts::PI;
     let n = cards.len() as f32;
     // (z-order key, rect, opacity, process); larger keys are painted first (further back).
@@ -145,15 +148,16 @@ pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, f32)]) {
         let (offset, scale, alpha, width, z) = if n > 1.0 && depth > n - 1.0 {
             // u: 0 = on top, 1 = resting at the back.
             let u = (n - depth).clamp(0.0, 1.0);
-            let (back_off, back_scale, back_alpha) = stack_rest(n - 1.0);
+            let (back_off, back_scale, back_alpha) = stack_rest(n - 1.0, step);
             let lerp = |a: f32, b: f32| a + (b - a) * u;
-            let slide = Vec2::new(-4.0 * (PI * u).sin(), 0.0);
+            // Swings out to the left as it flips, as far as the deck fans out to the right.
+            let slide = Vec2::new(-1.33 * step.x * (PI * u).sin(), 0.0);
             let flip = (PI * u).cos().abs();
             // In front while turning away, behind once it has turned over.
             let z = if u < 0.5 { -1.0 } else { n };
             (back_off * u + slide, lerp(1.0, back_scale), lerp(1.0, back_alpha), flip, z)
         } else if depth < STACK_DEPTH {
-            let (o, s, a) = stack_rest(depth);
+            let (o, s, a) = stack_rest(depth, step);
             (o, s, a, 1.0, depth)
         } else {
             continue;

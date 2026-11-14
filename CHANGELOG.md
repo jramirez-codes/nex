@@ -8,6 +8,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- `mobile = true` for phone-sized touch screens: the title bar becomes a narrow sidebar on
+  the left, with the window buttons, the Files tab, one large app icon per tab and the
+  new-tab button stacked top to bottom. Pane headers get taller, with finger-sized buttons.
 - Drag and drop between windows on Wayland: drag files out of the explorer into another nex
   window (onto a terminal types their paths, onto an explorer copies them) or into another
   app, and drop files from other apps into nex. winit has no Wayland drag and drop, so nex
