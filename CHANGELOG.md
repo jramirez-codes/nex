@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-14
+
 ### Added
 
 - Command-line flags: `--config=PATH` reads another config file, `--app-id=ID` sets the
@@ -104,7 +106,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jramirez-codes/nex/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jramirez-codes/nex/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jramirez-codes/nex/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jramirez-codes/nex/compare/v0.1.0...v0.1.1
