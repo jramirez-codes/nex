@@ -6,6 +6,12 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Touchscreen drag and drop onto a terminal now drops where the finger lifts. Before, it
+  could use the hidden mouse cursor's position (sway moves the pointer there when a finger
+  lifts), so the paths went to the wrong terminal or nowhere.
+
 ## [0.4.0] - 2026-11-14
 
 ### Added

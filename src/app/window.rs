@@ -22,7 +22,10 @@ impl App {
     pub(super) fn file_drops(&mut self, ctx: &egui::Context) {
         let (pos, released, dropped) = ctx.input(|i| {
             let dropped: Vec<PathBuf> = i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect();
-            (i.pointer.interact_pos(), i.pointer.any_released(), dropped)
+            // On release, where it was released: a touch lift can be followed by a pointer
+            // move to the hidden mouse cursor.
+            let pos = file_explorer::release_pos(i).or(i.pointer.interact_pos());
+            (pos, i.pointer.any_released(), dropped)
         });
         let pos = pos.or(self.last_pointer);
         self.last_pointer = pos;

@@ -13,6 +13,8 @@ mod titlebar;
 mod window;
 mod workspace;
 mod zoom;
+#[cfg(test)]
+mod drop_test;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
