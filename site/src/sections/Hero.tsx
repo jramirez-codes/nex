@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { REPO, RELEASES, asset } from '../links'
+import DemoVideo from '../components/DemoVideo'
+import { REPO, RELEASES } from '../links'
 import './hero.css'
 
 export default function Hero() {
@@ -28,13 +29,13 @@ export default function Hero() {
 
   return (
     <section className="hero" id="top">
-      <p className="eyebrow hero-in">Version 0.6 · Linux · Open source</p>
+      <p className="eyebrow hero-in">Open-source terminal emulator for Linux</p>
       <h1 className="hero-title hero-in">
         The <span className="gradient-text">nex</span> terminal.
       </h1>
       <p className="lede hero-sub hero-in">
-        GPU-rendered and written in Rust. Tabs, splits and a file explorer,
-        all built in. No tmux, no plugins, no setup.
+        A fast, GPU-accelerated terminal for Linux, written in Rust. Tabs, split
+        panes and a file explorer, all built in. No tmux, no plugins, no setup.
       </p>
       <div className="hero-actions hero-in">
         <a className="btn btn-primary" href={RELEASES}>Download for Linux</a>
@@ -43,12 +44,13 @@ export default function Hero() {
       <div className="hero-stage" ref={stage}>
         <div className="hero-glow" aria-hidden="true" />
         <div className="hero-window">
-          <img
+          <DemoVideo
             className="hero-shot"
-            src={asset('demo/tour.gif')}
-            alt="nex splitting into git, btop and nvim panes, moving focus between them, and switching tabs"
+            name="tour"
+            label="nex splitting into git, btop and nvim panes, moving focus between them, and switching tabs"
             width={1200}
             height={750}
+            eager
           />
         </div>
       </div>

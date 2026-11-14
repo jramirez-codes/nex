@@ -3,12 +3,13 @@ name = "nex"
 version = "0.6.2"
 edition = "2024"
 rust-version = "1.88"
-description = "nex — the nex terminal. GPU-rendered tabs and split panes, built in Rust."
+description = "A fast, GPU-accelerated terminal emulator for Linux with tabs, split panes and a file explorer built in."
 license = "MIT"
 repository = "https://github.com/jramirez-codes/nex"
+homepage = "https://jramirez-codes.github.io/nex/"
 readme = "README.md"
-keywords = ["terminal", "terminal-emulator", "tty", "gpu", "egui"]
-categories = ["command-line-utilities"]
+keywords = ["terminal-emulator", "terminal", "gpu", "wayland", "linux"]
+categories = ["command-line-utilities", "gui"]
 exclude = ["docs/", "site/", "bench/"]
 
 [dependencies]
@@ -31,7 +32,8 @@ strip = true
 maintainer = "Jordan Ramirez <87620356+jramirez-codes@users.noreply.github.com>"
 copyright = "2026, Jordan Ramirez"
 extended-description = """\
-nex is a GPU-rendered terminal emulator with tabs and split panes built in, \
+nex is a fast, GPU-accelerated terminal emulator with tabs, split panes and a \
+file explorer built in, \
 scrollback search, clickable links, and an embedded Nerd Font."""
 section = "x11"
 priority = "optional"

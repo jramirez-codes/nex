@@ -1,6 +1,6 @@
 import Reveal from '../components/Reveal'
 import { DETAILS, SPOTLIGHT } from '../data/features'
-import { asset } from '../links'
+import DemoVideo from '../components/DemoVideo'
 import './features.css'
 
 export default function Features() {
@@ -9,7 +9,7 @@ export default function Features() {
       <Reveal className="section-head">
         <p className="eyebrow">Features</p>
         <h2 className="title">Everything you reach for.<br />Already there.</h2>
-        <p className="lede">nex looks and feels like a native desktop app, and does the jobs you would normally bolt on with tmux and a file manager.</p>
+        <p className="lede">nex is a Linux terminal emulator that looks and feels like a native desktop app, and does the jobs you would normally bolt on with tmux and a file manager.</p>
       </Reveal>
 
       {SPOTLIGHT.map((f, i) => (
@@ -22,7 +22,7 @@ export default function Features() {
           </div>
           {f.shot && (
             <div className="shot">
-              <img src={asset(f.shot.src)} alt={f.shot.alt} loading="lazy" width={1000} height={625} />
+              <DemoVideo name={f.shot.name} label={f.shot.alt} width={1000} height={625} />
             </div>
           )}
         </Reveal>

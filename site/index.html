@@ -5,12 +5,58 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0b0a0d" />
-    <meta name="description" content="nex, a GPU-rendered terminal with tabs, split panes and a file explorer built in. Written in Rust." />
+
+    <title>nex: a fast GPU terminal emulator for Linux, written in Rust</title>
+    <meta name="description" content="nex is a free, open-source, GPU-accelerated terminal emulator for Linux (Wayland and X11). Tabs, split panes and a file explorer built in, so you don't need tmux. Written in Rust." />
+    <link rel="canonical" href="https://jramirez-codes.github.io/nex/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
     <link rel="icon" type="image/svg+xml" href="/nex/nex.svg" />
-    <title>nex — the terminal, built in Rust</title>
+    <link rel="apple-touch-icon" href="/nex/nex.svg" />
+
+    <!-- Link previews (Slack, Discord, X, LinkedIn, Reddit, Hacker News readers) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="nex" />
+    <meta property="og:url" content="https://jramirez-codes.github.io/nex/" />
+    <meta property="og:title" content="nex: a fast GPU terminal emulator for Linux" />
+    <meta property="og:description" content="Tabs, split panes and a file explorer, built into one GPU-rendered Rust terminal. No tmux, no plugins, no setup." />
+    <meta property="og:image" content="https://jramirez-codes.github.io/nex/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="nex running Neovim, a shell and a test run in three split panes" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="nex: a fast GPU terminal emulator for Linux" />
+    <meta name="twitter:description" content="Tabs, split panes and a file explorer, built into one GPU-rendered Rust terminal." />
+    <meta name="twitter:image" content="https://jramirez-codes.github.io/nex/og.jpg" />
+
+    <link rel="preload" as="image" href="/nex/demo/tour.jpg" fetchpriority="high" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "nex",
+        "alternateName": "the nex terminal",
+        "description": "A free, open-source, GPU-accelerated terminal emulator for Linux with tabs, split panes and a file explorer built in. Written in Rust.",
+        "url": "https://jramirez-codes.github.io/nex/",
+        "downloadUrl": "https://github.com/jramirez-codes/nex/releases/latest",
+        "codeRepository": "https://github.com/jramirez-codes/nex",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Terminal emulator",
+        "operatingSystem": "Linux",
+        "programmingLanguage": "Rust",
+        "license": "https://opensource.org/licenses/MIT",
+        "isAccessibleForFree": true,
+        "image": "https://jramirez-codes.github.io/nex/og.jpg",
+        "screenshot": "https://jramirez-codes.github.io/nex/og.jpg",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": { "@type": "Person", "name": "jramirez-codes", "url": "https://github.com/jramirez-codes" }
+      }
+    </script>
+    <!--faq-json-ld-->
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><!--app-html--></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

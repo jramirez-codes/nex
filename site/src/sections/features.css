@@ -17,7 +17,7 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 40px 100px -24px rgba(0, 0, 0, 0.8), 0 0 80px -20px rgba(140, 120, 255, 0.35);
 }
-.shot img { width: 100%; height: auto; }
+.shot video { display: block; width: 100%; height: auto; }
 
 .details {
   display: grid;
