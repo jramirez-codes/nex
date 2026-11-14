@@ -6,7 +6,9 @@
 //! action bar that appears while items are selected), and dragged onto folders, onto another
 //! explorer pane, or onto a terminal (which inserts their paths). Hold Ctrl while dropping to
 //! copy instead of move. On touch screens a tap opens, a long press starts selecting, dragging
-//! scrolls, and a long press followed by a drag moves the selection.
+//! scrolls, and a long press followed by a drag (or, while selecting, dragging a selected item)
+//! moves the selection. Delete (the key, the right-click menu or the action bar) asks for
+//! confirmation, then permanently deletes the selection.
 
 mod fs_ops;
 mod input;
@@ -88,6 +90,8 @@ pub struct FileExplorer {
     last_click: Option<(usize, f64)>,
     jobs: Vec<Receiver<Result<String, String>>>,
     status: Option<(String, bool, Instant)>,
+    /// Items waiting for the user to confirm they should be permanently deleted.
+    confirm_delete: Option<Vec<PathBuf>>,
 }
 
 impl FileExplorer {
@@ -116,6 +120,7 @@ impl FileExplorer {
             last_click: None,
             jobs: Vec::new(),
             status: None,
+            confirm_delete: None,
         };
         b.refresh();
         b

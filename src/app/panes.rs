@@ -17,7 +17,7 @@ use super::metrics::cell_px;
 use super::motion::Ghost;
 use super::{App, HEADER_HEIGHT, PANE_GAP};
 
-const PANE_RADIUS: u8 = 12;
+pub(super) const PANE_RADIUS: u8 = 12;
 const BLINK_INTERVAL: Duration = Duration::from_millis(600);
 /// How long a pane's border flashes after the terminal bell.
 const BELL_FLASH: Duration = Duration::from_millis(200);

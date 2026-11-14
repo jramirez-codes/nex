@@ -62,9 +62,11 @@ rendering, input handling, multiplexing and window chrome.
 - **Real file management.** List or grid view, multi-select, and copy, cut and paste between
   explorers, with a right-click menu and an action bar. Drag files into another folder to move
   them, onto a terminal to type their paths, or drop them in from other apps. Name clashes get
-  a `(2)` suffix instead of overwriting anything.
+  a `(2)` suffix instead of overwriting anything. Delete asks for confirmation first, since
+  it's permanent.
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
-  an explorer's listing. In an explorer, drag to scroll and long-press to select.
+  an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
+  selection into another folder, explorer or terminal pane.
 - **Native-feeling chrome.** Tabs sit in a segmented track with a raised "glass" active pill,
   glossy per-app icons and titles that fade out instead of being cut off.
 - **Smart titles.** Every tab and pane shows the foreground program and its directory, such as
@@ -228,15 +230,19 @@ Mouse actions:
 | Select                       | `Space`, Ctrl+click, Shift+click, `Ctrl+A`            |
 | Copy / cut / paste files     | `Ctrl+C` / `Ctrl+X` / `Ctrl+V`                        |
 | Clear selection / clipboard  | `Esc`                                                 |
+| Delete (asks first)          | `Delete`                                              |
 | List / grid view             | `Ctrl+G`                                              |
 | Show hidden files            | `Ctrl+H`                                              |
 | Zoom the listing             | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   |
 
-- Right-click for Open, Copy, Cut, Paste here, Paste into folder, Copy path and the view
-  options.
+- Right-click for Open, Copy, Cut, Paste here, Paste into folder, Copy path, Delete and the
+  view options.
 - Drag files onto a folder to move them, or onto a terminal to type their shell-quoted paths.
   Files dropped in from another app are copied into the folder under the pointer.
-- On a touchscreen, drag to scroll and long-press to start selecting.
+- On a touchscreen, drag to scroll and long-press to start selecting. Long-press and keep
+  moving (or, while selecting, drag a selected item) to drag the selection onto a folder,
+  another explorer or a terminal. The action bar's Delete button asks before deleting
+  anything permanently.
 
 ## Architecture
 
