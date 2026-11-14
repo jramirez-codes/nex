@@ -22,6 +22,14 @@ pub const FALLBACK_FAMILIES: &[&str] = &["Consolas", "Segoe UI Symbol", "Cambria
 pub(super) const SANS_SERIF: &str = "Segoe UI";
 pub(super) const MONOSPACE: &str = "Consolas";
 
+pub fn opened_from_desktop() -> bool {
+    false
+}
+
+pub fn shell_env() -> Vec<(String, String)> {
+    Vec::new()
+}
+
 /// `%APPDATA%\nex`.
 pub fn config_dir() -> Option<PathBuf> {
     std::env::var_os("APPDATA").filter(|v| !v.is_empty()).map(|d| PathBuf::from(d).join("nex"))

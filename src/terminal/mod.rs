@@ -114,12 +114,13 @@ impl Terminal {
             let program = parts.remove(0);
             tty::Shell::new(program, parts)
         });
-        let env = HashMap::from([
+        let mut env = HashMap::from([
             ("TERM".to_string(), "xterm-256color".to_string()),
             ("COLORTERM".to_string(), "truecolor".to_string()),
             ("TERM_PROGRAM".to_string(), "nex".to_string()),
             ("TERM_PROGRAM_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string()),
         ]);
+        env.extend(platform::shell_env());
         let options = platform::pty_options(shell, cwd.clone().filter(|p| p.is_dir()), env);
 
         let window_size = window_size(size, cell_px);

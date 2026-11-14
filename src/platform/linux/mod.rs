@@ -16,6 +16,16 @@ pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 /// nex draws its own title bar and window buttons.
 pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0 };
 
+/// Desktop launchers start nex in the home folder already, so there is nothing to detect.
+pub fn opened_from_desktop() -> bool {
+    false
+}
+
+/// Linux sessions pass the locale on to every app.
+pub fn shell_env() -> Vec<(String, String)> {
+    Vec::new()
+}
+
 /// Open a URI with the desktop's default handler.
 pub fn open_uri(uri: &std::ffi::OsStr) {
     super::unix::spawn_opener("xdg-open", uri);

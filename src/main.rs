@@ -23,6 +23,12 @@ fn main() -> eframe::Result {
         println!("nex {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    // Opened from Finder or the Dock (in `/`): the first shell starts at home, as in Terminal.
+    if args.working_directory.is_none() && platform::opened_from_desktop() {
+        if let Some(home) = platform::home_dir() {
+            let _ = std::env::set_current_dir(home);
+        }
+    }
     if let Some(dir) = &args.working_directory {
         // The first shell starts in nex's own working directory.
         if let Err(e) = std::env::set_current_dir(dir) {

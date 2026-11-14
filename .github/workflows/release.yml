@@ -112,10 +112,15 @@ jobs:
       - name: Package
         run: |
           name="nex-${GITHUB_REF_NAME}-universal-macos"
-          mkdir -p "dist/$name"
+          mkdir -p "dist/$name/packaging"
           cp target/universal/nex install.sh LICENSE README.md CHANGELOG.md config.example "dist/$name/"
+          cp -R packaging/macos "dist/$name/packaging/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name"
+
+          # nex.app on its own, zipped with ditto so the bundle's signature survives.
+          packaging/macos/make-app.sh target/universal/nex build
+          ditto -c -k --keepParent build/nex.app "dist/nex-${GITHUB_REF_NAME}-macos-app.zip"
           cd dist && shasum -a 256 * > "SHA256SUMS-macos.txt"
 
       - uses: actions/upload-artifact@v4
@@ -167,10 +172,17 @@ jobs:
           \`\`\`
 
           **macOS (Apple Silicon and Intel)**
+
+          Unzip \`nex-${GITHUB_REF_NAME}-macos-app.zip\` and drag \`nex.app\` to Applications. It isn't
+          notarized yet, so clear the download flag once before opening it:
+          \`\`\`sh
+          xattr -dr com.apple.quarantine /Applications/nex.app
+          \`\`\`
+          Or install the app plus the \`nex\` command with the tarball:
           \`\`\`sh
           tar xzf nex-${GITHUB_REF_NAME}-universal-macos.tar.gz
-          xattr -dr com.apple.quarantine nex-${GITHUB_REF_NAME}-universal-macos   # not notarized yet
-          ./nex-${GITHUB_REF_NAME}-universal-macos/install.sh   # installs to ~/.local
+          xattr -dr com.apple.quarantine nex-${GITHUB_REF_NAME}-universal-macos
+          ./nex-${GITHUB_REF_NAME}-universal-macos/install.sh   # nex.app + ~/.local/bin/nex
           \`\`\`
 
           Verify downloads with \`sha256sum -c SHA256SUMS.txt --ignore-missing\`
