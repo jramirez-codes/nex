@@ -1,46 +1,49 @@
 <!-- LOGO -->
-<h1>
-<p align="center">
-  <img src="assets/nex.svg" alt="nex logo" width="128">
+<h1 align="center">
+  <img src="assets/nex.svg" alt="nex terminal emulator logo" width="128">
   <br>nex
 </h1>
-  <p align="center">
-    The nex terminal.
-    <br />
-    Fast, GPU-rendered, with tabs and split panes built in. Written in Rust.
-    <br />
-    <a href="#about">About</a>
-    ·
-    <a href="#features">Features</a>
-    ·
-    <a href="#installation">Install</a>
-    ·
-    <a href="#configuration">Configuration</a>
-    ·
-    <a href="#keybindings">Keybindings</a>
-    ·
-    <a href="https://jramirez-codes.github.io/nex/">Website</a>
-  </p>
+
+<p align="center">
+  <strong>A fast, GPU-accelerated terminal emulator for Linux, written in Rust.</strong>
+  <br />
+  Tabs, split panes and a file explorer, built in. No tmux, no plugins, no setup.
+  <br /><br />
+  <a href="https://jramirez-codes.github.io/nex/"><strong>Website</strong></a>
+  ·
+  <a href="#installation">Install</a>
+  ·
+  <a href="#features">Features</a>
+  ·
+  <a href="#how-does-nex-compare">Compare</a>
+  ·
+  <a href="#configuration">Configuration</a>
+  ·
+  <a href="#keybindings">Keybindings</a>
+  ·
+  <a href="#faq">FAQ</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/jramirez-codes/nex/releases/latest"><img src="https://img.shields.io/github/v/release/jramirez-codes/nex?sort=semver" alt="Latest release"></a>
   <a href="https://github.com/jramirez-codes/nex/actions/workflows/ci.yml"><img src="https://github.com/jramirez-codes/nex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/jramirez-codes/nex/stargazers"><img src="https://img.shields.io/github/stars/jramirez-codes/nex?style=flat" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange.svg?logo=rust" alt="Rust 1.88+">
-  <img src="https://img.shields.io/badge/platform-Linux-lightgrey.svg?logo=linux&logoColor=white" alt="Platform: Linux">
+  <img src="https://img.shields.io/badge/platform-Linux%20(Wayland%20%7C%20X11)-lightgrey.svg?logo=linux&logoColor=white" alt="Platform: Linux, Wayland and X11">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/hero.png" alt="nex with nvim, Nerd Font icons and a test run in split panes" width="900">
+  <img src="site/public/demo/tour.gif" alt="nex terminal emulator splitting into git, btop and nvim panes, moving focus between them, and switching tabs" width="900">
 </p>
 
 ## About
 
-nex is a terminal emulator that looks and feels like a native, modern desktop app. Tabs live
-in the title bar, and every split is a rounded card with its own header showing what's running
-and where. The UI is drawn with the GPU, so typing, scrolling and resizing stay smooth even
-under heavy TUIs like `btop` or `nvim`.
+**nex** is a free, open-source terminal emulator for Linux that looks and feels like a native,
+modern desktop app. Tabs live in the title bar, and every split pane is a rounded card with its
+own header showing what's running and where. A file explorer opens right next to your shell.
+The UI is drawn with the GPU, so typing, scrolling and resizing stay smooth even under heavy
+TUIs like `btop`, `nvim` and `lazygit`.
 
 It is built on [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal), the same
 battle-tested VT engine behind Alacritty and Zed's terminal. nex's own code covers the
@@ -48,7 +51,42 @@ rendering, input handling, multiplexing and window chrome.
 
 > [!NOTE]
 > nex is young and Linux-only for now (X11 and Wayland). Expect rough edges, and please
-> [open an issue](https://github.com/jramirez-codes/nex/issues) when you hit one.
+> [open an issue](https://github.com/jramirez-codes/nex/issues) when you hit one. If nex is
+> useful to you, a ⭐ helps other people find it.
+
+### Why nex?
+
+- **One window instead of three.** Tabs, split panes and a file explorer replace a terminal +
+  tmux + file manager setup.
+- **Fast.** In [our benchmark](bench/README.md), nex printed 50 MB of output 1.6× faster than
+  kitty and launched 1.2× faster than GNOME Terminal.
+- **Works out of the box.** A Nerd Font is embedded, config applies on save, and the defaults
+  are sensible.
+- **Native-feeling.** Glass tab pills, per-pane headers with app icons, smooth animations, and
+  touch and pinch support.
+
+## How does nex compare?
+
+|                                         | nex | Alacritty | kitty    | Ghostty  | GNOME Terminal |
+| --------------------------------------- | :-: | :-------: | :------: | :------: | :------------: |
+| GPU-rendered                            | ✅  | ✅        | ✅       | ✅       | ❌             |
+| Tabs                                    | ✅  | ❌        | ✅       | ✅       | ✅             |
+| Split panes                             | ✅  | ❌        | ✅       | ✅       | ❌             |
+| Built-in file explorer                  | ✅  | ❌        | ❌       | ❌       | ❌             |
+| Per-pane headers (program + folder)     | ✅  | ❌        | ❌       | ❌       | ❌             |
+| Nerd Font icons with nothing installed  | ✅  | ❌        | ✅       | ✅       | ❌             |
+| Config applies on save                  | ✅  | ✅        | Shortcut | Shortcut | GUI only       |
+
+### Performance
+
+Median of several runs on the same machine (Ryzen 7 3700X, RTX 3060, Wayland), default
+settings for each terminal. Lower is better. See [`bench/`](bench/README.md) to run it yourself.
+
+| Benchmark                         | nex         | kitty   | Ghostty | GNOME Terminal |
+| --------------------------------- | ----------- | ------- | ------- | -------------- |
+| Print 50 MB of text, color, boxes | **0.82 s**  | 1.29 s  | 1.63 s  | 1.71 s         |
+| Launch to shell                   | **272 ms**  | 840 ms  | 397 ms  | 314 ms         |
+| Memory at idle                    | 115 MB      | 143 MB  | 175 MB  | **52 MB**      |
 
 ## Features
 
@@ -87,11 +125,11 @@ rendering, input handling, multiplexing and window chrome.
 - **Simple config.** Ghostty-style `key = value` file that applies as soon as you save it.
 
 <p align="center">
-  <img src="docs/screenshots/explorer.png" alt="A terminal tab with a Ctrl+E file explorer split, three files selected, and a terminal split off the explorer" width="900">
+  <img src="docs/screenshots/explorer.png" alt="nex terminal with a built-in file explorer split: three files selected, and a terminal split off the explorer" width="900">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/search.png" alt="Scrollback search highlighting every match" width="900">
+  <img src="docs/screenshots/search.png" alt="nex terminal scrollback search highlighting every match" width="900">
 </p>
 
 ## Installation
@@ -245,6 +283,28 @@ Mouse actions:
   moving (or, while selecting, drag a selected item) to drag the selection onto a folder,
   another explorer or a terminal. The action bar's Delete button asks before deleting
   anything permanently.
+
+## FAQ
+
+**Is nex a tmux alternative?**
+For layout, yes: split panes, zoom, resize and keyboard focus between splits are built in, and
+every pane shows its program and folder. nex doesn't detach sessions or run over SSH, so keep
+tmux for that.
+
+**Does nex work on Wayland and X11?**
+Yes, both, including tiling compositors like Hyprland and Sway. Prebuilt `.deb` packages and
+tarballs are available for x86_64 and aarch64.
+
+**Do I need to install a Nerd Font?**
+No. JetBrains Mono Nerd Font is embedded, so icons in Neovim, starship and lazygit work out of
+the box. An installed Nerd Font Mono is used instead if you have one.
+
+**Is nex available on macOS or Windows?**
+Not yet. macOS is on the [roadmap](#roadmap).
+
+**How is nex related to Alacritty?**
+nex uses `alacritty_terminal`, Alacritty's VT parser and grid, as its terminal engine. The
+renderer, tabs, splits, file explorer and window chrome are nex's own.
 
 ## Architecture
 

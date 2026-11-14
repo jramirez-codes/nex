@@ -7,6 +7,7 @@ const LINKS = [
   ['Performance', '#performance'],
   ['Compare', '#compare'],
   ['Install', '#install'],
+  ['FAQ', '#faq'],
 ]
 
 export default function Nav() {
@@ -23,7 +24,7 @@ export default function Nav() {
     <header className={`nav ${scrolled ? 'scrolled' : ''}`}>
       <nav className="nav-inner" aria-label="Main">
         <a className="nav-brand" href="#top">
-          <img src={asset('nex.svg')} alt="" width={26} height={26} />
+          <img src={asset('nex.svg')} alt="nex logo" width={26} height={26} />
           nex
         </a>
         <div className="nav-links">

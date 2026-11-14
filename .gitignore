@@ -3,3 +3,4 @@ site/node_modules
 site/dist
 site/tsconfig.tsbuildinfo
 __pycache__/
+site/dist-ssr

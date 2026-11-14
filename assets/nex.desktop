@@ -2,10 +2,10 @@
 Type=Application
 Name=nex
 GenericName=Terminal
-Comment=A Ghostty-inspired terminal emulator
+Comment=Fast GPU terminal emulator with tabs, splits and a file explorer
 Exec=nex
 Icon=nex
 Terminal=false
 Categories=System;TerminalEmulator;
-Keywords=terminal;shell;prompt;command;
+Keywords=terminal;shell;prompt;command;console;tmux;split;tabs;files;
 StartupWMClass=nex
