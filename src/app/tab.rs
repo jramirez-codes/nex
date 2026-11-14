@@ -3,12 +3,16 @@
 use crate::layout::{Node, PaneId};
 use crate::ui::glide::Glide;
 
+use super::motion::PaneMotion;
+
 pub(super) struct Tab {
     /// Stable identity (survives reordering) for egui widget ids.
     pub(super) uid: u64,
     pub(super) root: Node,
     pub(super) focused: PaneId,
     pub(super) zoomed: bool,
+    /// Split / close transitions and focus fades of this tab's panes.
+    pub(super) motion: PaneMotion,
     /// Pane-icon deck in the tab header: rotation (in cards) of the stack, plus the focus and
     /// pane count it was last drawn for, to tell focus moves (animate) from splits (snap).
     deck: Glide,
@@ -18,7 +22,7 @@ pub(super) struct Tab {
 
 impl Tab {
     pub(super) fn new(uid: u64, pane: PaneId) -> Self {
-        Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
+        Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, motion: PaneMotion::default(), deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
     }
 
     pub(super) fn contains(&self, pane: PaneId) -> bool {

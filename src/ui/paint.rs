@@ -44,17 +44,22 @@ pub fn glass_pill(p: &Painter, r: Rect, radius: u8) {
 }
 
 /// A pane card: drop shadow, translucent fill, hairline border and a faint glass edge on top.
-pub fn card(p: &Painter, r: Rect, radius: u8, fill: Color32, focused: bool, accent: Option<Color32>) {
+/// `focus` (0 to 1) brightens the border and glass edge, so focus changes can fade.
+pub fn card(p: &Painter, r: Rect, radius: u8, fill: Color32, focus: f32, accent: Option<Color32>) {
+    let alpha = |from: f32, to: f32| (from + (to - from) * focus.clamp(0.0, 1.0)).round() as u8;
     let shadow = Shadow { offset: [0, 3], blur: 16, spread: 0, color: Color32::from_black_alpha(70) };
     p.add(shadow.as_shape(r, radius));
     p.rect_filled(r, radius, fill);
-    let border = accent.unwrap_or(Color32::from_white_alpha(if focused { 30 } else { 20 }));
+    let border = accent.unwrap_or(Color32::from_white_alpha(alpha(20.0, 30.0)));
     p.rect_stroke(r, radius, Stroke::new(1.0, border), StrokeKind::Inside);
     let inset = radius as f32 + 2.0;
-    p.line_segment(
-        [Pos2::new(r.left() + inset, r.top() + 1.5), Pos2::new(r.right() - inset, r.top() + 1.5)],
-        Stroke::new(1.0, Color32::from_white_alpha(if focused { 16 } else { 10 })),
-    );
+    // Skipped while a card is too narrow for it (mid split / close animation).
+    if r.width() > inset * 2.0 {
+        p.line_segment(
+            [Pos2::new(r.left() + inset, r.top() + 1.5), Pos2::new(r.right() - inset, r.top() + 1.5)],
+            Stroke::new(1.0, Color32::from_white_alpha(alpha(10.0, 16.0))),
+        );
+    }
 }
 
 /// Draw single-line text vertically centered at `left_center`, fading the characters out over

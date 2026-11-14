@@ -36,6 +36,8 @@ pub struct Config {
     /// Show the close / minimize / maximize buttons in the title bar.
     pub window_controls: bool,
     pub pane_headers: bool,
+    /// Animate pane splits / closes, focus changes and the title-bar tabs.
+    pub animations: bool,
 
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
@@ -83,6 +85,7 @@ impl Default for Config {
             window_decorations: false,
             window_controls: true,
             pane_headers: true,
+            animations: true,
 
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
@@ -167,6 +170,7 @@ impl Config {
             "window-decorations" => self.window_decorations = boolean(value)?,
             "window-controls" => self.window_controls = boolean(value)?,
             "pane-headers" => self.pane_headers = boolean(value)?,
+            "animations" => self.animations = boolean(value)?,
             "cursor-style" => {
                 self.cursor_style = match value {
                     "block" => CursorStyle::Block,

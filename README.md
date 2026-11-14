@@ -163,6 +163,7 @@ unfocused-split-opacity = 0.90
 cursor-style = block                         # block | bar | underline
 window-controls = false                      # hide the close / minimize / maximize buttons
 copy-on-select = false
+animations = false                           # turn off pane and tab animations
 command = fish                               # defaults to your login shell
 ```
 

@@ -12,9 +12,13 @@ use super::actions::Action;
 impl App {
     pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let (events, mods) = ctx.input(|i| (i.events.clone(), i.modifiers));
+        // A key press that ran a shortcut also arrives as text (Alt+1 → "1"); drop that text so
+        // it doesn't reach the shell too.
+        let mut shortcut_ran = false;
         for event in events {
             match event {
-                Event::Key { key, pressed: true, modifiers, .. } => self.on_key(key, modifiers),
+                Event::Key { key, pressed: true, modifiers, .. } => shortcut_ran = self.on_key(key, modifiers),
+                Event::Text(_) if shortcut_ran => shortcut_ran = false,
                 Event::Text(text) => self.on_text(&text, mods),
                 Event::Ime(egui::ImeEvent::Commit(text)) => {
                     if let Some(t) = self.focused_terminal() {
@@ -36,28 +40,26 @@ impl App {
     }
 
     /// A key press goes to the first taker: a shortcut, a file explorer, the search field, or
-    /// the shell.
-    fn on_key(&mut self, key: Key, modifiers: Modifiers) {
+    /// the shell. Returns whether it ran a shortcut.
+    fn on_key(&mut self, key: Key, modifiers: Modifiers) -> bool {
         let binding = self.bindings.iter().find(|(c, s, a, k, _)| {
             *k == key && *c == modifiers.ctrl && *s == modifiers.shift && *a == modifiers.alt
         });
         if let Some(&(.., action)) = binding {
             self.pending.push(action);
-            return;
+            return true;
         }
         if let Some(b) = self.focused_explorer() {
             b.key(key, modifiers);
-            return;
-        }
-        if self.search.is_some() {
+        } else if self.search.is_some() {
             self.search_key(key, modifiers);
-            return;
+        } else if let Some(t) = self.focused_terminal() {
+            let mode = *t.term.lock().mode();
+            if let Some(bytes) = input::encode_key(key, modifiers, mode) {
+                t.input(bytes);
+            }
         }
-        let Some(t) = self.focused_terminal() else { return };
-        let mode = *t.term.lock().mode();
-        if let Some(bytes) = input::encode_key(key, modifiers, mode) {
-            t.input(bytes);
-        }
+        false
     }
 
     /// Keys while the search field is open.

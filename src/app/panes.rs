@@ -14,6 +14,7 @@ use crate::ui::{icons, paint};
 
 use super::actions::Action;
 use super::metrics::cell_px;
+use super::motion::Ghost;
 use super::{App, HEADER_HEIGHT, PANE_GAP};
 
 const PANE_RADIUS: u8 = 12;
@@ -24,9 +25,14 @@ const BELL_FLASH: Duration = Duration::from_millis(200);
 /// One pane being drawn this frame.
 struct PaneView {
     id: PaneId,
-    /// The whole card, header included.
+    /// The whole card, header included, where it is drawn (mid-animation, maybe not yet
+    /// where the layout puts it).
     card: Rect,
+    /// Where the layout puts the card: terminals are sized and hit-tested against this.
+    target: Rect,
     focused: bool,
+    /// How focused the pane looks, 0 to 1 (fades when focus moves).
+    focus: f32,
     /// The tab shows more than one pane (focus is highlighted, the rest dimmed).
     multi: bool,
 }
@@ -35,7 +41,9 @@ impl App {
     pub(super) fn panes_area(&mut self, ui: &mut Ui, area: Rect, theme: &Theme) {
         self.term_rects.clear();
         self.card_rects.clear();
-        let Some(tab) = self.cur_tab() else { return };
+        let ctx = ui.ctx().clone();
+        let headers = self.cfg.pane_headers;
+        let Some(tab) = self.cur_tab_mut() else { return };
         let tab_uid = tab.uid;
 
         let mut rects = Vec::new();
@@ -47,6 +55,24 @@ impl App {
         }
         let focused = tab.focused;
         let multi = rects.len() > 1;
+        let views: Vec<PaneView> = tab
+            .motion
+            .frame(&ctx, &rects)
+            .into_iter()
+            .map(|p| PaneView {
+                id: p.id,
+                card: p.card,
+                target: p.target,
+                focused: p.id == focused,
+                focus: tab.motion.focus_amount(&ctx, p.id, p.id == focused),
+                multi,
+            })
+            .collect();
+        // Closed panes fade out underneath the panes growing into their space.
+        let now = ctx.input(|i| i.time);
+        for g in tab.motion.ghosts() {
+            paint_ghost(ui.painter(), g, now, theme, headers);
+        }
         for (id, t) in &self.panes {
             t.set_visible(rects.iter().any(|(r, _)| r == id));
         }
@@ -56,16 +82,15 @@ impl App {
             let ms = ui.input(|i| i.time * 1000.0) as u128;
             (ms / BLINK_INTERVAL.as_millis()) % 2 == 0
         };
-        for (id, card) in rects {
-            let pane = PaneView { id, card, focused: id == focused, multi };
-            if self.explorers.contains_key(&id) {
+        for pane in views {
+            if self.explorers.contains_key(&pane.id) {
                 self.explorer_pane(ui, &pane, theme);
-            } else if self.panes.contains_key(&id) {
+            } else if self.panes.contains_key(&pane.id) {
                 self.terminal_pane(ui, &pane, theme, blink_on);
             } else {
                 continue;
             }
-            self.card_rects.push((id, card));
+            self.card_rects.push((pane.id, pane.target));
         }
 
         // Keep blinking cursors blinking.
@@ -102,7 +127,8 @@ impl App {
     /// The card and (if enabled) header every pane has. Returns the top of the content area.
     fn pane_frame(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme, accent: Option<Color32>) -> f32 {
         let painter = ui.painter();
-        paint::card(painter, pane.card, PANE_RADIUS, theme.card, pane.focused && pane.multi, accent);
+        let ring = if pane.multi { pane.focus } else { 0.0 };
+        paint::card(painter, pane.card, PANE_RADIUS, theme.card, ring, accent);
         if !self.cfg.pane_headers {
             return pane.card.top() + self.cfg.window_padding * 0.5;
         }
@@ -111,11 +137,11 @@ impl App {
         header.bottom()
     }
 
-    /// Unfocused splits are dimmed (`unfocused-split-opacity`).
+    /// Unfocused splits are dimmed (`unfocused-split-opacity`), fading in and out with focus.
     fn dim_unfocused(&self, painter: &Painter, pane: &PaneView) {
-        let opacity = self.cfg.unfocused_split_opacity;
-        if pane.multi && !pane.focused && opacity < 1.0 {
-            painter.rect_filled(pane.card, PANE_RADIUS, darken(self.cfg.background, 0.5).gamma_multiply(1.0 - opacity));
+        let dim = (1.0 - self.cfg.unfocused_split_opacity) * (1.0 - pane.focus);
+        if pane.multi && dim > 0.0 {
+            painter.rect_filled(pane.card, PANE_RADIUS, darken(self.cfg.background, 0.5).gamma_multiply(dim));
         }
     }
 
@@ -127,7 +153,8 @@ impl App {
         let accent = bell.then_some(self.cfg.palette[3]);
         let content_top = self.pane_frame(ui, pane, theme, accent);
 
-        let term_rect = self.term_rect_for(pane.card, ctx.pixels_per_point());
+        // Sized for where the layout puts the pane, so an animating card never resizes the PTY.
+        let term_rect = self.term_rect_for(pane.target, ctx.pixels_per_point());
         let m = self.pane_metrics(id);
         let cell_px = cell_px(&ctx, m);
         let cols = ((term_rect.width() / m.width).floor() as usize).max(2);
@@ -175,7 +202,17 @@ impl App {
         };
         let (glyphs, cfg) = (&mut self.glyphs, &self.cfg);
         let shapes = t.frame_shapes(key, |snap| render::terminal_shapes(painter, term_rect, snap, glyphs, cfg, m, opts));
-        painter.with_clip_rect(pane.card.shrink(1.0)).extend(shapes.iter().cloned());
+        // Mid-animation the content rides along with the card's corner, clipped to the card.
+        let clip = painter.with_clip_rect(pane.card.shrink(1.0));
+        let shift = pane.card.min - pane.target.min;
+        if shift == Vec2::ZERO {
+            clip.extend(shapes.iter().cloned());
+        } else {
+            clip.extend(shapes.iter().cloned().map(|mut s| {
+                s.translate(shift);
+                s
+            }));
+        }
         if let Some(s) = search {
             search_bar(painter, pane.card, content_top, s, theme, blink_on);
         }
@@ -204,16 +241,15 @@ impl App {
     /// Process glyph, title, and (on the focused or hovered card only, keeping the other
     /// headers clean) close / zoom / split buttons. Clicking the header focuses the pane.
     fn pane_header(&mut self, ui: &Ui, header: Rect, pane: &PaneView, theme: &Theme) {
-        let painter = ui.painter();
+        // Clipped to the card, which may still be growing out of a split.
+        let painter = &ui.painter().with_clip_rect(pane.card);
         let id = pane.id;
         let (title, process) = self.pane_label(id);
         let zoomed = self.cur_tab().is_some_and(|t| t.zoomed);
         let show_buttons = pane.focused || ui.rect_contains_pointer(pane.card);
 
         let cy = header.center().y + 1.0;
-        let title_color = if pane.focused { theme.text_bright } else { theme.text.gamma_multiply(0.85) };
-        let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));
-        icons::header_glyph(painter, glyph, &process, title_color);
+        let title_color = theme.text.gamma_multiply(0.85).lerp_to_gamma(theme.text_bright, pane.focus);
 
         // Buttons, laid out right to left.
         let mut bx = header.right() - 20.0;
@@ -237,12 +273,39 @@ impl App {
             }
         }
 
-        let text_left = glyph.right() + 8.0;
-        paint::faded_text(painter, Pos2::new(text_left, cy), &title, paint::bold(13.5), title_color, bx - 4.0 - text_left, 24.0);
+        header_label(painter, header, &process, &title, title_color, bx - 4.0);
         if pressed_in(ui, header) {
             self.pending.push(Action::FocusPane(id));
         }
     }
+}
+
+/// Process glyph and title at the left of a pane header, the title fading out before `right`.
+fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32) {
+    let cy = header.center().y + 1.0;
+    let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));
+    icons::header_glyph(painter, glyph, process, color);
+    let text_left = glyph.right() + 8.0;
+    if right > text_left {
+        paint::faded_text(painter, Pos2::new(text_left, cy), title, paint::bold(13.5), color, right - text_left, 24.0);
+    }
+}
+
+/// A closed pane on its way out: its last frame, collapsing toward its outer edge and fading.
+fn paint_ghost(painter: &Painter, g: &Ghost, now: f64, theme: &Theme, headers: bool) {
+    let (card, shift, alpha) = g.at(now);
+    let mut p = painter.clone();
+    p.multiply_opacity(alpha);
+    paint::card(&p, card, PANE_RADIUS, theme.card, 0.0, None);
+    let clip = p.with_clip_rect(card.shrink(1.0));
+    if headers {
+        let header = Rect::from_min_size(card.min, Vec2::new(card.width(), HEADER_HEIGHT));
+        header_label(&clip, header, &g.process, &g.title, theme.text.gamma_multiply(0.85), header.right() - 20.0);
+    }
+    clip.extend(g.shapes.iter().cloned().map(|mut s| {
+        s.translate(shift);
+        s
+    }));
 }
 
 /// "↑ 42" in the top-right corner while scrolled back.

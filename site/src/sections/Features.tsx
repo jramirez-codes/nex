@@ -22,7 +22,7 @@ export default function Features() {
           </div>
           {f.shot && (
             <div className="shot">
-              <img src={asset(f.shot.src)} alt={f.shot.alt} loading="lazy" width={1440} height={880} />
+              <img src={asset(f.shot.src)} alt={f.shot.alt} loading="lazy" width={1000} height={625} />
             </div>
           )}
         </Reveal>
