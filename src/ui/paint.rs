@@ -62,6 +62,14 @@ pub fn card(p: &Painter, r: Rect, radius: u8, fill: Color32, focus: f32, accent:
     }
 }
 
+/// A one-line caption centered in `r` (under a sidebar icon). Too long to fit, it starts at
+/// the left edge and fades out at the right, like [`faded_text`].
+pub fn caption(p: &Painter, r: Rect, text: &str, font: FontId, color: Color32) {
+    let w = p.layout_no_wrap(text.to_owned(), font.clone(), color).size().x;
+    let left = if w <= r.width() { r.center().x - w / 2.0 } else { r.left() };
+    faded_text(p, Pos2::new(left, r.center().y), text, font, color, r.width(), 14.0);
+}
+
 /// Draw single-line text vertically centered at `left_center`, fading the characters out over
 /// the last `fade` points before `max_width` instead of hard-clipping them.
 pub fn faded_text(p: &Painter, left_center: Pos2, text: &str, font: FontId, color: Color32, max_width: f32, fade: f32) {

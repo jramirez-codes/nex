@@ -15,7 +15,7 @@ use crate::ui::{icons, paint};
 use super::actions::Action;
 use super::metrics::cell_px;
 use super::motion::Ghost;
-use super::{App, HEADER_HEIGHT, PANE_GAP};
+use super::{App, PANE_GAP};
 
 pub(super) const PANE_RADIUS: u8 = 12;
 const BLINK_INTERVAL: Duration = Duration::from_millis(600);
@@ -42,7 +42,7 @@ impl App {
         self.term_rects.clear();
         self.card_rects.clear();
         let ctx = ui.ctx().clone();
-        let headers = self.cfg.pane_headers;
+        let headers = self.cfg.pane_headers.then(|| self.header_height());
         let Some(tab) = self.cur_tab_mut() else { return };
         let tab_uid = tab.uid;
 
@@ -132,7 +132,7 @@ impl App {
         if !self.cfg.pane_headers {
             return pane.card.top() + self.cfg.window_padding * 0.5;
         }
-        let header = Rect::from_min_size(pane.card.min, Vec2::new(pane.card.width(), HEADER_HEIGHT));
+        let header = Rect::from_min_size(pane.card.min, Vec2::new(pane.card.width(), self.header_height()));
         self.pane_header(ui, header, pane, theme);
         header.bottom()
     }
@@ -251,8 +251,9 @@ impl App {
         let cy = header.center().y + 1.0;
         let title_color = theme.text.gamma_multiply(0.85).lerp_to_gamma(theme.text_bright, pane.focus);
 
-        // Buttons, laid out right to left.
-        let mut bx = header.right() - 20.0;
+        // Buttons, laid out right to left. Mobile mode makes them finger-sized.
+        let (size, step, inset) = if self.cfg.mobile { (36.0, 38.0, 10.0) } else { (22.0, 24.0, 5.5) };
+        let mut bx = header.right() - if self.cfg.mobile { 26.0 } else { 20.0 };
         if show_buttons {
             let buttons: [(&str, Action, &IconFn<'_>); 4] = [
                 ("Close  (Ctrl+Shift+W)", Action::ClosePane(id), &icons::icon_close),
@@ -261,10 +262,10 @@ impl App {
                 ("Split right  (Ctrl+Shift+O)", Action::SplitPane(id, Axis::Horizontal), &|p, r, c| icons::icon_split(p, r, c, Axis::Horizontal)),
             ];
             for (tip, action, draw) in buttons {
-                let r = Rect::from_center_size(Pos2::new(bx, cy), Vec2::splat(22.0));
-                bx -= 24.0;
+                let r = Rect::from_center_size(Pos2::new(bx, cy), Vec2::splat(size));
+                bx -= step;
                 if IconButton::new(r, Id::new(("pane-btn", id, tip)), theme.text_dim, theme.text_bright)
-                    .icon_rect(r.shrink(5.5))
+                    .icon_rect(r.shrink(inset))
                     .tooltip(tip)
                     .show(ui, painter, draw)
                 {
@@ -273,7 +274,8 @@ impl App {
             }
         }
 
-        header_label(painter, header, &process, &title, title_color, bx - 4.0);
+        let font = if self.cfg.mobile { 15.0 } else { 13.5 };
+        header_label(painter, header, &process, &title, title_color, bx - 4.0, font);
         if pressed_in(ui, header) {
             self.pending.push(Action::FocusPane(id));
         }
@@ -281,26 +283,27 @@ impl App {
 }
 
 /// Process glyph and title at the left of a pane header, the title fading out before `right`.
-fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32) {
+fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
     let cy = header.center().y + 1.0;
     let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));
     icons::header_glyph(painter, glyph, process, color);
     let text_left = glyph.right() + 8.0;
     if right > text_left {
-        paint::faded_text(painter, Pos2::new(text_left, cy), title, paint::bold(13.5), color, right - text_left, 24.0);
+        paint::faded_text(painter, Pos2::new(text_left, cy), title, paint::bold(font), color, right - text_left, 24.0);
     }
 }
 
 /// A closed pane on its way out: its last frame, collapsing toward its outer edge and fading.
-fn paint_ghost(painter: &Painter, g: &Ghost, now: f64, theme: &Theme, headers: bool) {
+/// `header` is the pane-header height, if headers are shown.
+fn paint_ghost(painter: &Painter, g: &Ghost, now: f64, theme: &Theme, header: Option<f32>) {
     let (card, shift, alpha) = g.at(now);
     let mut p = painter.clone();
     p.multiply_opacity(alpha);
     paint::card(&p, card, PANE_RADIUS, theme.card, 0.0, None);
     let clip = p.with_clip_rect(card.shrink(1.0));
-    if headers {
-        let header = Rect::from_min_size(card.min, Vec2::new(card.width(), HEADER_HEIGHT));
-        header_label(&clip, header, &g.process, &g.title, theme.text.gamma_multiply(0.85), header.right() - 20.0);
+    if let Some(h) = header {
+        let header = Rect::from_min_size(card.min, Vec2::new(card.width(), h));
+        header_label(&clip, header, &g.process, &g.title, theme.text.gamma_multiply(0.85), header.right() - 20.0, 13.5);
     }
     clip.extend(g.shapes.iter().cloned().map(|mut s| {
         s.translate(shift);

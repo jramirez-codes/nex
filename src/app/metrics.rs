@@ -6,13 +6,13 @@ use crate::layout::PaneId;
 use crate::render::{CellMetrics, FONT_REGULAR};
 use crate::terminal::GridSize;
 
-use super::{App, HEADER_HEIGHT};
+use super::App;
 
 impl App {
     /// The terminal content rect inside a pane card (below the header, inside the padding).
     pub(super) fn term_rect_for(&self, card: Rect, ppp: f32) -> Rect {
         let pad = self.cfg.window_padding;
-        let top = if self.cfg.pane_headers { card.top() + HEADER_HEIGHT } else { card.top() + pad * 0.5 };
+        let top = if self.cfg.pane_headers { card.top() + self.header_height() } else { card.top() + pad * 0.5 };
         let r = Rect::from_min_max(
             Pos2::new(card.left() + pad, top + 2.0),
             Pos2::new(card.right() - pad, card.bottom() - pad * 0.6),

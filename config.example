@@ -24,6 +24,7 @@ window-decorations = false
 window-controls = true      # close / minimize / maximize buttons in the title bar
 pane-headers = true
 animations = true           # pane splits / closes, focus fades, title-bar tabs
+mobile = false              # phone-sized touch screens: tabs in a left sidebar, bigger buttons
 
 cursor-style = block        # block | bar | underline
 cursor-style-blink = true
