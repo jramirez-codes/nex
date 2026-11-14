@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "nex"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "alacritty_terminal",
  "eframe",
@@ -1882,6 +1882,8 @@ dependencies = [
  "fontdb",
  "libc",
  "memmap2",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "raw-window-handle",
  "serde_json",
  "wayland-client",
