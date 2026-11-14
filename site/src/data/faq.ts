@@ -6,7 +6,7 @@
 export const FAQ: { q: string; a: string }[] = [
   {
     q: 'What is nex?',
-    a: 'nex is a free, open-source, GPU-accelerated terminal emulator for Linux, written in Rust. It has tabs, split panes and a file explorer built in, so you get a tmux-style layout and a file manager in one native-feeling window.',
+    a: 'nex is a free, open-source, GPU-accelerated terminal emulator for Linux and macOS, written in Rust. It has tabs, split panes and a file explorer built in, so you get a tmux-style layout and a file manager in one native-feeling window.',
   },
   {
     q: 'Is nex a tmux alternative?',
@@ -30,7 +30,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Is nex available on macOS or Windows?',
-    a: 'Not yet. nex is Linux-only today. macOS support is on the roadmap, along with a drop-down quick terminal, a command palette and shell integration.',
+    a: 'macOS, yes: releases include nex.app, a universal build for Apple Silicon and Intel Macs, with Cmd-based shortcuts and native window buttons. Windows is not supported yet. Next on the roadmap: a drop-down quick terminal, a command palette and shell integration.',
   },
   {
     q: 'Is nex free?',

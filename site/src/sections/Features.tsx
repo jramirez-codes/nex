@@ -9,7 +9,7 @@ export default function Features() {
       <Reveal className="section-head">
         <p className="eyebrow">Features</p>
         <h2 className="title">Everything you reach for.<br />Already there.</h2>
-        <p className="lede">nex is a Linux terminal emulator that looks and feels like a native desktop app, and does the jobs you would normally bolt on with tmux and a file manager.</p>
+        <p className="lede">nex is a terminal emulator for Linux and macOS that looks and feels like a native desktop app, and does the jobs you would normally bolt on with tmux and a file manager. Shortcuts below are the Linux ones; on macOS they use Cmd (Cmd+T, Cmd+D, Cmd+E).</p>
       </Reveal>
 
       {SPOTLIGHT.map((f, i) => (

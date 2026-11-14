@@ -29,16 +29,16 @@ export default function Hero() {
 
   return (
     <section className="hero" id="top">
-      <p className="eyebrow hero-in">Open-source terminal emulator for Linux</p>
+      <p className="eyebrow hero-in">Open-source terminal emulator for Linux and macOS</p>
       <h1 className="hero-title hero-in">
         The <span className="gradient-text">nex</span> terminal.
       </h1>
       <p className="lede hero-sub hero-in">
-        A fast, GPU-accelerated terminal for Linux, written in Rust. Tabs, split
+        A fast, GPU-accelerated terminal for Linux and macOS, written in Rust. Tabs, split
         panes and a file explorer, all built in. No tmux, no plugins, no setup.
       </p>
       <div className="hero-actions hero-in">
-        <a className="btn btn-primary" href={RELEASES}>Download for Linux</a>
+        <a className="btn btn-primary" href={RELEASES}>Download nex</a>
         <a className="btn btn-ghost" href={REPO}>View on GitHub →</a>
       </div>
       <div className="hero-stage" ref={stage}>
