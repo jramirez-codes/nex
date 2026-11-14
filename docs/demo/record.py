@@ -26,7 +26,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 OUTPUT = "NEXREC"
 W, H = 1440, 900  # window size, in pixels: big enough for btop in half the window
-FPS = 20
+# Pane animations last 0.12–0.18 s, so frames have to come often to show them: one grim
+# takes ~30 ms, and a few running side by side reach ~47 fps.
+FPS = 50
+GRABBERS = 3
 
 # Characters that aren't their own key name, as (shift, key).
 CHAR_KEYS = {
@@ -47,20 +50,24 @@ def hypr_json(*args: str):
 
 
 class Recorder:
-    """Grabs the window as fast as grim allows and feeds ffmpeg a constant FPS stream,
-    repeating the newest frame when a grab is slower than one frame."""
+    """Grabs the window with several grim processes at once and feeds ffmpeg a constant FPS
+    stream of the newest frame, repeating it when no newer one has arrived in time."""
 
     def __init__(self, geometry: str, out: Path):
         self.geometry = geometry
         self.latest: bytes | None = None
+        self.latest_at = 0.0  # when the newest frame's grab started
+        self.grabs = 0
+        self.lock = threading.Lock()
         self.stop = threading.Event()
         self.ffmpeg = subprocess.Popen(
             ["ffmpeg", "-loglevel", "error", "-y", "-f", "image2pipe", "-c:v", "ppm",
-             "-framerate", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "veryfast",
+             "-framerate", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "ultrafast",
              "-crf", "8", "-pix_fmt", "yuv444p", str(out)],
             stdin=subprocess.PIPE,
         )
-        self.threads = [threading.Thread(target=self._grab), threading.Thread(target=self._emit)]
+        self.threads = [threading.Thread(target=self._grab) for _ in range(GRABBERS)]
+        self.threads.append(threading.Thread(target=self._emit))
         self.t0 = 0.0
 
     def start(self) -> None:
@@ -79,6 +86,7 @@ class Recorder:
             t.join()
         self.ffmpeg.stdin.close()
         self.ffmpeg.wait()
+        print(f"grabbed {self.grabs / self.now():.0f} frames/s for a {FPS} fps recording")
 
     def _shot(self) -> bytes:
         return subprocess.run(["grim", "-t", "ppm", "-g", self.geometry, "-"],
@@ -86,7 +94,12 @@ class Recorder:
 
     def _grab(self) -> None:
         while not self.stop.is_set():
-            self.latest = self._shot()
+            at = time.monotonic()
+            frame = self._shot()
+            with self.lock:  # grabs finish out of order; keep the one that started last
+                self.grabs += 1
+                if at > self.latest_at:
+                    self.latest, self.latest_at = frame, at
 
     def _emit(self) -> None:
         n = 0
