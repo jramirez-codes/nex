@@ -225,7 +225,7 @@ window-controls = false                      # hide the close / minimize / maxim
 copy-on-select = false
 clipboard-toasts = false                     # no "Copied …" / "Pasted …" toasts
 animations = false                           # turn off pane and tab animations
-mobile = true                                # phone-sized touch screens: tabs in a left sidebar
+mobile = false                               # phone-sized touch screens: tabs in a left sidebar
 command = fish                               # defaults to your login shell
 ```
 
