@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regenerate docs/screenshots/explorer.png: tabs, split panes and a Ctrl+E file explorer with a
 # multi-selection, driven through Hyprland.
-# Needs Hyprland (hyprctl), grim, python3 and btop. Run from anywhere: docs/screenshots/capture.sh
+# Needs Hyprland (hyprctl), grim, ImageMagick, python3 and btop. Run from anywhere: docs/screenshots/capture.sh
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -75,4 +75,7 @@ geom=$(hyprctl clients -j | python3 -c "import json,sys
 c=[c for c in json.load(sys.stdin) if c['address']=='$addr'][0]
 print('%d,%d %dx%d' % (*c['at'], *c['size']))")
 grim -g "$geom" "$out"
+# Hyprland rounds the window, so grim catches the wallpaper in the corners: make them transparent.
+magick "$out" \( +clone -alpha extract -fill black -colorize 100 -fill white \
+  -draw "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] 13,13" \) -alpha off -compose CopyOpacity -composite "$out"
 echo "wrote $out ($geom)"

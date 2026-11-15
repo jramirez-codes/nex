@@ -4,16 +4,20 @@ MP4 and a JPEG poster (for the website, where they are a fraction of the GIF's s
 
 Each clip spans its start/end markers in timeline.json. GIFs get a palette of their own
 (ffmpeg palettegen/paletteuse), so terminal colors stay true; no dithering, since a terminal
-is flat colors and dither noise only blurs text and bloats the file. No transparent color
-either: browsers would show the page through it.
+is flat colors and dither noise only blurs text and bloats the file. The only transparent
+pixels are the window's rounded corners (see gif_corners.py), which would otherwise show the
+desktop behind the window.
 Usage: docs/demo/make_gifs.py [TAKE_DIR] [OUT_DIR]
        (defaults: target/demo, site/public/demo)
 """
 
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
+
+from gif_corners import clear_corners
 
 REPO = Path(__file__).resolve().parents[2]
 # GIF frame delays are whole hundredths of a second: 3 cs (33 fps) is smooth enough for the
@@ -23,6 +27,11 @@ FPS = "100/3"
 # a little extra keeps text crisp on HiDPI screens.
 WIDTH = {"tour": 1200}
 DEFAULT_WIDTH = 1000
+# Hyprland's window rounding in the take, plus its antialiased fringe, in take pixels.
+CORNER_RADIUS = 13
+# What the corner squares are painted before they go transparent: the window background near
+# each corner, so the pixels just inside the curve barely change.
+CORNER_COLORS = {"top": "0x151314", "bottom": "0x141213"}
 
 
 def clips(marks: list[dict]) -> dict[str, tuple[float, float]]:
@@ -32,12 +41,25 @@ def clips(marks: list[dict]) -> dict[str, tuple[float, float]]:
     return {k: (a, b) for k, (a, b) in spans.items() if b > a}
 
 
+def take_width(take: Path) -> int:
+    return int(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                               "stream=width", "-of", "csv=p=0", str(take)],
+                              check=True, capture_output=True, text=True).stdout)
+
+
 def make_gif(take: Path, out: Path, start: float, end: float, width: int) -> None:
-    scale = f"fps={FPS},scale={width}:-1:flags=lanczos"
+    radius = CORNER_RADIUS * width / take_width(take)
+    # Paint each corner square one flat color, so the corners never change from frame to frame.
+    n = math.ceil(radius)
+    corners = ",".join(f"drawbox=x={x}:y={y}:w={n}:h={n}:color={CORNER_COLORS[side]}:t=fill"
+                       for side, y in (("top", "0"), ("bottom", f"ih-{n}"))
+                       for x in ("0", f"iw-{n}"))
+    scale = f"fps={FPS},scale={width}:-1:flags=lanczos,{corners}"
     graph = (f"[0:v]{scale},split[a][b];[a]palettegen=max_colors=256:reserve_transparent=0:stats_mode=diff[p];"
              "[b][p]paletteuse=dither=none:diff_mode=rectangle")
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
                     "-i", str(take), "-filter_complex", graph, "-loop", "0", str(out)], check=True)
+    clear_corners(out, radius)
 
 
 def make_mp4(take: Path, out: Path, start: float, end: float, width: int) -> None:
