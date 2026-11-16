@@ -1,14 +1,16 @@
 //! The title bar: window buttons, the workspace (Files) label and the tab strip.
 
-use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Stroke, Ui, Vec2, ViewportCommand};
+use egui::emath::TSTransform;
+use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
-use crate::ui::{icons, paint};
+use crate::ui::{glide, icons, paint};
 
 use super::App;
 use super::actions::Action;
+use super::tab_motion::{GLYPH, TabDrawn};
 
 const TAB_HEIGHT: f32 = 30.0;
 /// Padding between the tab track's edge and the tabs inside it.
@@ -82,18 +84,35 @@ pub(super) struct TabSlots {
     /// Position of the active pill, in slots (it glides between them). `-1.0` is the
     /// Files label, so the pill glides between it and the tabs too.
     pill: Option<f32>,
+    /// Slots left by closing tabs, still closing up: `(index, fraction of a slot)`. Tabs from
+    /// `index` on are pushed along by that much.
+    gaps: Vec<(usize, f32)>,
+    /// The pill as painted this frame, if it is somewhere other than `pill` (mid close).
+    pill_shape: Option<Rect>,
 }
 
 impl TabSlots {
     fn rect(&self, slot: f32) -> Rect {
         let step = if self.vertical { Vec2::new(0.0, self.size.y) } else { Vec2::new(self.size.x, 0.0) };
-        Rect::from_min_size(self.origin + step * slot, self.size)
+        // Fractional slots (the gliding pill) ease across a gap rather than jumping it.
+        let held: f32 = self.gaps.iter().map(|&(i, f)| f * (slot - i as f32 + 1.0).clamp(0.0, 1.0)).sum();
+        Rect::from_min_size(self.origin + step * (slot + held), self.size)
     }
 
     /// The slot under `pos` (along the strip's direction).
     fn slot_at(&self, pos: Pos2) -> usize {
-        let along = if self.vertical { (pos.y - self.origin.y) / self.size.y } else { (pos.x - self.origin.x) / self.size.x };
-        (along.floor().max(0.0) as usize).min(self.shown - 1)
+        let (along, end) = if self.vertical { (pos.y, Rect::bottom as fn(&Rect) -> f32) } else { (pos.x, Rect::right as fn(&Rect) -> f32) };
+        (0..self.shown).find(|&k| along < end(&self.rect(k as f32))).unwrap_or(self.shown - 1)
+    }
+
+    /// Whether the pill covers the separator at `at` (along the strip), just after slot
+    /// `boundary - 1`.
+    fn pill_covers(&self, boundary: f32, at: f32) -> bool {
+        match self.pill_shape {
+            Some(p) if self.vertical => at > p.top() - 1.0 && at < p.bottom() + 1.0,
+            Some(p) => at > p.left() - 1.0 && at < p.right() + 1.0,
+            None => self.pill.is_some_and(|p| boundary > p - 0.05 && boundary < p + 1.05),
+        }
     }
 
     /// Where the pill is this frame. Between the Files label (`-1.0`) and the first tab it
@@ -125,15 +144,77 @@ impl App {
         let left = rect.left() + 18.0 + inset;
         let x = if self.cfg.window_controls { window_controls(ui, left, cy) } else { left };
         let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 30.0 + LABEL_WIDTH, cy + 15.0));
-        let slots = self.horizontal_tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy);
+        let now = ctx.input(|i| i.time);
+        self.advance_tab_ghosts(&ctx, now);
+        let mut slots = self.horizontal_tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy, now);
         // The active pill is painted once, beneath the label and the tabs, and glides
-        // between them.
-        if let Some(pill) = slots.pill_rect(label_r) {
-            paint::glass_pill(ui.painter(), pill, 8);
+        // between them. While the active tab closes it folds into that tab's × and grows
+        // back out onto the tab now showing.
+        let target = slots.pill_rect(label_r);
+        let pill = match self.tab_ghosts.iter().rev().find(|g| g.drawn.active) {
+            Some(g) => g.pill(now, target),
+            None => target.map(|r| (r, 8.0)),
+        };
+        slots.pill_shape = pill.map(|(r, _)| r);
+        if let Some((r, radius)) = pill {
+            let radius = radius.min(r.width().min(r.height()) / 2.0).max(0.0);
+            paint::glass_pill(ui.painter(), r, radius.round() as u8);
         }
         self.workspace_label(ui, label_r, theme);
         self.tab_strip(ui, &slots, theme);
+        self.paint_tab_ghosts(ui, now, theme);
         self.new_tab_button(ui, rect, cy, theme);
+    }
+
+    /// Start closed tabs' animations on their first frame and drop finished ones.
+    fn advance_tab_ghosts(&mut self, ctx: &egui::Context, now: f64) {
+        if !glide::animations(ctx) {
+            self.tab_ghosts.clear();
+            return;
+        }
+        for g in &mut self.tab_ghosts {
+            g.start.get_or_insert(now);
+        }
+        self.tab_ghosts.retain(|g| !g.done(now));
+        if !self.tab_ghosts.is_empty() {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Closed tabs going into their ×. A background tab (tint, icon and title) is painted as
+    /// it was and then scaled, as one piece, toward the × center; the active tab's title and
+    /// icon fade under the folding pill (painted already). The × itself goes last.
+    fn paint_tab_ghosts(&self, ui: &Ui, now: f64, theme: &Theme) {
+        let painter = ui.painter();
+        for g in &self.tab_ghosts {
+            let (f, d) = (g.frame(now), &g.drawn);
+            if f.scale > 0.0 && (f.content > 0.0 || f.tint > 0.0) {
+                let start = painter.add(Shape::Noop);
+                if f.tint > 0.0 {
+                    let fill = TAB_HOVER.gamma_multiply(f.tint);
+                    painter.rect_filled(d.rect.shrink(1.0), 8, fill);
+                    painter.rect_stroke(d.rect.shrink(1.0), 8, Stroke::new(1.0, TAB_SEPARATOR.gamma_multiply(f.tint * 0.6)), StrokeKind::Inside);
+                }
+                if f.content > 0.0 {
+                    let mut p = painter.clone();
+                    p.multiply_opacity(f.content);
+                    icons::app_tile(&p, d.icon, &g.process, g.mark.as_deref());
+                    let color = if d.active { theme.text_bright } else { theme.text_dim };
+                    let width = d.close.left() - 2.0 - d.text_left;
+                    paint::faded_text(&p, Pos2::new(d.text_left, d.rect.center().y), &g.title, FontId::proportional(13.5), color, width, 26.0);
+                }
+                let end = painter.add(Shape::Noop);
+                if f.scale < 1.0 {
+                    // Scale about the × center: x' = s·x + (1 − s)·pivot.
+                    let shrink = TSTransform::new(g.pivot().to_vec2() * (1.0 - f.scale), f.scale);
+                    ui.ctx().graphics_mut(|l| l.entry(painter.layer_id()).transform_range(start, end, shrink));
+                }
+            }
+            if f.glyph > 0.0 {
+                let r = Rect::from_center_size(g.pivot(), Vec2::splat(GLYPH * f.glyph_scale));
+                icons::icon_close(painter, r, theme.text_bright.gamma_multiply(f.glyph));
+            }
+        }
     }
 
     /// The current directory name and hostname. This label *is* the Files tab: clicking it
@@ -169,16 +250,24 @@ impl App {
     /// Lays out the terminal tabs in a recessed segmented-control style track between `x`
     /// and `right`, paints the track, and advances the pill toward the active tab (or the
     /// Files label).
-    fn horizontal_tab_slots(&mut self, ui: &Ui, x: f32, right: f32, cy: f32) -> TabSlots {
-        let n = self.tabs.len().max(1);
+    /// Slots left by closing tabs count as part-tabs while they close up, so the other tabs
+    /// widen and the track narrows smoothly.
+    fn horizontal_tab_slots(&mut self, ui: &Ui, x: f32, right: f32, cy: f32, now: f64) -> TabSlots {
+        let gaps: Vec<(usize, f32)> =
+            self.tab_ghosts.iter().map(|g| (g.index, g.frame(now).gap)).filter(|&(_, f)| f > 0.0).collect();
+        let held: f32 = gaps.iter().map(|&(_, f)| f).sum();
+        let n = self.tabs.len();
         let avail = (right - x - 2.0 * TRACK_PAD).max(MIN_TAB_WIDTH);
-        let width = (avail / n as f32).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH);
-        let visible = ((avail / width).floor() as usize).clamp(1, n);
+        let width = (avail / (n as f32 + held).max(1.0)).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH);
+        let visible = ((avail / width - held).floor() as usize).clamp(1, n.max(1));
+        let across = (visible.min(n) as f32 + held).max(1.0).min(avail / width);
         let track = Rect::from_min_size(
             Pos2::new(x, cy - TAB_HEIGHT / 2.0 - TRACK_PAD),
-            Vec2::new(width * visible as f32 + 2.0 * TRACK_PAD, TAB_HEIGHT + 2.0 * TRACK_PAD),
+            Vec2::new(width * across + 2.0 * TRACK_PAD, TAB_HEIGHT + 2.0 * TRACK_PAD),
         );
-        self.tab_track(ui, track, Vec2::new(width, TAB_HEIGHT), visible, false)
+        let mut slots = self.tab_track(ui, track, Vec2::new(width, TAB_HEIGHT), visible, false);
+        slots.gaps = gaps;
+        slots
     }
 
     /// Paints `track` (holding `visible` slots of `size`) and advances the pill toward the
@@ -188,13 +277,24 @@ impl App {
         paint::tab_track(ui.painter(), track);
         let shown = visible.min(self.tabs.len());
         let target = if self.explorer_active { Some(-1.0) } else { (self.active < shown).then_some(self.active as f32) };
-        let pill = target.map(|t| self.pill_glide.value(&ctx, t));
+        // While the active tab closes, the pill's path is the close animation's: be at the
+        // new tab already when it hands back.
+        let folding = self.tab_ghosts.iter().any(|g| g.drawn.active);
+        let pill = target.map(|t| {
+            if folding {
+                self.pill_glide.snap(&ctx, t);
+                t
+            } else {
+                self.pill_glide.value(&ctx, t)
+            }
+        });
         let origin = track.min + Vec2::splat(TRACK_PAD);
-        TabSlots { origin, size, vertical, shown, pill }
+        TabSlots { origin, size, vertical, shown, pill, gaps: Vec::new(), pill_shape: None }
     }
 
     /// The terminal tabs, drawn into `slots` over the track and pill.
     pub(super) fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
+        self.tab_rects.clear();
         for i in 0..slots.shown {
             if self.tab_item(ui, slots, i, theme) {
                 break;
@@ -234,7 +334,7 @@ impl App {
 
         // Hairline separators between neighbours, hidden wherever the pill covers them.
         let boundary = (i + 1) as f32;
-        let covered = slots.pill.is_some_and(|p| boundary > p - 0.05 && boundary < p + 1.05);
+        let covered = slots.pill_covers(boundary, if slots.vertical { r.bottom() } else { r.right() });
         if i + 1 < slots.shown && !covered {
             let seg = if slots.vertical {
                 let sy = r.bottom();
@@ -270,6 +370,7 @@ impl App {
         let (title, process) = self.pane_label(self.tabs[i].focused);
         let title = icons::title_mark(&process, &title).1;
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
+        self.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
         let text_right = if hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
         let title_color = if active { theme.text_bright } else { theme.text_dim };
         paint::faded_text(painter, Pos2::new(text_left, r.center().y), title, FontId::proportional(13.5), title_color, text_right - text_left, 26.0);
@@ -363,5 +464,32 @@ pub(super) fn paint_lights(ui: &Ui, centers: impl Iterator<Item = Pos2>, scale: 
         if resp.clicked_by(PointerButton::Primary) {
             light.press(ui.ctx());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn slots(gaps: Vec<(usize, f32)>) -> TabSlots {
+        TabSlots { origin: Pos2::ZERO, size: Vec2::new(100.0, 30.0), vertical: false, shown: 3, pill: None, gaps, pill_shape: None }
+    }
+
+    #[test]
+    fn closing_gap_pushes_later_tabs_along() {
+        let s = slots(vec![(1, 0.5)]);
+        assert_eq!(s.rect(0.0).left(), 0.0);
+        assert_eq!(s.rect(1.0).left(), 150.0);
+        assert_eq!(s.rect(2.0).left(), 250.0);
+        // The pill eases across the gap instead of jumping it.
+        assert_eq!(s.rect(0.5).left(), 75.0);
+    }
+
+    #[test]
+    fn slot_at_skips_the_gap() {
+        let s = slots(vec![(1, 0.5)]);
+        let at = |x| s.slot_at(Pos2::new(x, 10.0));
+        assert_eq!((at(-5.0), at(50.0), at(120.0), at(160.0), at(260.0), at(900.0)), (0, 0, 1, 1, 2, 2));
+        assert_eq!(slots(Vec::new()).slot_at(Pos2::new(150.0, 0.0)), 1);
     }
 }

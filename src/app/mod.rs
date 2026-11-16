@@ -12,6 +12,7 @@ mod panes;
 mod reload;
 mod sidebar;
 mod tab;
+mod tab_motion;
 mod titlebar;
 mod window;
 mod workspace;
@@ -41,6 +42,7 @@ use actions::Action;
 use keymap::{Binding, keybindings};
 use mouse::MouseState;
 use tab::Tab;
+use tab_motion::{TabDrawn, TabGhost};
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;
@@ -66,6 +68,9 @@ pub struct App {
     next_id: PaneId,
     /// Per-pane font size overrides (zoom is per pane); panes not listed use the config size.
     pane_fonts: HashMap<PaneId, f32>,
+    /// The zoomed pane of the shown tab and its font size: scaled up from its own size so it
+    /// keeps its grid while filling the tab.
+    zoom_font: Option<(PaneId, f32)>,
     /// Cell metrics for every font size in use this frame, keyed by `f32::to_bits`.
     metrics: HashMap<u32, CellMetrics>,
     mouse: MouseState,
@@ -93,6 +98,10 @@ pub struct App {
     hover_link: Option<(PaneId, Link)>,
     /// Animated position of the active-tab highlight, in tab slots.
     pill_glide: Glide,
+    /// Where each title-bar tab was drawn last frame, by tab uid (closes start from there).
+    tab_rects: HashMap<u64, TabDrawn>,
+    /// Closed tabs still folding away.
+    tab_ghosts: Vec<TabGhost>,
     /// File-explorer panes (the Files tab). They share the pane id space and split tree with
     /// terminals.
     explorers: HashMap<PaneId, FileExplorer>,
@@ -143,6 +152,7 @@ impl App {
             active: 0,
             next_id: 1,
             pane_fonts: HashMap::new(),
+            zoom_font: None,
             metrics: HashMap::new(),
             mouse: MouseState::default(),
             pinch_accum: 1.0,
@@ -161,6 +171,8 @@ impl App {
             links: LinkFinder::new(),
             hover_link: None,
             pill_glide: Glide::new(0.2),
+            tab_rects: HashMap::new(),
+            tab_ghosts: Vec::new(),
             explorers: HashMap::new(),
             explorer_requests: Vec::new(),
             explorer_tab: None,

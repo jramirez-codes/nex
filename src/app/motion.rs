@@ -5,7 +5,7 @@
 //! Only the cards move. Terminals are laid out (and their PTYs sized) at the target rect
 //! once; while a card is in motion its cached shapes are just translated and clipped.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use egui::{Pos2, Rect, Shape};
 
@@ -16,6 +16,8 @@ use crate::ui::glide::{self, Glide, ease_out};
 const PANE_ANIM: f64 = 0.18;
 /// Length of the focus dim / ring fade, in seconds.
 const FOCUS_FADE: f64 = 0.12;
+/// A pane coming back on screen mid-transition (unzoom) grows in from this scale.
+const APPEAR_SCALE: f32 = 0.97;
 
 /// Where a pane is drawn this frame.
 pub(super) struct Placed {
@@ -24,6 +26,12 @@ pub(super) struct Placed {
     pub(super) card: Rect,
     /// The card rect the layout gives it: terminals are sized and hit-tested here.
     pub(super) target: Rect,
+    /// Opacity: below 1 while a pane fades in.
+    pub(super) alpha: f32,
+    /// Drawn above the other panes (a zoomed pane shrinking back into its slot).
+    pub(super) on_top: bool,
+    /// Its content scales with the card instead of being clipped (zoom).
+    pub(super) scale_content: bool,
 }
 
 /// A closed pane still fading out: what it looked like when it closed.
@@ -57,6 +65,12 @@ pub(super) struct PaneMotion {
     start: f64,
     ghosts: Vec<Ghost>,
     focus: HashMap<PaneId, Glide>,
+    /// Panes that came on screen during the running transition: they fade in.
+    appearing: HashSet<PaneId>,
+    /// Drawn on top until the transition ends.
+    top: Option<PaneId>,
+    /// Its content scales with its card until the transition ends.
+    scaling: Option<PaneId>,
 }
 
 impl PaneMotion {
@@ -87,6 +101,28 @@ impl PaneMotion {
         ctx.request_repaint();
     }
 
+    /// Pane `pane` was zoomed to fill the tab (`zooming_in`) or put back in its slot. Its card
+    /// and content scale between the two. Zooming in, the `others` (id, title, process, last
+    /// frame) stay where they are and fade out under it; zooming out, they fade back in
+    /// under it.
+    pub(super) fn kick_zoom(&mut self, ctx: &egui::Context, pane: PaneId, zooming_in: bool, others: Vec<(PaneId, String, String, Vec<Shape>)>) {
+        if !glide::animations(ctx) {
+            return;
+        }
+        let now = ctx.input(|i| i.time);
+        self.restart(now);
+        self.scaling = Some(pane);
+        if zooming_in {
+            for (id, title, process, shapes) in others {
+                let Some(&(card, target)) = self.last.get(&id) else { continue };
+                self.ghosts.push(Ghost { card, to: Some(card), origin: target.min, start: now, title, process, shapes });
+            }
+        } else {
+            self.top = Some(pane);
+        }
+        ctx.request_repaint();
+    }
+
     /// Pane `id` was closed: leave a ghost that collapses and fades while the rest move.
     pub(super) fn kick_close(&mut self, ctx: &egui::Context, id: PaneId, title: String, process: String, shapes: Vec<Shape>) {
         if !glide::animations(ctx) {
@@ -114,17 +150,27 @@ impl PaneMotion {
         if t >= 1.0 || !glide::animations(ctx) {
             self.from.clear();
             self.ghosts.clear();
+            self.appearing.clear();
+            self.top = None;
+            self.scaling = None;
         }
+        let running = !self.from.is_empty();
         let e = ease_out(t);
         let placed: Vec<Placed> = targets
             .iter()
             .map(|&(id, target)| {
                 let goal = goals.get(&id).copied().unwrap_or(target);
+                // New on screen mid-transition: grow in from a little smaller.
+                if running && !self.from.contains_key(&id) && !self.last.contains_key(&id) {
+                    self.from.insert(id, Rect::from_center_size(goal.center(), goal.size() * APPEAR_SCALE));
+                    self.appearing.insert(id);
+                }
                 let card = match held {
                     Some((h, r)) if h == id => r,
                     _ => self.from.get(&id).map_or(goal, |f| f.lerp_towards(&goal, e)),
                 };
-                Placed { id, card, target }
+                let alpha = if self.appearing.contains(&id) { e } else { 1.0 };
+                Placed { id, card, target, alpha, on_top: self.top == Some(id), scale_content: self.scaling == Some(id) }
             })
             .collect();
 
@@ -231,6 +277,41 @@ mod tests {
         // Let go: the next frames start from where it was held.
         m.restart(ctx.input(|i| i.time));
         assert_eq!(m.frame(&ctx, &[(1, target)], &HashMap::new(), None)[0].card, held);
+    }
+
+    #[test]
+    fn unzoom_fades_the_others_in_under_the_shrinking_pane() {
+        let ctx = egui::Context::default();
+        let mut m = PaneMotion::default();
+        let full = rect(0.0, 0.0, 100.0, 50.0);
+        let (left, right) = (rect(0.0, 0.0, 50.0, 50.0), rect(50.0, 0.0, 100.0, 50.0));
+        m.frame(&ctx, &[(1, full)], &HashMap::new(), None);
+        m.kick_zoom(&ctx, 1, false, Vec::new());
+        let p = m.frame(&ctx, &[(1, left), (2, right)], &HashMap::new(), None);
+        assert_eq!((p[0].card, p[0].alpha, p[0].on_top, p[0].scale_content), (full, 1.0, true, true));
+        assert_eq!(p[1].alpha, 0.0);
+        assert_eq!(p[1].card, Rect::from_center_size(right.center(), right.size() * APPEAR_SCALE));
+        m.start -= PANE_ANIM;
+        let p = m.frame(&ctx, &[(1, left), (2, right)], &HashMap::new(), None);
+        assert_eq!((p[0].card, p[0].on_top, p[0].scale_content), (left, false, false));
+        assert_eq!((p[1].card, p[1].alpha), (right, 1.0));
+    }
+
+    #[test]
+    fn zoom_in_leaves_the_others_fading_in_place() {
+        let ctx = egui::Context::default();
+        let mut m = PaneMotion::default();
+        let full = rect(0.0, 0.0, 100.0, 50.0);
+        let (left, right) = (rect(0.0, 0.0, 50.0, 50.0), rect(50.0, 0.0, 100.0, 50.0));
+        m.frame(&ctx, &[(1, left), (2, right)], &HashMap::new(), None);
+        m.kick_zoom(&ctx, 1, true, vec![(2, "t".into(), "p".into(), Vec::new())]);
+        let p = m.frame(&ctx, &[(1, full)], &HashMap::new(), None);
+        assert_eq!((p[0].card, p[0].alpha, p[0].on_top, p[0].scale_content), (left, 1.0, false, true));
+        let now = ctx.input(|i| i.time);
+        let (card, shift, alpha) = m.ghosts()[0].at(now);
+        assert_eq!((card, shift, alpha), (right, egui::Vec2::ZERO, 1.0));
+        let (card, _, alpha) = m.ghosts()[0].at(now + PANE_ANIM);
+        assert_eq!((card, alpha), (right, 0.0));
     }
 
     #[test]

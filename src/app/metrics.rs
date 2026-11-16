@@ -37,6 +37,26 @@ impl App {
         self.pane_fonts.get(&id).copied().unwrap_or(self.cfg.font_size)
     }
 
+    /// The size pane `id` is drawn at: its own size, scaled up while it is zoomed.
+    pub(super) fn render_font(&self, id: PaneId) -> f32 {
+        match self.zoom_font {
+            Some((z, size)) if z == id => size,
+            _ => self.pane_font(id),
+        }
+    }
+
+    /// Set the zoomed pane's font: its own size scaled by `scale` (in half points, so resizing
+    /// the window doesn't build a glyph atlas per frame), or `None` when nothing is zoomed.
+    pub(super) fn set_zoom_font(&mut self, ctx: &egui::Context, zoom: Option<(PaneId, f32)>) {
+        self.zoom_font = zoom.map(|(id, scale)| (id, ((self.pane_font(id) * scale * 2.0).round() / 2.0).clamp(6.0, 72.0)));
+        if let Some((_, size)) = self.zoom_font
+            && !self.metrics.contains_key(&size.to_bits())
+        {
+            let m = self.compute_metrics(ctx, size);
+            self.metrics.insert(size.to_bits(), m);
+        }
+    }
+
     /// Zoom only pane `id`; `None` resets it to the config size.
     pub(super) fn set_pane_font(&mut self, ctx: &egui::Context, id: PaneId, size: Option<f32>) {
         match size.map(|s| s.clamp(6.0, 72.0)) {
@@ -69,7 +89,7 @@ impl App {
 
     /// Cell metrics of pane `id` (filled by `update_metrics` each frame).
     pub(super) fn pane_metrics(&self, id: PaneId) -> CellMetrics {
-        let size = self.pane_font(id);
+        let size = self.render_font(id);
         self.metrics
             .get(&size.to_bits())
             .or_else(|| self.metrics.get(&self.cfg.font_size.to_bits()))
@@ -81,6 +101,7 @@ impl App {
     pub(super) fn update_metrics(&mut self, ctx: &egui::Context) {
         let mut sizes: Vec<f32> = self.pane_fonts.values().copied().collect();
         sizes.push(self.cfg.font_size);
+        sizes.extend(self.zoom_font.map(|(_, s)| s));
         self.metrics.clear();
         for s in sizes {
             if !self.metrics.contains_key(&s.to_bits()) {
