@@ -73,30 +73,61 @@ fn resolve_family(cfg: &Config) -> Option<String> {
     None
 }
 
+/// The grid font's four styles (regular, bold, italic, bold italic), each `None` when the
+/// family has no such face. `None` overall means the embedded font.
+fn grid_faces(cfg: &Config) -> Option<[Option<FontData>; 4]> {
+    let name = resolve_family(cfg)?;
+    let family = family(&name);
+    Some(std::thread::scope(|s| {
+        GRID_STYLES.map(|(_, weight, italic)| s.spawn(move || load(family, weight, italic))).map(|h| h.join().ok().flatten())
+    }))
+}
+
+const GRID_STYLES: [(&str, Weight, bool); 4] = [
+    (FONT_REGULAR, Weight::Regular, false),
+    (FONT_BOLD, Weight::Bold, false),
+    (FONT_ITALIC, Weight::Regular, true),
+    (FONT_BOLD_ITALIC, Weight::Bold, true),
+];
+
 pub fn install(ctx: &egui::Context, cfg: &Config) {
+    // Every lookup runs at once. On Linux each one is an `fc-match` process that loads the
+    // fontconfig cache (around 10 ms apiece), and run one after another they held the window
+    // back by over 100 ms.
+    let (grid, symbol_data, sans, sans_bold) = std::thread::scope(|s| {
+        let grid = s.spawn(|| grid_faces(cfg));
+        let symbols: Vec<_> = platform::FALLBACK_FAMILIES
+            .iter()
+            .map(|&extra| s.spawn(move || (extra, load(Family::Named(extra), Weight::Regular, false))))
+            .collect();
+        let sans = s.spawn(|| load(Family::SansSerif, Weight::Regular, false));
+        let sans_bold = s.spawn(|| load(Family::SansSerif, Weight::Semibold, false));
+        let join = |h: std::thread::ScopedJoinHandle<'_, Option<FontData>>| h.join().ok().flatten();
+        (
+            grid.join().ok().flatten(),
+            symbols.into_iter().filter_map(|h| h.join().ok()).collect::<Vec<_>>(),
+            join(sans),
+            join(sans_bold),
+        )
+    });
+
     let mut defs = FontDefinitions::default();
-    let grid_family = resolve_family(cfg);
     defs.font_data.insert(EMBEDDED_KEY.into(), Arc::new(FontData::from_static(EMBEDDED[0])));
 
     let fallbacks = defs.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
     // Symbols & CJK coverage from the system, when available.
     let mut symbols = Vec::new();
-    for &extra in platform::FALLBACK_FAMILIES {
-        if let Some(data) = load(Family::Named(extra), Weight::Regular, false) {
+    for (extra, data) in symbol_data {
+        if let Some(data) = data {
             let key = format!("sys-{extra}");
             defs.font_data.insert(key.clone(), Arc::new(data));
             symbols.push(key);
         }
     }
-    let styles = [
-        (FONT_REGULAR, Weight::Regular, false),
-        (FONT_BOLD, Weight::Bold, false),
-        (FONT_ITALIC, Weight::Regular, true),
-        (FONT_BOLD_ITALIC, Weight::Bold, true),
-    ];
-    for (i, (name, weight, italic)) in styles.into_iter().enumerate() {
-        let data = match &grid_family {
-            Some(f) => load(family(f), weight, italic),
+    let mut grid = grid;
+    for (i, (name, _, _)) in GRID_STYLES.into_iter().enumerate() {
+        let data = match &mut grid {
+            Some(faces) => faces[i].take(),
             None => Some(FontData::from_static(EMBEDDED[i])),
         };
         let mut chain = Vec::new();
@@ -118,11 +149,11 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
     // UI chrome uses the system sans font.
     let mut ui = Vec::new();
     let mut ui_bold = Vec::new();
-    if let Some(data) = load(Family::SansSerif, Weight::Regular, false) {
+    if let Some(data) = sans {
         defs.font_data.insert("ui-sans".into(), Arc::new(data));
         ui.push("ui-sans".to_string());
     }
-    if let Some(data) = load(Family::SansSerif, Weight::Semibold, false) {
+    if let Some(data) = sans_bold {
         defs.font_data.insert("ui-sans-bold".into(), Arc::new(data));
         ui_bold.push("ui-sans-bold".to_string());
     }

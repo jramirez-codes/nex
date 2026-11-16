@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use alacritty_terminal::event::{Event, EventListener, Notify, OnResize, WindowSize};
@@ -29,7 +29,9 @@ use crate::terminal::snapshot::Snapshot;
 #[derive(Clone)]
 pub struct EventProxy {
     tx: Sender<Event>,
-    ctx: egui::Context,
+    /// Set once the window exists (the first shell is started before it; see
+    /// [`Terminal::spawn_early`]). Until then events just queue up for the first frame.
+    ctx: Arc<OnceLock<egui::Context>>,
     /// Whether the pane is on screen. New output in a hidden pane (a background tab) doesn't
     /// repaint the window; it's picked up whenever the next frame runs anyway.
     visible: Arc<AtomicBool>,
@@ -42,7 +44,9 @@ impl EventListener for EventProxy {
         // Everything but plain output (titles, bells, replies the program waits on, exit)
         // is handled promptly even when hidden.
         if !wakeup || self.visible.load(Ordering::Relaxed) {
-            self.ctx.request_repaint();
+            if let Some(ctx) = self.ctx.get() {
+                ctx.request_repaint();
+            }
         }
     }
 }
@@ -90,6 +94,8 @@ pub struct Terminal {
     /// Bumped whenever the PTY produced output (used to refresh search results).
     pub generation: u64,
     visible: Arc<AtomicBool>,
+    /// The window's egui context, shared with the [`EventProxy`].
+    repaint: Arc<OnceLock<egui::Context>>,
     /// The last copy of the screen taken for painting; its buffers are reused.
     snapshot: Option<Snapshot>,
     /// The shapes last drawn for this pane and what they were built from.
@@ -105,6 +111,38 @@ impl Terminal {
         size: GridSize,
         cell_px: (u16, u16),
         ctx: &egui::Context,
+    ) -> std::io::Result<Self> {
+        let t = Self::spawn_detached(id, cfg, command, cwd, size, cell_px)?;
+        t.attach(ctx);
+        Ok(t)
+    }
+
+    /// Start the first shell before the window exists, so the shell's own startup (rc files,
+    /// prompt) runs while the window, GPU context and fonts are set up. The size is a guess
+    /// (the first frame resizes it to fit); [`Terminal::attach`] connects it to the window.
+    pub fn spawn_early(cfg: &Config, command: Option<Vec<String>>, cwd: Option<PathBuf>) -> std::io::Result<Self> {
+        // Roughly the default window with the default font: JetBrains Mono's advance is about
+        // 0.6 em and egui's row height about 1.32 em. Only a starting point.
+        let (w, h) = (cfg.font_size * 0.6, cfg.font_size * 1.32 * (1.0 + cfg.cell_height_adjust));
+        let size = GridSize { cols: ((1060.0 / w) as usize).max(2), lines: ((600.0 / h) as usize).max(1) };
+        Self::spawn_detached(1, cfg, command, cwd, size, (w as u16, h as u16))
+    }
+
+    /// Hand the terminal the window's egui context, so its output repaints the window.
+    pub fn attach(&self, ctx: &egui::Context) {
+        if self.repaint.set(ctx.clone()).is_ok() {
+            // Output may already be waiting from before the window existed.
+            ctx.request_repaint();
+        }
+    }
+
+    fn spawn_detached(
+        id: u64,
+        cfg: &Config,
+        command: Option<Vec<String>>,
+        cwd: Option<PathBuf>,
+        size: GridSize,
+        cell_px: (u16, u16),
     ) -> std::io::Result<Self> {
         // `-e` (a program and its arguments), else `command` from the config, else the shell.
         let command = command.or_else(|| {
@@ -129,7 +167,8 @@ impl Terminal {
 
         let (tx, events) = mpsc::channel();
         let visible = Arc::new(AtomicBool::new(true));
-        let proxy = EventProxy { tx, ctx: ctx.clone(), visible: visible.clone() };
+        let repaint = Arc::new(OnceLock::new());
+        let proxy = EventProxy { tx, ctx: repaint.clone(), visible: visible.clone() };
         let term = Arc::new(FairMutex::new(Term::new(term_config(cfg), &size, proxy.clone())));
 
         let event_loop = EventLoop::new(term.clone(), proxy, pty, true, false)?;
@@ -153,6 +192,7 @@ impl Terminal {
             scroll_accum: 0.0,
             generation: 0,
             visible,
+            repaint,
             snapshot: None,
             frame: None,
         };

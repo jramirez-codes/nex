@@ -103,6 +103,9 @@ pub struct App {
     new_window_args: Vec<String>,
     /// `-e` command, run by the first pane only; later panes start the shell.
     first_command: Option<Vec<String>>,
+    /// The first shell, started before the window existed (see `Terminal::spawn_early`);
+    /// the first pane opened takes it.
+    early_terminal: Option<Terminal>,
     /// Drag and drop with other windows, where the platform needs nex to do it (Wayland).
     dnd: Option<crate::platform::Dnd>,
     /// The "Copied …" / "Pasted …" message currently on screen.
@@ -110,7 +113,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config, args: crate::cli::Args) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config, args: crate::cli::Args, early_terminal: Option<Terminal>) -> Self {
         let ctx = &cc.egui_ctx;
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_visuals(egui::Visuals::dark());
@@ -157,7 +160,9 @@ impl App {
             explorer_active: false,
             last_pointer: None,
             new_window_args: args.for_new_window(),
-            first_command: args.command,
+            // An early terminal already runs the `-e` command.
+            first_command: if early_terminal.is_some() { None } else { args.command },
+            early_terminal,
             dnd: crate::platform::Dnd::new(cc),
             toast: None,
         }
