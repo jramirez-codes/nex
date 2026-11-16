@@ -8,6 +8,12 @@ pub fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
 
+/// Ease-in-out cubic: gathers, moves, settles. For things leaving the screen.
+pub fn ease_in_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
+}
+
 fn switch_id() -> Id {
     Id::new("nex-animations")
 }

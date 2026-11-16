@@ -11,6 +11,7 @@ use crate::ui::icons;
 
 use super::metrics::cell_px;
 use super::tab::Tab;
+use super::tab_motion::{TabDrawn, TabGhost};
 use super::{App, PANE_GAP};
 
 impl App {
@@ -227,15 +228,32 @@ impl App {
         if tab.remove_pane(id) {
             tab.motion.kick_close(ctx, id, title, process, shapes);
         } else {
-            self.close_tab(ti);
+            // The pane is already forgotten: hand its label to the tab's close animation.
+            self.close_tab_labeled(ti, Some((title, process)));
         }
     }
 
     pub(super) fn close_tab(&mut self, index: usize) {
+        self.close_tab_labeled(index, None);
+    }
+
+    /// Close tab `index`, leaving a ghost that folds into its × (if it was on screen).
+    /// `label` is its `(title, process)` when its pane is already gone.
+    fn close_tab_labeled(&mut self, index: usize, label: Option<(String, String)>) {
         if index >= self.tabs.len() {
             return;
         }
         let tab = self.tabs.remove(index);
+        if let Some(&drawn) = self.tab_rects.get(&tab.uid) {
+            for g in self.tab_ghosts.iter_mut().filter(|g| g.index > index) {
+                g.index -= 1;
+            }
+            let (title, process) = label.unwrap_or_else(|| self.pane_label(tab.focused));
+            let (mark, title) = icons::title_mark(&process, &title);
+            let (mark, title) = (mark.map(str::to_string), title.to_string());
+            let drawn = TabDrawn { active: drawn.active && !self.explorer_active, ..drawn };
+            self.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
+        }
         for id in tab.root.panes() {
             self.forget_pane(id);
         }

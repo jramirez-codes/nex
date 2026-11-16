@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use egui::emath::TSTransform;
 use egui::epaint::Shadow;
 use egui::{Color32, CursorIcon, Event, FontId, Id, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
@@ -41,6 +42,12 @@ struct PaneView {
     multi: bool,
     /// Being dragged by its header: drawn on top, lifted off the page.
     lifted: bool,
+    /// Opacity (below 1 while fading in).
+    alpha: f32,
+    /// Drawn over the other panes (shrinking back from a zoom).
+    on_top: bool,
+    /// The content scales with the card rather than being clipped by it (zooming).
+    scale_content: bool,
 }
 
 impl App {
@@ -49,6 +56,9 @@ impl App {
         self.card_rects.clear();
         let ctx = ui.ctx().clone();
         let headers = self.cfg.pane_headers.then(|| self.header_height());
+        let ppp = ctx.pixels_per_point();
+        let zoom = self.zoom_scale(area, ppp);
+        self.set_zoom_font(&ctx, zoom);
         let Some(tab) = self.cur_tab_mut() else { return };
         let tab_uid = tab.uid;
 
@@ -78,10 +88,14 @@ impl App {
                 focus: tab.motion.focus_amount(&ctx, p.id, p.id == focused),
                 multi,
                 lifted: Some(p.id) == dragging,
+                alpha: p.alpha,
+                on_top: p.on_top,
+                scale_content: p.scale_content,
             })
             .collect();
-        // The dragged card goes over the others.
-        views.sort_by_key(|v| v.lifted);
+        // The dragged card goes over the others (and a pane shrinking out of a zoom over
+        // the panes fading back in).
+        views.sort_by_key(|v| (v.lifted, v.on_top));
         // Closed panes fade out underneath the panes growing into their space.
         let now = ctx.input(|i| i.time);
         for g in tab.motion.ghosts() {
@@ -114,6 +128,20 @@ impl App {
         ui.ctx().request_repaint_after(Duration::from_millis(next as u64 + 1));
     }
 
+    /// While the shown tab is zoomed: its zoomed pane and how much bigger its terminal area
+    /// is than in its slot, so its text scales up to keep the same grid.
+    fn zoom_scale(&self, area: Rect, ppp: f32) -> Option<(PaneId, f32)> {
+        let tab = self.cur_tab().filter(|t| t.zoomed)?;
+        let mut rects = Vec::new();
+        tab.root.layout(area, PANE_GAP, &mut rects, &mut Vec::new());
+        let slot = rects.iter().find(|(id, _)| *id == tab.focused)?.1;
+        let (full, slot) = (self.term_rect_for(area, ppp), self.term_rect_for(slot, ppp));
+        if !slot.is_positive() {
+            return None;
+        }
+        Some((tab.focused, (full.width() / slot.width()).min(full.height() / slot.height()).max(1.0)))
+    }
+
     /// Dragging the gaps between split panes resizes them.
     fn drag_dividers(&mut self, ui: &Ui, tab_uid: u64, dividers: &[Divider]) {
         for div in dividers {
@@ -141,7 +169,7 @@ impl App {
 
     /// The card and (if enabled) header every pane has. Returns the top of the content area.
     fn pane_frame(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme, accent: Option<Color32>) -> f32 {
-        let painter = ui.painter();
+        let painter = &pane_painter(ui, pane);
         let ring = if pane.multi { pane.focus } else { 0.0 };
         if pane.lifted {
             let shadow = Shadow { offset: [0, 10], blur: 36, spread: 2, color: Color32::from_black_alpha(130) };
@@ -166,7 +194,7 @@ impl App {
 
     fn terminal_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme, blink_on: bool) {
         let ctx = ui.ctx().clone();
-        let painter = ui.painter();
+        let painter = &pane_painter(ui, pane);
         let id = pane.id;
         let bell = self.panes.get(&id).is_some_and(|t| t.bell_at.is_some_and(|at| at.elapsed() < BELL_FLASH));
         let accent = bell.then_some(self.cfg.palette[3]);
@@ -174,6 +202,8 @@ impl App {
 
         // Sized for where the layout puts the pane, so an animating card never resizes the PTY.
         let term_rect = self.term_rect_for(pane.target, ctx.pixels_per_point());
+        // Where the content is drawn mid-zoom, scaled to fit the card.
+        let card_term = self.term_rect_for(pane.card, ctx.pixels_per_point());
         let m = self.pane_metrics(id);
         let cell_px = cell_px(&ctx, m);
         let cols = ((term_rect.width() / m.width).floor() as usize).max(2);
@@ -221,10 +251,19 @@ impl App {
         };
         let (glyphs, cfg) = (&mut self.glyphs, &self.cfg);
         let shapes = t.frame_shapes(key, |snap| render::terminal_shapes(painter, term_rect, snap, glyphs, cfg, m, opts));
-        // Mid-animation the content rides along with the card's corner, clipped to the card.
+        // Mid-animation the content rides along with the card's corner, clipped to the card;
+        // while zooming it scales with the card too.
         let clip = painter.with_clip_rect(pane.card.shrink(1.0));
         let shift = pane.card.min - pane.target.min;
-        if shift == Vec2::ZERO {
+        if pane.scale_content && pane.card != pane.target {
+            let at = card_term;
+            let scale = (at.width() / term_rect.width()).min(at.height() / term_rect.height()).max(0.0);
+            let t = TSTransform::new(at.min.to_vec2() - term_rect.min.to_vec2() * scale, scale);
+            clip.extend(shapes.iter().cloned().map(|mut s| {
+                s.transform(t);
+                s
+            }));
+        } else if shift == Vec2::ZERO {
             clip.extend(shapes.iter().cloned());
         } else {
             clip.extend(shapes.iter().cloned().map(|mut s| {
@@ -252,18 +291,18 @@ impl App {
             self.pending.push(Action::FocusPane(pane.id));
         }
         if let Some(b) = self.explorers.get_mut(&pane.id) {
-            b.paint(ui, &ui.painter().with_clip_rect(pane.card.shrink(1.0)), content, pane.id, theme);
+            b.paint(ui, &pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0)), content, pane.id, theme);
             let requests: Vec<_> = b.requests.drain(..).map(|r| (pane.id, r)).collect();
             self.explorer_requests.extend(requests);
         }
-        self.dim_unfocused(ui.painter(), pane);
+        self.dim_unfocused(&pane_painter(ui, pane), pane);
     }
 
     /// Process glyph, title, and (on the focused or hovered card only, keeping the other
     /// headers clean) close / zoom / split buttons. Clicking the header focuses the pane.
     fn pane_header(&mut self, ui: &Ui, header: Rect, pane: &PaneView, theme: &Theme) {
         // Clipped to the card, which may still be growing out of a split.
-        let painter = &ui.painter().with_clip_rect(pane.card);
+        let painter = &pane_painter(ui, pane).with_clip_rect(pane.card);
         let id = pane.id;
         let (title, process) = self.pane_label(id);
         let zoomed = self.cur_tab().is_some_and(|t| t.zoomed);
@@ -391,6 +430,13 @@ fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, col
 
 /// A closed pane on its way out: its last frame, collapsing toward its outer edge and fading.
 /// `header` is the pane-header height, if headers are shown.
+/// The painter for one pane, faded while it fades in.
+fn pane_painter(ui: &Ui, pane: &PaneView) -> Painter {
+    let mut p = ui.painter().clone();
+    p.multiply_opacity(pane.alpha);
+    p
+}
+
 fn paint_ghost(painter: &Painter, g: &Ghost, now: f64, theme: &Theme, header: Option<f32>) {
     let (card, shift, alpha) = g.at(now);
     let mut p = painter.clone();

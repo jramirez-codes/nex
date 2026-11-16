@@ -95,11 +95,12 @@ impl App {
             }
             Action::SwapPanes(a, b) => self.swap_panes(ctx, a, b),
             Action::CancelPaneDrag => self.cancel_pane_drag(ctx),
-            Action::ToggleZoom => self.toggle_zoom(None),
-            Action::ToggleZoomPane(id) => self.toggle_zoom(Some(id)),
+            Action::ToggleZoom => self.toggle_zoom(ctx, None),
+            Action::ToggleZoomPane(id) => self.toggle_zoom(ctx, Some(id)),
             Action::Equalize => {
                 if let Some(tab) = self.cur_tab_mut() {
                     tab.root.equalize();
+                    tab.motion.kick_reflow(ctx);
                 }
             }
             Action::NextTab => self.cycle_tab(true),
@@ -156,12 +157,34 @@ impl App {
     }
 
     /// Zoom the focused pane (or `pane`, focusing it first) to fill the tab, or unzoom.
-    fn toggle_zoom(&mut self, pane: Option<PaneId>) {
+    /// The card and its text scale between the slot and the whole tab.
+    fn toggle_zoom(&mut self, ctx: &egui::Context, pane: Option<PaneId>) {
+        let Some(tab) = self.cur_tab_mut() else { return };
+        if let Some(id) = pane {
+            tab.focused = id;
+        }
+        let zoomed = !tab.zoomed && tab.root.panes().len() > 1;
+        if zoomed == tab.zoomed {
+            return;
+        }
+        let focused = tab.focused;
+        let ids = tab.root.panes();
+        // Zooming in, the other panes fade out from their last frame.
+        let others = if zoomed {
+            ids.into_iter()
+                .filter(|&id| id != focused)
+                .map(|id| {
+                    let (title, process) = self.pane_label(id);
+                    let shapes = self.panes.get(&id).map(|t| t.shapes()).unwrap_or_default();
+                    (id, title, process, shapes)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         if let Some(tab) = self.cur_tab_mut() {
-            if let Some(id) = pane {
-                tab.focused = id;
-            }
-            tab.zoomed = !tab.zoomed && tab.root.panes().len() > 1;
+            tab.zoomed = zoomed;
+            tab.motion.kick_zoom(ctx, focused, zoomed, others);
         }
     }
 

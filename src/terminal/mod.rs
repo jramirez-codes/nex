@@ -227,6 +227,11 @@ impl Terminal {
         self.frame.as_ref().map_or(&[], |(_, shapes)| shapes)
     }
 
+    /// A copy of the last frame's shapes (to draw a pane hidden by zoom while it fades out).
+    pub fn shapes(&self) -> Vec<egui::Shape> {
+        self.frame.as_ref().map(|(_, shapes)| shapes.clone()).unwrap_or_default()
+    }
+
     /// Take the last frame's shapes (to keep drawing a closed pane while it fades out).
     pub fn take_shapes(&mut self) -> Vec<egui::Shape> {
         self.frame.take().map(|(_, shapes)| shapes).unwrap_or_default()
