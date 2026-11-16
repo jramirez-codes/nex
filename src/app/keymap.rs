@@ -107,6 +107,10 @@ fn ctrl_style() -> Vec<(Mods, Key, Action)> {
         (CTRL | SHIFT | ALT, Key::ArrowRight, ResizeSplit(Direction::Right)),
         (CTRL | SHIFT | ALT, Key::ArrowUp, ResizeSplit(Direction::Up)),
         (CTRL | SHIFT | ALT, Key::ArrowDown, ResizeSplit(Direction::Down)),
+        (ALT | SHIFT, Key::ArrowLeft, Swap(Direction::Left)),
+        (ALT | SHIFT, Key::ArrowRight, Swap(Direction::Right)),
+        (ALT | SHIFT, Key::ArrowUp, Swap(Direction::Up)),
+        (ALT | SHIFT, Key::ArrowDown, Swap(Direction::Down)),
         (CTRL | SHIFT | ALT, Key::Equals, Equalize),
         (CTRL | SHIFT | ALT, Key::Plus, Equalize),
         (CTRL, Key::Tab, NextTab),
@@ -154,6 +158,10 @@ fn cmd_style() -> Vec<(Mods, Key, Action)> {
         (CMD | CTRL, Key::ArrowRight, ResizeSplit(Direction::Right)),
         (CMD | CTRL, Key::ArrowUp, ResizeSplit(Direction::Up)),
         (CMD | CTRL, Key::ArrowDown, ResizeSplit(Direction::Down)),
+        (CMD | SHIFT | ALT, Key::ArrowLeft, Swap(Direction::Left)),
+        (CMD | SHIFT | ALT, Key::ArrowRight, Swap(Direction::Right)),
+        (CMD | SHIFT | ALT, Key::ArrowUp, Swap(Direction::Up)),
+        (CMD | SHIFT | ALT, Key::ArrowDown, Swap(Direction::Down)),
         (CMD | CTRL, Key::Equals, Equalize),
         // Shift turns `]` into `}` on most layouts, so both spellings are bound.
         (CMD | SHIFT, Key::CloseBracket, NextTab),
@@ -245,6 +253,16 @@ mod tests {
         let b = bindings_for(ShortcutStyle::Cmd);
         assert_eq!(lookup(&b, Key::T, cmd), Some(Action::NewTab));
         assert_eq!(lookup(&b, Key::T, Modifiers { ctrl: true, ..Default::default() }), None);
+    }
+
+    #[test]
+    fn swap_chords() {
+        let alt_shift = Modifiers { alt: true, shift: true, ..Default::default() };
+        let b = bindings_for(ShortcutStyle::Ctrl);
+        assert_eq!(lookup(&b, Key::ArrowLeft, alt_shift), Some(Action::Swap(Direction::Left)));
+        let cmd_shift_alt = Modifiers { mac_cmd: true, command: true, ..alt_shift };
+        let b = bindings_for(ShortcutStyle::Cmd);
+        assert_eq!(lookup(&b, Key::ArrowDown, cmd_shift_alt), Some(Action::Swap(Direction::Down)));
     }
 
     #[test]

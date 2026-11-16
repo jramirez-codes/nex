@@ -79,6 +79,15 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
     defs.font_data.insert(EMBEDDED_KEY.into(), Arc::new(FontData::from_static(EMBEDDED[0])));
 
     let fallbacks = defs.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
+    // Symbols & CJK coverage from the system, when available.
+    let mut symbols = Vec::new();
+    for &extra in platform::FALLBACK_FAMILIES {
+        if let Some(data) = load(Family::Named(extra), Weight::Regular, false) {
+            let key = format!("sys-{extra}");
+            defs.font_data.insert(key.clone(), Arc::new(data));
+            symbols.push(key);
+        }
+    }
     let styles = [
         (FONT_REGULAR, Weight::Regular, false),
         (FONT_BOLD, Weight::Bold, false),
@@ -102,18 +111,7 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
         // Nerd Font icons are always available, whatever font the grid uses.
         chain.push(EMBEDDED_KEY.to_string());
         chain.extend(fallbacks.iter().cloned());
-        // Symbols & CJK coverage from the system, when available.
-        for &extra in platform::FALLBACK_FAMILIES {
-            let key = format!("sys-{extra}");
-            if !defs.font_data.contains_key(&key) {
-                if let Some(data) = load(Family::Named(extra), Weight::Regular, false) {
-                    defs.font_data.insert(key.clone(), Arc::new(data));
-                }
-            }
-            if defs.font_data.contains_key(&key) {
-                chain.push(key);
-            }
-        }
+        chain.extend(symbols.iter().cloned());
         defs.families.insert(FontFamily::Name(name.into()), chain);
     }
 
@@ -128,7 +126,12 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
         defs.font_data.insert("ui-sans-bold".into(), Arc::new(data));
         ui_bold.push("ui-sans-bold".to_string());
     }
-    let prop = defs.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    let mut prop = defs.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    // Titles and file names carry whatever programs put in them: Claude Code's spinner
+    // (braille, ✢ ✻ ✽), arrows, box drawing, Nerd Font icons. The sans font has few of those,
+    // so the UI falls back to the same symbol fonts as the grid instead of drawing boxes.
+    prop.push(EMBEDDED_KEY.to_string());
+    prop.extend(symbols);
     ui_bold.extend(ui.iter().cloned());
     ui_bold.extend(prop.iter().cloned());
     ui.extend(prop);
@@ -136,4 +139,29 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
     defs.families.insert(FontFamily::Name(paint::UI_BOLD.into()), ui_bold);
 
     ctx.set_fonts(defs);
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{FontFamily, FontId};
+
+    /// Symbols Claude Code puts in the terminal title and prompt (spinner frames, braille
+    /// spinner, status marks). Whatever the grid can draw, the UI (tab titles, title bar) must
+    /// draw too, rather than showing boxes.
+    #[test]
+    fn ui_draws_the_symbols_the_grid_does() {
+        let ctx = egui::Context::default();
+        super::install(&ctx, &crate::config::Config::default());
+        let _ = ctx.run(Default::default(), |_| {});
+        let grid = FontId::new(14.0, FontFamily::Name(super::FONT_REGULAR.into()));
+        let ui = [FontId::proportional(14.0), FontId::new(14.0, FontFamily::Name(super::paint::UI_BOLD.into()))];
+        for ch in "·✢✳✶✻✽⏺⎿⏵↯⧉✔✘☐☒◯❯⎯⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠂⠐\u{f0337}".chars() {
+            if !ctx.fonts_mut(|f| f.has_glyph(&grid, ch)) {
+                continue;
+            }
+            for id in &ui {
+                assert!(ctx.fonts_mut(|f| f.has_glyph(id, ch)), "{ch} (U+{:04X}) missing from {:?}", ch as u32, id.family);
+            }
+        }
+    }
 }

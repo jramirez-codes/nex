@@ -6,7 +6,8 @@
 //! background thread:
 //!
 //! - **Out:** an explorer drag that leaves the window becomes a compositor drag of
-//!   `text/uri-list` (`start_drag`). A drag must name the press (or touch) that started it, so
+//!   `text/uri-list` (`start_drag`), with the dragged icon on a surface of its own so it
+//!   keeps following the pointer outside the window. A drag must name the press (or touch) that started it, so
 //!   the thread also listens to the seat's pointer and touch for their serials.
 //! - **In:** a drag over the window is reported to egui the way winit reports one on X11:
 //!   hovered files and the pointer moving with it, then dropped files. The app's existing drop
@@ -17,7 +18,7 @@
 mod relay;
 
 use std::io::{Read, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, FromRawFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,6 +26,8 @@ use std::sync::{Arc, Mutex};
 use egui::{DroppedFile, Event, HoveredFile, PointerButton, Pos2, RawInput, TouchDeviceId, TouchId, TouchPhase};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use wayland_client::backend::{Backend, ObjectId};
+use wayland_client::protocol::wl_buffer::WlBuffer;
+use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_data_device::{self, WlDataDevice};
 use wayland_client::protocol::wl_data_device_manager::{DndAction, WlDataDeviceManager};
 use wayland_client::protocol::wl_data_offer::{self, WlDataOffer};
@@ -32,12 +35,14 @@ use wayland_client::protocol::wl_data_source::{self, WlDataSource};
 use wayland_client::protocol::wl_pointer::{self, WlPointer};
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_seat::{self, Capability, WlSeat};
+use wayland_client::protocol::wl_shm::{self, WlShm};
+use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::protocol::wl_touch::{self, WlTouch};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum};
 
 use crate::file_explorer::fs_ops::parse_paths;
-use crate::platform::dnd_log as log;
+use crate::platform::{DragImage, dnd_log as log};
 
 macro_rules! trace {
     ($($t:tt)*) => { log(format_args!($($t)*)) };
@@ -72,6 +77,9 @@ pub struct Dnd {
     manager: WlDataDeviceManager,
     device: WlDataDevice,
     surface: WlSurface,
+    /// For drag icons (`None` if the compositor lacks them: drags go out without one).
+    compositor: Option<WlCompositor>,
+    shm: Option<WlShm>,
     shared: Arc<Mutex<Shared>>,
     /// An incoming drag was hovering last frame (so egui hears when it leaves).
     hovering: bool,
@@ -120,6 +128,8 @@ impl Dnd {
             shared: shared.clone(),
             seat: None,
             manager: None,
+            compositor: None,
+            shm: None,
             pointer: None,
             touch: None,
             offer: None,
@@ -134,6 +144,7 @@ impl Dnd {
             return Err("no seat or data device manager".into());
         };
         let device = manager.get_data_device(&seat, &qh, ());
+        let (compositor, shm) = (state.compositor.clone(), state.shm.clone());
         conn.flush().map_err(|e| e.to_string())?;
 
         std::thread::Builder::new()
@@ -142,13 +153,13 @@ impl Dnd {
                 while queue.blocking_dispatch(&mut state).is_ok() {}
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { conn, qh, manager, device, surface, shared, hovering: false, _relay, handed_off: None, touch_down: None })
+        Ok(Self { conn, qh, manager, device, surface, compositor, shm, shared, hovering: false, _relay, handed_off: None, touch_down: None })
     }
 
     /// Hand `paths` to the compositor as a drag out of this window, continuing the press that
-    /// is dragging them now (at `at`, in egui points). Returns false if there's no press to
-    /// continue.
-    pub fn start_drag(&mut self, paths: &[PathBuf], at: Pos2) -> bool {
+    /// is dragging them now (at `at`, in egui points), showing `image` under the pointer.
+    /// Returns false if there's no press to continue.
+    pub fn start_drag(&mut self, paths: &[PathBuf], at: Pos2, image: Option<DragImage>) -> bool {
         let Some(serial) = self.shared.lock().unwrap().press_serial else {
             trace!("start_drag: no press serial yet");
             return false;
@@ -157,6 +168,7 @@ impl Dnd {
         let data = SourceData {
             uri_list: paths.iter().map(|p| file_uri(p) + "\r\n").collect(),
             text: paths.iter().map(|p| crate::platform::shell_quote(p)).collect::<Vec<_>>().join(" "),
+            icon: Mutex::new(None),
         };
         let source = self.manager.create_data_source(&self.qh, data);
         source.offer(URI_LIST.into());
@@ -164,9 +176,53 @@ impl Dnd {
         if source.version() >= 3 {
             source.set_actions(DndAction::Copy);
         }
-        self.device.start_drag(Some(&source), &self.surface, None, serial);
+        let icon = image.and_then(|img| self.icon_surface(&img).map(|i| (i, img.hotspot)));
+        self.device.start_drag(Some(&source), &self.surface, icon.as_ref().map(|(i, _)| &i.surface), serial);
+        if let Some((icon, [hx, hy])) = icon {
+            // The icon's top-left starts at the pointer: move it so the pointer is where the
+            // file was grabbed.
+            if icon.surface.version() >= 5 {
+                icon.surface.offset(-hx, -hy);
+                icon.surface.attach(Some(&icon.buffer), 0, 0);
+            } else {
+                icon.surface.attach(Some(&icon.buffer), -hx, -hy);
+            }
+            icon.surface.damage(0, 0, i32::MAX, i32::MAX);
+            icon.surface.commit();
+            // Kept until the drag ends (see the source's events).
+            *source.data::<SourceData>().expect("source data").icon.lock().unwrap() = Some(icon);
+        }
         self.handed_off = Some(at);
         self.conn.flush().is_ok()
+    }
+
+    /// A surface showing `img`, for a drag icon.
+    fn icon_surface(&self, img: &DragImage) -> Option<DragIcon> {
+        let (compositor, shm) = (self.compositor.as_ref()?, self.shm.as_ref()?);
+        let [w, h] = img.size;
+        if w == 0 || h == 0 {
+            return None;
+        }
+        // ARGB8888 is premultiplied, little-endian: B, G, R, A in memory.
+        let bytes: Vec<u8> = img.pixels.iter().flat_map(|&[r, g, b, a]| [b, g, r, a]).collect();
+        // SAFETY: plain syscall; the name is a valid C string and the fd is checked.
+        let fd = unsafe { libc::memfd_create(c"nex-drag-icon".as_ptr(), libc::MFD_CLOEXEC) };
+        if fd < 0 {
+            trace!("drag icon: memfd_create failed");
+            return None;
+        }
+        // SAFETY: `fd` was just created and is owned by nothing else.
+        let mut file = std::fs::File::from(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) });
+        file.write_all(&bytes).ok()?;
+        let len = i32::try_from(bytes.len()).ok()?;
+        let pool = shm.create_pool(file.as_fd(), len, &self.qh, ());
+        let buffer = pool.create_buffer(0, w as i32, h as i32, w as i32 * 4, wl_shm::Format::Argb8888, &self.qh, ());
+        let surface = compositor.create_surface(&self.qh, ());
+        if surface.version() >= 3 {
+            surface.set_buffer_scale(img.scale.max(1));
+        }
+        trace!("drag icon: {w}x{h} px, scale {}, hotspot {:?}", img.scale, img.hotspot);
+        Some(DragIcon { surface, buffer, pool })
     }
 
     /// Files from another window were dropped on this one: bring it to the front (keyboard
@@ -220,6 +276,23 @@ impl Dnd {
 struct SourceData {
     uri_list: String,
     text: String,
+    /// The icon following the pointer, destroyed when the drag ends.
+    icon: Mutex<Option<DragIcon>>,
+}
+
+/// The surface (and its memory) showing a drag's icon.
+struct DragIcon {
+    surface: WlSurface,
+    buffer: WlBuffer,
+    pool: WlShmPool,
+}
+
+impl DragIcon {
+    fn destroy(self) {
+        self.surface.destroy();
+        self.buffer.destroy();
+        self.pool.destroy();
+    }
 }
 
 /// What an offered drag (or selection) carries.
@@ -235,6 +308,8 @@ struct State {
     shared: Arc<Mutex<Shared>>,
     seat: Option<WlSeat>,
     manager: Option<WlDataDeviceManager>,
+    compositor: Option<WlCompositor>,
+    shm: Option<WlShm>,
     pointer: Option<WlPointer>,
     touch: Option<WlTouch>,
     /// The drag over the window now, if it carries files.
@@ -337,6 +412,8 @@ impl Dispatch<WlRegistry, ()> for State {
             match interface.as_str() {
                 "wl_seat" if state.seat.is_none() => state.seat = Some(registry.bind(name, version.min(5), qh, ())),
                 "wl_data_device_manager" if state.manager.is_none() => state.manager = Some(registry.bind(name, version.min(3), qh, ())),
+                "wl_compositor" if state.compositor.is_none() => state.compositor = Some(registry.bind(name, version.min(5), qh, ())),
+                "wl_shm" if state.shm.is_none() => state.shm = Some(registry.bind(name, 1, qh, ())),
                 _ => {}
             }
         }
@@ -381,6 +458,16 @@ impl Dispatch<WlTouch, ()> for State {
         }
     }
 }
+
+/// Objects for the drag icon, whose events need nothing done.
+macro_rules! ignore_events {
+    ($($t:ty),*) => {$(
+        impl Dispatch<$t, ()> for State {
+            fn event(_: &mut Self, _: &$t, _: <$t as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+        }
+    )*};
+}
+ignore_events!(WlCompositor, WlShm, WlShmPool, WlSurface, WlBuffer);
 
 impl Dispatch<WlDataDeviceManager, ()> for State {
     fn event(_: &mut Self, _: &WlDataDeviceManager, _: <WlDataDeviceManager as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
@@ -473,6 +560,9 @@ impl Dispatch<WlDataSource, SourceData> for State {
                 let _ = std::fs::File::from(fd).write_all(body.as_bytes());
             }
             wl_data_source::Event::Cancelled | wl_data_source::Event::DndFinished => {
+                if let Some(icon) = data.icon.lock().unwrap().take() {
+                    icon.destroy();
+                }
                 source.destroy();
                 let _ = state.conn.flush();
             }

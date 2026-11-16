@@ -5,6 +5,7 @@ use egui::{Align2, Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2
 
 use crate::app::layout::Axis;
 
+use super::file_icons::paint_glyph;
 use super::paint::{bold, top_radius};
 
 /// Pseudo process name for file-explorer panes, so they get a folder tile and header glyph.
@@ -58,6 +59,47 @@ fn tile_color(process: &str) -> Color32 {
     }
 }
 
+/// Whether `c` reads as an icon rather than text: any non-ASCII symbol (Nerd Font and other
+/// private-use glyphs, emoji, dingbats like Claude Code's ✳ spinner, braille spinners), or the
+/// ASCII `*` some agents use as a spinner frame. Letters of any script are text.
+fn is_icon(c: char) -> bool {
+    c == '*' || (!c.is_ascii() && !c.is_alphanumeric() && !c.is_whitespace())
+}
+
+/// Code points that extend the icon before them: variation selectors, zero-width joiners,
+/// skin tones and other combining marks (so `⚡️` or `👩‍💻` stay one icon).
+fn extends_icon(c: char) -> bool {
+    matches!(c, '\u{200d}' | '\u{fe00}'..='\u{fe0f}' | '\u{1f3fb}'..='\u{1f3ff}' | '\u{20d0}'..='\u{20ff}' | '\u{e0020}'..='\u{e007f}')
+}
+
+/// The icon leading a pane's title (Claude Code's `✳ Claude Code` or the spinner frame it
+/// cycles through while working, a Nerd Font glyph, an emoji), and the title without it. The
+/// icon takes the place of the tile's own glyph, animating as the program rewrites its title;
+/// a title without one leaves the tile as it was. File explorers keep their folder.
+pub fn title_mark<'a>(process: &str, title: &'a str) -> (Option<&'a str>, &'a str) {
+    if matches!(kind(process), Kind::Folder) {
+        return (None, title);
+    }
+    let mut it = title.char_indices();
+    let Some((_, first)) = it.next().filter(|&(_, c)| is_icon(c)) else { return (None, title) };
+    let mut end = first.len_utf8();
+    let mut after_joiner = false;
+    for (i, c) in it {
+        if extends_icon(c) || (after_joiner && is_icon(c)) {
+            after_joiner = c == '\u{200d}';
+            end = i + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    let rest = &title[end..];
+    // An icon is set apart from the title by a space; `*bold*` or `★★★` are just text.
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return (None, title);
+    }
+    (Some(&title[..end]), rest.trim_start())
+}
+
 fn is_light(c: Color32) -> bool {
     (c.r() as u32 * 299 + c.g() as u32 * 587 + c.b() as u32 * 114) / 1000 > 170
 }
@@ -66,7 +108,8 @@ fn is_light(c: Color32) -> bool {
 ///
 /// `r` may be narrower than it is tall (a card mid-flip); the glyph then shrinks and fades
 /// with the squash instead of spilling past the tile's edges.
-pub fn app_tile(p: &Painter, r: Rect, process: &str) {
+/// `mark` (see [`title_mark`]) replaces the tile's own glyph.
+pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>) {
     let radius = (r.width().min(r.height()) * 0.26) as u8;
     let k = kind(process);
     let base = match k {
@@ -92,6 +135,10 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str) {
     let r = Rect::from_center_size(r.center(), Vec2::splat(r.width().min(r.height())));
 
     let fg = if is_light(base) { Color32::from_rgb(0x1c, 0x1c, 0x1e) } else { Color32::WHITE };
+    if let Some(mark) = mark {
+        p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, mark, bold(r.height() * 0.58), fg);
+        return;
+    }
     match k {
         Kind::Shell => {
             // ">_" prompt glyph.
@@ -110,8 +157,7 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str) {
         Kind::Node => hexagon(&p, r.center(), r.width() * 0.3, Stroke::new((r.width() * 0.08).max(1.2), fg), None),
         Kind::Folder => icon_folder(&p, Rect::from_center_size(r.center(), Vec2::new(r.width() * 0.6, r.height() * 0.48)), fg),
         Kind::Other => {
-            let letter: String = process.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
-            p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, letter, bold(r.height() * 0.58), fg);
+            p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, initial(process), bold(r.height() * 0.58), fg);
         }
     }
 }
@@ -139,12 +185,12 @@ fn stack_rest(t: f32, step: Vec2) -> (Vec2, f32, f32) {
 /// position in `[0, n)` (0 = top). A card between `n - 1` and `n` is mid-flip: travelling
 /// between the top of the deck and the back, squashing like a card turned edge-on. Each card
 /// behind the top one is offset by another `step`.
-pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, f32)], step: Vec2) {
+pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, Option<&str>, f32)], step: Vec2) {
     use std::f32::consts::PI;
     let n = cards.len() as f32;
-    // (z-order key, rect, opacity, process); larger keys are painted first (further back).
-    let mut draws: Vec<(f32, Rect, f32, &str)> = Vec::with_capacity(cards.len());
-    for &(process, depth) in cards {
+    // (z-order key, rect, opacity, process, mark); larger keys are painted first (further back).
+    let mut draws: Vec<(f32, Rect, f32, &str, Option<&str>)> = Vec::with_capacity(cards.len());
+    for &(process, mark, depth) in cards {
         let (offset, scale, alpha, width, z) = if n > 1.0 && depth > n - 1.0 {
             // u: 0 = on top, 1 = resting at the back.
             let u = (n - depth).clamp(0.0, 1.0);
@@ -167,18 +213,27 @@ pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, f32)], step: Vec2) {
         }
         let size = r.size() * scale;
         let rect = Rect::from_center_size(r.center() + offset, Vec2::new(size.x * width, size.y));
-        draws.push((z, rect, alpha, process));
+        draws.push((z, rect, alpha, process, mark));
     }
     draws.sort_by(|a, b| b.0.total_cmp(&a.0));
-    for (_, rect, alpha, process) in draws {
+    for (_, rect, alpha, process, mark) in draws {
         let mut p = p.clone();
         p.multiply_opacity(alpha);
-        app_tile(&p, rect, process);
+        app_tile(&p, rect, process, mark);
     }
 }
 
+/// The process' initial, for tiles without a glyph of their own.
+fn initial(process: &str) -> String {
+    process.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default()
+}
+
 /// Small monochrome glyph used in pane headers (like SF Symbols in the reference).
-pub fn header_glyph(p: &Painter, r: Rect, process: &str, color: Color32) {
+pub fn header_glyph(p: &Painter, r: Rect, process: &str, mark: Option<&str>, color: Color32) {
+    if let Some(mark) = mark {
+        p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, mark, bold(r.height() * 1.05), color);
+        return;
+    }
     match kind(process) {
         Kind::Node => hexagon(p, r.center(), r.width() * 0.48, Stroke::NONE, Some(color)),
         Kind::Folder => icon_folder(p, Rect::from_center_size(r.center(), Vec2::new(r.width(), r.height() * 0.82)), color),
@@ -197,7 +252,7 @@ pub fn header_glyph(p: &Painter, r: Rect, process: &str, color: Color32) {
         }
         Kind::Other => {
             p.circle_filled(r.center(), r.width() * 0.5, color);
-            let letter: String = process.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
+            let letter = initial(process);
             p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, letter, bold(r.height() * 0.62), Color32::from_rgb(0x24, 0x20, 0x24));
         }
     }
@@ -225,43 +280,40 @@ pub fn workspace_glyph(p: &Painter, r: Rect, c: Color32) {
     p.circle_filled(Pos2::new(screen.right() - 3.5, screen.center().y), 1.0, c);
 }
 
+/// Codicons (VS Code's icon set) from the embedded Nerd Font, so the window chrome matches the
+/// terminal font. Each glyph's ink fills its cell width; it's drawn at this share of the rect.
+const GLYPH_SHARE: f32 = 0.64;
+const COD_ADD: char = '\u{ea60}';
+const COD_CLOSE: char = '\u{ea76}';
+const COD_SCREEN_FULL: char = '\u{eb4c}';
+const COD_SCREEN_NORMAL: char = '\u{eb4d}';
+/// Two panes side by side (a vertical divider).
+const COD_SPLIT_HORIZONTAL: char = '\u{eb56}';
+/// Two panes stacked (a horizontal divider).
+const COD_SPLIT_VERTICAL: char = '\u{eb57}';
+
+fn codicon(p: &Painter, r: Rect, c: Color32, ch: char) {
+    paint_glyph(p, r.center(), r.width() * GLYPH_SHARE, ch, c);
+}
+
 pub fn icon_close(p: &Painter, r: Rect, c: Color32) {
-    let r = r.shrink(r.width() * 0.2);
-    let s = Stroke::new(1.3, c);
-    p.line_segment([r.left_top(), r.right_bottom()], s);
-    p.line_segment([r.right_top(), r.left_bottom()], s);
+    codicon(p, r, c, COD_CLOSE);
 }
 
 pub fn icon_split(p: &Painter, r: Rect, c: Color32, axis: Axis) {
-    let r = Rect::from_center_size(r.center(), Vec2::new(r.width(), r.height() * 0.84));
-    let s = Stroke::new(1.2, c);
-    p.rect_stroke(r, 2.5, s, StrokeKind::Inside);
-    match axis {
-        Axis::Horizontal => p.line_segment([r.center_top(), r.center_bottom()], s),
-        Axis::Vertical => p.line_segment([r.left_center(), r.right_center()], s),
+    let ch = match axis {
+        Axis::Horizontal => COD_SPLIT_HORIZONTAL,
+        Axis::Vertical => COD_SPLIT_VERTICAL,
     };
+    codicon(p, r, c, ch);
 }
 
 pub fn icon_zoom(p: &Painter, r: Rect, c: Color32, zoomed: bool) {
-    let s = Stroke::new(1.2, c);
-    let k = r.width() * 0.38;
-    // Two corner arrows pointing outward (or inward when already zoomed).
-    for (corner, dir) in [(r.left_bottom(), Vec2::new(1.0, -1.0)), (r.right_top(), Vec2::new(-1.0, 1.0))] {
-        let (tip, tail) = if zoomed { (corner + dir * k, corner) } else { (corner, corner + dir * k) };
-        p.line_segment([tip, tail], s);
-        let away = (tail - tip).normalized();
-        let h = k * 0.75;
-        p.line_segment([tip, tip + Vec2::new(away.x * h, 0.0)], s);
-        p.line_segment([tip, tip + Vec2::new(0.0, away.y * h)], s);
-    }
+    codicon(p, r, c, if zoomed { COD_SCREEN_NORMAL } else { COD_SCREEN_FULL });
 }
 
 pub fn icon_plus(p: &Painter, r: Rect, c: Color32) {
-    let s = Stroke::new(1.5, c);
-    let ctr = r.center();
-    let k = r.width() * 0.32;
-    p.line_segment([ctr - Vec2::new(k, 0.0), ctr + Vec2::new(k, 0.0)], s);
-    p.line_segment([ctr - Vec2::new(0.0, k), ctr + Vec2::new(0.0, k)], s);
+    codicon(p, r, c, COD_ADD);
 }
 
 /// A filled folder: a tab on the upper left and a body below it.
@@ -304,6 +356,22 @@ pub fn icon_chevron_up(p: &Painter, r: Rect, c: Color32) {
     p.add(Shape::line(vec![ctr + Vec2::new(-k, 0.0), ctr + Vec2::new(0.0, -k), ctr + Vec2::new(k, 0.0)], s));
 }
 
+/// A left-pointing chevron (Back).
+pub fn icon_chevron_left(p: &Painter, r: Rect, c: Color32) {
+    let s = Stroke::new(1.5, c);
+    let k = r.width() * 0.4;
+    let ctr = r.center() + Vec2::new(-k * 0.3, 0.0);
+    p.add(Shape::line(vec![ctr + Vec2::new(k * 0.75, -k), ctr + Vec2::new(-k * 0.25, 0.0), ctr + Vec2::new(k * 0.75, k)], s));
+}
+
+/// A right-pointing chevron (Forward).
+pub fn icon_chevron_right(p: &Painter, r: Rect, c: Color32) {
+    let s = Stroke::new(1.5, c);
+    let k = r.width() * 0.4;
+    let ctr = r.center() + Vec2::new(k * 0.3, 0.0);
+    p.add(Shape::line(vec![ctr + Vec2::new(-k * 0.75, -k), ctr + Vec2::new(k * 0.25, 0.0), ctr + Vec2::new(-k * 0.75, k)], s));
+}
+
 /// Three horizontal lines with leading dots (list view).
 pub fn icon_list(p: &Painter, r: Rect, c: Color32) {
     let s = Stroke::new(1.3, c);
@@ -336,5 +404,34 @@ pub fn icon_check(p: &Painter, r: Rect, c: Color32, on: bool) {
     } else {
         p.circle_filled(ctr, rad, Color32::from_black_alpha(60));
         p.circle_stroke(ctr, rad - 0.6, Stroke::new(1.2, c));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::title_mark;
+
+    #[test]
+    fn leading_title_icon_moves_to_the_tile() {
+        // Claude Code's idle mark and spinner frames.
+        assert_eq!(title_mark("claude", "✳ Claude Code"), (Some("✳"), "Claude Code"));
+        assert_eq!(title_mark("claude", "✻ Fixing tests"), (Some("✻"), "Fixing tests"));
+        assert_eq!(title_mark("claude", "⠋ Working"), (Some("⠋"), "Working"));
+        // Any icon, from any process: Nerd Font glyphs, emoji (with selectors and joiners).
+        assert_eq!(title_mark("zsh", "\u{f07c} ~/code"), (Some("\u{f07c}"), "~/code"));
+        assert_eq!(title_mark("nvim", "⚡\u{fe0f} main.rs"), (Some("⚡\u{fe0f}"), "main.rs"));
+        assert_eq!(title_mark("codex", "👩\u{200d}💻 codex"), (Some("👩\u{200d}💻"), "codex"));
+        assert_eq!(title_mark("claude", "✳"), (Some("✳"), ""));
+    }
+
+    #[test]
+    fn titles_without_an_icon_are_untouched() {
+        assert_eq!(title_mark("claude", "Claude Code"), (None, "Claude Code"));
+        assert_eq!(title_mark("bash", "~/code"), (None, "~/code"));
+        assert_eq!(title_mark("python", "Über script"), (None, "Über script"));
+        assert_eq!(title_mark("bash", "★★★ rated"), (None, "★★★ rated"));
+        assert_eq!(title_mark("bash", "*bold*"), (None, "*bold*"));
+        // The explorer keeps its folder.
+        assert_eq!(title_mark(super::EXPLORER_PROCESS, "✳ x"), (None, "✳ x"));
     }
 }

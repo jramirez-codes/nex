@@ -1,13 +1,18 @@
 //! macOS backend: libproc, `open`, a font index, native traffic lights, and starting from
 //! nex.app.
 
+mod apps;
 mod launch;
 mod proc;
 mod window;
 
 pub use super::fontdb::{find_font, nerd_mono_families};
 pub use super::no_dnd::Dnd;
-pub use super::unix::{config_dir, home_dir, hostname, pty_options, pty_pid, shell_quote, symlink};
+pub use super::unix::{
+    config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, owner_names, pty_options, pty_pid, shell_quote,
+    symlink,
+};
+pub use apps::{apps_for, mime_type, open_with};
 pub use launch::{opened_from_desktop, shell_env};
 pub use proc::proc_info;
 pub use window::align_window_buttons;

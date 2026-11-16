@@ -77,6 +77,16 @@ impl PaneMotion {
         ctx.request_repaint();
     }
 
+    /// Ease every card from where it is drawn now to wherever the next layout puts it (after
+    /// a swap, or when a dragged pane's drop preview changes).
+    pub(super) fn kick_reflow(&mut self, ctx: &egui::Context) {
+        if !glide::animations(ctx) {
+            return;
+        }
+        self.restart(ctx.input(|i| i.time));
+        ctx.request_repaint();
+    }
+
     /// Pane `id` was closed: leave a ghost that collapses and fades while the rest move.
     pub(super) fn kick_close(&mut self, ctx: &egui::Context, id: PaneId, title: String, process: String, shapes: Vec<Shape>) {
         if !glide::animations(ctx) {
@@ -89,8 +99,16 @@ impl PaneMotion {
         ctx.request_repaint();
     }
 
-    /// Where each pane is drawn this frame, given the rects the layout wants.
-    pub(super) fn frame(&mut self, ctx: &egui::Context, targets: &[(PaneId, Rect)]) -> Vec<Placed> {
+    /// Where each pane is drawn this frame, given the rects the layout wants. A pane in
+    /// `goals` heads there instead of its layout rect (a drop preview: its terminal keeps the
+    /// layout's size). The `held` pane (being dragged) is drawn exactly where it is held.
+    pub(super) fn frame(
+        &mut self,
+        ctx: &egui::Context,
+        targets: &[(PaneId, Rect)],
+        goals: &HashMap<PaneId, Rect>,
+        held: Option<(PaneId, Rect)>,
+    ) -> Vec<Placed> {
         let now = ctx.input(|i| i.time);
         let t = ((now - self.start) / PANE_ANIM) as f32;
         if t >= 1.0 || !glide::animations(ctx) {
@@ -101,7 +119,11 @@ impl PaneMotion {
         let placed: Vec<Placed> = targets
             .iter()
             .map(|&(id, target)| {
-                let card = self.from.get(&id).map_or(target, |f| f.lerp_towards(&target, e));
+                let goal = goals.get(&id).copied().unwrap_or(target);
+                let card = match held {
+                    Some((h, r)) if h == id => r,
+                    _ => self.from.get(&id).map_or(goal, |f| f.lerp_towards(&goal, e)),
+                };
                 Placed { id, card, target }
             })
             .collect();
@@ -193,9 +215,31 @@ mod tests {
         let target = rect(0.0, 0.0, 50.0, 50.0);
         m.from.insert(1, rect(0.0, 0.0, 100.0, 50.0));
         m.start = ctx.input(|i| i.time);
-        assert_eq!(m.frame(&ctx, &[(1, target)])[0].card, rect(0.0, 0.0, 100.0, 50.0));
+        assert_eq!(m.frame(&ctx, &[(1, target)], &HashMap::new(), None)[0].card, rect(0.0, 0.0, 100.0, 50.0));
         m.start -= PANE_ANIM;
-        assert_eq!(m.frame(&ctx, &[(1, target)])[0].card, target);
+        assert_eq!(m.frame(&ctx, &[(1, target)], &HashMap::new(), None)[0].card, target);
         assert!(m.from.is_empty());
+    }
+
+    #[test]
+    fn held_card_follows_the_pointer_then_glides_home() {
+        let ctx = egui::Context::default();
+        let mut m = PaneMotion::default();
+        let target = rect(0.0, 0.0, 50.0, 50.0);
+        let held = rect(30.0, 20.0, 80.0, 70.0);
+        assert_eq!(m.frame(&ctx, &[(1, target)], &HashMap::new(), Some((1, held)))[0].card, held);
+        // Let go: the next frames start from where it was held.
+        m.restart(ctx.input(|i| i.time));
+        assert_eq!(m.frame(&ctx, &[(1, target)], &HashMap::new(), None)[0].card, held);
+    }
+
+    #[test]
+    fn goal_moves_the_card_but_not_its_target() {
+        let ctx = egui::Context::default();
+        let mut m = PaneMotion::default();
+        let target = rect(0.0, 0.0, 50.0, 50.0);
+        let goal = rect(60.0, 0.0, 110.0, 50.0);
+        let p = &m.frame(&ctx, &[(1, target)], &HashMap::from([(1, goal)]), None)[0];
+        assert_eq!((p.card, p.target), (goal, target));
     }
 }

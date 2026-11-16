@@ -6,9 +6,10 @@ use std::time::Duration;
 
 use egui::{DragAndDrop, Key, Modifiers, Pos2, Rect, Ui, Vec2};
 
-use super::items::Layout;
+use super::items::{self, Layout};
+use super::line_edit::EditKey;
 use super::transfer::set_clipboard;
-use super::{FileExplorer, View};
+use super::{Entry, FileExplorer, Request, View};
 
 /// Holding a touch this long (without moving) starts selecting.
 pub(super) const LONG_PRESS: f64 = 0.45;
@@ -17,6 +18,26 @@ pub(super) const DOUBLE_CLICK: f64 = 0.4;
 /// Drag-and-drop payload for files dragged out of an explorer.
 pub struct ExplorerDrag {
     pub paths: Vec<PathBuf>,
+    /// How the dragged files look under the pointer.
+    pub(super) ghost: Ghost,
+}
+
+/// The icon that follows the pointer while files are dragged: the grabbed item's own icon, at
+/// the size it has in the listing, held where it was grabbed (as in Thunar).
+#[derive(Clone)]
+pub(super) struct Ghost {
+    /// The item that was grabbed (its icon stands for the whole drag).
+    pub(super) lead: Entry,
+    pub(super) count: usize,
+    /// The icon's size, in points.
+    pub(super) size: Vec2,
+    /// Where the pointer holds the icon, from its top-left corner.
+    pub(super) grab: Vec2,
+    /// Grid tiles' icons (drawn as pages with glyphs or extensions).
+    pub(super) large: bool,
+    pub(super) in_home: bool,
+    /// The listing's zoom level, for the badges.
+    pub(super) scale: f32,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -41,10 +62,25 @@ pub(super) struct Press {
     pub(super) gesture: Gesture,
 }
 
-/// Things the right-click menu or the action bar asked for (applied after drawing).
+/// Things the right-click menu, the path bar or the action bar asked for (applied after
+/// drawing).
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Command {
     Open(usize),
+    /// The `k`th app of the right-clicked file's "Open With" list.
+    OpenWith(usize),
+    /// A terminal in the folder at this index, or (`None`) in this folder.
+    OpenTerminal(Option<usize>),
+    Rename,
+    NewFolder,
+    NewFile,
+    /// Properties of the targets (`false`) or of the folder being shown (`true`).
+    Properties(bool),
+    CancelJobs,
+    Back,
+    Forward,
+    Up,
+    EditLocation,
     Copy,
     Cut,
     Paste,
@@ -113,14 +149,28 @@ impl FileExplorer {
     /// Follow a press from start to finish: it may become a click, a long press (touch), a
     /// pan (touch) or a drag of files. A press starts inside the list; the rest of it is
     /// tracked even outside.
-    pub(super) fn track_press(&mut self, ctx: &egui::Context, input: &PointerInput, layout: &Layout, list: Rect) {
-        // A dialog (the delete confirmation) is on top: the listing doesn't take presses.
-        if ctx.memory(|m| m.top_modal_layer()).is_some() || self.confirm_delete.is_some() {
+    pub(super) fn track_press(&mut self, ctx: &egui::Context, input: &PointerInput, layout: &Layout, list: Rect, layer: egui::LayerId) {
+        // A dialog (delete confirmation, Properties) is on top: the listing doesn't take presses.
+        if ctx.memory(|m| m.top_modal_layer()).is_some() || self.modal_open() {
             self.press = None;
             return;
         }
-        if input.pressed && input.pos.is_some_and(|p| list.contains(p)) {
+        // A press on a menu, or anything else drawn over the listing, isn't a press on the
+        // item underneath; and while a menu is open, a press elsewhere only closes it.
+        let on_listing = |p: Pos2| list.contains(p) && ctx.layer_id_at(p) == Some(layer) && !egui::Popup::is_any_open(ctx);
+        if input.pressed && input.pos.is_some_and(on_listing) {
             let p = input.pos.unwrap_or_default();
+            // Pressing in the listing closes the location field, and anywhere but the rename
+            // field applies the rename; presses in that field only move its caret.
+            self.location = None;
+            self.find = None;
+            if self.rename.is_some() {
+                if self.rename_rect.is_some_and(|r| r.contains(p)) {
+                    self.press = None;
+                    return;
+                }
+                self.commit_rename();
+            }
             self.touch = input.touches;
             let item = layout.item_at(p, self.scroll, self.entries.len());
             self.press = Some(Press { item, origin: p, at: input.now, touch: input.touches, gesture: Gesture::Pending });
@@ -193,8 +243,13 @@ impl FileExplorer {
     }
 
     /// Right-clicking an unselected item selects just it; right-clicking empty space clears
-    /// the selection.
+    /// the selection (and the menu then offers what can be done in this folder).
     pub(super) fn right_click_select(&mut self, item: Option<usize>) {
+        self.menu_on_item = item.is_some();
+        self.location = None;
+        if self.rename.is_some() {
+            self.commit_rename();
+        }
         match item {
             Some(i) if !self.is_marked(i) => {
                 self.marked.clear();
@@ -207,10 +262,59 @@ impl FileExplorer {
 
     /// Handle a key press while this pane is focused. Returns true if it was used.
     pub fn key(&mut self, key: Key, mods: Modifiers) -> bool {
+        // A text field takes keys first; keys it doesn't use (letters) arrive as text.
+        if let Some(field) = self.location.as_mut() {
+            match field.key(key, mods) {
+                EditKey::Commit => self.commit_location(),
+                EditKey::Cancel => self.location = None,
+                EditKey::Complete => self.complete_location(),
+                EditKey::Used => {}
+                EditKey::Ignored => return false,
+            }
+            return true;
+        }
+        if let Some(r) = self.rename.as_mut() {
+            match r.field.key(key, mods) {
+                EditKey::Commit => self.commit_rename(),
+                EditKey::Cancel => self.rename = None,
+                EditKey::Used | EditKey::Complete => {}
+                EditKey::Ignored => return false,
+            }
+            return true;
+        }
+        // A shortcut (Ctrl+C, Alt+Left…) ends type-to-find, so the next letters start afresh.
+        if mods.command || mods.alt || mods.ctrl {
+            self.find = None;
+        }
+        if self.find.is_some() && !mods.any() {
+            match key {
+                Key::Backspace => return self.find_backspace(),
+                Key::Escape => {
+                    self.find = None;
+                    return true;
+                }
+                Key::ArrowUp => {
+                    self.find_step(-1);
+                    return true;
+                }
+                Key::ArrowDown => {
+                    self.find_step(1);
+                    return true;
+                }
+                // A space can be part of the name being typed; letters arrive as text.
+                Key::Space => return false,
+                _ => {}
+            }
+        }
         let cols = self.cols.max(1) as isize;
         let page = self.page_items.max(1) as isize;
         match key {
             Key::ArrowUp if mods.alt => self.up(),
+            Key::ArrowLeft if mods.alt => self.go_back(),
+            Key::ArrowRight if mods.alt => self.go_forward(),
+            // Finder's Back / Forward.
+            Key::OpenBracket if mods.command => self.go_back(),
+            Key::CloseBracket if mods.command => self.go_forward(),
             Key::ArrowUp => self.move_selection(-cols),
             Key::ArrowDown => self.move_selection(cols),
             Key::ArrowLeft if self.view == View::Grid => self.move_selection(-1),
@@ -219,10 +323,17 @@ impl FileExplorer {
             Key::PageDown => self.move_selection(page),
             Key::Home => self.move_selection(isize::MIN / 2),
             Key::End => self.move_selection(isize::MAX / 2),
+            // Properties: Alt+Enter (Thunar), Cmd+I (Finder).
+            Key::Enter if mods.alt => self.show_properties(false),
+            Key::I if mods.command => self.show_properties(false),
             Key::Enter => self.activate(self.selected),
             Key::Backspace => self.up(),
             Key::Space => self.toggle_mark(self.selected),
             Key::Delete => self.request_delete(),
+            Key::F2 => self.start_rename(),
+            Key::L if mods.command => self.edit_location(),
+            // Ctrl+N on Linux (Ctrl+Shift+N is New Window); Cmd+Shift+N on macOS (Cmd+N is).
+            Key::N if mods.command => self.create_item(true),
             Key::Escape => {
                 if !self.marked.is_empty() || self.selecting {
                     self.clear_selection();
@@ -245,10 +356,27 @@ impl FileExplorer {
             self.selected = i;
         }
         let paths = self.targets();
+        let Some(ghost) = self.ghost(i, paths.len()) else { return };
         if !paths.is_empty() {
             crate::platform::dnd_log(format_args!("explorer drag started: {} path(s)", paths.len()));
-            DragAndDrop::set_payload(ctx, ExplorerDrag { paths });
+            DragAndDrop::set_payload(ctx, ExplorerDrag { paths, ghost });
         }
+    }
+
+    /// How a drag of `count` items grabbed by item `i` looks: `i`'s icon as it is drawn now.
+    fn ghost(&self, i: usize, count: usize) -> Option<Ghost> {
+        let lead = self.entries.get(i)?.clone();
+        let s = items::sizes(self.touch, self.zoom);
+        let item = self.layout?.item_rect(i, self.scroll);
+        let icon = match self.view {
+            View::List => items::row_icon_rect(item, &s, self.selecting),
+            View::Grid => items::tile_icon_rect(item, &s, lead.is_dir),
+        };
+        // Held where it was pressed; a press beside the icon (on the name) holds its edge.
+        let origin = self.press.as_ref().map_or(icon.center(), |p| p.origin);
+        let grab = icon.clamp(origin) - icon.min;
+        let in_home = crate::platform::home_dir().is_some_and(|h| h == self.dir);
+        Some(Ghost { lead, count, size: icon.size(), grab, large: self.view == View::Grid, in_home, scale: s.scale })
     }
 
     /// A press released without moving: select, toggle or open.
@@ -292,6 +420,21 @@ impl FileExplorer {
         for cmd in commands {
             match cmd {
                 Command::Open(i) => self.activate(i),
+                Command::OpenWith(k) => self.open_with_app(k),
+                Command::OpenTerminal(i) => {
+                    let dir = i.and_then(|i| self.entries.get(i)).filter(|e| e.is_dir).map(|e| e.path.clone());
+                    self.requests.push(Request::OpenTerminal(dir.unwrap_or_else(|| self.dir.clone())));
+                    ctx.request_repaint();
+                }
+                Command::Rename => self.start_rename(),
+                Command::NewFolder => self.create_item(true),
+                Command::NewFile => self.create_item(false),
+                Command::Properties(folder) => self.show_properties(folder),
+                Command::CancelJobs => self.cancel_jobs(),
+                Command::Back => self.go_back(),
+                Command::Forward => self.go_forward(),
+                Command::Up => self.up(),
+                Command::EditLocation => self.edit_location(),
                 Command::Copy => self.copy(ctx, false),
                 Command::Cut => self.copy(ctx, true),
                 Command::Paste => self.paste(ctx, None, None),

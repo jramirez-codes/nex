@@ -38,6 +38,10 @@ impl App {
         if self.track_pinch(ctx) {
             return;
         }
+        // A pane is being dragged by its header: the terminals under it don't see the pointer.
+        if self.cur_tab().is_some_and(|t| t.drag.is_some()) {
+            return;
+        }
         // A dialog is on top (the delete confirmation): it gets the pointer, not the terminals.
         if ctx.memory(|m| m.top_modal_layer()).is_some() {
             self.cancel_press();
@@ -66,6 +70,7 @@ impl App {
         if multi && !self.mouse.pinching {
             self.mouse.pinching = true;
             self.cancel_press();
+            self.pending.push(Action::CancelPaneDrag);
         } else if !touching {
             self.mouse.pinching = false;
         }

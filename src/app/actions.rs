@@ -22,6 +22,12 @@ pub(super) enum Action {
     Focus(Direction),
     FocusPane(PaneId),
     ResizeSplit(Direction),
+    /// Swap the focused pane with its neighbor in this direction.
+    Swap(Direction),
+    /// Swap two panes of a tab (a header dropped on another pane).
+    SwapPanes(PaneId, PaneId),
+    /// Drop a pane being dragged by its header back where it was.
+    CancelPaneDrag,
     ToggleZoom,
     ToggleZoomPane(PaneId),
     Equalize,
@@ -80,6 +86,15 @@ impl App {
                     tab.root.resize(id, dir, 0.05);
                 }
             }
+            Action::Swap(dir) => {
+                if let Some(id) = focused {
+                    if let Some(next) = layout::neighbor(&self.card_rects, id, dir) {
+                        self.swap_panes(ctx, id, next);
+                    }
+                }
+            }
+            Action::SwapPanes(a, b) => self.swap_panes(ctx, a, b),
+            Action::CancelPaneDrag => self.cancel_pane_drag(ctx),
             Action::ToggleZoom => self.toggle_zoom(None),
             Action::ToggleZoomPane(id) => self.toggle_zoom(Some(id)),
             Action::Equalize => {

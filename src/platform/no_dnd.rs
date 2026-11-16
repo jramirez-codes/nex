@@ -16,7 +16,7 @@ impl Dnd {
     }
 
     /// Hand an explorer drag that left the window to the OS; `false` if it wasn't taken.
-    pub fn start_drag(&mut self, _paths: &[PathBuf], _at: Pos2) -> bool {
+    pub fn start_drag(&mut self, _paths: &[PathBuf], _at: Pos2, _image: Option<super::DragImage>) -> bool {
         false
     }
 

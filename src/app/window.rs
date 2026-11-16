@@ -6,7 +6,7 @@ use egui::{Color32, CursorIcon, FontId, Id, LayerId, Order, Rect, ResizeDirectio
 
 use crate::file_explorer;
 use crate::app::layout::PaneId;
-use crate::ui::theme::ACCENT;
+use crate::ui::theme::{ACCENT, Theme};
 use crate::ui::widgets::is_maximized;
 
 use super::App;
@@ -19,7 +19,7 @@ impl App {
     /// Files dropped onto a pane: dragged out of a explorer onto a terminal (inserts their
     /// paths), or dropped in from another application (into a explorer: copied there; onto a
     /// terminal: paths inserted).
-    pub(super) fn file_drops(&mut self, ctx: &egui::Context) {
+    pub(super) fn file_drops(&mut self, ctx: &egui::Context, theme: &Theme) {
         let (pos, released, dropped) = ctx.input(|i| {
             let dropped: Vec<PathBuf> = i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect();
             // On release, where it was released: a touch lift can be followed by a pointer
@@ -36,7 +36,8 @@ impl App {
             if !released && !ctx.content_rect().contains(p) {
                 if let Some(drag) = egui::DragAndDrop::payload::<file_explorer::ExplorerDrag>(ctx) {
                     crate::platform::dnd_log(format_args!("explorer drag left the window at {p:?} (window {:?})", ctx.content_rect()));
-                    if dnd.start_drag(&drag.paths, p) {
+                    // The compositor draws the icon from here on (nex can't draw outside its window).
+                    if dnd.start_drag(&drag.paths, p, file_explorer::drag_image(ctx, theme, &drag)) {
                         egui::DragAndDrop::clear_payload(ctx);
                         ctx.request_repaint();
                     }

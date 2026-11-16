@@ -1,14 +1,15 @@
-//! Laying out and painting listing items (rows or tiles), and the drag ghost.
+//! Laying out and painting listing items (rows or tiles) and their icons, and the drag ghost.
 
 use egui::{Align2, Color32, DragAndDrop, FontId, Id, LayerId, Order, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 use crate::ui::theme::ACCENT;
 use crate::ui::theme::Theme;
+use crate::ui::file_icons::{self, LINK_MARK};
 use crate::ui::{icons, paint};
 
-use super::Entry;
-use super::fs_ops::{count, human_size};
-use super::input::ExplorerDrag;
+use super::{Entry, View};
+use super::fs_ops::human_size;
+use super::input::{ExplorerDrag, Ghost};
 
 /// Sizes of the explorer's parts; touch screens get larger hit targets.
 pub(super) struct Sizes {
@@ -65,34 +66,63 @@ impl Layout {
     }
 }
 
-/// Draw the floating label that follows the pointer while files are dragged.
+/// Draw the dragged files' icon under the pointer.
 pub fn paint_drag_ghost(ctx: &egui::Context, c: &Theme) {
     let Some(drag) = DragAndDrop::payload::<ExplorerDrag>(ctx) else { return };
     let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) else { return };
     let copy = ctx.input(|i| crate::platform::SHORTCUTS.copy_drag(&i.modifiers));
     let p = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("file-drag-ghost")));
-    let text = match drag.paths.as_slice() {
-        [one] => one.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-        many => count(many.len()),
-    };
-    let galley = p.layout_no_wrap(text, FontId::proportional(13.0), c.text_bright);
-    let size = Vec2::new(galley.size().x + 40.0, 28.0);
-    // A finger would cover a label beside it: on touch screens it floats above instead.
-    let offset = if ctx.input(|i| i.any_touches()) { Vec2::new(-size.x / 2.0, -size.y - 36.0) } else { Vec2::new(14.0, 10.0) };
-    let r = Rect::from_min_size(pos + offset, size);
-    p.rect_filled(r, 8, Color32::from_rgba_unmultiplied(30, 32, 40, 235));
-    p.rect_stroke(r, 8, Stroke::new(1.0, ACCENT.gamma_multiply(0.6)), StrokeKind::Inside);
-    let icon = Rect::from_center_size(Pos2::new(r.left() + 15.0, r.center().y), Vec2::new(13.0, 13.0));
-    if drag.paths.len() == 1 && drag.paths[0].is_dir() {
-        icons::icon_folder(&p, icon, ACCENT);
-    } else {
-        icons::icon_file(&p, icon, c.text);
+    let g = &drag.ghost;
+    // A finger would cover an icon held under it: on touch screens it floats above instead.
+    let origin = if ctx.input(|i| i.any_touches()) { pos - Vec2::new(g.size.x / 2.0, g.size.y + 36.0) } else { pos - g.grab };
+    paint_ghost(&p, origin, g, c, copy);
+}
+
+/// A picture of the dragged files' icon, for the compositor to show once the drag leaves the
+/// window, with the pointer where it holds the icon in the window.
+pub fn drag_image(ctx: &egui::Context, c: &Theme, drag: &ExplorerDrag) -> Option<crate::platform::DragImage> {
+    let layer = LayerId::new(Order::Background, Id::new("file-drag-image"));
+    // Painted around (0, 0) = the pointer, then taken back out before the frame is drawn.
+    paint_ghost(&Painter::new(ctx.clone(), layer, Rect::EVERYTHING), Pos2::ZERO - drag.ghost.grab, &drag.ghost, c, false);
+    let shapes: Vec<_> = ctx.graphics_mut(|g| std::mem::take(g.entry(layer))).all_entries().cloned().collect();
+    let bounds = shapes.iter().map(|s| s.shape.visual_bounding_rect()).fold(Rect::NOTHING, |a, b| a.union(b));
+    if !bounds.is_positive() {
+        return None;
     }
-    p.galley(Pos2::new(r.left() + 28.0, r.center().y - galley.size().y / 2.0), galley, c.text_bright);
+    // Points → the window's logical pixels (zoom) → buffer pixels (the output's scale).
+    let zoom = ctx.zoom_factor();
+    let native = ctx.input(|i| i.viewport().native_pixels_per_point).unwrap_or(ctx.pixels_per_point() / zoom);
+    let scale = native.ceil().max(1.0);
+    let min = (bounds.min.to_vec2() * zoom).floor() - Vec2::splat(1.0);
+    let max = (bounds.max.to_vec2() * zoom).ceil() + Vec2::splat(1.0);
+    let size = [((max.x - min.x) * scale) as usize, ((max.y - min.y) * scale) as usize];
+    let pixels = crate::ui::raster::render(ctx, shapes, (min / zoom).to_pos2(), zoom * scale, size);
+    Some(crate::platform::DragImage { pixels, size, scale: scale as i32, hotspot: [-min.x as i32, -min.y as i32] })
+}
+
+/// The dragged icon with its top-left at `origin`: a second one peeking out behind it and a
+/// count when several files go, and a plus when they'll be copied.
+fn paint_ghost(p: &Painter, origin: Pos2, g: &Ghost, c: &Theme, copy: bool) {
+    let k = g.scale;
+    let r = Rect::from_min_size(origin, g.size);
+    if g.count > 1 {
+        let behind = (g.size.y * 0.12).max(3.0 * k);
+        paint_icon(p, r.translate(Vec2::new(behind, -behind)), &g.lead, 0.55, c, g.large, g.in_home);
+    }
+    paint_icon(p, r, &g.lead, 1.0, c, g.large, g.in_home);
+    let rad = (g.size.y * 0.2).clamp(7.0 * k, 10.0 * k);
+    if g.count > 1 {
+        let text = if g.count > 99 { "99+".to_string() } else { g.count.to_string() };
+        let galley = p.layout_no_wrap(text, paint::bold(rad * 1.15), Color32::WHITE);
+        let w = (galley.size().x + rad).max(rad * 2.0);
+        let badge = Rect::from_center_size(r.right_top(), Vec2::new(w, rad * 2.0));
+        p.rect_filled(badge, rad, ACCENT);
+        p.galley(badge.center() - galley.size() / 2.0, galley, Color32::WHITE);
+    }
     if copy {
-        let badge = Pos2::new(r.right(), r.top());
-        p.circle_filled(badge, 8.0, ACCENT);
-        icons::icon_plus(&p, Rect::from_center_size(badge, Vec2::splat(12.0)), Color32::WHITE);
+        let at = r.right_bottom();
+        p.circle_filled(at, rad, ACCENT);
+        icons::icon_plus(p, Rect::from_center_size(at, Vec2::splat(rad * 1.5)), Color32::WHITE);
     }
 }
 
@@ -103,6 +133,64 @@ pub(super) struct ItemState {
     pub(super) drop: bool,
     pub(super) dimmed: bool,
     pub(super) selecting: bool,
+    /// The listing is the home folder (Desktop, Downloads… get their marks).
+    pub(super) in_home: bool,
+    /// The name is being edited: the rename field is drawn there instead.
+    pub(super) hide_name: bool,
+}
+
+/// Draw `e`'s icon in `r`: a folder (with a mark on well-known ones), a colored glyph for a
+/// known kind of file, or a plain page. `large` (grid tiles) draws glyphs on a page and
+/// prints unknown files' extensions; symlinks get a small link badge either way.
+pub(super) fn paint_icon(p: &Painter, r: Rect, e: &Entry, fade: f32, c: &Theme, large: bool, in_home: bool) {
+    let glyph = (!e.is_dir).then(|| file_icons::file_glyph(&e.name, e.executable)).flatten();
+    if e.is_dir {
+        icons::icon_folder(p, r, ACCENT.gamma_multiply(fade));
+        if let Some(mark) = file_icons::folder_mark(&e.name, in_home).filter(|_| r.height() >= 20.0) {
+            let body = Pos2::new(r.center().x, r.top() + r.height() * 0.6);
+            file_icons::paint_glyph(p, body, r.height() * 0.42, mark, Color32::from_black_alpha(150).gamma_multiply(fade));
+        }
+    } else if let Some((ch, color)) = glyph {
+        if large {
+            icons::icon_file(p, r, c.text_dim.gamma_multiply(0.6 * fade));
+            file_icons::paint_glyph(p, r.center() + Vec2::new(0.0, r.height() * 0.08), r.height() * 0.5, ch, color.gamma_multiply(fade));
+        } else {
+            file_icons::paint_glyph(p, r.center(), r.height() * 1.15, ch, color.gamma_multiply(fade));
+        }
+    } else {
+        icons::icon_file(p, r, c.text_dim.gamma_multiply(fade));
+        // The extension, printed on the page.
+        let ext = e.path.extension().map(|x| x.to_string_lossy().to_uppercase()).filter(|x| x.chars().count() <= 4);
+        if let (true, Some(ext)) = (large, ext) {
+            let at = r.center() + Vec2::new(0.0, r.height() * 0.18);
+            p.text(at, Align2::CENTER_CENTER, ext, paint::bold(r.height() * 0.22), c.text_dim.gamma_multiply(fade));
+        }
+    }
+    if e.is_symlink {
+        let rad = (r.height() * 0.22).max(5.0);
+        let at = Pos2::new(r.left() + rad * 0.6, r.bottom() - rad * 0.6);
+        p.circle_filled(at, rad, c.card);
+        p.circle_stroke(at, rad, Stroke::new(1.0, c.text_dim.gamma_multiply(0.6 * fade)));
+        file_icons::paint_glyph(p, at, rad * 1.5, LINK_MARK, c.text_bright.gamma_multiply(fade));
+    }
+}
+
+/// Where a row's or tile's name is drawn, for the rename field on top of it.
+pub(super) fn name_rect(view: View, item: Rect, s: &Sizes, selecting: bool) -> Rect {
+    let k = s.scale;
+    match view {
+        View::List => {
+            let glyph_h = (s.row * 0.55).min(18.0 * k);
+            let left = item.left() + 8.0 * k + if selecting { 22.0 * k } else { 0.0 } + 8.0 * k + glyph_h * 0.575 + 10.0 * k;
+            Rect::from_min_max(Pos2::new(left - 5.0 * k, item.top() + 2.0 * k), Pos2::new(item.right() - 6.0 * k, item.bottom() - 2.0 * k))
+        }
+        View::Grid => {
+            let tile = item.shrink(4.0 * k);
+            let y = tile.bottom() - 6.0 * k - s.font * 0.6;
+            let w = tile.width().max(170.0 * k);
+            Rect::from_center_size(Pos2::new(tile.center().x, y), Vec2::new(w, s.font * 1.7))
+        }
+    }
 }
 
 pub(super) fn item_background(p: &Painter, r: Rect, st: &ItemState) {
@@ -118,28 +206,40 @@ pub(super) fn item_background(p: &Painter, r: Rect, st: &ItemState) {
     }
 }
 
+/// Where a row's icon is drawn.
+pub(super) fn row_icon_rect(row: Rect, s: &Sizes, selecting: bool) -> Rect {
+    let k = s.scale;
+    let left = row.left() + 8.0 * k + if selecting { 22.0 * k } else { 0.0 };
+    let glyph_h = (s.row * 0.55).min(18.0 * k);
+    Rect::from_center_size(Pos2::new(left + 8.0 * k, row.center().y), Vec2::new(glyph_h * 1.15, glyph_h))
+}
+
+/// Where a grid tile's icon is drawn.
+pub(super) fn tile_icon_rect(cell: Rect, s: &Sizes, is_dir: bool) -> Rect {
+    let tile = cell.shrink(4.0 * s.scale);
+    let center = Pos2::new(tile.center().x, tile.top() + 8.0 * s.scale + s.icon / 2.0);
+    let size = if is_dir { Vec2::new(s.icon * 1.12, s.icon * 0.86) } else { Vec2::splat(s.icon) };
+    Rect::from_center_size(center, size)
+}
+
 pub(super) fn paint_row(p: &Painter, row: Rect, e: &Entry, st: &ItemState, c: &Theme, s: &Sizes) {
     let k = s.scale;
     item_background(p, row.shrink2(Vec2::new(0.0, 1.0)), st);
-    let mut left = row.left() + 8.0 * k;
     if st.selecting {
-        let r = Rect::from_center_size(Pos2::new(left + 8.0 * k, row.center().y), Vec2::splat(16.0 * k));
+        let r = Rect::from_center_size(Pos2::new(row.left() + 16.0 * k, row.center().y), Vec2::splat(16.0 * k));
         icons::icon_check(p, r, if st.marked { ACCENT } else { c.text_dim }, st.marked);
-        left += 22.0 * k;
     }
     let fade = if st.dimmed { 0.45 } else { 1.0 };
-    let glyph_h = (s.row * 0.55).min(18.0 * k);
-    let glyph = Rect::from_center_size(Pos2::new(left + 8.0 * k, row.center().y), Vec2::new(glyph_h * 1.15, glyph_h));
-    if e.is_dir {
-        icons::icon_folder(p, glyph, ACCENT.gamma_multiply(fade));
-    } else {
-        icons::icon_file(p, glyph, c.text_dim.gamma_multiply(fade));
-    }
+    let glyph = row_icon_rect(row, s, st.selecting);
+    paint_icon(p, glyph, e, fade, c, false, st.in_home);
     let size = e.size.map(human_size).unwrap_or_default();
     let size_galley = p.layout_no_wrap(size, FontId::proportional(s.font - 1.5), c.text_dim);
     let size_x = row.right() - 10.0 * k - size_galley.size().x;
     let name_left = glyph.right() + 10.0 * k;
     let name_color = if st.marked || st.cursor { c.text_bright } else { c.text };
+    if st.hide_name {
+        return;
+    }
     paint::faded_text(p, Pos2::new(name_left, row.center().y), &e.name, FontId::proportional(s.font), name_color.gamma_multiply(fade), size_x - 12.0 * k - name_left, 20.0 * k);
     p.galley(Pos2::new(size_x, row.center().y - size_galley.size().y / 2.0), size_galley, c.text_dim);
 }
@@ -149,24 +249,15 @@ pub(super) fn paint_tile(p: &Painter, cell: Rect, e: &Entry, st: &ItemState, c: 
     let tile = cell.shrink(4.0 * k);
     item_background(p, tile, st);
     let fade = if st.dimmed { 0.45 } else { 1.0 };
-    let icon_center = Pos2::new(tile.center().x, tile.top() + 8.0 * k + s.icon / 2.0);
-    if e.is_dir {
-        let r = Rect::from_center_size(icon_center, Vec2::new(s.icon * 1.12, s.icon * 0.86));
-        icons::icon_folder(p, r, ACCENT.gamma_multiply(fade));
-    } else {
-        let r = Rect::from_center_size(icon_center, Vec2::new(s.icon, s.icon));
-        icons::icon_file(p, r, c.text_dim.gamma_multiply(fade));
-        // The extension, printed on the page.
-        let ext = e.path.extension().map(|x| x.to_string_lossy().to_uppercase()).filter(|x| x.chars().count() <= 4);
-        if let Some(ext) = ext {
-            p.text(icon_center + Vec2::new(0.0, s.icon * 0.18), Align2::CENTER_CENTER, ext, paint::bold(s.icon * 0.22), c.text_dim.gamma_multiply(fade));
-        }
-    }
+    paint_icon(p, tile_icon_rect(cell, s, e.is_dir), e, fade, c, true, st.in_home);
     if st.selecting {
         let r = Rect::from_center_size(tile.left_top() + Vec2::splat(13.0 * k), Vec2::splat(16.0 * k));
         icons::icon_check(p, r, if st.marked { ACCENT } else { c.text_dim }, st.marked);
     }
     // Name, centered under the icon (faded at the edge when too long).
+    if st.hide_name {
+        return;
+    }
     let font = FontId::proportional(s.font - 1.0);
     let name_color = (if st.marked || st.cursor { c.text_bright } else { c.text }).gamma_multiply(fade);
     let y = tile.bottom() - 6.0 * k - s.font * 0.6;

@@ -60,6 +60,91 @@ pub fn pty_pid(pty: &alacritty_terminal::tty::Pty) -> u32 {
     pty.child().id()
 }
 
+/// Permission bits (`0o755`), shown in the explorer's Properties.
+pub fn file_mode(meta: &std::fs::Metadata) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    Some(meta.permissions().mode() & 0o7777)
+}
+
+/// A regular file with any execute bit set (scripts, binaries).
+pub fn is_executable(meta: &std::fs::Metadata) -> bool {
+    meta.is_file() && file_mode(meta).is_some_and(|m| m & 0o111 != 0)
+}
+
+/// The owning user's and group's names (numeric ids when they have no name).
+pub fn owner_names(meta: &std::fs::Metadata) -> Option<(String, String)> {
+    use std::os::unix::fs::MetadataExt;
+    let (uid, gid) = (meta.uid(), meta.gid());
+    Some((user_name(uid).unwrap_or_else(|| uid.to_string()), group_name(gid).unwrap_or_else(|| gid.to_string())))
+}
+
+fn user_name(uid: libc::uid_t) -> Option<String> {
+    let mut buf = vec![0 as libc::c_char; 4096];
+    // SAFETY: an all-zero passwd is a valid value to be overwritten.
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result = std::ptr::null_mut();
+    // SAFETY: every pointer is valid for the call; on success `pw_name` points into `buf`.
+    let rc = unsafe { libc::getpwuid_r(uid, &mut pwd, buf.as_mut_ptr(), buf.len(), &mut result) };
+    if rc != 0 || result.is_null() || pwd.pw_name.is_null() {
+        return None;
+    }
+    // SAFETY: `pw_name` is a NUL-terminated string inside `buf`, which is still alive.
+    Some(unsafe { std::ffi::CStr::from_ptr(pwd.pw_name) }.to_string_lossy().into_owned())
+}
+
+fn group_name(gid: libc::gid_t) -> Option<String> {
+    let mut buf = vec![0 as libc::c_char; 4096];
+    // SAFETY: an all-zero group is a valid value to be overwritten.
+    let mut grp: libc::group = unsafe { std::mem::zeroed() };
+    let mut result = std::ptr::null_mut();
+    // SAFETY: every pointer is valid for the call; on success `gr_name` points into `buf`.
+    let rc = unsafe { libc::getgrgid_r(gid, &mut grp, buf.as_mut_ptr(), buf.len(), &mut result) };
+    if rc != 0 || result.is_null() || grp.gr_name.is_null() {
+        return None;
+    }
+    // SAFETY: `gr_name` is a NUL-terminated string inside `buf`, which is still alive.
+    Some(unsafe { std::ffi::CStr::from_ptr(grp.gr_name) }.to_string_lossy().into_owned())
+}
+
+/// `2026-11-15 14:03` in the local time zone.
+pub fn format_local_time(t: std::time::SystemTime) -> Option<String> {
+    let secs = t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as libc::time_t;
+    // SAFETY: an all-zero tm is a valid value to be overwritten.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: both pointers are valid; localtime_r only writes into `tm`.
+    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
+        return None;
+    }
+    Some(format!("{:04}-{:02}-{:02} {:02}:{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min))
+}
+
+/// The output of a command that succeeded and printed something, trimmed.
+pub(super) fn command_output(cmd: &mut std::process::Command) -> Option<String> {
+    let out = cmd.stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !s.is_empty()).then_some(s)
+}
+
+/// A file's MIME type from `file(1)`, following symlinks.
+pub(super) fn file_mime(path: &Path) -> Option<String> {
+    command_output(std::process::Command::new("file").args(["--mime-type", "-b", "-L"]).arg(path))
+}
+
+/// Start `argv` detached in `cwd`, without inheriting stdio. A thread reaps it when it exits.
+pub(super) fn spawn_detached(argv: &[String], cwd: Option<&Path>) {
+    let Some((program, args)) = argv.split_first() else { return };
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    if let Ok(mut child) = cmd.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

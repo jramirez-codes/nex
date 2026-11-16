@@ -1,10 +1,10 @@
-//! The file clipboard (copy / cut / paste between explorer panes) and copy / move jobs
-//! running on background threads.
+//! The file clipboard (copy / cut / paste between explorer panes) and copy / move / delete
+//! jobs running on background threads, with the progress they report.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, TryRecvError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use egui::Pos2;
@@ -12,7 +12,7 @@ use egui::Pos2;
 use crate::terminal::tilde;
 
 use super::FileExplorer;
-use super::fs_ops::{count, delete_paths, parse_paths, run_op};
+use super::fs_ops::{count, delete_paths, human_size, parse_paths, run_op};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
@@ -42,9 +42,69 @@ pub(super) fn set_clipboard(clip: Option<Clip>) {
 /// Bumped whenever a file operation finishes, so every explorer re-reads its listing.
 pub(super) static FS_GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// How far a job has got, written by its thread and read by the action bar. Copies and
+/// moves count bytes; deletes count items.
+#[derive(Default)]
+pub struct Progress {
+    pub total: AtomicU64,
+    pub done: AtomicU64,
+    /// The name of the file being worked on.
+    current: Mutex<String>,
+    /// Set by the Cancel button; the job stops at the next chunk or item.
+    pub cancel: AtomicBool,
+}
+
+impl Progress {
+    pub fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+
+    /// An `Interrupted` error once cancelled, for `?` in copy loops.
+    pub fn check(&self) -> std::io::Result<()> {
+        if self.cancelled() { Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "cancelled")) } else { Ok(()) }
+    }
+
+    pub fn set_current(&self, name: &str) {
+        if let Ok(mut c) = self.current.lock() {
+            name.clone_into(&mut c);
+        }
+    }
+
+    fn current(&self) -> String {
+        self.current.lock().map(|c| c.clone()).unwrap_or_default()
+    }
+
+    /// `(done, total)`.
+    fn amounts(&self) -> (u64, u64) {
+        (self.done.load(Ordering::Relaxed), self.total.load(Ordering::Relaxed))
+    }
+}
+
+/// A copy, move or delete running on its own thread.
+pub(super) struct Job {
+    rx: Receiver<Result<String, String>>,
+    progress: Arc<Progress>,
+    /// "Copying 3 items".
+    label: String,
+    /// Progress counts bytes (copies, moves) rather than items (deletes).
+    bytes: bool,
+    started: Instant,
+}
+
+/// What the action bar shows while jobs run.
+pub(super) struct JobSummary {
+    /// 0..=1.
+    pub(super) fraction: f32,
+    /// "Copying 3 items · 45 M of 120 M · 37% · ~12 s left".
+    pub(super) text: String,
+    /// The file being worked on now.
+    pub(super) current: String,
+}
+
 impl FileExplorer {
     /// Put the targets on the file clipboard (and their paths on the system clipboard as text).
     pub fn copy(&mut self, ctx: &egui::Context, cut: bool) {
+        self.find = None;
         let paths = self.targets();
         if paths.is_empty() {
             return;
@@ -59,6 +119,7 @@ impl FileExplorer {
     /// Paste the file clipboard into `dest` (default: the current folder). Without a file
     /// clipboard, `text` holding absolute paths (or file:// URIs) is pasted as a copy.
     pub fn paste(&mut self, ctx: &egui::Context, dest: Option<PathBuf>, text: Option<&str>) {
+        self.find = None;
         let dest = dest.unwrap_or_else(|| self.dir.clone());
         match clipboard() {
             Some(clip) => {
@@ -96,20 +157,50 @@ impl FileExplorer {
         if paths.is_empty() {
             return;
         }
-        let verb = if op == Op::Copy { "Copying" } else { "Moving" };
-        self.set_status(format!("{verb} {}…", count(paths.len())), false);
+        let (verb, past) = if op == Op::Copy { ("Copying", "copied") } else { ("Moving", "moved") };
+        let label = format!("{verb} {}", count(paths.len()));
+        self.spawn_job(ctx, label, true, move |progress| {
+            let total = paths.len();
+            run_op(op, &paths, &dest, progress).map(|n| {
+                if progress.cancelled() {
+                    format!("Cancelled — {past} {n} of {}", count(total))
+                } else if n == 0 {
+                    "Nothing to do — already here".to_string()
+                } else {
+                    let verb = if op == Op::Copy { "Copied" } else { "Moved" };
+                    format!("{verb} {} to {}", count(n), tilde(&dest))
+                }
+            })
+        });
+    }
+
+    /// Run `work` on a new thread as a job the action bar follows.
+    fn spawn_job(
+        &mut self,
+        ctx: &egui::Context,
+        label: String,
+        bytes: bool,
+        work: impl FnOnce(&Progress) -> Result<String, String> + Send + 'static,
+    ) {
+        let progress = Arc::new(Progress::default());
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
+        let p = progress.clone();
         std::thread::spawn(move || {
-            let result = run_op(op, &paths, &dest).map(|n| {
-                let verb = if op == Op::Copy { "Copied" } else { "Moved" };
-                if n == 0 { "Nothing to do — already here".to_string() } else { format!("{verb} {} to {}", count(n), tilde(&dest)) }
-            });
+            let result = work(&p);
             FS_GENERATION.fetch_add(1, Ordering::Relaxed);
             let _ = tx.send(result);
             ctx.request_repaint();
         });
-        self.jobs.push(rx);
+        self.set_status(format!("{label}…"), false);
+        self.jobs.push(Job { rx, progress, label, bytes, started: Instant::now() });
+    }
+
+    /// Stop every running job (each stops at its next chunk or item).
+    pub(super) fn cancel_jobs(&mut self) {
+        for job in &self.jobs {
+            job.progress.cancel.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Ask to delete the targets; nothing is deleted until `confirm_delete` is called.
@@ -118,11 +209,6 @@ impl FileExplorer {
         if !paths.is_empty() {
             self.confirm_delete = Some(paths);
         }
-    }
-
-    /// The delete confirmation is showing.
-    pub fn confirming_delete(&self) -> bool {
-        self.confirm_delete.is_some()
     }
 
     pub(super) fn cancel_delete(&mut self) {
@@ -138,16 +224,12 @@ impl FileExplorer {
             set_clipboard((!clip.paths.is_empty()).then_some(clip));
         }
         self.clear_selection();
-        self.set_status(format!("Deleting {}…", count(paths.len())), false);
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let result = delete_paths(&paths).map(|n| format!("Deleted {}", count(n)));
-            FS_GENERATION.fetch_add(1, Ordering::Relaxed);
-            let _ = tx.send(result);
-            ctx.request_repaint();
+        let label = format!("Deleting {}", count(paths.len()));
+        self.spawn_job(ctx, label, false, move |progress| {
+            delete_paths(&paths, progress).map(|n| {
+                if progress.cancelled() { format!("Cancelled — deleted {n} of {}", count(paths.len())) } else { format!("Deleted {}", count(n)) }
+            })
         });
-        self.jobs.push(rx);
     }
 
     pub(super) fn set_status(&mut self, text: String, error: bool) {
@@ -156,7 +238,7 @@ impl FileExplorer {
 
     pub(super) fn poll_jobs(&mut self, ctx: &egui::Context) {
         let mut finished = Vec::new();
-        self.jobs.retain(|rx| match rx.try_recv() {
+        self.jobs.retain(|job| match job.rx.try_recv() {
             Ok(r) => {
                 finished.push(r);
                 false
@@ -178,5 +260,61 @@ impl FileExplorer {
         if !self.jobs.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
+    }
+
+    /// The running jobs, added up into one line and one bar.
+    pub(super) fn job_summary(&self) -> Option<JobSummary> {
+        let first = self.jobs.first()?;
+        let fraction_of = |job: &Job| {
+            let (done, total) = job.progress.amounts();
+            if total == 0 { 0.0 } else { (done as f64 / total as f64).min(1.0) }
+        };
+        let byte_jobs: Vec<&Job> = self.jobs.iter().filter(|j| j.bytes).collect();
+        let (done, total) = byte_jobs.iter().map(|j| j.progress.amounts()).fold((0, 0), |(d, t), (jd, jt)| (d + jd, t + jt));
+        // Mixed jobs (a copy and a delete) can't be added up by bytes: average them.
+        let fraction = if byte_jobs.len() == self.jobs.len() && total > 0 {
+            done as f64 / total as f64
+        } else {
+            self.jobs.iter().map(fraction_of).sum::<f64>() / self.jobs.len() as f64
+        };
+        let mut parts = vec![if self.jobs.len() == 1 { first.label.clone() } else { format!("{} operations", self.jobs.len()) }];
+        if !byte_jobs.is_empty() && total > 0 {
+            parts.push(format!("{} of {}", human_size(done), human_size(total)));
+        }
+        parts.push(format!("{:.0}%", fraction * 100.0));
+        let elapsed = self.jobs.iter().map(|j| j.started).min().map(|t| t.elapsed()).unwrap_or_default();
+        if let Some(eta) = eta(elapsed, fraction) {
+            parts.push(eta);
+        }
+        if self.jobs.iter().any(|j| j.progress.cancelled()) {
+            parts = vec!["Cancelling…".into()];
+        }
+        Some(JobSummary { fraction: fraction.clamp(0.0, 1.0) as f32, text: parts.join(" · "), current: first.progress.current() })
+    }
+}
+
+/// "~12 s left", once a job has run long enough for its rate to mean something.
+fn eta(elapsed: Duration, fraction: f64) -> Option<String> {
+    if elapsed < Duration::from_secs(1) || fraction <= 0.01 || fraction >= 1.0 {
+        return None;
+    }
+    let left = elapsed.as_secs_f64() * (1.0 - fraction) / fraction;
+    Some(match left {
+        s if s < 60.0 => format!("~{:.0} s left", s.max(1.0)),
+        s if s < 3600.0 => format!("~{:.0} min left", s / 60.0),
+        s => format!("~{:.1} h left", s / 3600.0),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eta_waits_then_estimates() {
+        assert_eq!(eta(Duration::from_millis(500), 0.5), None);
+        assert_eq!(eta(Duration::from_secs(10), 0.5).as_deref(), Some("~10 s left"));
+        assert_eq!(eta(Duration::from_secs(60), 0.25).as_deref(), Some("~3 min left"));
+        assert_eq!(eta(Duration::from_secs(10), 1.0), None);
     }
 }

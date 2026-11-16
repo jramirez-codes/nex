@@ -212,3 +212,82 @@ fn drop_outside_every_pane_does_nothing() {
     let names: Vec<_> = std::fs::read_dir(&*dir).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert_eq!(names.len(), 2, "the drop was copied in: {names:?}");
 }
+
+/// Two terminals side by side, settled.
+fn two_terminals() -> (Sim, PaneId, PaneId) {
+    let (mut s, _dir) = setup();
+    s.settle();
+    let left = s.terminals()[0];
+    let c = s.ctx.clone();
+    s.app.split(&c, left, Axis::Horizontal);
+    s.settle();
+    let right = *s.terminals().iter().find(|&&t| t != left).unwrap();
+    s.app.cur_tab_mut().unwrap().focused = left;
+    s.settle();
+    (s, left, right)
+}
+
+impl Sim {
+    /// The middle of pane `id`'s header, away from its buttons.
+    fn header(&self, id: PaneId) -> Pos2 {
+        let r = self.card(id);
+        Pos2::new(r.left() + 60.0, r.top() + 12.0)
+    }
+    fn order(&self) -> Vec<PaneId> {
+        self.app.cur_tab().unwrap().root.panes()
+    }
+    /// Drag from `from` to `to` with the mouse, then let go.
+    fn mouse_drag(&mut self, from: Pos2, to: Pos2) {
+        let btn = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        self.frame(vec![Event::PointerMoved(from)]);
+        self.frame(vec![btn(from, true)]);
+        for k in 1..=20 {
+            self.frame(vec![Event::PointerMoved(from + (to - from) * (k as f32 / 20.0))]);
+        }
+        assert!(self.app.cur_tab().unwrap().drag.is_some(), "header drag never started");
+        self.frame(vec![btn(to, false)]);
+        self.settle();
+    }
+}
+
+#[test]
+fn drag_header_onto_pane_swaps_them() {
+    let (mut s, left, right) = two_terminals();
+    let (from, to) = (s.header(left), s.card(right).center());
+    s.mouse_drag(from, to);
+    assert_eq!(s.order(), vec![right, left]);
+    assert_eq!(s.app.focused_pane(), Some(left));
+    assert!(s.card(left).left() > s.card(right).left());
+}
+
+#[test]
+fn drag_header_dropped_on_nothing_cancels() {
+    let (mut s, left, right) = two_terminals();
+    let from = s.header(left);
+    s.mouse_drag(from, Pos2::new(600.0, 10.0));
+    assert_eq!(s.order(), vec![left, right]);
+    assert!(s.app.cur_tab().unwrap().drag.is_none());
+}
+
+#[test]
+fn touch_drag_header_swaps() {
+    let (mut s, left, right) = two_terminals();
+    let (from, to) = (s.header(left), s.card(right).center());
+    s.touch(TouchPhase::Start, from);
+    for k in 1..=20 {
+        s.touch(TouchPhase::Move, from + (to - from) * (k as f32 / 20.0));
+    }
+    s.touch(TouchPhase::End, to);
+    s.settle();
+    assert_eq!(s.order(), vec![right, left]);
+}
+
+#[test]
+fn keyboard_swap_with_neighbor() {
+    let (mut s, left, right) = two_terminals();
+    let c = s.ctx.clone();
+    s.app.apply(&c, super::actions::Action::Swap(crate::app::layout::Direction::Right));
+    s.settle();
+    assert_eq!(s.order(), vec![right, left]);
+    assert_eq!(s.app.focused_pane(), Some(left));
+}
