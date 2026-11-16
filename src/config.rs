@@ -17,6 +17,17 @@ pub enum CursorStyle {
     Underline,
 }
 
+/// How switching tabs animates (`tab-animation`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabAnimation {
+    /// The new tab soaks through the old one from a drop under its tab.
+    Ink,
+    /// The old tab glides out toward the side it is leaving as the new one glides in.
+    Glide,
+    /// Switch instantly.
+    None,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub font_family: String,
@@ -40,6 +51,8 @@ pub struct Config {
     pub pane_headers: bool,
     /// Animate pane splits / closes, focus changes and the title-bar tabs.
     pub animations: bool,
+    /// How switching tabs animates (when `animations` is on).
+    pub tab_animation: TabAnimation,
     /// Phone-sized touch screens: the title bar becomes a left sidebar of large icon tiles,
     /// and pane headers get bigger buttons.
     pub mobile: bool,
@@ -93,6 +106,7 @@ impl Default for Config {
             window_controls: crate::platform::WINDOW.controls,
             pane_headers: true,
             animations: true,
+            tab_animation: TabAnimation::Glide,
             mobile: false,
 
             cursor_style: CursorStyle::Block,
@@ -187,6 +201,14 @@ impl Config {
             "window-controls" => self.window_controls = boolean(value)?,
             "pane-headers" => self.pane_headers = boolean(value)?,
             "animations" => self.animations = boolean(value)?,
+            "tab-animation" => {
+                self.tab_animation = match value {
+                    "ink" => TabAnimation::Ink,
+                    "glide" => TabAnimation::Glide,
+                    "none" => TabAnimation::None,
+                    _ => return Err(format!("invalid tab-animation `{value}`")),
+                }
+            }
             "mobile" => self.mobile = boolean(value)?,
             "cursor-style" => {
                 self.cursor_style = match value {
@@ -257,5 +279,16 @@ mod tests {
         cfg.apply("mobile", "true").unwrap();
         assert!(cfg.mobile);
         assert!(cfg.apply("mobile", "yes").is_err());
+    }
+
+    #[test]
+    fn tab_animation_picks_a_style() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.tab_animation, TabAnimation::Glide);
+        for (v, want) in [("ink", TabAnimation::Ink), ("none", TabAnimation::None), ("glide", TabAnimation::Glide)] {
+            cfg.apply("tab-animation", v).unwrap();
+            assert_eq!(cfg.tab_animation, want);
+        }
+        assert!(cfg.apply("tab-animation", "fade").is_err());
     }
 }

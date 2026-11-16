@@ -220,6 +220,7 @@ impl App {
     /// The current directory name and hostname. This label *is* the Files tab: clicking it
     /// toggles the tab, and the glass pill glides onto it while Files is showing.
     fn workspace_label(&mut self, ui: &Ui, label_r: Rect, theme: &Theme) {
+        self.files_rect = Some(label_r);
         let painter = ui.painter();
         let project = self
             .focused_cwd()

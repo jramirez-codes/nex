@@ -13,7 +13,9 @@ mod reload;
 mod sidebar;
 mod tab;
 mod tab_motion;
+mod tab_switch;
 mod titlebar;
+mod transition;
 mod window;
 mod workspace;
 mod zoom;
@@ -42,6 +44,7 @@ use actions::Action;
 use keymap::{Binding, keybindings};
 use mouse::MouseState;
 use tab::Tab;
+use tab_switch::TabSwitch;
 use tab_motion::{TabDrawn, TabGhost};
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
@@ -102,6 +105,10 @@ pub struct App {
     tab_rects: HashMap<u64, TabDrawn>,
     /// Closed tabs still folding away.
     tab_ghosts: Vec<TabGhost>,
+    /// Where the Files tab (the directory label, or the sidebar tile) was drawn this frame.
+    files_rect: Option<Rect>,
+    /// The tab-switch transition (`tab-animation`): the old tab's panes giving way to the new.
+    switch: TabSwitch,
     /// File-explorer panes (the Files tab). They share the pane id space and split tree with
     /// terminals.
     explorers: HashMap<PaneId, FileExplorer>,
@@ -173,6 +180,8 @@ impl App {
             pill_glide: Glide::new(0.2),
             tab_rects: HashMap::new(),
             tab_ghosts: Vec::new(),
+            files_rect: None,
+            switch: TabSwitch::default(),
             explorers: HashMap::new(),
             explorer_requests: Vec::new(),
             explorer_tab: None,

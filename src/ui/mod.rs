@@ -5,6 +5,7 @@
 pub mod file_icons;
 pub mod glide;
 pub mod icons;
+pub mod ink;
 pub mod paint;
 pub mod raster;
 pub mod theme;

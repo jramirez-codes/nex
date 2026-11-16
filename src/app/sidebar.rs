@@ -77,6 +77,7 @@ impl App {
 
     /// The Files tab as a tile: tap toggles it, like the title bar's directory label.
     fn files_tile(&mut self, ui: &Ui, r: Rect, theme: &Theme) {
+        self.files_rect = Some(r);
         let painter = ui.painter();
         let active = self.explorer_active;
         let resp = ui.interact(r, Id::new("workspace-label"), Sense::click());
