@@ -6,12 +6,19 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-16
+
 ### Added
 
 - Switching tabs animates. By default the old tab glides out toward the side it is leaving
   as the new one glides in. `tab-animation = ink` makes the new tab soak through the old one
   like ink instead, from a drop under the tab you picked, and `tab-animation = none` switches
   instantly. `animations = false` still turns every animation off.
+- Closing a tab animates. The active tab's glass pill folds into its × and grows back out
+  onto the tab now showing; a background tab shrinks into its × and fades. The tabs beside
+  it slide over to fill the space.
+- Zooming a pane scales its card and text between its slot and the whole tab, with the other
+  panes fading out and back in under it. Equalizing splits eases the panes into place.
 
 ## [0.8.2] - 2026-11-16
 
@@ -315,7 +322,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/jramirez-codes/nex/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/jramirez-codes/nex/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/jramirez-codes/nex/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/jramirez-codes/nex/compare/v0.7.4...v0.8.0
