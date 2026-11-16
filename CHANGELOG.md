@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Switching tabs animates. By default the old tab glides out toward the side it is leaving
+  as the new one glides in. `tab-animation = ink` makes the new tab soak through the old one
+  like ink instead, from a drop under the tab you picked, and `tab-animation = none` switches
+  instantly. `animations = false` still turns every animation off.
+
 ## [0.8.2] - 2026-11-16
 
 ### Changed

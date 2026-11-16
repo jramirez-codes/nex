@@ -20,6 +20,7 @@ use super::keymap;
 use super::metrics::cell_px;
 use super::motion::Ghost;
 use super::tab::{PaneDrag, Tab};
+use super::tab_switch::Shown;
 use super::{App, PANE_GAP};
 
 pub(super) const PANE_RADIUS: u8 = 12;
@@ -59,8 +60,18 @@ impl App {
         let ppp = ctx.pixels_per_point();
         let zoom = self.zoom_scale(area, ppp);
         self.set_zoom_font(&ctx, zoom);
+        let Some(tab_uid) = self.cur_tab().map(|t| t.uid) else { return };
+        // A newly shown tab takes over from the last one (`tab-animation`).
+        let shown = Shown {
+            uid: tab_uid,
+            pos: if self.explorer_active { -1 } else { self.active as isize },
+            area,
+            origin: self.drop_origin(tab_uid, area),
+            vertical: self.cfg.mobile,
+            style: self.cfg.tab_animation,
+        };
+        let sheet = self.switch.begin(ui, &shown);
         let Some(tab) = self.cur_tab_mut() else { return };
-        let tab_uid = tab.uid;
 
         let mut rects = Vec::new();
         let mut dividers = Vec::new();
@@ -121,11 +132,19 @@ impl App {
             }
             self.card_rects.push((pane.id, pane.target));
         }
+        self.switch.end(ui, sheet);
 
         // Keep blinking cursors blinking.
         let ms = ui.input(|i| i.time * 1000.0);
         let next = BLINK_INTERVAL.as_millis() as f64 - ms % BLINK_INTERVAL.as_millis() as f64;
         ui.ctx().request_repaint_after(Duration::from_millis(next as u64 + 1));
+    }
+
+    /// Where tab `uid` is in the strip (its tab, or the Files label), brought onto the
+    /// nearest edge of the pane area: where the ink drops when it is shown.
+    fn drop_origin(&self, uid: u64, area: Rect) -> Pos2 {
+        let at = if self.explorer_active { self.files_rect } else { self.tab_rects.get(&uid).map(|d| d.rect) };
+        at.map_or(area.center_top(), |r| area.clamp(r.center()))
     }
 
     /// While the shown tab is zoomed: its zoomed pane and how much bigger its terminal area
