@@ -18,7 +18,7 @@
   },
   "metrics": {
     "startup_ms": {
-      "nex": 272,
+      "nex": 9,
       "kitty": 839.5,
       "ghostty": 396.5,
       "gnome-terminal": 313.5

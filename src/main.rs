@@ -40,6 +40,15 @@ fn main() -> eframe::Result {
     }
     let cfg = config::Config::load();
 
+    // The first shell starts now, so it gets going while the window opens.
+    let early = match terminal::Terminal::spawn_early(&cfg, args.command.clone(), std::env::current_dir().ok()) {
+        Ok(t) => Some(t),
+        Err(e) => {
+            eprintln!("nex: failed to spawn shell: {e}");
+            None
+        }
+    };
+
     // On macOS the system draws its traffic lights over nex's own title bar.
     let overlay = platform::WINDOW.overlays_titlebar();
     let mut viewport = egui::ViewportBuilder::default()
@@ -62,6 +71,6 @@ fn main() -> eframe::Result {
     platform::Dnd::prepare(&event_loop);
     let vsync = platform::vsync(&event_loop);
     let options = eframe::NativeOptions { viewport, vsync, ..Default::default() };
-    let eframe_app = eframe::create_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args)))), &event_loop);
+    let eframe_app = eframe::create_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args, early)))), &event_loop);
     platform::WinitApp::new(eframe_app, !vsync).run(&mut event_loop)
 }

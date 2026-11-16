@@ -60,7 +60,7 @@ rendering, input handling, multiplexing and window chrome.
 - **One window instead of three.** Tabs, split panes and a file explorer replace a terminal +
   tmux + file manager setup.
 - **Fast.** In [our benchmark](bench/README.md), nex printed 50 MB of output 1.6× faster than
-  kitty and launched 1.2× faster than GNOME Terminal.
+  kitty and launched 35× faster than GNOME Terminal.
 - **Works out of the box.** A Nerd Font is embedded, config applies on save, and the defaults
   are sensible.
 - **Native-feeling.** Glass tab pills, per-pane headers with app icons, smooth animations, and
@@ -440,7 +440,7 @@ Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hy
 2. Commit, then tag and push:
 
    ```sh
-   git tag v0.7.4 && git push origin v0.7.4
+   git tag v0.8.0 && git push origin v0.8.0
    ```
 
 The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 Linux binaries

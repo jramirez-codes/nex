@@ -188,7 +188,9 @@ pub fn dnd_log(args: std::fmt::Arguments) {
 }
 
 /// A picture of what is being dragged, for the OS to show under the pointer once a drag
-/// leaves the window (where nex can no longer draw it).
+/// leaves the window (where nex can no longer draw it). Only the Linux backend hands it to
+/// the OS so far; elsewhere it is built and dropped.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct DragImage {
     /// Premultiplied RGBA, row by row.
     pub pixels: Vec<[u8; 4]>,
