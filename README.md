@@ -34,7 +34,7 @@
 </p>
 
 <p align="center">
-  <img src="site/public/demo/tour.gif" alt="nex terminal emulator splitting into git, btop and nvim panes, moving focus between them, and switching tabs" width="900">
+  <img src="site/public/demo/hero.gif" alt="nex terminal emulator splitting into btop and nvim panes, zooming a pane, opening a tab with a file explorer, gliding back to the first tab, and searching the scrollback" width="900">
 </p>
 
 ## About
@@ -133,11 +133,11 @@ the window is; the first frame appears about 120 ms after launch.
 - **Simple config.** Ghostty-style `key = value` file that applies as soon as you save it.
 
 <p align="center">
-  <img src="docs/screenshots/explorer.png" alt="nex terminal with a built-in file explorer split: three files selected, and a terminal split off the explorer" width="900">
+  <img src="site/public/demo/explorer.gif" alt="nex terminal opening a built-in file explorer split, selecting three files, switching to grid view, and splitting a terminal off the explorer" width="900">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/search.png" alt="nex terminal scrollback search highlighting every match" width="900">
+  <img src="site/public/demo/search.gif" alt="nex terminal scrollback search highlighting every match and stepping through them" width="900">
 </p>
 
 ## Installation
@@ -413,7 +413,9 @@ binary into the app (used by `install.sh` and the release workflow).
 Nothing outside `platform/` checks the OS. Porting nex to another OS means adding a folder
 there that provides the same items (`platform/mod.rs` lists them).
 
-Screenshots in `docs/screenshots/` are made by `docs/screenshots/capture.sh` (Hyprland).
+The GIFs in `site/public/demo/` are recordings of the real app: `docs/demo/record.py` plays the
+scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them into clips, and
+`docs/demo/promo.py` puts the promo clip on a backdrop (`--no-captions` makes the README's `hero.gif`).
 
 ## Roadmap
 

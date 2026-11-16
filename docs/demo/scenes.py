@@ -39,7 +39,8 @@ def tour(d) -> None:
     d.key("Left", CTRL_ALT, after=1.1)
     d.key("Up", CTRL_ALT, after=1.1)
     d.key("Right", CTRL_ALT, after=1.2)
-    # A second tab, then back and forth: the glass pill glides between them.
+    # A second tab, then back and forth: the glass pill glides between them, and each tab's
+    # panes glide out as the other's glide in.
     d.key("T", CTRL_SHIFT, after=1.0)
     d.type("tree -L 1 --dirsfirst src", after=1.6)
     d.key("1", "ALT", after=1.4)

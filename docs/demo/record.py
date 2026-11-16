@@ -158,6 +158,7 @@ def write_config(tmp: Path) -> None:
         "background-opacity = 1.0\n"
         "window-decorations = false\n"
         "cursor-style-blink = false\n"
+        "tab-animation = glide\n"
         f"command = bash --rcfile {tmp}/rc\n"
     )
     (tmp / "rc").write_text(
