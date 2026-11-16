@@ -44,6 +44,10 @@ All notable changes to nex are documented here. The format follows
   the first data device a client makes, which was egui's clipboard, so no drag ever reached
   nex and drags between two nex windows were cancelled. nex now runs eframe on its own event
   loop, makes its data device before the window opens, and reads pasted text from it.
+- "Application not responding" on Wayland for nex windows on another workspace. With vsync
+  on, drawing a frame waits for the compositor's frame callback, which a hidden window never
+  gets, so nex's main thread blocked and missed the compositor's pings. On Wayland vsync is
+  now off and nex paces frames to the display's refresh rate itself.
 
 ## [0.7.4] - 2026-11-14
 

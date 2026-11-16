@@ -53,7 +53,7 @@ mod no_dnd;
 mod no_watch;
 
 mod winit_app;
-pub use winit_app::WinitApp;
+pub use winit_app::{WinitApp, vsync};
 
 #[cfg(target_os = "linux")]
 mod linux;

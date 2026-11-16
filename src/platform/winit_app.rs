@@ -1,9 +1,13 @@
-//! eframe's winit application, run on nex's own event loop, with a look at key presses on
-//! their way to egui.
+//! eframe's winit application, run on nex's own event loop, with a look at events on their
+//! way to egui.
 //!
-//! On Wayland nex reads the clipboard itself (see `Dnd::note_paste_key` in
-//! `linux/dnd/`), but egui swallows a paste key when its own clipboard is empty, so the key
-//! never reaches the app. This notes paste keys before handing every event on to eframe.
+//! - **Paste keys:** on Wayland nex reads the clipboard itself (see `Dnd::note_paste_key` in
+//!   `linux/dnd/`), but egui swallows a paste key when its own clipboard is empty, so the key
+//!   never reaches the app. This notes paste keys before handing every event on to eframe.
+//! - **Frame pacing:** on Wayland vsync is off (see `vsync`), so this keeps frames to the
+//!   display's refresh rate instead.
+
+use std::time::{Duration, Instant};
 
 use eframe::{EframeWinitApplication, UserEvent};
 use winit::application::ApplicationHandler;
@@ -17,11 +21,56 @@ use super::Dnd;
 pub struct WinitApp<'a> {
     eframe: EframeWinitApplication<'a>,
     mods: ModifiersState,
+    /// Frames are paced here (vsync is off).
+    pacer: Option<Pacer>,
+}
+
+/// Whether to let the driver wait for vsync when presenting a frame.
+///
+/// Not on Wayland: there a swap with vsync waits for the compositor's frame callback, and
+/// compositors send none to a window that can't be seen (on another workspace, say), so the
+/// next frame drawn there blocks the main thread until the window is shown again. Hyprland
+/// then calls nex "not responding". Wayland compositors never tear, so nothing is lost.
+pub fn vsync(event_loop: &EventLoop<UserEvent>) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use winit::platform::wayland::EventLoopExtWayland as _;
+        !event_loop.is_wayland()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = event_loop;
+        true
+    }
+}
+
+/// Keeps redraws at least one display refresh apart, as vsync would.
+struct Pacer {
+    interval: Duration,
+    last: Option<Instant>,
+}
+
+impl Pacer {
+    /// Sleep out what's left of the refresh interval since the last frame.
+    fn wait(&mut self) {
+        if let Some(left) = self.last.and_then(|t| self.interval.checked_sub(t.elapsed())) {
+            std::thread::sleep(left);
+        }
+        self.last = Some(Instant::now());
+    }
+}
+
+/// One refresh of the fastest monitor (60 Hz if none says).
+fn frame_interval(event_loop: &ActiveEventLoop) -> Duration {
+    let mhz = event_loop.available_monitors().filter_map(|m| m.refresh_rate_millihertz()).max().unwrap_or(60_000);
+    Duration::from_secs_f64(1000.0 / f64::from(mhz.max(1000)))
 }
 
 impl<'a> WinitApp<'a> {
-    pub fn new(eframe: EframeWinitApplication<'a>) -> Self {
-        Self { eframe, mods: ModifiersState::empty() }
+    /// `pace`: vsync is off, so keep frames to the display's refresh rate here.
+    pub fn new(eframe: EframeWinitApplication<'a>, pace: bool) -> Self {
+        let pacer = pace.then(|| Pacer { interval: Duration::from_secs_f64(1.0 / 60.0), last: None });
+        Self { eframe, mods: ModifiersState::empty(), pacer }
     }
 
     /// Run until the window closes, as `eframe::run_native` does.
@@ -52,6 +101,9 @@ fn is_paste(mods: ModifiersState, logical: &Key, physical: PhysicalKey) -> bool 
 
 impl ApplicationHandler<UserEvent> for WinitApp<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(p) = &mut self.pacer {
+            p.interval = frame_interval(event_loop);
+        }
         self.eframe.resumed(event_loop);
     }
 
@@ -60,6 +112,11 @@ impl ApplicationHandler<UserEvent> for WinitApp<'_> {
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
             WindowEvent::KeyboardInput { event: key, .. } if key.state == ElementState::Pressed && is_paste(self.mods, &key.logical_key, key.physical_key) => {
                 Dnd::note_paste_key();
+            }
+            WindowEvent::RedrawRequested => {
+                if let Some(p) = &mut self.pacer {
+                    p.wait();
+                }
             }
             _ => {}
         }
@@ -98,6 +155,22 @@ impl ApplicationHandler<UserEvent> for WinitApp<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pacer_spaces_frames_by_the_interval() {
+        let mut p = Pacer { interval: Duration::from_millis(20), last: None };
+        let start = Instant::now();
+        p.wait();
+        assert!(start.elapsed() < Duration::from_millis(10), "the first frame waits for nothing");
+        p.wait();
+        p.wait();
+        assert!(start.elapsed() >= Duration::from_millis(40));
+        // A frame long after the last one goes at once.
+        std::thread::sleep(Duration::from_millis(25));
+        let t = Instant::now();
+        p.wait();
+        assert!(t.elapsed() < Duration::from_millis(10));
+    }
 
     #[test]
     fn paste_keys() {
