@@ -12,6 +12,10 @@ All notable changes to nex are documented here. The format follows
 
 - On macOS, the window buttons (traffic lights) no longer flicker up for a frame when the
   terminal's title changes.
+- On macOS, tab tiles and pane header icons follow the program running in the pane again
+  (Claude Code, yazi, and the rest). Shells start through `login`, which runs as root, and
+  nex couldn't look past it, so every pane kept its shell icon.
+- On macOS, Claude Code's native install shows as `claude` rather than its version number.
 
 ### Changed
 
