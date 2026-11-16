@@ -122,4 +122,46 @@ def search(d) -> None:
     close_others(d)
 
 
-SCENES = [tour, splits, explorer, search]
+def promo(d) -> None:
+    """Social post: every headline feature in one quick pass, for promo.py to put on a backdrop.
+    `caption:<text>` markers say when each on-screen caption takes over; make_gifs.py ignores
+    them, since they have no end."""
+    d.extra_panes = 0
+    d.type("git log --oneline -12", after=0.6)
+    d.mark("promo", "start")
+    d.mark("caption:Split panes, built in", "start")
+    d.key("O", CTRL_SHIFT, after=0.45)           # split right
+    d.extra_panes += 1
+    for _ in range(3):                           # smaller font so btop fits the column
+        d.key("minus", "CTRL", after=0.1)
+    d.type("btop", after=0.9)
+    d.key("Left", CTRL_ALT, after=0.25)
+    d.key("E", CTRL_SHIFT, after=0.45)           # split down
+    d.extra_panes += 1
+    d.type("nvim src/main.rs", after=0.9)
+    d.mark("caption:Zoom any pane", "start")
+    d.key("Return", CTRL_SHIFT, after=0.9)       # zoom
+    d.key("Return", CTRL_SHIFT, after=0.6)       # and back
+    d.mark("caption:Tabs and a file explorer", "start")
+    d.key("T", CTRL_SHIFT, after=0.5)            # new tab: the glass pill glides over
+    d.key("E", "CTRL", after=0.7)                # explorer splits off at the shell's folder
+    for _ in range(2):
+        d.key("Down", after=0.12)
+    d.key("space", after=0.12)
+    d.key("Down", after=0.12)
+    d.key("space", after=0.12)
+    d.key("Down", after=0.12)
+    d.key("space", after=0.5)                    # three marked
+    d.key("G", "CTRL", after=1.0)                # grid view
+    d.mark("caption:Search your scrollback", "start")
+    d.key("1", "ALT", after=0.5)                 # back to the first tab
+    d.key("Up", CTRL_ALT, after=0.3)             # the git log pane
+    d.key("F", CTRL_SHIFT, after=0.3)
+    d.type("release", enter=False, after=0.5)
+    d.key("Return", after=0.4)
+    d.key("Return", after=0.8)
+    d.mark("promo", "end")
+    d.key("Escape", after=0.3)
+
+
+SCENES = [tour, splits, explorer, search, promo]
