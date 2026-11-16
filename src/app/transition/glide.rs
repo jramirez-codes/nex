@@ -1,5 +1,5 @@
-//! `tab-animation = glide`: the old tab drifts a little toward the side it is leaving and
-//! fades out, while the new one drifts in from the other side and fades in.
+//! `tab-animation = glide`: the old tab drifts a little the way the tab pill is moving and
+//! fades out, while the new one drifts in behind it, from the other side, and fades in.
 //!
 //! Whole sheets only move and fade, so nothing is tessellated: shapes are translated and
 //! their colors scaled, as egui's own `Painter::multiply_opacity` does.

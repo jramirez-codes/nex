@@ -48,10 +48,10 @@ impl TabSwitch {
         if !glide::animations(ctx) {
             self.running = None;
         } else if let Some((_, pos)) = previous.filter(|&(uid, _)| uid != tab.uid) {
-            // Content moves away from the new tab's side: a tab further along comes in
-            // from the right (or below), pushing the old one left (or up).
+            // Content moves the way the pill does: a tab further along pushes the old one
+            // right (or down) and comes in from the left (or above).
             let axis = if tab.vertical { Vec2::Y } else { Vec2::X };
-            let travel = if tab.pos >= pos { -axis } else { axis };
+            let travel = if tab.pos >= pos { axis } else { -axis };
             let old = std::mem::take(&mut self.last);
             self.running = transition::start(tab.style, Switch { old, area: tab.area, origin: tab.origin, travel, start: now });
         }
@@ -126,16 +126,17 @@ mod tests {
     }
 
     #[test]
-    fn glide_moves_the_new_sheet_in_from_the_new_tabs_side() {
+    fn glide_moves_the_panes_the_way_the_pill_goes() {
         let ctx = egui::Context::default();
         let mut s = TabSwitch::default();
         frame(&ctx, &mut s, 1, 0, TabAnimation::Glide);
         frame(&ctx, &mut s, 2, 1, TabAnimation::Glide);
         assert!(s.running.is_some());
-        // The next frame shows it to the right of where it settles, fading in.
+        // The pill moves right, so the next frame shows it to the left of where it settles,
+        // fading in.
         let shapes = frame(&ctx, &mut s, 2, 1, TabAnimation::Glide);
         assert!(shapes.iter().all(|cs| match &cs.shape {
-            Shape::Rect(r) => r.rect.left() > 0.0,
+            Shape::Rect(r) => r.rect.left() < 0.0,
             Shape::Noop => true,
             _ => false,
         }));

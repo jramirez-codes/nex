@@ -24,7 +24,7 @@ pub(super) struct Switch {
     pub(super) area: Rect,
     /// Where the new tab is in the tab strip, brought onto the pane area's edge.
     pub(super) origin: Pos2,
-    /// The way content moves: away from the new tab's side of the strip (unit length).
+    /// The way content moves: the way the pill moves along the strip (unit length).
     pub(super) travel: Vec2,
     pub(super) start: f64,
 }

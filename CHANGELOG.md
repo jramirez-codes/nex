@@ -6,6 +6,11 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The glide tab switch now moves the panes the same way the glass pill moves, so the old tab
+  glides out ahead of the pill and the new one follows it in, instead of going against it.
+
 ## [0.9.0] - 2026-11-16
 
 ### Added
