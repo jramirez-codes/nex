@@ -11,7 +11,7 @@ export const SPOTLIGHT: Feature[] = [
   {
     eyebrow: 'Tabs and splits, built in',
     title: 'Every split is a card.',
-    body: 'Tabs live in the title bar on a segmented track with a glass pill that glides to the one you pick. Split right or down and the new pane slides out of the old one’s edge; close one and its neighbor grows into the space. Zoom a pane, drag the gaps to resize. Each pane has its own header with what is running and where.',
+    body: 'Tabs live in the title bar on a segmented track with a glass pill that glides to the one you pick, and the panes glide along with it. Close a tab and the pill folds into its × while its neighbors slide over. Split right or down and the new pane slides out of the old one’s edge; close one and its neighbor grows into the space. Zoom a pane and it scales up to fill the tab, or drag the gaps to resize. Each pane has its own header with what is running and where.',
     keys: { linux: ['Ctrl+Shift+O', 'Ctrl+Shift+E', 'Ctrl+Shift+Enter'], mac: ['Cmd+D', 'Cmd+Shift+D', 'Cmd+Shift+Enter'] },
     shot: { name: 'splits', alt: 'Splitting a tab right and down, zooming the nvim pane, then resizing and equalizing the splits' },
   },

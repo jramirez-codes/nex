@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-16
+
 ### Changed
 
 - The glide tab switch now moves the panes the same way the glass pill moves, so the old tab
@@ -327,7 +329,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/jramirez-codes/nex/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/jramirez-codes/nex/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/jramirez-codes/nex/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/jramirez-codes/nex/compare/v0.8.0...v0.8.1
