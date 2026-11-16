@@ -4,25 +4,49 @@
 //! which sits above the middle of nex's header row. We stretch the title bar container to the
 //! header's height and center each button in it. AppKit puts them back on resize and when
 //! leaving full screen, so this runs every frame and only touches views that moved.
+//!
+//! Setting the window title puts them back too, so nex sets it here and re-centers the
+//! buttons in the same call, before AppKit draws the title bar.
 
+use objc2::rc::Retained;
 use objc2_app_kit::{NSView, NSWindow, NSWindowButton};
-use objc2_foundation::{NSPoint, NSRect};
+use objc2_foundation::{NSPoint, NSRect, NSString};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 /// Center the close / minimize / zoom buttons in the top `height` points of the window.
 pub fn align_window_buttons(frame: &eframe::Frame, height: f32) {
-    let Ok(handle) = frame.window_handle() else {
+    if let Some(window) = ns_window(frame) {
+        align(&window, height as f64);
+    }
+}
+
+/// Set the window title. With `buttons_height`, the traffic lights stay centered in that
+/// height: AppKit lays the title bar out again for the new title, which would otherwise
+/// show them at their default spot until the next frame.
+pub fn set_window_title(ctx: &egui::Context, frame: &eframe::Frame, title: &str, buttons_height: Option<f32>) {
+    let Some(window) = ns_window(frame) else {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.to_owned()));
         return;
     };
+    window.setTitle(&NSString::from_str(title));
+    if let Some(height) = buttons_height {
+        // SAFETY: as in `align`, these are the window's own views.
+        if let Some(frame_view) = window.contentView().and_then(|view| unsafe { view.superview() }) {
+            frame_view.layoutSubtreeIfNeeded();
+        }
+        align(&window, height as f64);
+    }
+}
+
+fn ns_window(frame: &eframe::Frame) -> Option<Retained<NSWindow>> {
+    let handle = frame.window_handle().ok()?;
     let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
-        return;
+        return None;
     };
     // SAFETY: winit's handle points at the window's live content view, and eframe calls
     // `update` on the main thread.
     let view: &NSView = unsafe { appkit.ns_view.cast().as_ref() };
-    if let Some(window) = view.window() {
-        align(&window, height as f64);
-    }
+    view.window()
 }
 
 fn align(window: &NSWindow, height: f64) {

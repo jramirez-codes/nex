@@ -224,9 +224,11 @@ impl eframe::App for App {
             self.drain_pending(ctx);
             ctx.request_repaint();
         }
-        self.sync_window_title(ctx);
-        if self.cfg.window_decorations && crate::platform::WINDOW.overlays_titlebar() {
-            crate::platform::align_window_buttons(frame, TITLEBAR_HEIGHT * ctx.zoom_factor());
+        let buttons_height = (self.cfg.window_decorations && crate::platform::WINDOW.overlays_titlebar())
+            .then(|| TITLEBAR_HEIGHT * ctx.zoom_factor());
+        self.sync_window_title(ctx, frame, buttons_height);
+        if let Some(height) = buttons_height {
+            crate::platform::align_window_buttons(frame, height);
         }
     }
 }
@@ -340,10 +342,12 @@ impl App {
     }
 
     /// The window title follows the focused pane.
-    fn sync_window_title(&mut self, ctx: &egui::Context) {
+    /// `buttons_height` is where the OS's own window buttons sit, when it draws them over
+    /// nex's title bar (see `platform::set_window_title`).
+    fn sync_window_title(&mut self, ctx: &egui::Context, frame: &eframe::Frame, buttons_height: Option<f32>) {
         let Some(title) = self.focused_pane().map(|id| self.pane_label(id).0).filter(|t| !t.is_empty()) else { return };
         if title != self.window_title {
-            ctx.send_viewport_cmd(ViewportCommand::Title(format!("{title} — nex")));
+            crate::platform::set_window_title(ctx, frame, &format!("{title} — nex"), buttons_height);
             self.window_title = title;
         }
     }

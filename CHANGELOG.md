@@ -6,6 +6,21 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-16
+
+### Fixed
+
+- On macOS, the window buttons (traffic lights) no longer flicker up for a frame when the
+  terminal's title changes.
+- On macOS, tab tiles and pane header icons follow the program running in the pane again
+  (Claude Code, yazi, and the rest). Shells start through `login`, which runs as root, and
+  nex couldn't look past it, so every pane kept its shell icon.
+- On macOS, Claude Code's native install shows as `claude` rather than its version number.
+
+### Changed
+
+- Refreshed the benchmark results in the README and on the site.
+
 ## [0.8.0] - 2026-11-15
 
 ### Added
@@ -276,7 +291,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/jramirez-codes/nex/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/jramirez-codes/nex/compare/v0.7.4...v0.8.0
 [0.7.4]: https://github.com/jramirez-codes/nex/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/jramirez-codes/nex/compare/v0.7.2...v0.7.3

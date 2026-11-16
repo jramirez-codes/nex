@@ -8,12 +8,24 @@ use crate::platform::ProcInfo;
 
 /// The foreground process group of the shell's terminal (so running `node` shows "node"
 /// rather than "zsh"), its name and its working directory.
+///
+/// The pty starts shells through `/usr/bin/login`, which runs as root, so the kernel won't
+/// describe it to us; we then ask its child, the user's shell, instead.
 pub fn proc_info(pid: u32) -> ProcInfo {
-    let fg = bsd_info(pid).map(|i| i.e_tpgid).filter(|&p| p > 0).unwrap_or(pid);
+    let shell = if bsd_info(pid).is_some() { pid } else { first_child(pid).unwrap_or(pid) };
+    let fg = bsd_info(shell).map(|i| i.e_tpgid).filter(|&p| p > 0).unwrap_or(shell);
     ProcInfo {
-        name: name(fg).or_else(|| name(pid)),
-        cwd: cwd(fg).or_else(|| cwd(pid)),
+        name: name(fg).or_else(|| name(shell)),
+        cwd: cwd(fg).or_else(|| cwd(shell)),
     }
+}
+
+fn first_child(pid: u32) -> Option<u32> {
+    let mut pids = [0 as libc::c_int; 16];
+    let size = size_of_val(&pids) as libc::c_int;
+    // SAFETY: the buffer is valid for `size` bytes; the call returns how many pids it wrote.
+    let n = unsafe { libc::proc_listchildpids(pid as libc::c_int, pids.as_mut_ptr().cast(), size) };
+    pids.get(..n.max(0) as usize)?.iter().find(|&&p| p > 0).map(|&p| p as u32)
 }
 
 /// `proc_pidinfo(pid, flavor)` into a `T`, if the kernel filled all of it.
@@ -30,7 +42,40 @@ fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
     pid_info(pid, libc::PROC_PIDTBSDINFO)
 }
 
+/// The name a process was started as (`argv[0]`), as `ps` shows it. The kernel's own name
+/// is the executable's file name, which for Claude Code's native install is its version
+/// (`~/.local/share/claude/versions/2.1.3`), so that is only the fallback.
 fn name(pid: u32) -> Option<String> {
+    argv0(pid).as_deref().and_then(command_name).or_else(|| kernel_name(pid))
+}
+
+/// `-zsh` (a login shell) → `zsh`, `/opt/homebrew/bin/yazi` → `yazi`.
+fn command_name(argv0: &str) -> Option<String> {
+    let first = argv0.split_whitespace().next()?;
+    let base = first.rsplit('/').next()?.trim_start_matches('-');
+    (!base.is_empty()).then(|| base.to_string())
+}
+
+/// `argv[0]` from `KERN_PROCARGS2`: an `int` argc, the executable path, NUL padding, then
+/// the arguments.
+fn argv0(pid: u32) -> Option<String> {
+    let mut buf = vec![0u8; 16 * 1024];
+    let mut len = buf.len();
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    // SAFETY: `buf` is valid for `len` bytes and the kernel writes at most that many (a
+    // longer reply fails with ENOMEM, and we fall back to the kernel's name).
+    let rc = unsafe { libc::sysctl(mib.as_mut_ptr(), 3, buf.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0) };
+    if rc != 0 {
+        return None;
+    }
+    let rest = buf.get(size_of::<libc::c_int>()..len)?;
+    let after_path = &rest[rest.iter().position(|&b| b == 0)?..];
+    let start = after_path.iter().position(|&b| b != 0)?;
+    let arg = CStr::from_bytes_until_nul(&after_path[start..]).ok()?;
+    Some(arg.to_string_lossy().into_owned())
+}
+
+fn kernel_name(pid: u32) -> Option<String> {
     let mut buf = [0u8; 256];
     // SAFETY: the buffer is valid for its length; proc_name NUL-terminates within it.
     let n = unsafe { libc::proc_name(pid as libc::c_int, buf.as_mut_ptr().cast(), buf.len() as u32) };
@@ -55,6 +100,15 @@ mod tests {
     fn reads_own_process() {
         let info = proc_info(std::process::id());
         assert_eq!(info.cwd, std::env::current_dir().ok());
+        assert_eq!(info.name.as_deref(), argv0(std::process::id()).as_deref().and_then(command_name).as_deref());
         assert!(info.name.is_some_and(|n| !n.is_empty()));
+    }
+
+    #[test]
+    fn command_names() {
+        assert_eq!(command_name("-zsh").as_deref(), Some("zsh"));
+        assert_eq!(command_name("/opt/homebrew/bin/yazi").as_deref(), Some("yazi"));
+        assert_eq!(command_name("claude").as_deref(), Some("claude"));
+        assert_eq!(command_name("").as_deref(), None);
     }
 }
