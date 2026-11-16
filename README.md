@@ -59,8 +59,8 @@ rendering, input handling, multiplexing and window chrome.
 
 - **One window instead of three.** Tabs, split panes and a file explorer replace a terminal +
   tmux + file manager setup.
-- **Fast.** In [our benchmark](bench/README.md), nex printed 50 MB of output 1.6× faster than
-  kitty and launched 35× faster than GNOME Terminal.
+- **Fast.** In [our benchmark](bench/README.md), nex printed 50 MB of output 1.8× faster than
+  kitty and launched 25× faster than GNOME Terminal.
 - **Works out of the box.** A Nerd Font is embedded, config applies on save, and the defaults
   are sensible.
 - **Native-feeling.** Glass tab pills, per-pane headers with app icons, smooth animations, and
@@ -85,9 +85,12 @@ settings for each terminal. Lower is better. See [`bench/`](bench/README.md) to 
 
 | Benchmark                         | nex         | kitty   | Ghostty | GNOME Terminal |
 | --------------------------------- | ----------- | ------- | ------- | -------------- |
-| Print 50 MB of text, color, boxes | **0.82 s**  | 1.29 s  | 1.63 s  | 1.71 s         |
-| Launch to shell                   | **272 ms**  | 840 ms  | 397 ms  | 314 ms         |
-| Memory at idle                    | 115 MB      | 143 MB  | 175 MB  | **52 MB**      |
+| Print 50 MB of text, color, boxes | **0.76 s**  | 1.36 s  | 1.94 s  | 2.32 s         |
+| Launch to shell                   | **13 ms**¹  | 794 ms  | 376 ms  | 316 ms         |
+| Memory at idle                    | 112 MB      | 142 MB  | 173 MB  | **62 MB**      |
+
+¹ nex starts its first shell while the window is still opening, so the shell is ready before
+the window is; the first frame appears about 120 ms after launch.
 
 ## Features
 
