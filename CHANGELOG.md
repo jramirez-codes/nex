@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-15
+
 ### Added
 
 - Swap panes. Drag a pane by its header onto another pane: the card follows the mouse or
@@ -30,6 +32,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- Faster launch. The first shell starts before the window opens, so its startup overlaps
+  window and GPU setup, and the system font lookups run in parallel instead of one after
+  another. On one Linux machine, the first frame arrives in about 123 ms (was 216 ms).
 - On Wayland, dragging files from the explorer into another window (another nex, or a file
   manager such as Thunar or Nautilus) now moves them, as a drag within the window does. Before,
   it always copied and left the original in place. Files dropped into a nex explorer from
@@ -271,7 +276,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.7.4...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/jramirez-codes/nex/compare/v0.7.4...v0.8.0
 [0.7.4]: https://github.com/jramirez-codes/nex/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/jramirez-codes/nex/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/jramirez-codes/nex/compare/v0.7.1...v0.7.2
