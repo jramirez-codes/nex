@@ -4,6 +4,7 @@ mod apps;
 mod dnd;
 mod fonts;
 mod proc;
+mod watch;
 
 pub use super::unix::{
     config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, owner_names, pty_options, pty_pid, shell_quote,
@@ -13,6 +14,7 @@ pub use apps::{apps_for, mime_type, open_with};
 pub use dnd::Dnd;
 pub use fonts::{FALLBACK_FAMILIES, find_font, nerd_mono_families};
 pub use proc::proc_info;
+pub use watch::{DirWatch, on_dir_change};
 
 use super::{ShortcutStyle, WindowDefaults};
 

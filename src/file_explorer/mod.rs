@@ -48,8 +48,10 @@ use transfer::{FS_GENERATION, Job};
 
 pub use input::{ExplorerDrag, release_pos};
 pub use items::{drag_image, paint_drag_ghost};
+pub use transfer::{Op, files_changed};
 
-/// How often an idle listing is re-read so files created elsewhere show up.
+/// How often an idle listing is re-read so files created elsewhere show up (where the
+/// folder can't be watched; see `platform::DirWatch`).
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 /// How many folders Back remembers.
 const HISTORY: usize = 100;
@@ -107,6 +109,8 @@ pub struct FileExplorer {
     layout: Option<Layout>,
     last_refresh: Instant,
     seen_generation: u64,
+    /// Watching `dir` (the folder it was made for), so changes show up right away.
+    watch: Option<(PathBuf, crate::platform::DirWatch)>,
     press: Option<Press>,
     /// Last known pointer position: a touch release also reports the pointer as gone, so the
     /// release frame needs this to know where a drop landed.
@@ -161,6 +165,7 @@ impl FileExplorer {
             layout: None,
             last_refresh: Instant::now(),
             seen_generation: FS_GENERATION.load(Ordering::Relaxed),
+            watch: None,
             press: None,
             last_pos: None,
             last_click: None,
@@ -192,6 +197,9 @@ impl FileExplorer {
     pub fn refresh(&mut self) {
         let keep = self.entries.get(self.selected).map(|e| e.name.clone());
         self.last_refresh = Instant::now();
+        if self.watch.as_ref().is_none_or(|(d, _)| *d != self.dir) {
+            self.watch = crate::platform::DirWatch::new(&self.dir).map(|w| (self.dir.clone(), w));
+        }
         match read_entries(&self.dir, self.show_hidden) {
             Ok(entries) => {
                 self.entries = entries;

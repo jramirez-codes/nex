@@ -42,6 +42,12 @@ pub(super) fn set_clipboard(clip: Option<Clip>) {
 /// Bumped whenever a file operation finishes, so every explorer re-reads its listing.
 pub(super) static FS_GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// Files changed outside the explorers' own jobs (another window moved them away): every
+/// explorer re-reads its listing on its next frame.
+pub fn files_changed() {
+    FS_GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
 /// How far a job has got, written by its thread and read by the action bar. Copies and
 /// moves count bytes; deletes count items.
 #[derive(Default)]
@@ -137,11 +143,11 @@ impl FileExplorer {
         }
     }
 
-    /// Files dropped from another application: copy them into the folder under `pos`
+    /// Files dropped from another window: move or copy them into the folder under `pos`
     /// (or the current folder).
-    pub fn drop_external(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>, pos: Option<Pos2>) {
-        let dest = pos.and_then(|p| self.folder_at(p, &[])).unwrap_or_else(|| self.dir.clone());
-        self.start_op(ctx, Op::Copy, paths, dest);
+    pub fn drop_external(&mut self, ctx: &egui::Context, op: Op, paths: Vec<PathBuf>, pos: Option<Pos2>) {
+        let dest = pos.and_then(|p| self.folder_at(p, &paths)).unwrap_or_else(|| self.dir.clone());
+        self.start_op(ctx, op, paths, dest);
     }
 
     /// The folder entry under `pos`, unless it's one of the files being dragged.

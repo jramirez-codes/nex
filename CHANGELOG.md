@@ -28,6 +28,23 @@ All notable changes to nex are documented here. The format follows
     held where it was grabbed (with a count when several go). On Wayland the icon keeps
     following the pointer after the drag leaves the window, instead of disappearing.
 
+### Changed
+
+- On Wayland, dragging files from the explorer into another window (another nex, or a file
+  manager such as Thunar or Nautilus) now moves them, as a drag within the window does. Before,
+  it always copied and left the original in place. Files dropped into a nex explorer from
+  another window move too; hold `Ctrl` to copy instead.
+- File explorers watch their folder (inotify on Linux), so a file moved away by another
+  window, `mv` in a terminal or a file manager disappears at once, even in a window in the
+  background. Elsewhere listings are still re-read every couple of seconds.
+
+### Fixed
+
+- Drag and drop between windows on Hyprland. Hyprland only sends drags and the clipboard to
+  the first data device a client makes, which was egui's clipboard, so no drag ever reached
+  nex and drags between two nex windows were cancelled. nex now runs eframe on its own event
+  loop, makes its data device before the window opens, and reads pasted text from it.
+
 ## [0.7.4] - 2026-11-14
 
 ### Fixed

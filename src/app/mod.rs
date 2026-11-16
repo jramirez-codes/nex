@@ -116,6 +116,13 @@ impl App {
         ctx.set_visuals(egui::Visuals::dark());
         fonts::install(ctx, &cfg);
         crate::ui::glide::set_animations(ctx, cfg.animations);
+        // A watched folder changed (a file moved away by another window, `mv` in a terminal):
+        // every explorer re-reads its listing on the next frame.
+        let repaint = ctx.clone();
+        crate::platform::on_dir_change(move || {
+            file_explorer::files_changed();
+            repaint.request_repaint();
+        });
 
         let hostname = crate::platform::hostname();
 

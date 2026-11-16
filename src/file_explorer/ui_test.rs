@@ -264,3 +264,27 @@ fn drag_shows_the_items_icon_at_its_size() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Dragging a file onto a folder moves it, and the listing drops it once the move finishes.
+#[test]
+fn drag_onto_folder_moves_and_updates_listing() {
+    let dir = fixture("drag-move");
+    let mut h = Harness::new(dir.clone());
+    let src_i = h.b.entries.iter().position(|e| e.name == "zeta.txt").unwrap();
+    let dst_i = h.b.entries.iter().position(|e| e.name == "beta").unwrap();
+    let (from, to) = (h.row(src_i), h.row(dst_i));
+    let button = |pressed, pos| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+    h.frame(vec![Event::PointerMoved(from)]);
+    h.frame(vec![button(true, from)]);
+    for k in 1..=10 {
+        h.frame(vec![Event::PointerMoved(from + (to - from) * (k as f32 / 10.0))]);
+    }
+    h.frame(vec![button(false, to)]);
+    for _ in 0..20 {
+        h.frame(vec![]);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(dir.join("beta/zeta.txt").exists() && !dir.join("zeta.txt").exists());
+    assert!(!h.b.entries.iter().any(|e| e.name == "zeta.txt"));
+    std::fs::remove_dir_all(dir).unwrap();
+}

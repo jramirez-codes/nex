@@ -11,7 +11,9 @@
 //!   unix.rs       POSIX pieces shared by Linux and macOS (paths, symlinks, shell quoting)
 //!   fontdb.rs     font lookup by scanning font folders (macOS, Windows)
 //!   no_dnd.rs     drag-and-drop stub for OSes where winit already handles it
-//!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland)
+//!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
+//!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
+//!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland) · watch.rs (inotify)
 //!   macos/        mod.rs · proc.rs (libproc)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
 //! ```
@@ -36,6 +38,7 @@
 //! | `symlink(src, dst)` / `shell_quote(path)` | file explorer helpers |
 //! | `find_font(..)` / `nerd_mono_families()` | system font lookup ([`FontFace`]) |
 //! | `Dnd` | drag and drop with other apps, where winit doesn't do it |
+//! | `DirWatch` / `on_dir_change(f)` | being told when a folder's contents change |
 
 use std::path::PathBuf;
 
@@ -46,6 +49,11 @@ mod unix;
 mod fontdb;
 #[cfg(not(target_os = "linux"))]
 mod no_dnd;
+#[cfg(not(target_os = "linux"))]
+mod no_watch;
+
+mod winit_app;
+pub use winit_app::WinitApp;
 
 #[cfg(target_os = "linux")]
 mod linux;

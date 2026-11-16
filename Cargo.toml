@@ -16,6 +16,8 @@ exclude = ["docs/", "site/", "bench/"]
 alacritty_terminal = "0.26.0"
 eframe = "0.33.3"
 egui = "0.33.3"
+# nex runs eframe on its own event loop (see src/platform/winit_app.rs); same version as eframe's.
+winit = { version = "0.30.13", default-features = false }
 memmap2 = "0.9"
 
 # Per-OS dependencies, used only by src/platform/<os>/.

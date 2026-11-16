@@ -17,8 +17,8 @@ const RESIZE_BORDER: f32 = 6.0;
 
 impl App {
     /// Files dropped onto a pane: dragged out of a explorer onto a terminal (inserts their
-    /// paths), or dropped in from another application (into a explorer: copied there; onto a
-    /// terminal: paths inserted).
+    /// paths), or dropped in from another window (into an explorer: moved there, or copied with
+    /// Ctrl or when the source only allows copying; onto a terminal: paths inserted).
     pub(super) fn file_drops(&mut self, ctx: &egui::Context, theme: &Theme) {
         let (pos, released, dropped) = ctx.input(|i| {
             let dropped: Vec<PathBuf> = i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect();
@@ -83,7 +83,11 @@ impl App {
         }
         self.pending.push(Action::FocusPane(id));
         if let Some(b) = self.explorers.get_mut(&id) {
-            b.drop_external(ctx, dropped, pos);
+            // A move, as within the window, unless the source only allows a copy or Ctrl is held.
+            let moves = self.dnd.as_ref().is_some_and(|d| d.drop_moves()) && !ctx.input(|i| crate::platform::SHORTCUTS.copy_drag(&i.modifiers));
+            let op = if moves { file_explorer::Op::Move } else { file_explorer::Op::Copy };
+            crate::platform::dnd_log(format_args!("{op:?} {} path(s) into explorer pane {id:?}", dropped.len()));
+            b.drop_external(ctx, op, dropped, pos);
         } else {
             self.insert_paths(id, &dropped);
             crate::platform::dnd_log(format_args!("typed {} path(s) into pane {id:?}", dropped.len()));

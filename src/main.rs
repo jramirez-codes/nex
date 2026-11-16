@@ -57,5 +57,10 @@ fn main() -> eframe::Result {
     }
 
     let options = eframe::NativeOptions { viewport, ..Default::default() };
-    eframe::run_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args)))))
+    // nex's own event loop rather than `run_native`'s, so drag and drop can set up on its
+    // connection before eframe opens the window (see `platform::Dnd::prepare`).
+    let mut event_loop = winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event().build()?;
+    platform::Dnd::prepare(&event_loop);
+    let eframe_app = eframe::create_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args)))), &event_loop);
+    platform::WinitApp::new(eframe_app).run(&mut event_loop)
 }

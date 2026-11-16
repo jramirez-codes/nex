@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 pub use super::fontdb::{find_font, nerd_mono_families};
 pub use super::no_dnd::Dnd;
+pub use super::no_watch::{DirWatch, on_dir_change};
 pub use proc::proc_info;
 
 use super::{ShortcutStyle, WindowDefaults};

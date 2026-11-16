@@ -1887,6 +1887,7 @@ dependencies = [
  "raw-window-handle",
  "serde_json",
  "wayland-client",
+ "winit",
 ]
 
 [[package]]

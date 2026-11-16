@@ -15,6 +15,12 @@ impl Dnd {
         None
     }
 
+    /// Nothing to set up before the window opens.
+    pub fn prepare<T>(_event_loop: &T) {}
+
+    /// egui pastes from the OS clipboard itself here.
+    pub fn note_paste_key() {}
+
     /// Hand an explorer drag that left the window to the OS; `false` if it wasn't taken.
     pub fn start_drag(&mut self, _paths: &[PathBuf], _at: Pos2, _image: Option<super::DragImage>) -> bool {
         false
@@ -22,6 +28,11 @@ impl Dnd {
 
     /// Raise this window after a drop.
     pub fn focus_window(&self) {}
+
+    /// Files dropped from other apps are copied here.
+    pub fn drop_moves(&self) -> bool {
+        false
+    }
 
     /// Add drags reported by the OS to egui's input.
     pub fn feed(&mut self, _ctx: &egui::Context, _raw: &mut RawInput) {}
