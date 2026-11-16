@@ -98,6 +98,29 @@ impl Node {
         }
     }
 
+    /// Exchange the leaves holding `a` and `b`, keeping every split's axis and ratio.
+    /// Returns false (changing nothing) if either is missing or they are the same pane.
+    pub fn swap(&mut self, a: PaneId, b: PaneId) -> bool {
+        let ids = self.panes();
+        if a == b || !ids.contains(&a) || !ids.contains(&b) {
+            return false;
+        }
+        self.swap_leaves(a, b);
+        true
+    }
+
+    fn swap_leaves(&mut self, a: PaneId, b: PaneId) {
+        match self {
+            Node::Leaf(id) if *id == a => *id = b,
+            Node::Leaf(id) if *id == b => *id = a,
+            Node::Leaf(_) => {}
+            Node::Split { a: na, b: nb, .. } => {
+                na.swap_leaves(a, b);
+                nb.swap_leaves(a, b);
+            }
+        }
+    }
+
     pub fn ratio_mut(&mut self, path: &[bool]) -> Option<&mut f32> {
         match self {
             Node::Leaf(_) => None,
@@ -247,4 +270,37 @@ pub fn neighbor(rects: &[(PaneId, Rect)], from: PaneId, dir: Direction) -> Optio
             score(a).total_cmp(&score(b))
         })
         .map(|(id, _)| *id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn split(axis: Axis, ratio: f32, a: Node, b: Node) -> Node {
+        Node::Split { axis, ratio, a: Box::new(a), b: Box::new(b) }
+    }
+
+    #[test]
+    fn swap_exchanges_leaves_and_keeps_the_split() {
+        let mut n = split(Axis::Horizontal, 0.3, Node::Leaf(1), Node::Leaf(2));
+        assert!(n.swap(1, 2));
+        assert_eq!(n.panes(), vec![2, 1]);
+        let Node::Split { axis, ratio, .. } = n else { panic!() };
+        assert_eq!((axis, ratio), (Axis::Horizontal, 0.3));
+    }
+
+    #[test]
+    fn swap_across_nested_splits() {
+        let mut n = split(Axis::Horizontal, 0.5, Node::Leaf(1), split(Axis::Vertical, 0.5, Node::Leaf(2), Node::Leaf(3)));
+        assert!(n.swap(3, 1));
+        assert_eq!(n.panes(), vec![3, 2, 1]);
+    }
+
+    #[test]
+    fn swap_with_missing_or_same_pane_does_nothing() {
+        let mut n = split(Axis::Vertical, 0.5, Node::Leaf(1), Node::Leaf(2));
+        assert!(!n.swap(1, 9));
+        assert!(!n.swap(1, 1));
+        assert_eq!(n.panes(), vec![1, 2]);
+    }
 }

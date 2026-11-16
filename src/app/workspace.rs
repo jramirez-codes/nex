@@ -133,6 +133,11 @@ impl App {
 
     pub(super) fn split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
         let cwd = self.pane_cwd(target);
+        self.split_at(ctx, target, axis, cwd);
+    }
+
+    /// Split a terminal starting in `cwd` off `target`.
+    pub(super) fn split_at(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis, cwd: Option<PathBuf>) {
         let card = self.split_card(target, axis);
         // The new pane starts at the zoom level of the pane it was split from.
         let font_size = self.pane_fonts.get(&target).copied();
@@ -175,6 +180,24 @@ impl App {
                 tab.motion.kick_split(ctx, target, axis, new);
             }
             None => self.forget_pane(new),
+        }
+    }
+
+    /// Swap panes `a` and `b` (in the shown tab). Focus stays on whichever was focused, now
+    /// in its new slot; both cards glide there.
+    pub(super) fn swap_panes(&mut self, ctx: &egui::Context, a: PaneId, b: PaneId) {
+        let Some(tab) = self.cur_tab_mut() else { return };
+        if tab.zoomed || !tab.root.swap(a, b) {
+            return;
+        }
+        tab.motion.kick_reflow(ctx);
+    }
+
+    /// Put a pane being dragged by its header back where it was.
+    pub(super) fn cancel_pane_drag(&mut self, ctx: &egui::Context) {
+        if let Some(tab) = self.cur_tab_mut().filter(|t| t.drag.is_some()) {
+            tab.drag = None;
+            tab.motion.kick_reflow(ctx);
         }
     }
 

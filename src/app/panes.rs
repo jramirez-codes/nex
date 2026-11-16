@@ -1,21 +1,24 @@
 //! Drawing the panes of the current tab: cards, headers, terminals, file explorers, search.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
-use egui::{Color32, CursorIcon, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::epaint::Shadow;
+use egui::{Color32, CursorIcon, Event, FontId, Id, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::app::layout::{Axis, Divider, PaneId};
 use crate::render::{self, FrameKey, PaintOptions};
 use crate::terminal::search::Search;
 use crate::terminal::GridSize;
-use crate::ui::theme::{ERROR, Theme, darken};
-use crate::ui::widgets::{IconButton, IconFn, pressed_in};
+use crate::ui::theme::{ERROR, HOVER, Theme, darken};
+use crate::ui::widgets::{HoverShape, IconButton, IconFn, pressed_in};
 use crate::ui::{icons, paint};
 
 use super::actions::Action;
 use super::keymap;
 use super::metrics::cell_px;
 use super::motion::Ghost;
+use super::tab::{PaneDrag, Tab};
 use super::{App, PANE_GAP};
 
 pub(super) const PANE_RADIUS: u8 = 12;
@@ -36,6 +39,8 @@ struct PaneView {
     focus: f32,
     /// The tab shows more than one pane (focus is highlighted, the rest dimmed).
     multi: bool,
+    /// Being dragged by its header: drawn on top, lifted off the page.
+    lifted: bool,
 }
 
 impl App {
@@ -54,11 +59,16 @@ impl App {
         } else {
             tab.root.layout(area, PANE_GAP, &mut rects, &mut dividers);
         }
+        let DragFrame { goals, held, dropped } = track_pane_drag(&ctx, tab, &rects);
+        let dragging = held.map(|(id, _)| id);
+        if dragging.is_some() {
+            ctx.set_cursor_icon(CursorIcon::Grabbing);
+        }
         let focused = tab.focused;
         let multi = rects.len() > 1;
-        let views: Vec<PaneView> = tab
+        let mut views: Vec<PaneView> = tab
             .motion
-            .frame(&ctx, &rects)
+            .frame(&ctx, &rects, &goals, held)
             .into_iter()
             .map(|p| PaneView {
                 id: p.id,
@@ -67,13 +77,17 @@ impl App {
                 focused: p.id == focused,
                 focus: tab.motion.focus_amount(&ctx, p.id, p.id == focused),
                 multi,
+                lifted: Some(p.id) == dragging,
             })
             .collect();
+        // The dragged card goes over the others.
+        views.sort_by_key(|v| v.lifted);
         // Closed panes fade out underneath the panes growing into their space.
         let now = ctx.input(|i| i.time);
         for g in tab.motion.ghosts() {
             paint_ghost(ui.painter(), g, now, theme, headers);
         }
+        self.pending.extend(dropped);
         for (id, t) in &self.panes {
             t.set_visible(rects.iter().any(|(r, _)| r == id));
         }
@@ -129,6 +143,10 @@ impl App {
     fn pane_frame(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme, accent: Option<Color32>) -> f32 {
         let painter = ui.painter();
         let ring = if pane.multi { pane.focus } else { 0.0 };
+        if pane.lifted {
+            let shadow = Shadow { offset: [0, 10], blur: 36, spread: 2, color: Color32::from_black_alpha(130) };
+            painter.add(shadow.as_shape(pane.card, PANE_RADIUS));
+        }
         paint::card(painter, pane.card, PANE_RADIUS, theme.card, ring, accent);
         if !self.cfg.pane_headers {
             return pane.card.top() + self.cfg.window_padding * 0.5;
@@ -235,6 +253,8 @@ impl App {
         }
         if let Some(b) = self.explorers.get_mut(&pane.id) {
             b.paint(ui, &ui.painter().with_clip_rect(pane.card.shrink(1.0)), content, pane.id, theme);
+            let requests: Vec<_> = b.requests.drain(..).map(|r| (pane.id, r)).collect();
+            self.explorer_requests.extend(requests);
         }
         self.dim_unfocused(ui.painter(), pane);
     }
@@ -249,12 +269,28 @@ impl App {
         let zoomed = self.cur_tab().is_some_and(|t| t.zoomed);
         let show_buttons = pane.focused || ui.rect_contains_pointer(pane.card);
 
+        // The header is the handle for dragging the pane onto another to swap them. It is
+        // registered before the buttons, so they stay on top and keep their clicks.
+        let handle = ui.interact(header, Id::new(("pane-drag", id)), Sense::click_and_drag());
+        if pane.multi {
+            if handle.hovered() && !handle.dragged() {
+                ui.ctx().set_cursor_icon(CursorIcon::Grab);
+            }
+            if handle.drag_started_by(PointerButton::Primary) {
+                let at = ui.input(|i| i.pointer.press_origin()).or(handle.interact_pointer_pos());
+                if let (Some(at), Some(tab)) = (at, self.cur_tab_mut()) {
+                    tab.drag = Some(PaneDrag { pane: id, grab: at - pane.target.min, at, over: None });
+                }
+            }
+        }
+
         let cy = header.center().y + 1.0;
         let title_color = theme.text.gamma_multiply(0.85).lerp_to_gamma(theme.text_bright, pane.focus);
 
-        // Buttons, laid out right to left. Mobile mode makes them finger-sized.
-        let (size, step, inset) = if self.cfg.mobile { (36.0, 38.0, 10.0) } else { (22.0, 24.0, 5.5) };
-        let mut bx = header.right() - if self.cfg.mobile { 26.0 } else { 20.0 };
+        // Buttons, laid out right to left: 28px buttons like the tab bar's +, with smaller (~12px)
+        // glyphs so the header stays quiet. Mobile mode makes them finger-sized.
+        let (size, step, inset) = if self.cfg.mobile { (36.0, 38.0, 7.0) } else { (28.0, 30.0, 4.5) };
+        let mut bx = header.right() - if self.cfg.mobile { 26.0 } else { 22.0 };
         if show_buttons {
             // (label, the shortcut's action for the focused pane, this button's action, icon)
             let buttons: [(&str, Action, Action, &IconFn<'_>); 4] = [
@@ -273,6 +309,7 @@ impl App {
                 bx -= step;
                 if IconButton::new(r, Id::new(("pane-btn", id, tip)), theme.text_dim, theme.text_bright)
                     .icon_rect(r.shrink(inset))
+                    .hover(HoverShape::Rounded(8), HOVER)
                     .tooltip(tip)
                     .show(ui, painter, draw)
                 {
@@ -289,11 +326,63 @@ impl App {
     }
 }
 
+/// What a header drag means for this frame.
+#[derive(Default)]
+struct DragFrame {
+    /// Where cards head instead of their layout rect (the swap preview).
+    goals: HashMap<PaneId, Rect>,
+    /// The dragged pane and where it is held.
+    held: Option<(PaneId, Rect)>,
+    /// The swap to make, if the pane was just dropped on another.
+    dropped: Option<Action>,
+}
+
+/// Follow a pane being dragged by its header: track the pointer, preview the swap with the
+/// pane under it, and finish when the button is let go.
+fn track_pane_drag(ctx: &egui::Context, tab: &mut Tab, rects: &[(PaneId, Rect)]) -> DragFrame {
+    let none = DragFrame::default();
+    let Some(d) = tab.drag.as_mut() else { return none };
+    let slot = rects.iter().find(|(id, _)| *id == d.pane).map(|&(_, r)| r).filter(|_| rects.len() > 1);
+    let Some(slot) = slot else {
+        // The pane closed, or the tab was zoomed or is down to one pane.
+        tab.drag = None;
+        tab.motion.kick_reflow(ctx);
+        return none;
+    };
+    // Where the button came up, if it did this frame: after a touch lifts, some compositors
+    // move the pointer back to the parked mouse cursor in the same frame.
+    let (released, latest, down) = ctx.input(|i| {
+        let released = i.events.iter().rev().find_map(|e| match e {
+            Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, .. } => Some(*pos),
+            _ => None,
+        });
+        (released, i.pointer.latest_pos(), i.pointer.primary_down())
+    });
+    if let Some(p) = released.or(latest) {
+        d.at = p;
+    }
+    // Hit-test the layout's slots, not the moving cards, so the preview can't flicker.
+    let over = rects.iter().find(|(id, r)| *id != d.pane && r.contains(d.at)).map(|&(id, _)| id);
+    if over != d.over {
+        d.over = over;
+        tab.motion.kick_reflow(ctx);
+    }
+    if released.is_some() || !down {
+        let d = tab.drag.take().expect("drag checked above");
+        tab.motion.kick_reflow(ctx);
+        return DragFrame { dropped: d.over.map(|t| Action::SwapPanes(d.pane, t)), ..none };
+    }
+    let goals = over.map(|t| (t, slot)).into_iter().collect();
+    let held = Rect::from_min_size(d.at - d.grab, slot.size());
+    DragFrame { goals, held: Some((d.pane, held)), dropped: None }
+}
+
 /// Process glyph and title at the left of a pane header, the title fading out before `right`.
 fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
     let cy = header.center().y + 1.0;
     let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));
-    icons::header_glyph(painter, glyph, process, color);
+    let (mark, title) = icons::title_mark(process, title);
+    icons::header_glyph(painter, glyph, process, mark, color);
     let text_left = glyph.right() + 8.0;
     if right > text_left {
         paint::faded_text(painter, Pos2::new(text_left, cy), title, paint::bold(font), color, right - text_left, 24.0);

@@ -13,9 +13,9 @@ use super::keymap::{self, ClipboardKey};
 
 impl App {
     pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {
-        // The delete confirmation reads Enter / Escape itself; no key may reach a shell or
-        // run a shortcut behind it.
-        if self.explorers.values().any(|b| b.confirming_delete()) {
+        // Explorer dialogs (delete confirmation, Properties) read the keyboard themselves; no
+        // key may reach a shell or run a shortcut behind them.
+        if self.explorers.values().any(|b| b.modal_open()) {
             return;
         }
         let (events, mods) = ctx.input(|i| (i.events.clone(), i.modifiers));
@@ -49,6 +49,10 @@ impl App {
     /// A key press goes to the first taker: a shortcut, a file explorer, the search field, or
     /// the shell. Returns whether it ran a shortcut.
     fn on_key(&mut self, key: Key, modifiers: Modifiers) -> bool {
+        if key == Key::Escape && self.cur_tab().is_some_and(|t| t.drag.is_some()) {
+            self.pending.push(Action::CancelPaneDrag);
+            return true;
+        }
         if let Some(action) = keymap::lookup(&self.bindings, key, modifiers) {
             self.pending.push(action);
             return true;
@@ -92,10 +96,15 @@ impl App {
         }
     }
 
-    /// Typed text: into the search field or the shell (Alt prefixes ESC, except on macOS where
-    /// Option types composed characters). File explorers and Ctrl / Cmd chords don't take text.
+    /// Typed text: into a file explorer (its text fields, or type-to-find), the search field or
+    /// the shell (Alt prefixes ESC, except on macOS where Option types composed characters).
+    /// Ctrl / Cmd chords don't type.
     fn on_text(&mut self, text: &str, mods: Modifiers) {
-        if mods.ctrl || mods.mac_cmd || self.focused_explorer().is_some() {
+        if mods.ctrl || mods.mac_cmd {
+            return;
+        }
+        if let Some(b) = self.focused_explorer() {
+            b.text(text);
             return;
         }
         if let Some(s) = self.search.as_mut() {
@@ -111,9 +120,23 @@ impl App {
         t.input(bytes);
     }
 
-    /// Copy / cut / paste events. In a file explorer these copy / cut / paste files; in a
-    /// terminal `keymap::clipboard_key` decides between the clipboard and a control character.
+    /// Copy / cut / paste events. In a file explorer these copy / cut / paste files (or text,
+    /// in its location or rename field); in a terminal `keymap::clipboard_key` decides between
+    /// the clipboard and a control character.
     fn on_clipboard(&mut self, ctx: &egui::Context, event: Event, mods: Modifiers) {
+        if let Some(b) = self.focused_explorer().filter(|b| b.editing()) {
+            match event {
+                Event::Paste(text) => {
+                    b.text(text.lines().next().unwrap_or_default());
+                }
+                e => {
+                    if let Some(text) = b.edit_clipboard(e == Event::Cut) {
+                        ctx.copy_text(text);
+                    }
+                }
+            }
+            return;
+        }
         if let Some(b) = self.focused_explorer() {
             match event {
                 Event::Paste(text) => b.paste(ctx, None, Some(&text)),

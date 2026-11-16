@@ -7,8 +7,8 @@
 //! and, if that's another nex, passes the hover and the drop on to it over that nex's socket,
 //! `$XDG_RUNTIME_DIR/nex-dnd-<pid>.sock`.
 //!
-//! A message is one connection: `hover X Y`, `leave`, or `drop X Y` followed by the dropped
-//! files as a `text/uri-list`. Positions are in the receiving window's surface coordinates.
+//! A message is one connection: `hover X Y`, `leave`, or `drop X Y` (a copy) or `move X Y`
+//! followed by the dropped files as a `text/uri-list`. Positions are in the receiving window's surface coordinates.
 
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -69,11 +69,11 @@ fn apply(shared: &Mutex<Shared>, msg: &str) {
     match (cmd, at) {
         ("hover", Some(at)) => s.hover = Some(at),
         ("leave", _) => s.hover = None,
-        ("drop", Some(at)) => {
+        ("drop" | "move", Some(at)) => {
             s.hover = None;
             let paths = parse_paths(body);
             if !paths.is_empty() {
-                s.dropped.push((paths, at));
+                s.dropped.push((paths, at, cmd == "move"));
             }
         }
         _ => {}
@@ -219,7 +219,8 @@ mod tests {
         assert_eq!(shared.lock().unwrap().hover, None);
         let file = std::env::current_exe().unwrap();
         apply(&shared, &format!("drop 5 6\n{}\r\n", super::super::file_uri(&file)));
+        apply(&shared, &format!("move 7 8\n{}\r\n", super::super::file_uri(&file)));
         let s = shared.lock().unwrap();
-        assert_eq!(s.dropped, vec![(vec![file], (5.0, 6.0))]);
+        assert_eq!(s.dropped, vec![(vec![file.clone()], (5.0, 6.0), false), (vec![file], (7.0, 8.0), true)]);
     }
 }

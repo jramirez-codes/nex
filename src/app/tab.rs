@@ -1,9 +1,22 @@
 //! A tab: a split tree of panes plus its header's pane-icon deck.
 
+use egui::{Pos2, Vec2};
+
 use crate::app::layout::{Node, PaneId};
 use crate::ui::glide::Glide;
 
 use super::motion::PaneMotion;
+
+/// A pane being dragged by its header, to swap it with the one it is dropped on.
+pub(super) struct PaneDrag {
+    pub(super) pane: PaneId,
+    /// Where the pointer holds the card, from the card's top-left corner.
+    pub(super) grab: Vec2,
+    /// The last known pointer position.
+    pub(super) at: Pos2,
+    /// The pane it would swap with if dropped now (previewed in the dragged pane's slot).
+    pub(super) over: Option<PaneId>,
+}
 
 pub(super) struct Tab {
     /// Stable identity (survives reordering) for egui widget ids.
@@ -13,6 +26,8 @@ pub(super) struct Tab {
     pub(super) zoomed: bool,
     /// Split / close transitions and focus fades of this tab's panes.
     pub(super) motion: PaneMotion,
+    /// A pane being dragged by its header, if any.
+    pub(super) drag: Option<PaneDrag>,
     /// Pane-icon deck in the tab header: rotation (in cards) of the stack, plus the focus and
     /// pane count it was last drawn for, to tell focus moves (animate) from splits (snap).
     deck: Glide,
@@ -22,7 +37,7 @@ pub(super) struct Tab {
 
 impl Tab {
     pub(super) fn new(uid: u64, pane: PaneId) -> Self {
-        Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, motion: PaneMotion::default(), deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
+        Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, motion: PaneMotion::default(), drag: None, deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
     }
 
     pub(super) fn contains(&self, pane: PaneId) -> bool {
@@ -44,7 +59,7 @@ impl Tab {
 
     /// `(process, depth)` for every pane's card in the header deck, 0 being the top.
     /// Focus moves rotate the deck the short way round, flipping through the cards between.
-    pub(super) fn deck_cards(&mut self, ctx: &egui::Context, process_of: impl Fn(PaneId) -> String) -> Vec<(String, f32)> {
+    pub(super) fn deck_cards<T>(&mut self, ctx: &egui::Context, process_of: impl Fn(PaneId) -> T) -> Vec<(T, f32)> {
         let ids = self.root.panes();
         let n = ids.len();
         let Some(idx) = ids.iter().position(|&p| p == self.focused) else { return Vec::new() };

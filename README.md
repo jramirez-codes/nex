@@ -92,17 +92,21 @@ settings for each terminal. Lower is better. See [`bench/`](bench/README.md) to 
 ## Features
 
 - **Tabs and splits, built in.** Split right or down, zoom a pane, drag the gaps to resize,
-  and move between splits with the keyboard. Each pane's header has split, zoom and close
+  drag a pane's header onto another to swap them, and move between splits with the keyboard. Each pane's header has split, zoom and close
   buttons. You don't need tmux for layout.
 - **File explorer, built in.** `Ctrl+E` splits a file explorer off the current pane, open at
   that pane's folder. The directory label in the title bar is also a Files tab of its own.
-  Folders open in place, files open in their default app, and splitting an explorer starts a
-  terminal in the folder you're looking at.
-- **Real file management.** List or grid view, multi-select, and copy, cut and paste between
-  explorers, with a right-click menu and an action bar. Drag files into another folder to move
-  them, onto a terminal to type their paths, or drop them in from other apps. Name clashes get
-  a `(2)` suffix instead of overwriting anything. Delete asks for confirmation first, since
-  it's permanent.
+  Folders open in place, files open in their default app (or any app from Open With), and
+  splitting an explorer starts a terminal in the folder you're looking at. Back / Forward,
+  clickable breadcrumbs and a typed location bar with Tab completion get you around, and
+  typing a name jumps to it.
+- **Real file management.** List or grid view with icons for each kind of file, multi-select,
+  and copy, cut and paste between explorers, with a right-click menu and an action bar. Rename
+  in place, create folders and files, and see a file's Properties. Copies and moves show a
+  live progress bar with a Cancel button. Drag files into another folder to move them, onto a
+  terminal to type their paths, or drop them in from other apps. Name clashes get a `(2)`
+  suffix instead of overwriting anything. Delete asks for confirmation first, since it's
+  permanent.
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
   an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
   selection into another folder, explorer or terminal pane.
@@ -259,6 +263,7 @@ nex follows Ghostty's defaults on each OS. Both tables live in
 | Split right / down     | `Ctrl+Shift+O` / `Ctrl+Shift+E`                       | `Cmd+D` / `Cmd+Shift+D`                         |
 | Close pane             | `Ctrl+Shift+W`                                        | `Cmd+W`                                         |
 | Focus split            | `Ctrl+Alt+Arrows`                                     | `Cmd+Option+Arrows`                             |
+| Swap with neighbor     | `Alt+Shift+Arrows`                                    | `Cmd+Shift+Option+Arrows`                       |
 | Resize split           | `Ctrl+Shift+Alt+Arrows`                               | `Cmd+Ctrl+Arrows`                               |
 | Equalize splits        | `Ctrl+Shift+Alt+=`                                    | `Cmd+Ctrl+=`                                    |
 | Zoom pane              | `Ctrl+Shift+Enter`                                    | `Cmd+Shift+Enter`                               |
@@ -283,6 +288,8 @@ Mouse actions (use Cmd instead of Ctrl on macOS):
 - Ctrl+click opens a link.
 - Middle-click closes a tab, and dragging a tab reorders it.
 - Drag the gap between two panes to resize them.
+- Drag a pane by its header onto another pane to swap the two (`Esc` cancels). With
+  `pane-headers = false`, use the keyboard swap instead.
 - Click the directory label in the title bar to show the Files tab, click it again to go back,
   and middle-click it to close it. Ctrl+Tab cycles through it too.
 
@@ -296,6 +303,12 @@ On macOS, use Cmd where this table says Ctrl.
 | Move the selection           | Arrows, `PgUp/PgDn`, `Home/End`                       |
 | Open folder or file          | `Enter`, double-click (or tap)                        |
 | Parent folder                | `Backspace`, `Alt+Up`, or the ⌃ button                |
+| Back / forward               | `Alt+Left` / `Alt+Right` (also `Cmd+[` / `Cmd+]` on macOS), mouse side buttons |
+| Type a location              | `Ctrl+L`, or click beside the breadcrumbs; `Tab` completes |
+| Jump to a name               | Start typing; `Up` / `Down` for the previous / next match |
+| Rename                       | `F2`                                                  |
+| New folder                   | `Ctrl+N` (`Cmd+Shift+N` on macOS)                      |
+| Properties                   | `Alt+Enter` (`Cmd+I` on macOS)                         |
 | Select                       | `Space`, Ctrl+click, Shift+click, `Ctrl+A`            |
 | Copy / cut / paste files     | `Ctrl+C` / `Ctrl+X` / `Ctrl+V`                        |
 | Clear selection / clipboard  | `Esc`                                                 |
@@ -304,12 +317,18 @@ On macOS, use Cmd where this table says Ctrl.
 | Show hidden files            | `Ctrl+H`                                              |
 | Zoom the listing             | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   |
 
-- Right-click for Open, Copy, Cut, Paste here, Paste into folder, Copy path, Delete and the
-  view options.
+- Right-click an item for Open, Open With, Open Terminal Here (folders), Copy, Cut, Paste into
+  folder, Rename, Copy path, Properties and Delete. Right-click empty space for Paste here,
+  Create Folder, Create Empty File, Open Terminal Here, the view options and the folder's
+  Properties.
+- Copies, moves and deletes run in the background: a progress bar along the action bar shows
+  how much is done, with the time left and a Cancel button. A cancelled copy leaves no
+  half-copied file behind.
 - Drag files onto a folder to move them (hold Ctrl, or Option on macOS, to copy), or onto a
-  terminal to type their shell-quoted paths. Files dropped in from another app are copied
-  into the folder under the pointer. Dragging files out to other apps works on Wayland, not
-  yet on macOS.
+  terminal to type their shell-quoted paths. On Wayland, drags between windows (another nex,
+  Thunar, Nautilus) move files too, with Ctrl to copy, and a folder updates as soon as a file
+  leaves it. On macOS, files dropped in from another app are copied, and dragging files out
+  isn't supported yet.
 - On a touchscreen, drag to scroll and long-press to start selecting. Long-press and keep
   moving (or, while selecting, drag a selected item) to drag the selection onto a folder,
   another explorer or a terminal. The action bar's Delete button asks before deleting

@@ -11,7 +11,9 @@
 //!   unix.rs       POSIX pieces shared by Linux and macOS (paths, symlinks, shell quoting)
 //!   fontdb.rs     font lookup by scanning font folders (macOS, Windows)
 //!   no_dnd.rs     drag-and-drop stub for OSes where winit already handles it
-//!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland)
+//!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
+//!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
+//!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland) · watch.rs (inotify)
 //!   macos/        mod.rs · proc.rs (libproc)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
 //! ```
@@ -28,10 +30,15 @@
 //! | `shell_env()` | variables the shell needs but may not inherit (`LANG` on macOS) |
 //! | `opened_from_desktop()` | started by Finder / a launcher rather than a shell |
 //! | `open_uri(uri)` | open a link or file with the desktop's default app |
+//! | `apps_for(path)` / `open_with(app, path)` | the explorer's "Open With" list ([`AppChoice`]) |
+//! | `mime_type(path)` | a file's MIME type, for Properties |
+//! | `file_mode(meta)` / `is_executable(meta)` / `owner_names(meta)` | permission bits and owner |
+//! | `format_local_time(t)` | a timestamp as local `YYYY-MM-DD HH:MM` |
 //! | `config_dir()` / `home_dir()` / `hostname()` | where things are, who we are |
 //! | `symlink(src, dst)` / `shell_quote(path)` | file explorer helpers |
 //! | `find_font(..)` / `nerd_mono_families()` | system font lookup ([`FontFace`]) |
 //! | `Dnd` | drag and drop with other apps, where winit doesn't do it |
+//! | `DirWatch` / `on_dir_change(f)` | being told when a folder's contents change |
 
 use std::path::PathBuf;
 
@@ -42,6 +49,11 @@ mod unix;
 mod fontdb;
 #[cfg(not(target_os = "linux"))]
 mod no_dnd;
+#[cfg(not(target_os = "linux"))]
+mod no_watch;
+
+mod winit_app;
+pub use winit_app::{WinitApp, vsync};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -70,6 +82,16 @@ pub struct ProcInfo {
     pub name: Option<String>,
     /// Its working directory.
     pub cwd: Option<PathBuf>,
+}
+
+/// An app offered in the explorer's "Open With" menu.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppChoice {
+    pub name: String,
+    /// What starts it: a desktop entry's `Exec=` line (Linux) or the app bundle (macOS).
+    pub command: String,
+    /// The desktop's default app for the file's type.
+    pub default: bool,
 }
 
 /// A font file found on the system (`index` picks a face inside a `.ttc` collection).
@@ -163,4 +185,17 @@ pub fn dnd_log(args: std::fmt::Arguments) {
         let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
         eprintln!("nex dnd {} {}.{:03}: {args}", std::process::id(), t.as_secs() % 100, t.subsec_millis());
     }
+}
+
+/// A picture of what is being dragged, for the OS to show under the pointer once a drag
+/// leaves the window (where nex can no longer draw it).
+pub struct DragImage {
+    /// Premultiplied RGBA, row by row.
+    pub pixels: Vec<[u8; 4]>,
+    /// Width and height in pixels.
+    pub size: [usize; 2],
+    /// Pixels per logical pixel of the window (a Wayland buffer scale).
+    pub scale: i32,
+    /// Where the pointer is on the image, in logical pixels from its top-left corner.
+    pub hotspot: [i32; 2],
 }

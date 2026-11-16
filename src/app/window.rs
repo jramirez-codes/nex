@@ -6,7 +6,7 @@ use egui::{Color32, CursorIcon, FontId, Id, LayerId, Order, Rect, ResizeDirectio
 
 use crate::file_explorer;
 use crate::app::layout::PaneId;
-use crate::ui::theme::ACCENT;
+use crate::ui::theme::{ACCENT, Theme};
 use crate::ui::widgets::is_maximized;
 
 use super::App;
@@ -17,9 +17,9 @@ const RESIZE_BORDER: f32 = 6.0;
 
 impl App {
     /// Files dropped onto a pane: dragged out of a explorer onto a terminal (inserts their
-    /// paths), or dropped in from another application (into a explorer: copied there; onto a
-    /// terminal: paths inserted).
-    pub(super) fn file_drops(&mut self, ctx: &egui::Context) {
+    /// paths), or dropped in from another window (into an explorer: moved there, or copied with
+    /// Ctrl or when the source only allows copying; onto a terminal: paths inserted).
+    pub(super) fn file_drops(&mut self, ctx: &egui::Context, theme: &Theme) {
         let (pos, released, dropped) = ctx.input(|i| {
             let dropped: Vec<PathBuf> = i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect();
             // On release, where it was released: a touch lift can be followed by a pointer
@@ -36,7 +36,8 @@ impl App {
             if !released && !ctx.content_rect().contains(p) {
                 if let Some(drag) = egui::DragAndDrop::payload::<file_explorer::ExplorerDrag>(ctx) {
                     crate::platform::dnd_log(format_args!("explorer drag left the window at {p:?} (window {:?})", ctx.content_rect()));
-                    if dnd.start_drag(&drag.paths, p) {
+                    // The compositor draws the icon from here on (nex can't draw outside its window).
+                    if dnd.start_drag(&drag.paths, p, file_explorer::drag_image(ctx, theme, &drag)) {
                         egui::DragAndDrop::clear_payload(ctx);
                         ctx.request_repaint();
                     }
@@ -82,7 +83,11 @@ impl App {
         }
         self.pending.push(Action::FocusPane(id));
         if let Some(b) = self.explorers.get_mut(&id) {
-            b.drop_external(ctx, dropped, pos);
+            // A move, as within the window, unless the source only allows a copy or Ctrl is held.
+            let moves = self.dnd.as_ref().is_some_and(|d| d.drop_moves()) && !ctx.input(|i| crate::platform::SHORTCUTS.copy_drag(&i.modifiers));
+            let op = if moves { file_explorer::Op::Move } else { file_explorer::Op::Copy };
+            crate::platform::dnd_log(format_args!("{op:?} {} path(s) into explorer pane {id:?}", dropped.len()));
+            b.drop_external(ctx, op, dropped, pos);
         } else {
             self.insert_paths(id, &dropped);
             crate::platform::dnd_log(format_args!("typed {} path(s) into pane {id:?}", dropped.len()));

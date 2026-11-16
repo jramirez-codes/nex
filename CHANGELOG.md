@@ -6,6 +6,49 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Swap panes. Drag a pane by its header onto another pane: the card follows the mouse or
+  finger, the pane under it slides into the free slot as a preview, and letting go swaps
+  them (`Esc`, or letting go elsewhere, puts it back). `Alt+Shift+Arrows`
+  (`Cmd+Shift+Option+Arrows` on macOS) swaps the focused pane with its neighbor.
+- File explorer, Thunar-style:
+  - Back / Forward (`Alt+Left` / `Alt+Right`, the mouse's side buttons), and clickable
+    breadcrumbs that are also drop targets. `Ctrl+L`, or a click beside the breadcrumbs, types
+    a location, with `Tab` completion.
+  - Rename in place (`F2`), new folders (`Ctrl+N`, `Cmd+Shift+N` on macOS) and new empty files.
+  - Copies, moves and deletes show a live progress bar in the action bar: bytes done, percent,
+    time left and the current file, with a Cancel button.
+  - Open With (from the desktop's app list on Linux, installed apps on macOS), Open Terminal
+    Here, and a Properties dialog (`Alt+Enter`, `Cmd+I` on macOS) with kind, size or folder
+    contents, dates, permissions and owner, where the name can be edited too.
+  - Type to jump to a name, and icons by file type (code, images, video, audio, archives,
+    documents, executables and more), with marks on symlinks and well-known folders.
+  - Dragging files carries the grabbed item's own icon, at the size it has in the listing and
+    held where it was grabbed (with a count when several go). On Wayland the icon keeps
+    following the pointer after the drag leaves the window, instead of disappearing.
+
+### Changed
+
+- On Wayland, dragging files from the explorer into another window (another nex, or a file
+  manager such as Thunar or Nautilus) now moves them, as a drag within the window does. Before,
+  it always copied and left the original in place. Files dropped into a nex explorer from
+  another window move too; hold `Ctrl` to copy instead.
+- File explorers watch their folder (inotify on Linux), so a file moved away by another
+  window, `mv` in a terminal or a file manager disappears at once, even in a window in the
+  background. Elsewhere listings are still re-read every couple of seconds.
+
+### Fixed
+
+- Drag and drop between windows on Hyprland. Hyprland only sends drags and the clipboard to
+  the first data device a client makes, which was egui's clipboard, so no drag ever reached
+  nex and drags between two nex windows were cancelled. nex now runs eframe on its own event
+  loop, makes its data device before the window opens, and reads pasted text from it.
+- "Application not responding" on Wayland for nex windows on another workspace. With vsync
+  on, drawing a frame waits for the compositor's frame callback, which a hidden window never
+  gets, so nex's main thread blocked and missed the compositor's pings. On Wayland vsync is
+  now off and nex paces frames to the display's refresh rate itself.
+
 ## [0.7.4] - 2026-11-14
 
 ### Fixed

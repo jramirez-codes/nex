@@ -252,7 +252,8 @@ impl App {
             // A tad smaller than the tile's icon square, leaving room for the deck to fan out.
             let icon = Rect::from_center_size(icon.center(), icon.size() * 0.84);
             self.tab_icon(&ctx, painter, i, icon, icons::SIDEBAR_STACK_STEP, true);
-            let (title, _) = self.pane_label(self.tabs[i].focused);
+            let (title, process) = self.pane_label(self.tabs[i].focused);
+            let title = icons::title_mark(&process, &title).1.to_string();
             let color = if active { theme.text_bright } else { theme.text_dim };
             paint::caption(painter, text, &title, FontId::proportional(12.0), color);
             let resp = resp.on_hover_text(title);
@@ -266,11 +267,12 @@ impl App {
 
         let icon = Rect::from_center_size(Pos2::new(r.left() + 19.0, r.center().y), Vec2::splat(20.0));
         let text_left = self.tab_icon(&ctx, painter, i, icon, icons::STACK_STEP, false);
-        let (title, _) = self.pane_label(self.tabs[i].focused);
+        let (title, process) = self.pane_label(self.tabs[i].focused);
+        let title = icons::title_mark(&process, &title).1;
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
         let text_right = if hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
         let title_color = if active { theme.text_bright } else { theme.text_dim };
-        paint::faded_text(painter, Pos2::new(text_left, r.center().y), &title, FontId::proportional(13.5), title_color, text_right - text_left, 26.0);
+        paint::faded_text(painter, Pos2::new(text_left, r.center().y), title, FontId::proportional(13.5), title_color, text_right - text_left, 26.0);
 
         // Close button only on hover, like Safari/Finder tabs.
         let close_clicked = (hovered || ui.rect_contains_pointer(close_r))
@@ -291,24 +293,31 @@ impl App {
     /// is centered on `icon` rather than fanning out from it. Returns where the title text
     /// starts.
     fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect, step: Vec2, center: bool) -> f32 {
-        let (_, process) = self.pane_label(self.tabs[i].focused);
+        let (title, process) = self.pane_label(self.tabs[i].focused);
+        let mark = icons::title_mark(&process, &title).0.map(str::to_string);
         let (panes, explorers) = (&self.panes, &self.explorers);
         let cards = self.tabs[i].deck_cards(ctx, |id| {
             if explorers.contains_key(&id) {
-                icons::EXPLORER_PROCESS.into()
+                (icons::EXPLORER_PROCESS.to_string(), None)
             } else {
-                panes.get(&id).map(|t| t.process.clone()).unwrap_or_default()
+                panes
+                    .get(&id)
+                    .map(|t| {
+                        let title = t.title();
+                        (t.process.clone(), icons::title_mark(&t.process, &title).0.map(str::to_string))
+                    })
+                    .unwrap_or_default()
             }
         });
         let mut text_left = icon.right() + 9.0;
         if cards.len() > 1 {
-            let cards: Vec<(&str, f32)> = cards.iter().map(|(p, d)| (p.as_str(), *d)).collect();
+            let cards: Vec<(&str, Option<&str>, f32)> = cards.iter().map(|((p, m), d)| (p.as_str(), m.as_deref(), *d)).collect();
             let behind = (cards.len() as f32 - 1.0).min(icons::STACK_DEPTH - 1.0);
             let icon = if center { icon.translate(-step * behind / 2.0) } else { icon };
             icons::icon_stack(painter, icon, &cards, step);
             text_left += step.x * behind;
         } else {
-            icons::app_tile(painter, icon, &process);
+            icons::app_tile(painter, icon, &process, mark.as_deref());
         }
         text_left
     }

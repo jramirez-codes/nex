@@ -90,6 +90,9 @@ pub struct App {
     /// File-explorer panes (the Files tab). They share the pane id space and split tree with
     /// terminals.
     explorers: HashMap<PaneId, FileExplorer>,
+    /// What explorers asked for while painting (a terminal in some folder), applied with
+    /// the pending actions.
+    explorer_requests: Vec<(PaneId, file_explorer::Request)>,
     /// The Files tab. It lives outside `tabs`: the title-bar directory label is its tab.
     explorer_tab: Option<Tab>,
     /// Whether the Files tab is showing (`active` keeps the last terminal tab).
@@ -113,6 +116,13 @@ impl App {
         ctx.set_visuals(egui::Visuals::dark());
         fonts::install(ctx, &cfg);
         crate::ui::glide::set_animations(ctx, cfg.animations);
+        // A watched folder changed (a file moved away by another window, `mv` in a terminal):
+        // every explorer re-reads its listing on the next frame.
+        let repaint = ctx.clone();
+        crate::platform::on_dir_change(move || {
+            file_explorer::files_changed();
+            repaint.request_repaint();
+        });
 
         let hostname = crate::platform::hostname();
 
@@ -142,6 +152,7 @@ impl App {
             hover_link: None,
             pill_glide: Glide::new(0.2),
             explorers: HashMap::new(),
+            explorer_requests: Vec::new(),
             explorer_tab: None,
             explorer_active: false,
             last_pointer: None,
@@ -281,6 +292,11 @@ impl App {
         for action in std::mem::take(&mut self.pending) {
             self.apply(ctx, action);
         }
+        for (pane, request) in std::mem::take(&mut self.explorer_requests) {
+            match request {
+                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, layout::Axis::Horizontal, Some(dir)),
+            }
+        }
     }
 
     /// Window background, title bar, panes, and anything dragged over them.
@@ -303,7 +319,7 @@ impl App {
         }
         let area = self.content_area;
         self.panes_area(ui, area, &theme);
-        self.file_drops(&ctx);
+        self.file_drops(&ctx, &theme);
         file_explorer::paint_drag_ghost(&ctx, &theme);
         self.window_resize_edges(&ctx, full);
         if self.toast.as_ref().is_some_and(|t| !t.paint(&ctx, area, &theme)) {
