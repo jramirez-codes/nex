@@ -22,7 +22,7 @@ pub enum CursorStyle {
 pub enum TabAnimation {
     /// The new tab soaks through the old one from a drop under its tab.
     Ink,
-    /// The old tab glides out toward the side it is leaving as the new one glides in.
+    /// The old tab glides out the way the tab pill is moving as the new one glides in behind it.
     Glide,
     /// Switch instantly.
     None,
