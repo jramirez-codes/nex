@@ -325,9 +325,10 @@ On macOS, use Cmd where this table says Ctrl.
   how much is done, with the time left and a Cancel button. A cancelled copy leaves no
   half-copied file behind.
 - Drag files onto a folder to move them (hold Ctrl, or Option on macOS, to copy), or onto a
-  terminal to type their shell-quoted paths. Files dropped in from another app are copied
-  into the folder under the pointer. Dragging files out to other apps works on Wayland, not
-  yet on macOS.
+  terminal to type their shell-quoted paths. On Wayland, drags between windows (another nex,
+  Thunar, Nautilus) move files too, with Ctrl to copy, and a folder updates as soon as a file
+  leaves it. On macOS, files dropped in from another app are copied, and dragging files out
+  isn't supported yet.
 - On a touchscreen, drag to scroll and long-press to start selecting. Long-press and keep
   moving (or, while selecting, drag a selected item) to drag the selection onto a folder,
   another explorer or a terminal. The action bar's Delete button asks before deleting
