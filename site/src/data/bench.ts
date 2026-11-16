@@ -13,6 +13,7 @@ export interface Metric {
   title: string
   what: string
   verb: string // "faster output than", used in the highlight tiles
+  note?: string // footnote shown under the highlight tile
   format: (v: number) => string
 }
 
@@ -29,6 +30,7 @@ export const METRICS: Metric[] = [
     title: 'Launch to shell',
     what: 'From starting the terminal to its shell running its first command.',
     verb: 'faster launch than',
+    note: 'nex starts its first shell while the window is still opening, so the shell is ready before the window is; the first frame appears about 120 ms after launch.',
     format: v => `${Math.round(v)} ms`,
   },
   {
