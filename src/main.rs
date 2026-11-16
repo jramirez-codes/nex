@@ -8,6 +8,7 @@ mod terminal;
 mod ui;
 
 fn main() -> eframe::Result {
+    platform::tune_allocator();
     let args = match cli::Args::parse(std::env::args_os().skip(1)) {
         Ok(a) => a,
         Err(e) => {

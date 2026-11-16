@@ -3,6 +3,7 @@
 
 mod apps;
 mod launch;
+mod memory;
 mod proc;
 mod window;
 
@@ -15,6 +16,7 @@ pub use super::unix::{
 };
 pub use apps::{apps_for, mime_type, open_with};
 pub use launch::{opened_from_desktop, shell_env};
+pub use memory::{trim_heap, tune_allocator};
 pub use proc::proc_info;
 pub use window::{align_window_buttons, set_window_title};
 

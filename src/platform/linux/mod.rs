@@ -1,8 +1,10 @@
-//! Linux backend: `/proc`, fontconfig, `xdg-open`, desktop entries, and Wayland drag and drop.
+//! Linux backend: `/proc`, fontconfig, `xdg-open`, desktop entries, Wayland drag and drop, and
+//! glibc heap tuning.
 
 mod apps;
 mod dnd;
 mod fonts;
+mod memory;
 mod proc;
 mod watch;
 
@@ -13,6 +15,7 @@ pub use super::unix::{
 pub use apps::{apps_for, mime_type, open_with};
 pub use dnd::Dnd;
 pub use fonts::{FALLBACK_FAMILIES, find_font, nerd_mono_families};
+pub use memory::{trim_heap, tune_allocator};
 pub use proc::proc_info;
 pub use watch::{DirWatch, on_dir_change};
 

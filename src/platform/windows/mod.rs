@@ -35,6 +35,10 @@ pub fn set_window_title(ctx: &egui::Context, _frame: &eframe::Frame, title: &str
     ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.to_owned()));
 }
 
+/// The Windows heap returns freed memory on its own.
+pub fn tune_allocator() {}
+pub fn trim_heap() {}
+
 pub fn opened_from_desktop() -> bool {
     false
 }
