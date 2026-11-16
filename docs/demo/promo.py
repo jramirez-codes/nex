@@ -4,9 +4,10 @@ still, macOS-style dusk landscape (layered hills fading into haze under a warm h
 with a soft shadow and a caption under it naming each feature as it plays. The clip is sped up
 to fit DURATION. The backdrop doesn't move, so the GIF only stores the window's changes.
 
-Writes promo.mp4 and promo.gif (both 1920x1080) to OUT_DIR.
+Writes promo.mp4 and promo.gif (both 1920x1080) to OUT_DIR; with --no-captions, hero.mp4 and
+hero.gif instead (the README's top GIF): no caption, and the window centered.
 Usage: DEMO_SCENES=promo docs/demo/record.py [TAKE_DIR]
-       docs/demo/promo.py [TAKE_DIR] [OUT_DIR] [--background IMAGE]
+       docs/demo/promo.py [TAKE_DIR] [OUT_DIR] [--background IMAGE] [--no-captions]
        (defaults: target/demo, site/public/demo; IMAGE replaces the generated landscape and is
        cropped to fill the frame)
        docs/demo/promo.py --still OUT.png [--background IMAGE]   just the backdrop, to preview
@@ -143,6 +144,8 @@ def main() -> None:
     ap.add_argument("out_dir", nargs="?", type=Path, default=REPO / "site" / "public" / "demo")
     ap.add_argument("--background", type=Path, help="image to use instead of the generated landscape")
     ap.add_argument("--still", type=Path, help="only write the backdrop to this PNG")
+    ap.add_argument("--no-captions", action="store_true",
+                    help="leave the captions out and center the window; writes hero.mp4/hero.gif")
     args = ap.parse_args()
 
     bg = backdrop(args.background)
@@ -155,10 +158,12 @@ def main() -> None:
     marks = json.loads((args.take_dir / "timeline.json").read_text())
     start = next(m["t"] for m in marks if m["clip"] == "promo" and m["event"] == "start")
     end = next(m["t"] for m in marks if m["clip"] == "promo" and m["event"] == "end")
-    caps = captions(marks, start, end)
+    caps = [] if args.no_captions else captions(marks, start, end)
+    name = "hero" if args.no_captions else "promo"
 
     win = (WIN_W, round(WIN_W * 900 / 1440))
-    wx, wy = (W - win[0]) // 2, 46
+    # With captions the window sits high, leaving a band under it for them.
+    wx, wy = (W - win[0]) // 2, (H - win[1]) // 2 if args.no_captions else 46
     radius = CORNER * WIN_W / 1440 + 1
     mask = rounded_mask(win, radius)
 
@@ -211,14 +216,14 @@ def main() -> None:
     colors = (bg_pal + win_pal + cap_pal)[:256]
     pal_img = Image.new("P", (1, 1))
     pal_img.putpalette([v for c in colors for v in c] + [0] * (768 - 3 * len(colors)))
-    palette_png = args.out_dir / "promo-palette.png"
+    palette_png = args.out_dir / f"{name}-palette.png"
     swatch = Image.new("RGB", (16, 16))
     swatch.putdata(colors + [colors[0]] * (256 - len(colors)))
     swatch.save(palette_png)
     bg_q = bg_q.convert("RGB")
 
     win_box = (wx - 4, wy - 4, wx + win[0] + 4, wy + win[1] + 4)
-    cap_w = max(font.getbbox(t, anchor="mm")[2] for _, t in caps) + 10
+    cap_w = max((font.getbbox(t, anchor="mm")[2] for _, t in caps), default=0) + 10
     cap_box = (W // 2 - cap_w, cap_y - 40, W // 2 + cap_w, min(H, cap_y + rise_px + 40))
 
     def snap(img: Image.Image, box, where: Image.Image | None = None) -> None:
@@ -232,8 +237,8 @@ def main() -> None:
                                  "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-framerate", str(FPS),
                                  "-i", "-", *args_], stdin=subprocess.PIPE)
 
-    master = args.out_dir / "promo.mp4"
-    gif = args.out_dir / "promo.gif"
+    master = args.out_dir / f"{name}.mp4"
+    gif = args.out_dir / f"{name}.gif"
     mp4_enc = ffmpeg_out(["-c:v", "libx264", "-crf", "14", "-preset", "slow", "-tune", "stillimage",
                           "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(master)])
     # Every frame already uses only `colors`, so paletteuse just looks them up: no dithering, and
