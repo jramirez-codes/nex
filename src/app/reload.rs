@@ -18,6 +18,7 @@ impl App {
 
         if cfg.font_family != old.font_family {
             fonts::install(ctx, cfg);
+            self.trim_heap_at = Some(std::time::Instant::now() + super::TRIM_HEAP_DELAY);
         }
         // Per-pane zoom is kept unless the default size itself changed.
         if cfg.font_size != old.font_size {

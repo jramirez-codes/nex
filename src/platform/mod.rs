@@ -14,7 +14,8 @@
 //!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
 //!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
 //!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland) · watch.rs (inotify)
-//!   macos/        mod.rs · proc.rs (libproc)
+//!                 · memory.rs (glibc arenas, malloc_trim)
+//!   macos/        mod.rs · proc.rs (libproc) · memory.rs (malloc pressure relief)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
 //! ```
 //!
@@ -39,6 +40,7 @@
 //! | `find_font(..)` / `nerd_mono_families()` | system font lookup ([`FontFace`]) |
 //! | `Dnd` | drag and drop with other apps, where winit doesn't do it |
 //! | `DirWatch` / `on_dir_change(f)` | being told when a folder's contents change |
+//! | `tune_allocator()` / `trim_heap()` | allocator setup at launch; return freed heap to the OS |
 
 use std::path::PathBuf;
 

@@ -51,6 +51,10 @@ const WINDOW_RADIUS: u8 = 14;
 const WINDOW_BORDER: Color32 = white_alpha(22);
 /// How often process names, working directories and file listings are refreshed.
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(750);
+/// Widest font atlas egui may make. Its default is the GPU's limit, 16384 px.
+const MAX_ATLAS_SIDE: usize = 4096;
+/// How long after startup or a font change freed memory is handed back to the OS.
+const TRIM_HEAP_DELAY: Duration = Duration::from_millis(500);
 
 pub struct App {
     cfg: Config,
@@ -74,6 +78,8 @@ pub struct App {
     card_rects: Vec<(PaneId, Rect)>,
     hostname: String,
     last_proc_poll: Instant,
+    /// When to hand memory freed during startup (font loading) back to the OS; `None` once done.
+    trim_heap_at: Option<Instant>,
     window_title: String,
     bindings: Vec<Binding>,
     /// Area available for panes in the current window (used to size new terminals).
@@ -145,6 +151,7 @@ impl App {
             card_rects: Vec::new(),
             hostname,
             last_proc_poll: Instant::now(),
+            trim_heap_at: Some(Instant::now() + TRIM_HEAP_DELAY),
             window_title: String::new(),
             bindings: keybindings(),
             content_area: Rect::NOTHING,
@@ -172,6 +179,9 @@ impl App {
 impl eframe::App for App {
     /// Files dragged in from another window, reported as winit does on X11.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        // egui makes its font atlas as wide as the GPU allows (16384 px), most of it empty,
+        // in memory and again on the GPU. A narrower atlas grows taller only as glyphs need it.
+        raw_input.max_texture_side = raw_input.max_texture_side.map(|side| side.min(MAX_ATLAS_SIDE));
         if let Some(dnd) = &mut self.dnd {
             dnd.feed(ctx, raw_input);
         }
@@ -198,6 +208,7 @@ impl eframe::App for App {
             return;
         }
         self.poll_background();
+        self.trim_heap_when_due();
         ctx.request_repaint_after(Duration::from_secs(1));
 
         // We draw everything ourselves; never let egui give keyboard focus to a widget
@@ -279,6 +290,14 @@ impl App {
 
     /// Every so often: refresh process names / cwds, re-read stale file listings, and reload
     /// the config if its file changed.
+    /// Once startup (or a font change) is over, give the memory it freed back to the OS.
+    fn trim_heap_when_due(&mut self) {
+        if self.trim_heap_at.is_some_and(|at| Instant::now() >= at) {
+            self.trim_heap_at = None;
+            crate::platform::trim_heap();
+        }
+    }
+
     fn poll_background(&mut self) {
         if self.last_proc_poll.elapsed() <= PROCESS_POLL_INTERVAL {
             return;

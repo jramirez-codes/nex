@@ -15,6 +15,10 @@ picked up automatically if installed: nex (built in release mode), Alacritty, ki
 GNOME Terminal. Each runs with its default settings; nex gets a throwaway config so your own
 `~/.config/nex` is not used.
 
+To see where nex's idle memory goes (Linux), run `bench/mem.sh`: it starts nex the same way,
+then prints its resident memory split into heap, file-backed and shared pages, and the
+mappings holding the most of it (heap, GL driver libraries, the nex binary, fonts).
+
 ## What is measured
 
 Each terminal runs [`inner.sh`](inner.sh) as its command:
