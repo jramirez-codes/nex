@@ -32,6 +32,10 @@ pub fn app_icon() -> Option<egui::IconData> {
 /// nex draws its own window buttons here, so there is nothing to align (macOS only).
 pub fn align_window_buttons(_frame: &eframe::Frame, _height: f32) {}
 
+pub fn set_window_title(ctx: &egui::Context, _frame: &eframe::Frame, title: &str, _buttons_height: Option<f32>) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.to_owned()));
+}
+
 pub fn opened_from_desktop() -> bool {
     false
 }

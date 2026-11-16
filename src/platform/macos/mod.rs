@@ -16,7 +16,7 @@ pub use super::unix::{
 pub use apps::{apps_for, mime_type, open_with};
 pub use launch::{opened_from_desktop, shell_env};
 pub use proc::proc_info;
-pub use window::align_window_buttons;
+pub use window::{align_window_buttons, set_window_title};
 
 use super::{ShortcutStyle, WindowDefaults};
 

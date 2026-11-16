@@ -8,10 +8,14 @@ All notable changes to nex are documented here. The format follows
 
 ## [0.8.1] - 2026-11-16
 
+### Fixed
+
+- On macOS, the window buttons (traffic lights) no longer flicker up for a frame when the
+  terminal's title changes.
+
 ### Changed
 
-- Refreshed the benchmark results in the README and on the site for v0.8.0. No changes to
-  the app itself.
+- Refreshed the benchmark results in the README and on the site.
 
 ## [0.8.0] - 2026-11-15
 
