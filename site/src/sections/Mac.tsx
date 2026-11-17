@@ -15,7 +15,7 @@ const CAPS = [
 /** Copy follows CHANGELOG.md 0.7.0 / 0.7.1. Keep it honest about what isn't there yet. */
 const POINTS = [
   { title: 'Universal app', body: 'One nex.app runs natively on Apple Silicon and Intel Macs. Nothing to install from Homebrew.' },
-  { title: 'Native window', body: 'Traffic-light buttons, “nex” in the menu bar, and a first shell that opens in your home folder from Finder or the Dock.' },
+  { title: 'Native window', body: 'Traffic-light buttons, “Nex” in the menu bar, and a first shell that opens in your home folder from Finder or the Dock.' },
   { title: 'Mac keys, done right', body: 'Cmd shortcuts follow Ghostty’s macOS defaults. Ctrl+C always reaches the shell, and Option types accents as usual.' },
   { title: 'Same nex everywhere', body: 'Tabs, splits, the file explorer and your ~/.config/nex/config work the same on macOS and Linux.' },
 ]
@@ -25,7 +25,7 @@ export default function Mac() {
     <section className="section mac" id="mac">
       <Reveal className="glass mac-card">
         <div className="mac-intro">
-          <p className="eyebrow">New in 0.7 · macOS</p>
+          <p className="eyebrow">macOS · Apple Silicon &amp; Intel</p>
           <h2 className="title">Now at home{' '}<br />on your Mac.</h2>
           <p className="lede">
             The same tabs, splits and file explorer you get on Linux, in a native-feeling Mac app

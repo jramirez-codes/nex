@@ -5,6 +5,7 @@ mod apps;
 mod clipboard;
 mod launch;
 mod memory;
+mod menu;
 mod proc;
 mod window;
 

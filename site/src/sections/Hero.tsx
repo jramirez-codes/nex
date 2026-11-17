@@ -32,9 +32,9 @@ export default function Hero() {
 
   return (
     <section className="hero" id="top">
-      <a className="hero-badge hero-in" href="#mac">
+      <a className="hero-badge hero-in" href="#ssh">
         <span className="hero-badge-new">New</span>
-        nex 0.7 runs on macOS
+        SSH that follows you, in nex 0.10
         <span aria-hidden="true">→</span>
       </a>
       <h1 className="hero-title hero-in">
@@ -42,7 +42,8 @@ export default function Hero() {
       </h1>
       <p className="lede hero-sub hero-in">
         A fast, GPU-accelerated terminal for macOS and Linux, written in Rust. Tabs, split
-        panes and a file explorer, all built in. No tmux, no plugins, no setup.
+        panes, a file explorer and SSH that follows you, all built in. No tmux, no plugins,
+        no setup.
       </p>
       <div className="hero-actions hero-in">
         <a className="btn btn-primary" href={RELEASES}>Download for {platformName(platform)}</a>

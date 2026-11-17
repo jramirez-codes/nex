@@ -1,6 +1,6 @@
 [package]
 name = "nex"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 rust-version = "1.88"
 description = "A fast, GPU-accelerated terminal emulator for Linux and macOS with tabs, split panes and a file explorer built in."
@@ -38,9 +38,10 @@ serde_json = "1"
 fontdb = { version = "0.23", default-features = false, features = ["std", "fs", "memmap"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Centering the native traffic lights in nex's title bar (see src/platform/macos/window.rs).
+# Centering the native traffic lights in nex's title bar and naming the app menu
+# (see src/platform/macos/window.rs and menu.rs).
 objc2 = { version = "0.6", default-features = false, features = ["std"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSControl", "NSButton"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSControl", "NSButton", "NSApplication", "NSMenu", "NSMenuItem"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString"] }
 raw-window-handle = "0.6"
 
