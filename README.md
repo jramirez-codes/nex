@@ -497,7 +497,7 @@ scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them i
 2. Commit, then tag and push:
 
    ```sh
-   git tag v0.9.1 && git push origin v0.9.1
+   git tag v0.10.0 && git push origin v0.10.0
    ```
 
 The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 Linux binaries
