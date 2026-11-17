@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-17
+
 ### Added
 
 - Share your microphone with an SSH session (experimental). The mic button in an `ssh`
@@ -392,7 +394,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/jramirez-codes/nex/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/jramirez-codes/nex/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/jramirez-codes/nex/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/jramirez-codes/nex/compare/v0.9.0...v0.9.1
