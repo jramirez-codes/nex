@@ -170,7 +170,7 @@ pub(super) fn paint_icon(p: &Painter, r: Rect, e: &Entry, fade: f32, c: &Theme, 
         let rad = (r.height() * 0.22).max(5.0);
         let at = Pos2::new(r.left() + rad * 0.6, r.bottom() - rad * 0.6);
         p.circle_filled(at, rad, c.card);
-        p.circle_stroke(at, rad, Stroke::new(1.0, c.text_dim.gamma_multiply(0.6 * fade)));
+        p.circle_stroke(at, rad, Stroke::new(1.0_f32, c.text_dim.gamma_multiply(0.6 * fade)));
         file_icons::paint_glyph(p, at, rad * 1.5, LINK_MARK, c.text_bright.gamma_multiply(fade));
     }
 }
@@ -196,7 +196,7 @@ pub(super) fn name_rect(view: View, item: Rect, s: &Sizes, selecting: bool) -> R
 pub(super) fn item_background(p: &Painter, r: Rect, st: &ItemState) {
     if st.drop {
         p.rect_filled(r, 8, ACCENT.gamma_multiply(0.22));
-        p.rect_stroke(r, 8, Stroke::new(1.5, ACCENT), StrokeKind::Inside);
+        p.rect_stroke(r, 8, Stroke::new(1.5_f32, ACCENT), StrokeKind::Inside);
     } else if st.marked {
         p.rect_filled(r, 8, ACCENT.gamma_multiply(0.25));
     } else if st.cursor {

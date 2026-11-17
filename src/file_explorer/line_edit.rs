@@ -171,7 +171,7 @@ impl LineEdit {
     /// extends the selection); a double-click selects everything.
     pub(super) fn paint(&mut self, p: &Painter, r: Rect, font: FontId, c: &Theme) {
         p.rect_filled(r, 6, Color32::from_black_alpha(90));
-        p.rect_stroke(r, 6, Stroke::new(1.0, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
+        p.rect_stroke(r, 6, Stroke::new(1.0_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
         let inner = r.shrink2(Vec2::new(6.0, 0.0));
         let galley = p.layout_no_wrap(self.text.clone(), font, c.text_bright);
         let x_of = |i: usize| galley.pos_from_cursor(CCursor::new(i)).min.x;
@@ -205,7 +205,7 @@ impl LineEdit {
         }
         let x = origin.x + x_of(self.cursor);
         clip.galley(origin, galley, c.text_bright);
-        clip.line_segment([Pos2::new(x, origin.y + 1.0), Pos2::new(x, origin.y + h - 1.0)], Stroke::new(1.5, ACCENT));
+        clip.line_segment([Pos2::new(x, origin.y + 1.0), Pos2::new(x, origin.y + h - 1.0)], Stroke::new(1.5_f32, ACCENT));
     }
 }
 

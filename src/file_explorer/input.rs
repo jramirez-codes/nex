@@ -185,13 +185,11 @@ impl FileExplorer {
         if let (Some(p), true) = (input.pos, input.down) {
             self.advance_gesture(ctx, p, input);
         }
-        if input.released {
-            if let Some(press) = self.press.take() {
-                if press.gesture == Gesture::Pending {
+        if input.released
+            && let Some(press) = self.press.take()
+                && press.gesture == Gesture::Pending {
                     self.click(press.item, press.touch, input.mods, input.now);
                 }
-            }
-        }
     }
 
     /// While the button is held: decide what the press is, or keep doing it.

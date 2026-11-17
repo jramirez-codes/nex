@@ -123,11 +123,10 @@ impl App {
     /// Move to the next search match (older if `up`) and scroll it into view.
     fn search_step(&mut self, up: bool) {
         let Some(s) = self.search.as_mut() else { return };
-        if let Some(p) = s.step(up) {
-            if let Some(t) = self.panes.get(&s.pane) {
+        if let Some(p) = s.step(up)
+            && let Some(t) = self.panes.get(&s.pane) {
                 t.term.lock().scroll_to_point(p);
             }
-        }
     }
 
     /// Typed text: into a file explorer (its text fields, or type-to-find), the search field or

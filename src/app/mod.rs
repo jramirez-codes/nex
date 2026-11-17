@@ -2,6 +2,7 @@
 //! Each concern lives in its own submodule; this file holds the state and the frame loop.
 
 mod actions;
+mod follow;
 mod keyboard;
 mod keymap;
 pub mod layout;
@@ -141,6 +142,8 @@ pub struct App {
     sharing_prompt: Option<upload::SharingPrompt>,
     /// Not Now was picked in that offer: don't ask again this run.
     sharing_declined: bool,
+    /// A split or tab into an ssh session, waiting on the sharing alert (see `follow`).
+    pending_pane: Option<follow::PendingPane>,
 }
 
 impl App {
@@ -206,6 +209,7 @@ impl App {
             uploads: Vec::new(),
             sharing_prompt: None,
             sharing_declined: false,
+            pending_pane: None,
         }
     }
 }
@@ -234,7 +238,7 @@ impl eframe::App for App {
             // The first shell is spawned on the first frame, once the window size is known.
             self.started = true;
             let cwd = std::env::current_dir().ok();
-            self.new_tab(ctx, cwd);
+            self.new_tab(ctx, cwd, None);
             if self.open_explorer {
                 // Opened as a file manager: the Files tab, at the first shell's folder.
                 self.toggle_explorer();
@@ -359,7 +363,7 @@ impl App {
         }
         for (pane, request) in std::mem::take(&mut self.explorer_requests) {
             match request {
-                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, layout::Axis::Horizontal, Some(dir)),
+                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, layout::Axis::Horizontal, Some(dir), None),
             }
         }
     }
@@ -372,7 +376,7 @@ impl App {
         let radius = if is_maximized(&ctx) || self.cfg.window_decorations { 0 } else { WINDOW_RADIUS };
         ui.painter().rect_filled(full, radius, theme.window);
         if radius > 0 {
-            ui.painter().rect_stroke(full, radius, Stroke::new(1.0, WINDOW_BORDER), StrokeKind::Inside);
+            ui.painter().rect_stroke(full, radius, Stroke::new(1.0_f32, WINDOW_BORDER), StrokeKind::Inside);
         }
 
         if self.cfg.mobile {

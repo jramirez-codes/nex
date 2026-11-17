@@ -162,10 +162,10 @@ pub fn tessellate(tess: &mut Tessellator, shape: Shape, out: &mut Vec<Mesh>) {
 pub fn subdivide(mesh: &mut Mesh, max_edge: f32) {
     let max2 = max_edge * max_edge;
     let long = |m: &Mesh, i: u32, j: u32| m.vertices[i as usize].pos.distance_sq(m.vertices[j as usize].pos);
-    if mesh.indices.chunks_exact(3).all(|t| long(mesh, t[0], t[1]).max(long(mesh, t[1], t[2])).max(long(mesh, t[2], t[0])) <= max2) {
+    if mesh.indices.as_chunks::<3>().0.iter().all(|t| long(mesh, t[0], t[1]).max(long(mesh, t[1], t[2])).max(long(mesh, t[2], t[0])) <= max2) {
         return;
     }
-    let mut todo: Vec<[u32; 3]> = mesh.indices.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect();
+    let mut todo: Vec<[u32; 3]> = mesh.indices.as_chunks::<3>().0.iter().map(|t| [t[0], t[1], t[2]]).collect();
     let mut indices = Vec::with_capacity(mesh.indices.len());
     while let Some([a, b, c]) = todo.pop() {
         let (ab, bc, ca) = (long(mesh, a, b), long(mesh, b, c), long(mesh, c, a));
@@ -284,7 +284,7 @@ mod tests {
         );
         subdivide(&mut m, MAX_EDGE);
         let mut area = 0.0;
-        for t in m.indices.chunks_exact(3) {
+        for t in m.indices.as_chunks::<3>().0 {
             let [a, b, c] = [t[0], t[1], t[2]].map(|i| m.vertices[i as usize]);
             for (p, q) in [(a, b), (b, c), (c, a)] {
                 assert!(p.pos.distance(q.pos) <= MAX_EDGE + 1e-3);

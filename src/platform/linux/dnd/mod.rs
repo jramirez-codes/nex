@@ -478,11 +478,10 @@ impl Dnd {
     /// Before each frame: report an incoming drag to egui as winit does on X11, and a paste
     /// key egui couldn't paste for.
     pub fn feed(&mut self, ctx: &egui::Context, raw: &mut RawInput) {
-        if PASTE_KEY.swap(false, Ordering::Relaxed) && !raw.events.iter().any(|e| matches!(e, Event::Paste(_))) {
-            if let Some(text) = self.clipboard_text() {
+        if PASTE_KEY.swap(false, Ordering::Relaxed) && !raw.events.iter().any(|e| matches!(e, Event::Paste(_)))
+            && let Some(text) = self.clipboard_text() {
                 raw.events.push(Event::Paste(text));
             }
-        }
         let (hover, dropped) = {
             let mut s = self.shared.lock().unwrap();
             let size = ctx.content_rect().size() * ctx.zoom_factor();
@@ -678,14 +677,12 @@ impl State {
             trace!("received {} bytes, {} existing path(s)", text.len(), paths.len());
             // No local files (a browser's image, whose URI is a web URL): save the image
             // itself and drop that file, so a terminal types its path as for any file.
-            if paths.is_empty() {
-                if let Some((mime, ext)) = image {
-                    if let Some(path) = receive_image(&conn, &offer, &mime, &ext) {
+            if paths.is_empty()
+                && let Some((mime, ext)) = image
+                    && let Some(path) = receive_image(&conn, &offer, &mime, &ext) {
                         text = file_uri(&path);
                         paths = vec![path];
                     }
-                }
-            }
             if offer.version() >= 3 {
                 offer.finish();
             }
@@ -937,7 +934,7 @@ mod tests {
     #[test]
     fn dropped_images_prefer_png() {
         let offer = |types: &[&str]| OfferData { types: Mutex::new(types.iter().map(|t| t.to_string()).collect()), ..Default::default() };
-        let pick = |types: &[&str]| offer(types).image_type().map(|(m, e)| (m, e));
+        let pick = |types: &[&str]| offer(types).image_type();
         // Firefox: the page's URL as a uri-list, the image in several formats.
         assert_eq!(pick(&["text/x-moz-url", URI_LIST, "text/html", "image/jpeg", PNG]), Some((PNG.into(), "png".into())));
         assert_eq!(pick(&["image/svg+xml"]), Some(("image/svg+xml".into(), "svg".into())));

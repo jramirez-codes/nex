@@ -145,23 +145,6 @@ pub(super) fn spawn_detached(argv: &[String], cwd: Option<&Path>) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn quoting() {
-        assert_eq!(shell_quote(Path::new("/tmp/plain-file.txt")), "/tmp/plain-file.txt");
-        assert_eq!(shell_quote(Path::new("/tmp/it's here")), r"'/tmp/it'\''s here'");
-    }
-
-    #[test]
-    fn hostname_is_short_and_nonempty() {
-        let h = hostname();
-        assert!(!h.is_empty() && !h.contains('.'));
-    }
-}
-
 /// Run `program args` and return its output, or `None` if it isn't installed, fails, or
 /// takes longer than `timeout` (it is then killed).
 pub(super) fn output_within(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<Vec<u8>> {
@@ -188,4 +171,21 @@ pub(super) fn output_within(program: &str, args: &[&str], timeout: std::time::Du
     };
     let out = reader.join().ok()?.ok()?;
     status.success().then_some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quoting() {
+        assert_eq!(shell_quote(Path::new("/tmp/plain-file.txt")), "/tmp/plain-file.txt");
+        assert_eq!(shell_quote(Path::new("/tmp/it's here")), r"'/tmp/it'\''s here'");
+    }
+
+    #[test]
+    fn hostname_is_short_and_nonempty() {
+        let h = hostname();
+        assert!(!h.is_empty() && !h.contains('.'));
+    }
 }

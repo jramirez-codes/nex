@@ -249,7 +249,7 @@ impl FileExplorer {
                 bar_drop = Some(target);
             }
         }
-        painter.line_segment([Pos2::new(rect.left(), bar.bottom()), Pos2::new(rect.right(), bar.bottom())], Stroke::new(1.0, HAIRLINE));
+        painter.line_segment([Pos2::new(rect.left(), bar.bottom()), Pos2::new(rect.right(), bar.bottom())], Stroke::new(1.0_f32, HAIRLINE));
         (bar, bar_drop)
     }
 
@@ -292,7 +292,7 @@ impl FileExplorer {
             let dropping = !current && f.drag.is_some() && f.input.pos.is_some_and(|p| r.contains(p));
             if dropping {
                 painter.rect_filled(r, 6, ACCENT.gamma_multiply(0.22));
-                painter.rect_stroke(r, 6, Stroke::new(1.5, ACCENT), StrokeKind::Inside);
+                painter.rect_stroke(r, 6, Stroke::new(1.5_f32, ACCENT), StrokeKind::Inside);
                 drop_target = Some(path.clone());
             } else if resp.hovered() && !current {
                 painter.rect_filled(r, 6, white_alpha(16));
@@ -357,12 +357,11 @@ impl FileExplorer {
             let item = f.input.pos.and_then(|p| layout.item_at(p, self.scroll, self.entries.len()));
             self.right_click_select(item);
             // Look up "Open With" apps while the menu opens.
-            if let [one] = self.targets().as_slice() {
-                if self.menu_on_item && !one.is_dir() {
+            if let [one] = self.targets().as_slice()
+                && self.menu_on_item && !one.is_dir() {
                     let one = one.clone();
                     self.load_open_with(f.ui.ctx(), one);
                 }
-            }
         }
         self.update_scroll(f.ui, &layout, list, f.input.mods.command);
 
@@ -373,7 +372,7 @@ impl FileExplorer {
         let drop_target = self.handle_drop(f, list, bar_drop).or(os_target);
         if drop_target.as_ref() == Some(&self.dir) {
             f.painter.rect_filled(list, 8, ACCENT.gamma_multiply(0.06));
-            f.painter.rect_stroke(list.shrink(1.0), 8, Stroke::new(1.5, ACCENT.gamma_multiply(0.7)), StrokeKind::Inside);
+            f.painter.rect_stroke(list.shrink(1.0), 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.7)), StrokeKind::Inside);
         }
 
         self.paint_items(f, &layout, list, drop_target.as_ref(), clip);
@@ -509,7 +508,7 @@ impl FileExplorer {
         let r = Rect::from_min_size(Pos2::new(list.right() - w - 10.0, list.bottom() - h - 10.0), Vec2::new(w, h));
         painter.rect_filled(r.translate(Vec2::new(0.0, 2.0)), h / 2.0, Color32::from_black_alpha(60));
         painter.rect_filled(r, h / 2.0, c.card.gamma_multiply(2.0).to_opaque());
-        painter.rect_stroke(r, h / 2.0, Stroke::new(1.0, if find.missed { ERROR.gamma_multiply(0.6) } else { ACCENT.gamma_multiply(0.7) }), StrokeKind::Inside);
+        painter.rect_stroke(r, h / 2.0, Stroke::new(1.0_f32, if find.missed { ERROR.gamma_multiply(0.6) } else { ACCENT.gamma_multiply(0.7) }), StrokeKind::Inside);
         paint_glyph(painter, Pos2::new(r.left() + h * 0.55, r.center().y), h * 0.5, FIND_GLYPH, c.text_dim);
         let left = r.left() + h;
         painter.with_clip_rect(r.shrink(4.0)).galley(Pos2::new(left, r.center().y - galley.size().y / 2.0), galley, col);
@@ -608,7 +607,7 @@ impl FileExplorer {
     /// and Cancel buttons.
     fn action_bar(&mut self, f: &mut Frame, ab: Rect, clip: Option<&Clip>, status: Option<&(String, bool, Instant)>, jobs: Option<&JobSummary>) {
         let (ui, painter, c, s) = (f.ui, f.painter, f.c, &f.s);
-        painter.line_segment([ab.left_top(), ab.right_top()], Stroke::new(1.0, HAIRLINE));
+        painter.line_segment([ab.left_top(), ab.right_top()], Stroke::new(1.0_f32, HAIRLINE));
         if let Some(jobs) = jobs {
             self.progress_bar(ui, painter, ab, jobs.fraction, s.scale);
         }

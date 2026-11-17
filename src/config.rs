@@ -67,6 +67,9 @@ pub struct Config {
     /// Files dropped or pasted into a pane running `ssh` are copied to the remote host,
     /// and their remote paths typed (see `remote`).
     pub ssh_upload: bool,
+    /// Splitting a pane running `ssh`, or opening a tab from it, opens another session on the
+    /// same host in the same remote directory (see `remote::SshTarget::session_command`).
+    pub ssh_follow: bool,
     pub scrollback_limit: usize,
     /// Command to run instead of the user's login shell.
     pub command: Option<String>,
@@ -120,6 +123,7 @@ impl Default for Config {
             copy_on_select: false,
             clipboard_toasts: true,
             ssh_upload: true,
+            ssh_follow: true,
             scrollback_limit: 10_000,
             command: None,
         }
@@ -236,6 +240,7 @@ impl Config {
             "copy-on-select" => self.copy_on_select = value != "false",
             "clipboard-toasts" => self.clipboard_toasts = boolean(value)?,
             "ssh-upload" => self.ssh_upload = boolean(value)?,
+            "ssh-follow" => self.ssh_follow = boolean(value)?,
             "scrollback-limit" => {
                 self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?
             }

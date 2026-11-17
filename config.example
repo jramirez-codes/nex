@@ -40,6 +40,10 @@ clipboard-toasts = true     # "Copied …" / "Pasted …" toasts for terminal co
 # host that wants a password, nex offers to turn on connection sharing in ~/.ssh/config so
 # uploads reuse the pane's login. If an upload can't log in, the local paths are typed.
 ssh-upload = true
+# Splitting a pane that's running ssh, or opening a new tab from it, opens another session on
+# the same host, in the same remote folder. With connection sharing on, it reuses the pane's
+# login. The folder comes from the remote shell (OSC 7, or a "user@host: dir" title).
+ssh-follow = true
 scrollback-limit = 10000
 
 # command = fish

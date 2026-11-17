@@ -40,7 +40,7 @@ mod tests {
 
     #[test]
     fn splits_cmdline() {
-        assert_eq!(split_cmdline(b"ssh\0-p\02222\0host\0"), ["ssh", "-p", "2222", "host"]);
+        assert_eq!(split_cmdline(b"ssh\x00-p\x002222\x00host\x00"), ["ssh", "-p", "2222", "host"]);
         assert!(split_cmdline(b"").is_empty());
     }
 

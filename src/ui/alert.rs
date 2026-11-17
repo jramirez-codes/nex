@@ -58,7 +58,7 @@ impl Alert<'_> {
         let frame = egui::Frame::new()
             .fill(fill)
             .corner_radius(RADIUS)
-            .stroke(Stroke::new(1.0, white_alpha(26)))
+            .stroke(Stroke::new(1.0_f32, white_alpha(26)))
             .shadow(Shadow { offset: [0, 18], blur: 48, spread: 0, color: Color32::from_black_alpha(150) })
             .inner_margin(egui::Margin { left: 20, right: 20, top: 22, bottom: 18 });
         let (enter, escape) = ctx.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
@@ -95,7 +95,7 @@ impl Alert<'_> {
 
 /// Numbered steps in a recessed panel.
 fn steps(ui: &mut Ui, steps: &[String], scale: f32, theme: &Theme) {
-    egui::Frame::new().fill(Color32::from_black_alpha(46)).stroke(Stroke::new(1.0, white_alpha(10))).corner_radius(10).inner_margin(12).show(ui, |ui| {
+    egui::Frame::new().fill(Color32::from_black_alpha(46)).stroke(Stroke::new(1.0_f32, white_alpha(10))).corner_radius(10).inner_margin(12).show(ui, |ui| {
         ui.set_width(ui.available_width());
         for (n, step) in steps.iter().enumerate() {
             if n > 0 {
@@ -182,7 +182,7 @@ fn button(ui: &mut Ui, rect: Rect, label: &str, primary: bool, scale: f32, theme
     p.rect_filled(rect, BUTTON_RADIUS, fill);
     if primary {
         // A soft top sheen, so the primary button reads as raised.
-        p.rect_stroke(rect, BUTTON_RADIUS, Stroke::new(1.0, white_alpha(30)), StrokeKind::Inside);
+        p.rect_stroke(rect, BUTTON_RADIUS, Stroke::new(1.0_f32, white_alpha(30)), StrokeKind::Inside);
     }
     p.text(rect.center(), egui::Align2::CENTER_CENTER, label, bold(13.0 * scale), text);
     resp.clicked()
@@ -201,7 +201,7 @@ fn icon_tile(p: &Painter, r: Rect, icon: AlertIcon) {
     // Lighter upper half for a little depth.
     let upper = Rect::from_min_max(r.min, Pos2::new(r.right(), r.center().y));
     p.rect_filled(upper, super::paint::top_radius(radius), white_alpha(22));
-    p.rect_stroke(r, radius, Stroke::new(1.0, white_alpha(40)), StrokeKind::Inside);
+    p.rect_stroke(r, radius, Stroke::new(1.0_f32, white_alpha(40)), StrokeKind::Inside);
 
     let s = r.width() / 52.0;
     let c = r.center();

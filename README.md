@@ -117,6 +117,16 @@ the window is; the first frame appears about 120 ms after launch.
   offers once to turn on connection sharing (a block in `~/.ssh/config` that applies only
   inside nex), and after one reconnect, uploads ride on the login you typed in the pane.
   `ssh-upload = false` turns it off.
+- **Splits that stay on the server.** Split a pane running `ssh`, or open a new tab from it,
+  and the new terminal is another session on the same host, in the same folder. With
+  connection sharing on, it rides on the login you already typed, so there's no second
+  password. `exit` drops you back to a local shell. To follow your folder, nex needs the remote
+  shell to report it. fish does this already, and so does Debian and Ubuntu's default bash
+  prompt. Elsewhere, add this to the remote `~/.bashrc`:
+  `PROMPT_COMMAND='printf "\e]7;file://%s%s\a" "$HOSTNAME" "$PWD"'${PROMPT_COMMAND:+";$PROMPT_COMMAND"}`,
+  or to `~/.zshrc`:
+  `chpwd() { printf '\e]7;file://%s%s\a' "$HOST" "$PWD" }; chpwd`.
+  `ssh-follow = false` turns it off.
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
   an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
   selection into another folder, explorer or terminal pane.
@@ -239,6 +249,7 @@ window-controls = false                      # hide the close / minimize / maxim
 copy-on-select = false
 clipboard-toasts = false                     # no "Copied …" / "Pasted …" toasts
 ssh-upload = false                           # type local paths for drops into an ssh pane
+ssh-follow = false                           # splits of an ssh pane open a local shell
 animations = false                           # turn off pane and tab animations
 tab-animation = ink                          # switching tabs: glide (default) | ink | none
 explorer-view = grid                         # file explorers open as a grid (default: list)

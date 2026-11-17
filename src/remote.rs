@@ -156,6 +156,34 @@ impl SshTarget {
         }
     }
 
+    /// The command line for a new pane that opens another session on this host, in remote
+    /// directory `dir` (else the remote home), for a split or new tab of an `ssh` pane.
+    ///
+    /// It runs under `sh` so that leaving the session (`exit`) drops to a local shell, as it
+    /// does in the pane it came from. With connection sharing on (see [`enable_sharing`]) the
+    /// session rides on the pane's existing login.
+    pub fn session_command(&self, dir: Option<&str>) -> Vec<String> {
+        // Run by the remote login shell, whatever it is: `cd` and `exec` work in sh, bash, zsh,
+        // fish and csh alike.
+        let mut remote = String::new();
+        if let Some(dir) = dir.filter(|d| !d.is_empty() && *d != "~") {
+            remote.push_str(&format!("cd {}; ", remote_dir(dir)));
+        }
+        remote.push_str("exec \"$SHELL\" -l");
+
+        let mut ssh: Vec<String> = ["ssh", "-t", "-o", "RemoteCommand=none"].map(String::from).to_vec();
+        ssh.extend(self.opts.iter().cloned());
+        ssh.push("--".into());
+        ssh.push(self.destination.clone());
+        ssh.push(remote);
+        let ssh = ssh.iter().map(|a| posix_quote(a)).collect::<Vec<_>>().join(" ");
+        // The local shell to come back to: a login shell on macOS, where terminals start one.
+        let login = if cfg!(target_os = "macos") { " -l" } else { "" };
+        // `set -m` runs ssh as the terminal's foreground job, so the pane sees `ssh` (for its
+        // title, uploads, and splitting it again) rather than `sh`.
+        vec!["/bin/sh".into(), "-c".into(), format!("set -m; {ssh}; exec \"${{SHELL:-/bin/sh}}\"{login}")]
+    }
+
     /// The upload's full `ssh` argument list (without the program name).
     fn upload_args(&self) -> Vec<String> {
         let mut args: Vec<String> = UPLOAD_OPTS.iter().map(|s| s.to_string()).collect();
@@ -241,6 +269,35 @@ pub fn sharing_enabled() -> bool {
 
 fn has_sharing(config: &str) -> bool {
     config.lines().any(|l| l.trim_start().starts_with(SHARING_MARK))
+}
+
+/// Whether a shared connection to `target`'s host is up, so a new session on it needs no
+/// login. Asks the control socket only (`ssh -O check`): quick, and never prompts.
+pub fn shared_connection_live(target: &SshTarget) -> bool {
+    if !SHARING_SUPPORTED {
+        return false;
+    }
+    Command::new("ssh")
+        .env("TERM_PROGRAM", "nex")
+        .args(["-o", "BatchMode=yes", "-O", "check"])
+        .args(&target.opts)
+        .arg("--")
+        .arg(&target.destination)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// A remote directory as a word for `cd`: quoted, but with a leading `~/` left bare so the
+/// remote shell still expands it.
+fn remote_dir(dir: &str) -> String {
+    match dir.strip_prefix("~/") {
+        Some("") => "~".into(),
+        Some(rest) => format!("~/{}", posix_quote(rest)),
+        None => posix_quote(dir),
+    }
 }
 
 /// Connection sharing is a Unix ssh feature; Windows' OpenSSH doesn't have it.
@@ -333,6 +390,46 @@ mod tests {
 
     fn target(opts: &[&str], dest: &str) -> Option<SshTarget> {
         Some(SshTarget { opts: opts.iter().map(|s| s.to_string()).collect(), destination: dest.into() })
+    }
+
+    /// The ssh part of a session command.
+    fn session(t: &SshTarget, dir: Option<&str>) -> String {
+        let cmd = t.session_command(dir);
+        assert_eq!(cmd[..2], ["/bin/sh", "-c"]);
+        let script = cmd[2].strip_prefix("set -m; ").unwrap();
+        script.split("; exec \"${SHELL:-/bin/sh}\"").next().unwrap().to_string()
+    }
+
+    #[test]
+    fn session_commands() {
+        let t = target(&[], "host").unwrap();
+        assert_eq!(session(&t, None), r#"ssh -t -o RemoteCommand=none -- host 'exec "$SHELL" -l'"#);
+        assert_eq!(session(&t, Some("~")), r#"ssh -t -o RemoteCommand=none -- host 'exec "$SHELL" -l'"#);
+        assert_eq!(session(&t, Some("/var/log")), r#"ssh -t -o RemoteCommand=none -- host 'cd /var/log; exec "$SHELL" -l'"#);
+        assert_eq!(
+            session(&t, Some("~/my dir")),
+            r#"ssh -t -o RemoteCommand=none -- host 'cd ~/'\''my dir'\''; exec "$SHELL" -l'"#
+        );
+        let t = target(&["-p", "2222", "-J", "jump"], "me@host").unwrap();
+        assert_eq!(session(&t, Some("/srv")), r#"ssh -t -o RemoteCommand=none -p 2222 -J jump -- me@host 'cd /srv; exec "$SHELL" -l'"#);
+    }
+
+    #[test]
+    fn session_command_round_trips() {
+        // The new pane's ssh is what a split of *it* reads back.
+        let t = target(&["-p", "2222"], "me@host").unwrap();
+        let mut argv = vec!["ssh".to_string(), "-t".into(), "-o".into(), "RemoteCommand=none".into()];
+        argv.extend(t.opts.iter().cloned());
+        argv.extend(["--".into(), t.destination.clone(), "cd /x; exec \"$SHELL\" -l".into()]);
+        assert_eq!(SshTarget::from_argv(&argv), target(&["-o", "RemoteCommand=none", "-p", "2222"], "me@host"));
+    }
+
+    #[test]
+    fn remote_dirs() {
+        assert_eq!(remote_dir("~/src"), "~/src");
+        assert_eq!(remote_dir("~/"), "~");
+        assert_eq!(remote_dir("/a b"), "'/a b'");
+        assert_eq!(remote_dir("~/it's"), r"~/'it'\''s'");
     }
 
     #[test]
@@ -441,13 +538,14 @@ mod tests {
         let tmp = src.join("remote-tmp");
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(src.join("a b.txt"), "hello").unwrap();
-        let tar = Command::new("tar").args(["-chf", "-", "-C"]).arg(&src).arg("a b.txt").stdout(Stdio::piped()).spawn().unwrap();
+        let mut tar = Command::new("tar").args(["-chf", "-", "-C"]).arg(&src).arg("a b.txt").stdout(Stdio::piped()).spawn().unwrap();
         let out = Command::new("sh")
             .args(["-c", REMOTE_SCRIPT])
             .env("TMPDIR", &tmp)
-            .stdin(tar.stdout.unwrap())
+            .stdin(tar.stdout.take().unwrap())
             .output()
             .unwrap();
+        assert!(tar.wait().unwrap().success());
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         let dir = String::from_utf8(out.stdout).unwrap();
         let got = std::fs::read_to_string(Path::new(dir.trim()).join("a b.txt")).unwrap();

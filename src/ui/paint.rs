@@ -19,11 +19,11 @@ pub(super) fn top_radius(r: u8) -> CornerRadius {
 /// The recessed track that holds the tabs (like an iOS segmented control).
 pub fn tab_track(p: &Painter, r: Rect) {
     p.rect_filled(r, 11, Color32::from_black_alpha(70));
-    p.rect_stroke(r, 11, Stroke::new(1.0, Color32::from_white_alpha(12)), StrokeKind::Inside);
+    p.rect_stroke(r, 11, Stroke::new(1.0_f32, Color32::from_white_alpha(12)), StrokeKind::Inside);
     // Inner shadow along the top edge sells the "recessed" look.
     p.line_segment(
         [Pos2::new(r.left() + 10.0, r.top() + 1.5), Pos2::new(r.right() - 10.0, r.top() + 1.5)],
-        Stroke::new(1.0, Color32::from_black_alpha(60)),
+        Stroke::new(1.0_f32, Color32::from_black_alpha(60)),
     );
 }
 
@@ -35,11 +35,11 @@ pub fn glass_pill(p: &Painter, r: Rect, radius: u8) {
     p.rect_filled(r, radius, Color32::from_rgba_unmultiplied(0x5a, 0x55, 0x5e, 150));
     let upper = Rect::from_min_max(r.min, Pos2::new(r.right(), r.center().y));
     p.rect_filled(upper, top_radius(radius), Color32::from_white_alpha(9));
-    p.rect_stroke(r, radius, Stroke::new(1.0, Color32::from_white_alpha(34)), StrokeKind::Inside);
+    p.rect_stroke(r, radius, Stroke::new(1.0_f32, Color32::from_white_alpha(34)), StrokeKind::Inside);
     let inset = radius as f32;
     p.line_segment(
         [Pos2::new(r.left() + inset, r.top() + 1.0), Pos2::new(r.right() - inset, r.top() + 1.0)],
-        Stroke::new(1.0, Color32::from_white_alpha(46)),
+        Stroke::new(1.0_f32, Color32::from_white_alpha(46)),
     );
 }
 
@@ -51,13 +51,13 @@ pub fn card(p: &Painter, r: Rect, radius: u8, fill: Color32, focus: f32, accent:
     p.add(shadow.as_shape(r, radius));
     p.rect_filled(r, radius, fill);
     let border = accent.unwrap_or(Color32::from_white_alpha(alpha(20.0, 30.0)));
-    p.rect_stroke(r, radius, Stroke::new(1.0, border), StrokeKind::Inside);
+    p.rect_stroke(r, radius, Stroke::new(1.0_f32, border), StrokeKind::Inside);
     let inset = radius as f32 + 2.0;
     // Skipped while a card is too narrow for it (mid split / close animation).
     if r.width() > inset * 2.0 {
         p.line_segment(
             [Pos2::new(r.left() + inset, r.top() + 1.5), Pos2::new(r.right() - inset, r.top() + 1.5)],
-            Stroke::new(1.0, Color32::from_white_alpha(alpha(10.0, 16.0))),
+            Stroke::new(1.0_f32, Color32::from_white_alpha(alpha(10.0, 16.0))),
         );
     }
 }

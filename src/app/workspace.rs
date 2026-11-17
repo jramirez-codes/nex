@@ -9,6 +9,7 @@ use crate::app::layout::{Axis, PaneId};
 use crate::terminal::Terminal;
 use crate::ui::icons;
 
+use super::follow::Place;
 use super::metrics::cell_px;
 use super::tab::Tab;
 use super::tab_motion::{TabDrawn, TabGhost};
@@ -30,8 +31,9 @@ impl App {
     }
 
     /// Spawn a shell sized for `card`, so its first output is already laid out correctly.
-    /// `font_size` is the new pane's own zoom level (`None` = config default).
-    pub(super) fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
+    /// `font_size` is the new pane's own zoom level (`None` = config default). `command` runs
+    /// instead of the shell.
+    pub(super) fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
         let id = self.alloc_pane_id();
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);
@@ -42,7 +44,10 @@ impl App {
                 t.attach(ctx);
                 Ok(t)
             }
-            None => Terminal::spawn(id, &self.cfg, self.first_command.take(), cwd, size, cell_px, ctx),
+            None => {
+                let command = command.or_else(|| self.first_command.take());
+                Terminal::spawn(id, &self.cfg, command, cwd, size, cell_px, ctx)
+            }
         };
         match spawned {
             Ok(t) => {
@@ -139,24 +144,24 @@ impl App {
         self.explorer_active = false;
     }
 
-    pub(super) fn new_tab(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>) {
-        if let Some(id) = self.spawn_pane(ctx, cwd, self.content_area, None) {
+    pub(super) fn new_tab(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>) {
+        if let Some(id) = self.spawn_pane(ctx, cwd, command, self.content_area, None) {
             self.tabs.push(Tab::new(id, id));
             self.show_tab(self.tabs.len() - 1);
         }
     }
 
+    /// Split a terminal off `target`, in its directory (and its ssh session, see `follow`).
     pub(super) fn split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
-        let cwd = self.pane_cwd(target);
-        self.split_at(ctx, target, axis, cwd);
+        self.open_from(ctx, Some(target), Place::Split(target, axis));
     }
 
-    /// Split a terminal starting in `cwd` off `target`.
-    pub(super) fn split_at(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis, cwd: Option<PathBuf>) {
+    /// Split a terminal starting in `cwd` (running `command`, else the shell) off `target`.
+    pub(super) fn split_at(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis, cwd: Option<PathBuf>, command: Option<Vec<String>>) {
         let card = self.split_card(target, axis);
         // The new pane starts at the zoom level of the pane it was split from.
         let font_size = self.pane_fonts.get(&target).copied();
-        if let Some(new) = self.spawn_pane(ctx, cwd, card, font_size) {
+        if let Some(new) = self.spawn_pane(ctx, cwd, command, card, font_size) {
             self.attach_split(ctx, target, axis, new);
         }
     }

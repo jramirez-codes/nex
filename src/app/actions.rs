@@ -8,6 +8,7 @@ use crate::app::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
 use super::App;
+use super::follow::Place;
 use super::zoom::EXPLORER_ZOOM_STEP;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,10 +58,7 @@ impl App {
     pub(super) fn apply(&mut self, ctx: &egui::Context, action: Action) {
         let focused = self.focused_pane();
         match action {
-            Action::NewTab => {
-                let cwd = self.focused_cwd();
-                self.new_tab(ctx, cwd);
-            }
+            Action::NewTab => self.open_from(ctx, focused, Place::Tab),
             Action::NewWindow => self.new_window(),
             Action::ClosePane(0) => {
                 if let Some(id) = focused {
@@ -87,11 +85,10 @@ impl App {
                 }
             }
             Action::Swap(dir) => {
-                if let Some(id) = focused {
-                    if let Some(next) = layout::neighbor(&self.card_rects, id, dir) {
+                if let Some(id) = focused
+                    && let Some(next) = layout::neighbor(&self.card_rects, id, dir) {
                         self.swap_panes(ctx, id, next);
                     }
-                }
             }
             Action::SwapPanes(a, b) => self.swap_panes(ctx, a, b),
             Action::CancelPaneDrag => self.cancel_pane_drag(ctx),

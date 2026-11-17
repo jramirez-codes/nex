@@ -120,7 +120,7 @@ impl App {
 
         let blink_on = {
             let ms = ui.input(|i| i.time * 1000.0) as u128;
-            (ms / BLINK_INTERVAL.as_millis()) % 2 == 0
+            (ms / BLINK_INTERVAL.as_millis()).is_multiple_of(2)
         };
         for pane in views {
             if self.explorers.contains_key(&pane.id) {
@@ -486,12 +486,12 @@ fn search_bar(painter: &Painter, card: Rect, top: f32, s: &Search, theme: &Theme
     let r = Rect::from_min_size(Pos2::new(card.right() - w - 12.0, top + 4.0), Vec2::new(w, 30.0));
     painter.rect_filled(r.translate(Vec2::new(0.0, 2.0)), 8, Color32::from_black_alpha(80));
     painter.rect_filled(r, 8, Color32::from_rgb(0x2a, 0x27, 0x30));
-    painter.rect_stroke(r, 8, Stroke::new(1.0, Color32::from_white_alpha(40)), StrokeKind::Inside);
+    painter.rect_stroke(r, 8, Stroke::new(1.0_f32, Color32::from_white_alpha(40)), StrokeKind::Inside);
 
     // Magnifier icon.
     let c = Pos2::new(r.left() + 16.0, r.center().y - 1.0);
-    painter.circle_stroke(c, 4.5, Stroke::new(1.4, theme.text_dim));
-    painter.line_segment([c + Vec2::new(3.2, 3.2), c + Vec2::new(6.5, 6.5)], Stroke::new(1.4, theme.text_dim));
+    painter.circle_stroke(c, 4.5, Stroke::new(1.4_f32, theme.text_dim));
+    painter.line_segment([c + Vec2::new(3.2, 3.2), c + Vec2::new(6.5, 6.5)], Stroke::new(1.4_f32, theme.text_dim));
 
     let count = match (s.query.is_empty(), s.index) {
         (true, _) => String::new(),
@@ -518,7 +518,7 @@ fn search_bar(painter: &Painter, card: Rect, top: f32, s: &Search, theme: &Theme
     if caret_on {
         clip.line_segment(
             [Pos2::new(caret_x, r.center().y - 7.0), Pos2::new(caret_x, r.center().y + 7.0)],
-            Stroke::new(1.2, theme.text),
+            Stroke::new(1.2_f32, theme.text),
         );
     }
 }

@@ -2,6 +2,7 @@
 //! bookkeeping (title, cwd, foreground process) shown in pane headers and tabs.
 
 pub mod input;
+pub mod osc7;
 pub mod search;
 pub mod snapshot;
 
@@ -43,11 +44,10 @@ impl EventListener for EventProxy {
         let _ = self.tx.send(event);
         // Everything but plain output (titles, bells, replies the program waits on, exit)
         // is handled promptly even when hidden.
-        if !wakeup || self.visible.load(Ordering::Relaxed) {
-            if let Some(ctx) = self.ctx.get() {
+        if (!wakeup || self.visible.load(Ordering::Relaxed))
+            && let Some(ctx) = self.ctx.get() {
                 ctx.request_repaint();
             }
-        }
     }
 }
 
@@ -87,6 +87,8 @@ pub struct Terminal {
     /// The foreground process's command line (to reconnect to an `ssh` session's host).
     process_argv: Vec<String>,
     pub cwd: Option<PathBuf>,
+    /// The directory the shell last reported with OSC 7 (see [`osc7`]).
+    osc7: osc7::Slot,
     pub exited: bool,
     pub bell_at: Option<Instant>,
     /// Last time the user typed into this pane (keeps the cursor solid while typing).
@@ -166,6 +168,9 @@ impl Terminal {
         let window_size = window_size(size, cell_px);
         let pty = tty::new(&options, window_size, id)?;
         let pid = platform::pty_pid(&pty);
+        let osc7 = osc7::Slot::default();
+        #[cfg(unix)]
+        let pty = osc7::ScanPty::new(pty, osc7.clone())?;
 
         let (tx, events) = mpsc::channel();
         let visible = Arc::new(AtomicBool::new(true));
@@ -189,6 +194,7 @@ impl Terminal {
             process: String::new(),
             process_argv: Vec::new(),
             cwd,
+            osc7,
             exited: false,
             bell_at: None,
             last_input: Instant::now(),
@@ -359,13 +365,26 @@ impl Terminal {
         crate::remote::SshTarget::from_argv(&self.process_argv)
     }
 
+    /// The directory this pane's `ssh` session is in on the remote host, as far as nex can
+    /// tell: what the remote shell last reported with OSC 7, else the directory in a
+    /// `user@host: dir` title. `None` when the remote side says neither.
+    pub fn remote_cwd(&self) -> Option<String> {
+        let report = self.osc7.lock().ok().and_then(|r| r.clone());
+        if let Some(r) = report.filter(|r| !is_local_host(&r.host)) {
+            return Some(r.path);
+        }
+        if self.osc_title_owner != "ssh" {
+            return None;
+        }
+        self.osc_title.as_deref().and_then(osc7::title_dir).map(str::to_string)
+    }
+
     /// The label shown in pane headers, e.g. "Node ~/Sites/rex-snake".
     pub fn title(&self) -> String {
-        if let Some(t) = self.osc_title.as_deref().filter(|t| !t.trim().is_empty()) {
-            if self.osc_title_owner == self.process {
+        if let Some(t) = self.osc_title.as_deref().filter(|t| !t.trim().is_empty())
+            && self.osc_title_owner == self.process {
                 return t.to_string();
             }
-        }
         let mut name = self.process.clone();
         if let Some(first) = name.get_mut(0..1) {
             first.make_ascii_uppercase();
@@ -394,15 +413,14 @@ fn window_size(size: GridSize, cell_px: (u16, u16)) -> WindowSize {
 }
 
 pub fn tilde(path: &std::path::Path) -> String {
-    if let Some(home) = platform::home_dir() {
-        if let Ok(rest) = path.strip_prefix(&home) {
+    if let Some(home) = platform::home_dir()
+        && let Ok(rest) = path.strip_prefix(&home) {
             return if rest.as_os_str().is_empty() {
                 "~".into()
             } else {
                 format!("~/{}", rest.display())
             };
         }
-    }
     path.display().to_string()
 }
 
@@ -418,4 +436,11 @@ fn term_config(cfg: &Config) -> term::Config {
         default_cursor_style: AnsiCursorStyle { shape, blinking: cfg.cursor_blink },
         ..Default::default()
     }
+}
+
+/// Whether an OSC 7 host names this machine (an empty host means the shell left it out,
+/// which only a local shell would do).
+fn is_local_host(host: &str) -> bool {
+    let short = |h: &str| h.split('.').next().unwrap_or_default().to_ascii_lowercase();
+    host.is_empty() || host == "localhost" || short(host) == short(&platform::hostname())
 }

@@ -18,6 +18,14 @@ All notable changes to nex are documented here. The format follows
   `ControlMaster` the upload can ride on. Reconnect once and later uploads reuse the login
   typed into the pane. Hosts reached with keys or an agent need nothing. If an upload can't
   log in, the local paths are typed instead. Turn it off with `ssh-upload = false`.
+- Splits and new tabs follow SSH sessions. Splitting a pane running `ssh`, or opening a new
+  tab from it, opens another session on the same host, in the same remote folder. Typing
+  `exit` there drops to a local shell, as in the original pane. With connection sharing on,
+  the new session reuses the pane's login. When it's off and the host would ask for a password
+  again, nex offers to turn it on first. The remote folder comes from the remote shell's
+  OSC 7 report (fish sends one; see the README for bash and zsh), or from a `user@host: dir`
+  window title such as Debian and Ubuntu's bash sets. Otherwise the session opens in the
+  remote home. Turn it off with `ssh-follow = false`.
 - nex can be your file manager. `nex --explorer` opens on the Files tab, and a folder argument
   (`nex ~/Downloads`, or a `file://` URI) opens the Files tab in that folder. A new hidden
   `nex-files.desktop` entry handles `inode/directory`, so

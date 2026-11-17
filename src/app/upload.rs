@@ -155,6 +155,16 @@ impl App {
                 "Turn On",
                 Some("Not Now"),
             ),
+            SharingPrompt::OfferSession(host) => (
+                AlertIcon::Lock,
+                format!("{host} needs a password"),
+                "nex can share your ssh connection, so new panes on this host reuse one login \
+                 instead of asking again. It adds a small nex-only block to ~/.ssh/config."
+                    .to_string(),
+                Vec::new(),
+                "Turn On",
+                Some("Not Now"),
+            ),
             SharingPrompt::Reconnect(host) => (
                 AlertIcon::Done,
                 "Sharing is on".to_string(),
@@ -183,12 +193,17 @@ impl App {
                 Ok(()) => SharingPrompt::Reconnect(host),
                 Err(e) => SharingPrompt::Failed(e.to_string()),
             }),
-            (SharingPrompt::Offer(_), AlertChoice::Secondary) => {
+            // The new pane is the fresh login, so there's nothing to reconnect.
+            (SharingPrompt::OfferSession(_), AlertChoice::Primary) => remote::enable_sharing().err().map(|e| SharingPrompt::Failed(e.to_string())),
+            (SharingPrompt::Offer(_) | SharingPrompt::OfferSession(_), AlertChoice::Secondary) => {
                 self.sharing_declined = true;
                 None
             }
             _ => None,
         };
+        // A split or tab waiting on the answer opens either way: with sharing on, its login
+        // is the one later panes share.
+        self.open_pending(ctx);
     }
 }
 
@@ -197,6 +212,9 @@ impl App {
 pub(super) enum SharingPrompt {
     /// An upload to this host needed a password: offer to turn sharing on.
     Offer(String),
+    /// A split or new tab of an ssh session to this host would log in again: offer to turn
+    /// sharing on first (see `follow`).
+    OfferSession(String),
     /// Sharing was just turned on: the open session has to be logged into again.
     Reconnect(String),
     /// `~/.ssh/config` couldn't be written.

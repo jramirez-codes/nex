@@ -317,13 +317,13 @@ impl<'a> Layers<'a> {
     fn decorations(&mut self, r: Rect, flags: Flags, in_link: bool, fg: Color32) {
         if flags.intersects(Flags::ALL_UNDERLINES) || in_link {
             let y = r.bottom() - (self.m.height * 0.12).max(1.5);
-            self.decorations.push(Shape::hline(r.x_range(), y, Stroke::new(1.0, fg)));
+            self.decorations.push(Shape::hline(r.x_range(), y, Stroke::new(1.0_f32, fg)));
             if flags.contains(Flags::DOUBLE_UNDERLINE) {
-                self.decorations.push(Shape::hline(r.x_range(), y - 2.0, Stroke::new(1.0, fg)));
+                self.decorations.push(Shape::hline(r.x_range(), y - 2.0, Stroke::new(1.0_f32, fg)));
             }
         }
         if flags.contains(Flags::STRIKEOUT) {
-            self.decorations.push(Shape::hline(r.x_range(), r.center().y, Stroke::new(1.0, fg)));
+            self.decorations.push(Shape::hline(r.x_range(), r.center().y, Stroke::new(1.0_f32, fg)));
         }
     }
 
@@ -355,7 +355,7 @@ impl<'a> Layers<'a> {
             CursorShape::Block if focused => return,
             CursorShape::Hidden => return,
             CursorShape::Block | CursorShape::HollowBlock => {
-                Shape::rect_stroke(r.shrink(0.5), 1.0, Stroke::new(1.0, color), egui::StrokeKind::Inside)
+                Shape::rect_stroke(r.shrink(0.5), 1.0, Stroke::new(1.0_f32, color), egui::StrokeKind::Inside)
             }
             CursorShape::Beam => Shape::rect_filled(Rect::from_min_size(r.min, Vec2::new(thickness, r.height())), 0.0, color),
             CursorShape::Underline => {
