@@ -285,6 +285,8 @@ pub fn workspace_glyph(p: &Painter, r: Rect, c: Color32) {
 const GLYPH_SHARE: f32 = 0.64;
 const COD_ADD: char = '\u{ea60}';
 const COD_CLOSE: char = '\u{ea76}';
+const COD_MIC: char = '\u{eb51}';
+const COD_MIC_FILLED: char = '\u{ec1c}';
 const COD_SCREEN_FULL: char = '\u{eb4c}';
 const COD_SCREEN_NORMAL: char = '\u{eb4d}';
 /// Two panes side by side (a vertical divider).
@@ -298,6 +300,11 @@ fn codicon(p: &Painter, r: Rect, c: Color32, ch: char) {
 
 pub fn icon_close(p: &Painter, r: Rect, c: Color32) {
     codicon(p, r, c, COD_CLOSE);
+}
+
+/// A microphone: filled while it's recording.
+pub fn icon_mic(p: &Painter, r: Rect, c: Color32, filled: bool) {
+    codicon(p, r, c, if filled { COD_MIC_FILLED } else { COD_MIC });
 }
 
 pub fn icon_split(p: &Painter, r: Rect, c: Color32, axis: Axis) {

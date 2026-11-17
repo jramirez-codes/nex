@@ -25,6 +25,8 @@
 	<string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>11.0</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>nex shares your microphone with an ssh host when you ask it to, so programs there (such as Claude Code's voice mode) can hear you.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>

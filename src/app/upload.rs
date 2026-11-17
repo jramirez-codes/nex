@@ -126,7 +126,7 @@ impl App {
                 format!("Couldn't upload: log out of {host} (type exit) and ssh back in, then drop the file again.")
             }
             UploadError::NeedsLogin if remote::SHARING_SUPPORTED && !self.sharing_declined => {
-                self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string()));
+                self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string(), "Drop the file again"));
                 return;
             }
             UploadError::NeedsLogin => format!("Couldn't upload: {host} needs a password, and the upload can't type one."),
@@ -145,11 +145,11 @@ impl App {
     pub(super) fn sharing_dialog(&mut self, ctx: &egui::Context, theme: &Theme) {
         let Some(prompt) = self.sharing_prompt.clone() else { return };
         let (icon, title, body, steps, primary, secondary) = match &prompt {
-            SharingPrompt::Offer(host) => (
+            SharingPrompt::Offer(host, _) => (
                 AlertIcon::Lock,
                 format!("{host} needs a password"),
-                "nex can share your ssh connection, so uploads reuse the login you already \
-                 typed. It adds a small nex-only block to ~/.ssh/config."
+                "nex can share your ssh connection, so uploads and the shared microphone reuse \
+                 the login you already typed. It adds a small nex-only block to ~/.ssh/config."
                     .to_string(),
                 Vec::new(),
                 "Turn On",
@@ -165,14 +165,14 @@ impl App {
                 "Turn On",
                 Some("Not Now"),
             ),
-            SharingPrompt::Reconnect(host) => (
+            SharingPrompt::Reconnect(host, again) => (
                 AlertIcon::Done,
                 "Sharing is on".to_string(),
                 "Log in once more to start sharing.".to_string(),
                 vec![
                     format!("Type `exit` to log out of {host}"),
                     "ssh back in with your password".to_string(),
-                    "Drop the file again".to_string(),
+                    again.to_string(),
                 ],
                 "Got It",
                 None,
@@ -189,13 +189,13 @@ impl App {
         let alert = Alert { id: Id::new("nex-ssh-sharing"), icon, title: &title, body: &body, steps: &steps, primary, secondary, touch: self.cfg.mobile };
         let Some(choice) = alert.show(ctx, theme) else { return };
         self.sharing_prompt = match (prompt, choice) {
-            (SharingPrompt::Offer(host), AlertChoice::Primary) => Some(match remote::enable_sharing() {
-                Ok(()) => SharingPrompt::Reconnect(host),
+            (SharingPrompt::Offer(host, again), AlertChoice::Primary) => Some(match remote::enable_sharing() {
+                Ok(()) => SharingPrompt::Reconnect(host, again),
                 Err(e) => SharingPrompt::Failed(e.to_string()),
             }),
             // The new pane is the fresh login, so there's nothing to reconnect.
             (SharingPrompt::OfferSession(_), AlertChoice::Primary) => remote::enable_sharing().err().map(|e| SharingPrompt::Failed(e.to_string())),
-            (SharingPrompt::Offer(_) | SharingPrompt::OfferSession(_), AlertChoice::Secondary) => {
+            (SharingPrompt::Offer(..) | SharingPrompt::OfferSession(_), AlertChoice::Secondary) => {
                 self.sharing_declined = true;
                 None
             }
@@ -210,13 +210,14 @@ impl App {
 /// What the connection-sharing dialog is showing.
 #[derive(Clone)]
 pub(super) enum SharingPrompt {
-    /// An upload to this host needed a password: offer to turn sharing on.
-    Offer(String),
+    /// An upload to this host (or sharing the microphone with it) needed a password: offer to
+    /// turn sharing on. Then the last step of logging in again ("Drop the file again").
+    Offer(String, &'static str),
     /// A split or new tab of an ssh session to this host would log in again: offer to turn
     /// sharing on first (see `follow`).
     OfferSession(String),
     /// Sharing was just turned on: the open session has to be logged into again.
-    Reconnect(String),
+    Reconnect(String, &'static str),
     /// `~/.ssh/config` couldn't be written.
     Failed(String),
 }

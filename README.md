@@ -115,6 +115,7 @@ is nothing to install on the server and no wrapper command: run `ssh` the way yo
 | Drop files or folders onto it                      | Copies them to a fresh temp folder on the host and **types the remote paths** |
 | Paste a copied image or files (`Ctrl+V` / `Cmd+V`) | The same: uploads them and types the remote paths                             |
 | Type `exit` in a followed split                    | Drops back to a local shell, just like the original pane                      |
+| Click its header's mic button (`Ctrl/Cmd+Shift+M`) | Makes **your microphone the host's default mic** (experimental)               |
 
 This is what makes a remote [Claude Code](https://claude.com/claude-code) (or any program
 that takes file paths) feel local: paste a screenshot into the pane and the remote program
@@ -144,6 +145,30 @@ gets a path it can open.
 - **Safe fallbacks.** If an upload can't log in, nex types the local paths instead, as any
   terminal would. If it can't tell the remote folder, the new session opens in the remote home.
 
+### Sharing your microphone (experimental)
+
+Programs on an ssh host record from *that* machine, which usually has no microphone. That's
+why Claude Code's voice mode says "Remote servers usually have none". Click the mic button
+in the pane's header (or press `Ctrl+Shift+M`, `Cmd+Shift+M` on macOS), and the host's default
+ALSA capture device becomes your local mic:
+
+```text
+your mic ─▶ nex ─▶ a waiting ssh session (sh + cat) ─▶ ~/.nex/mic.fifo ─▶ ALSA default ─▶ the program
+```
+
+- **Off until something records.** nex keeps one session waiting on the host. Your mic starts
+  only when a program there opens the default mic, and stops when it closes it. The button is
+  red while recording.
+- **Nothing installed.** nex adds a marked block to the host's `~/.asoundrc` and removes it when
+  sharing stops (when you click again, close the last pane on that host, or quit). It needs a
+  Linux host with `libasound2`, which programs that record need anyway.
+- **Same login rules as uploads:** keys, agents and connection sharing work, and passwords
+  aren't typed.
+- `ssh-mic = auto` shares with every ssh pane nex can log in to without a password.
+
+Untested so far: whether Claude Code's voice mode accepts a mic with no sound card behind it.
+`arecord` on the host is the quickest check.
+
 ### Following your remote folder
 
 To open splits in the folder you're in, nex needs the remote shell to say where it is. fish
@@ -163,6 +188,7 @@ chpwd() { printf '\e]7;file://%s%s\a' "$HOST" "$PWD" }; chpwd
 ```ini
 ssh-upload = false   # drops and pastes into an ssh pane type local paths, like other terminals
 ssh-follow = false   # splits and new tabs of an ssh pane open a local shell
+ssh-mic = off        # no mic button in ssh panes
 ```
 
 ## Features
@@ -363,6 +389,7 @@ nex follows Ghostty's defaults on each OS. Both tables live in
 | Scroll                 | `Shift+PgUp/PgDn/Home/End`, mouse wheel               | the same, plus `Cmd+Up` / `Cmd+Down`            |
 | Font size / zoom       | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   | `Cmd+=` / `Cmd+-` / `Cmd+0`, `Cmd+wheel`, pinch |
 | Clear screen           | `Ctrl+Shift+K`                                        | `Cmd+K`                                         |
+| Share mic over ssh     | `Ctrl+Shift+M`                                        | `Cmd+Shift+M`                                   |
 | Reload config          | `Ctrl+Shift+,`                                        | `Cmd+Shift+,`                                   |
 | Quit                   | `Ctrl+Shift+Q`                                        | `Cmd+Q`                                         |
 

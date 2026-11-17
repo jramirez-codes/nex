@@ -143,3 +143,6 @@ pub fn pty_options(
 pub fn pty_pid(pty: &alacritty_terminal::tty::Pty) -> u32 {
     pty.child_watcher().pid().map_or(0, |p| p.get())
 }
+
+/// Where to let nex use the microphone, after the OS refused it.
+pub const MIC_PERMISSION_HINT: &str = "Allow it in Settings → Privacy & security → Microphone, then share again.";

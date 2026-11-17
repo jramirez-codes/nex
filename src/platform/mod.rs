@@ -42,6 +42,7 @@
 //! | `Dnd` | drag and drop with other apps, where winit doesn't do it |
 //! | `DirWatch` / `on_dir_change(f)` | being told when a folder's contents change |
 //! | `tune_allocator()` / `trim_heap()` | allocator setup at launch; return freed heap to the OS |
+//! | `MIC_PERMISSION_HINT` | where to allow microphone access, after the OS refused it |
 
 use std::path::PathBuf;
 

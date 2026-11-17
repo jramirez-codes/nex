@@ -28,6 +28,17 @@ pub enum TabAnimation {
     None,
 }
 
+/// When a pane's ssh host gets this machine's microphone (`ssh-mic`, see `remote::mic`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SshMic {
+    /// Never: the "Share microphone" button and shortcut are hidden.
+    Off,
+    /// When asked, with the pane header's mic button or the shortcut.
+    Manual,
+    /// As soon as a pane is ssh'd into a host nex can log in to without a password.
+    Auto,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub font_family: String,
@@ -70,6 +81,8 @@ pub struct Config {
     /// Splitting a pane running `ssh`, or opening a tab from it, opens another session on the
     /// same host in the same remote directory (see `remote::SshTarget::session_command`).
     pub ssh_follow: bool,
+    /// Sharing this machine's microphone with a pane's ssh host (see `remote::mic`).
+    pub ssh_mic: SshMic,
     pub scrollback_limit: usize,
     /// Command to run instead of the user's login shell.
     pub command: Option<String>,
@@ -124,6 +137,7 @@ impl Default for Config {
             clipboard_toasts: true,
             ssh_upload: true,
             ssh_follow: true,
+            ssh_mic: SshMic::Manual,
             scrollback_limit: 10_000,
             command: None,
         }
@@ -241,6 +255,14 @@ impl Config {
             "clipboard-toasts" => self.clipboard_toasts = boolean(value)?,
             "ssh-upload" => self.ssh_upload = boolean(value)?,
             "ssh-follow" => self.ssh_follow = boolean(value)?,
+            "ssh-mic" => {
+                self.ssh_mic = match value {
+                    "off" | "false" => SshMic::Off,
+                    "manual" | "true" => SshMic::Manual,
+                    "auto" => SshMic::Auto,
+                    _ => return Err(format!("invalid ssh-mic `{value}` (off, manual or auto)")),
+                }
+            }
             "scrollback-limit" => {
                 self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?
             }

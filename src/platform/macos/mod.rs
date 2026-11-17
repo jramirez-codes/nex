@@ -47,3 +47,6 @@ pub(super) const MONOSPACE: &str = "Menlo";
 pub fn open_uri(uri: &std::ffi::OsStr) {
     super::unix::spawn_opener("open", uri);
 }
+
+/// Where to let nex use the microphone, after the OS refused it.
+pub const MIC_PERMISSION_HINT: &str = "Allow it in System Settings → Privacy & Security → Microphone, then share again.";

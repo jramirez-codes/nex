@@ -52,6 +52,9 @@ pub(super) enum Action {
     /// Split a file explorer off the focused pane, showing its directory.
     ExploreHere,
     CloseExplorer,
+    /// Share this machine's microphone with a pane's ssh host, or stop; `ToggleMic(0)` means
+    /// the focused pane (see `mic.rs`).
+    ToggleMic(PaneId),
 }
 
 impl App {
@@ -116,6 +119,12 @@ impl App {
                 self.scroll_focused(action)
             }
             Action::ToggleExplorer => self.toggle_explorer(),
+            Action::ToggleMic(0) => {
+                if let Some(id) = focused {
+                    self.toggle_mic(ctx, id)
+                }
+            }
+            Action::ToggleMic(id) => self.toggle_mic(ctx, id),
             Action::ExploreHere => {
                 if let Some(id) = focused {
                     self.split_explorer(ctx, id, Axis::Horizontal)

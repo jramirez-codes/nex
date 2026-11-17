@@ -44,6 +44,13 @@ ssh-upload = true
 # the same host, in the same remote folder. With connection sharing on, it reuses the pane's
 # login. The folder comes from the remote shell (OSC 7, or a "user@host: dir" title).
 ssh-follow = true
+# Share this machine's microphone with a pane's ssh host, as the host's default ALSA mic, so
+# programs there (Claude Code's voice mode, arecord) can record from it. `manual`: the pane
+# header's mic button or Ctrl+Shift+M (Cmd+Shift+M on macOS). `auto`: every ssh pane whose
+# host nex can log in to without a password. `off`: no mic button. The local mic only
+# records while a program on the host has the mic open, and the button turns red. Linux
+# hosts with libasound2 only; nex adds a block to the host's ~/.asoundrc, removed when it stops.
+ssh-mic = manual
 scrollback-limit = 10000
 
 # command = fish

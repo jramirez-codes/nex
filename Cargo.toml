@@ -19,6 +19,9 @@ egui = "0.33.3"
 # nex runs eframe on its own event loop (see src/platform/winit_app.rs); same version as eframe's.
 winit = { version = "0.30.13", default-features = false }
 memmap2 = "0.9"
+# Recording the microphone to share with an ssh host (see src/audio.rs). Cross-platform
+# itself (CoreAudio, ALSA, WASAPI); on Linux it needs libasound2-dev to build.
+cpal = "0.18.2"
 
 # Per-OS dependencies, used only by src/platform/<os>/.
 [target.'cfg(unix)'.dependencies]
