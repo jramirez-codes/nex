@@ -4,9 +4,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>nex</string>
+	<string>Nex</string>
 	<key>CFBundleDisplayName</key>
-	<string>nex</string>
+	<string>Nex</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.jramirez-codes.nex</string>
 	<key>CFBundleExecutable</key>

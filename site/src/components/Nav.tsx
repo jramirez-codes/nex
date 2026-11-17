@@ -4,6 +4,7 @@ import { platformName, usePlatform } from '../platform'
 import './nav.css'
 
 const LINKS = [
+  ['SSH', '#ssh'],
   ['macOS', '#mac'],
   ['Features', '#features'],
   ['Shortcuts', '#shortcuts'],

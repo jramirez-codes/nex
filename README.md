@@ -7,13 +7,15 @@
 <p align="center">
   <strong>A fast, GPU-accelerated terminal emulator for Linux and macOS, written in Rust.</strong>
   <br />
-  Tabs, split panes and a file explorer, built in. No tmux, no plugins, no setup.
+  Tabs, split panes, a file explorer and SSH that follows you, built in. No tmux, no plugins, no setup.
   <br /><br />
   <a href="https://jramirez-codes.github.io/nex/"><strong>Website</strong></a>
   ·
   <a href="#installation">Install</a>
   ·
   <a href="#features">Features</a>
+  ·
+  <a href="#ssh-built-in">SSH</a>
   ·
   <a href="#how-does-nex-compare">Compare</a>
   ·
@@ -41,7 +43,9 @@
 
 **nex** is a free, open-source terminal emulator for Linux and macOS that looks and feels like a native,
 modern desktop app. Tabs live in the title bar, and every split pane is a rounded card with its
-own header showing what's running and where. A file explorer opens right next to your shell.
+own header showing what's running and where. A file explorer opens right next to your shell,
+and `ssh` sessions get the same treatment: splits stay on the server, and files you drop or
+paste land on the remote host.
 The UI is drawn with the GPU, so typing, scrolling and resizing stay smooth even under heavy
 TUIs like `btop`, `nvim` and `lazygit`.
 
@@ -59,6 +63,9 @@ rendering, input handling, multiplexing and window chrome.
 
 - **One window instead of three.** Tabs, split panes and a file explorer replace a terminal +
   tmux + file manager setup.
+- **SSH without the busywork.** Split an `ssh` pane and you're on the same host, in the same
+  folder. Drop a file or paste a screenshot into it and nex uploads it and types the remote
+  path, so a remote Claude Code can open it. One login, no `scp`.
 - **Fast.** In [our benchmark](bench/README.md), nex printed 50 MB of output 1.8× faster than
   kitty and launched 25× faster than GNOME Terminal.
 - **Works out of the box.** A Nerd Font is embedded, config applies on save, and the defaults
@@ -74,9 +81,14 @@ rendering, input handling, multiplexing and window chrome.
 | Tabs                                    | ✅  | ❌        | ✅       | ✅       | ✅             |
 | Split panes                             | ✅  | ❌        | ✅       | ✅       | ❌             |
 | Built-in file explorer                  | ✅  | ❌        | ❌       | ❌       | ❌             |
+| Splits and tabs follow `ssh` sessions   | ✅  | ❌        | Kitten¹  | ❌       | ❌             |
+| Drop / paste files into `ssh` sessions  | ✅  | ❌        | ❌       | ❌       | ❌             |
 | Per-pane headers (program + folder)     | ✅  | ❌        | ❌       | ❌       | ❌             |
 | Nerd Font icons with nothing installed  | ✅  | ❌        | ✅       | ✅       | ❌             |
 | Config applies on save                  | ✅  | ✅        | Shortcut | Shortcut | GUI only       |
+
+¹ kitty can open new windows on the remote host when you connect with its `ssh` kitten instead
+of plain `ssh`. nex works with the `ssh` you already run.
 
 ### Performance
 
@@ -86,11 +98,72 @@ settings for each terminal. Lower is better. See [`bench/`](bench/README.md) to 
 | Benchmark                         | nex         | kitty   | Ghostty | GNOME Terminal |
 | --------------------------------- | ----------- | ------- | ------- | -------------- |
 | Print 50 MB of text, color, boxes | **0.76 s**  | 1.36 s  | 1.94 s  | 2.32 s         |
-| Launch to shell                   | **13 ms**¹  | 794 ms  | 376 ms  | 316 ms         |
+| Launch to shell                   | **13 ms**²  | 794 ms  | 376 ms  | 316 ms         |
 | Memory at idle                    | 112 MB      | 142 MB  | 173 MB  | **62 MB**      |
 
-¹ nex starts its first shell while the window is still opening, so the shell is ready before
+² nex starts its first shell while the window is still opening, so the shell is ready before
 the window is; the first frame appears about 120 ms after launch.
+
+## SSH, built in
+
+nex notices when a pane is running `ssh` and makes the rest of the window work with it. There
+is nothing to install on the server and no wrapper command: run `ssh` the way you always do.
+
+| You do this in an `ssh` pane                       | nex does this                                                                 |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Split it, or open a new tab                        | Opens another session on the **same host, in the same remote folder**         |
+| Drop files or folders onto it                      | Copies them to a fresh temp folder on the host and **types the remote paths** |
+| Paste a copied image or files (`Ctrl+V` / `Cmd+V`) | The same: uploads them and types the remote paths                             |
+| Type `exit` in a followed split                    | Drops back to a local shell, just like the original pane                      |
+
+This is what makes a remote [Claude Code](https://claude.com/claude-code) (or any program
+that takes file paths) feel local: paste a screenshot into the pane and the remote program
+gets a path it can open.
+
+### How it works
+
+- **Your own ssh, reused.** Uploads and new sessions run `ssh` with the pane's own options
+  (user, port, identity, jump hosts, `-o` settings), minus forwardings and the remote command.
+  Files travel as one `tar` stream into a new folder under the remote `$TMPDIR` (or `/tmp`).
+- **Keys and agents just work.** If the host lets you in without typing anything, there's
+  nothing to set up.
+- **Password hosts: one login, shared.** Uploads never type a password. When a host asks for
+  one, nex offers once to turn on connection sharing: it appends this block to the end of
+  `~/.ssh/config`, so your own settings still win:
+
+  ```ssh-config
+  # Added by nex: ssh started in a nex pane shares its connection, ...
+  Match exec "test x$TERM_PROGRAM = xnex"
+    ControlMaster auto
+    ControlPath ~/.ssh/nex-%C
+    ControlPersist 60
+  ```
+
+  It only matches `ssh` started inside nex. Reconnect once, and from then on uploads and
+  followed splits ride on the login you typed in the pane. Delete the block to undo it.
+- **Safe fallbacks.** If an upload can't log in, nex types the local paths instead, as any
+  terminal would. If it can't tell the remote folder, the new session opens in the remote home.
+
+### Following your remote folder
+
+To open splits in the folder you're in, nex needs the remote shell to say where it is. fish
+does this out of the box, and so does Debian and Ubuntu's default bash prompt (through its
+`user@host: dir` title). Elsewhere, add one line on the server:
+
+```sh
+# ~/.bashrc
+PROMPT_COMMAND='printf "\e]7;file://%s%s\a" "$HOSTNAME" "$PWD"'${PROMPT_COMMAND:+";$PROMPT_COMMAND"}
+
+# ~/.zshrc
+chpwd() { printf '\e]7;file://%s%s\a' "$HOST" "$PWD" }; chpwd
+```
+
+### Turning it off
+
+```ini
+ssh-upload = false   # drops and pastes into an ssh pane type local paths, like other terminals
+ssh-follow = false   # splits and new tabs of an ssh pane open a local shell
+```
 
 ## Features
 
@@ -110,23 +183,12 @@ the window is; the first frame appears about 120 ms after launch.
   terminal to type their paths, or drop them in from other apps. Name clashes get a `(2)`
   suffix instead of overwriting anything. Delete asks for confirmation first, since it's
   permanent.
-- **Files and images over SSH.** Drop a file onto a pane running `ssh`, or paste a copied
-  image or files, and nex copies them to a temp folder on the remote host and types the
-  remote paths, so a remote Claude Code (or anything else) can open them. It reuses the pane's
-  own `ssh` options. Keys and agents just work; for a host that asks for a password, nex
-  offers once to turn on connection sharing (a block in `~/.ssh/config` that applies only
-  inside nex), and after one reconnect, uploads ride on the login you typed in the pane.
-  `ssh-upload = false` turns it off.
-- **Splits that stay on the server.** Split a pane running `ssh`, or open a new tab from it,
-  and the new terminal is another session on the same host, in the same folder. With
-  connection sharing on, it rides on the login you already typed, so there's no second
-  password. `exit` drops you back to a local shell. To follow your folder, nex needs the remote
-  shell to report it. fish does this already, and so does Debian and Ubuntu's default bash
-  prompt. Elsewhere, add this to the remote `~/.bashrc`:
-  `PROMPT_COMMAND='printf "\e]7;file://%s%s\a" "$HOSTNAME" "$PWD"'${PROMPT_COMMAND:+";$PROMPT_COMMAND"}`,
-  or to `~/.zshrc`:
-  `chpwd() { printf '\e]7;file://%s%s\a' "$HOST" "$PWD" }; chpwd`.
-  `ssh-follow = false` turns it off.
+- **SSH that follows you.** Splits and new tabs of an `ssh` pane stay on the server, in the
+  same folder, and files you drop or paste into it are uploaded. See
+  [SSH, built in](#ssh-built-in).
+- **Image paste for Claude Code.** With an image on the clipboard, `Ctrl+V` reaches the
+  program as `^V`, so Claude Code pastes the image itself. Images dragged in from a browser
+  are saved to a temp file and their path typed.
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
   an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
   selection into another folder, explorer or terminal pane.
@@ -364,8 +426,20 @@ On macOS, use Cmd where this table says Ctrl.
 
 **Is nex a tmux alternative?**
 For layout, yes: split panes, zoom, resize and keyboard focus between splits are built in, and
-every pane shows its program and folder. nex doesn't detach sessions or run over SSH, so keep
-tmux for that.
+every pane shows its program and folder. Splits of an `ssh` pane open on the same server, so
+you don't need tmux on the remote side just to get a second shell there. nex doesn't detach
+sessions, so keep tmux if you need work to survive a dropped connection.
+
+**Does nex need anything installed on my servers?**
+No. nex uses the `ssh` on your machine and plain `sh` and `tar` on the server. For splits to
+open in your current remote folder, the remote shell should report it (fish and Debian/Ubuntu
+bash already do; see [Following your remote folder](#following-your-remote-folder)).
+
+**Why does nex want to edit `~/.ssh/config`?**
+Only if a host asks for a password, and only if you say yes. Uploads and followed splits can't
+type your password, so nex offers connection sharing: a `Match` block at the end of the file
+that applies only to `ssh` started inside nex, letting them reuse the login you typed. It's
+marked `# Added by nex` and safe to delete.
 
 **Does nex work on Wayland and X11?**
 Yes, both, including tiling compositors like Hyprland and Sway. Prebuilt `.deb` packages and
@@ -402,6 +476,7 @@ src/
 ├── main.rs           window setup (eframe / winit)
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
+├── remote.rs         ssh: uploads, following sessions, connection sharing
 ├── app/              the application: state and frame loop (mod.rs), plus
 │   ├── actions.rs        the actions and carrying them out
 │   ├── keymap.rs         shortcut tables per OS (Ctrl style, Cmd style)
@@ -436,7 +511,7 @@ src/
     ├── fontdb.rs         font lookup without fontconfig (macOS, Windows)
     ├── no_dnd.rs         drag and drop stub where winit handles it
     ├── linux/            /proc process info, fontconfig, Wayland drag and drop
-    ├── macos/            libproc process info, traffic lights, starting from nex.app
+    ├── macos/            libproc process info, traffic lights, app menu, starting from nex.app
     └── windows/          compiles, not supported yet
 ```
 
@@ -462,11 +537,14 @@ scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them i
 - [x] Faster launch and lower idle memory
 - [x] macOS support
 - [x] macOS app bundle
+- [x] Drop and paste files into `ssh` sessions
+- [x] Splits and new tabs that follow `ssh` sessions
+- [x] File manager mode (`nex --explorer`, default handler for folders)
 
 ### Next
 
 - [ ] Custom keybindings in the config file
-- [ ] Shell integration (OSC 7 cwd, prompt marks, jump between prompts)
+- [ ] Shell integration (prompt marks, jump between prompts)
 - [ ] Themes collection
 - [ ] Command palette
 - [ ] Color emoji
@@ -497,7 +575,7 @@ scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them i
 2. Commit, then tag and push:
 
    ```sh
-   git tag v0.10.0 && git push origin v0.10.0
+   git tag v0.10.1 && git push origin v0.10.1
    ```
 
 The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 Linux binaries

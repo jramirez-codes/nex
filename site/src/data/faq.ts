@@ -6,7 +6,7 @@
 export const FAQ: { q: string; a: string }[] = [
   {
     q: 'What is nex?',
-    a: 'nex is a free, open-source, GPU-accelerated terminal emulator for Linux and macOS, written in Rust. It has tabs, split panes and a file explorer built in, so you get a tmux-style layout and a file manager in one native-feeling window.',
+    a: 'nex is a free, open-source, GPU-accelerated terminal emulator for Linux and macOS, written in Rust. It has tabs, split panes and a file explorer built in, so you get a tmux-style layout and a file manager in one native-feeling window. ssh sessions come along too: splits stay on the server, and files you drop or paste are uploaded.',
   },
   {
     q: 'Does nex run on macOS?',
@@ -18,7 +18,15 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Is nex a tmux alternative?',
-    a: 'For layout, yes. nex splits panes right or down, zooms, resizes and moves focus between splits with the keyboard, and every pane has its own header showing the running program and folder. It does not detach sessions or run over SSH like tmux, so keep tmux for that.',
+    a: 'For layout, yes. nex splits panes right or down, zooms, resizes and moves focus between splits with the keyboard, and every pane has its own header showing the running program and folder. Splits of a pane running ssh open on the same server, in the same folder, so you do not need tmux on the remote side just to get a second shell there. nex does not detach sessions, so keep tmux if work has to survive a dropped connection.',
+  },
+  {
+    q: 'How does nex work with SSH?',
+    a: 'Run plain ssh in a pane. Splitting it, or opening a new tab from it, opens another session on the same host in the same remote folder. Dropping files onto it, or pasting a copied image or files, uploads them to a new temp folder on the host and types the remote paths, so a remote program such as Claude Code can open them. nex reuses the pane\'s own ssh options and needs nothing installed on the server. Turn either part off with ssh-upload = false or ssh-follow = false.',
+  },
+  {
+    q: 'Why does nex offer to edit ~/.ssh/config?',
+    a: 'Only for hosts that ask for a password, and only if you agree. Uploads and new sessions cannot type your password, so nex offers connection sharing: a Match block at the end of ~/.ssh/config that applies only to ssh started inside nex, letting them reuse the login you typed in the pane. It is marked "Added by nex" and safe to delete. Hosts you reach with keys or an agent need nothing.',
   },
   {
     q: 'Does nex work on Wayland and X11?',
@@ -38,7 +46,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Is nex available on Windows?',
-    a: 'Not yet. nex runs on Linux (Wayland and X11) and macOS. Next on the roadmap: a drop-down quick terminal, a command palette and shell integration.',
+    a: 'Not yet. nex runs on Linux (Wayland and X11) and macOS. Next on the roadmap: custom keybindings, a command palette, themes and a signed, notarized Mac app.',
   },
   {
     q: 'Is nex free?',

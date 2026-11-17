@@ -6,7 +6,8 @@
 //! leaving full screen, so this runs every frame and only touches views that moved.
 //!
 //! Setting the window title puts them back too, so nex sets it here and re-centers the
-//! buttons in the same call, before AppKit draws the title bar.
+//! buttons in the same call, before AppKit draws the title bar. It also (re)names the app
+//! menu then, after eframe and winit are done setting it up (see `menu.rs`).
 
 use objc2::rc::Retained;
 use objc2_app_kit::{NSView, NSWindow, NSWindowButton};
@@ -24,6 +25,7 @@ pub fn align_window_buttons(frame: &eframe::Frame, height: f32) {
 /// height: AppKit lays the title bar out again for the new title, which would otherwise
 /// show them at their default spot until the next frame.
 pub fn set_window_title(ctx: &egui::Context, frame: &eframe::Frame, title: &str, buttons_height: Option<f32>) {
+    super::menu::name_app_menu();
     let Some(window) = ns_window(frame) else {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.to_owned()));
         return;
