@@ -9,7 +9,6 @@
 //! file has no platform code. The stream lives on a thread of its own, since a `cpal::Stream`
 //! isn't `Send` on every backend; dropping the [`Capture`] stops it.
 
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -105,10 +104,22 @@ impl Drop for Capture {
 }
 
 /// Open the default mic and start it, sending wire-format chunks to `sink`.
+///
+/// It asks the device for the wire format's rate and one channel first: on Linux the sound
+/// server (PipeWire, PulseAudio) then converts, as it does for any program recording there.
+/// Devices that only record at their own rate (CoreAudio's, usually) get [`Resampler`].
 fn open(sink: Sender<Vec<u8>>, failed: Arc<AtomicBool>) -> Result<cpal::Stream, CaptureError> {
     let device = cpal::default_host().default_input_device().ok_or(CaptureError::NoMic)?;
-    let supported = device.default_input_config()?;
-    let config = supported.config();
+    let supported = wire_config(&device).map_or_else(|| device.default_input_config(), Ok)?;
+    let mut config = supported.config();
+    // Small, steady chunks: each one waits on the next to fill, and a recording's start (and
+    // the cushion against jitter it has to cover) waits on the first.
+    if let cpal::SupportedBufferSize::Range { min, max } = *supported.buffer_size() {
+        let frames = config.sample_rate / 50;
+        if (min..=max).contains(&frames) {
+            config.buffer_size = cpal::BufferSize::Fixed(frames);
+        }
+    }
     let stream = match supported.sample_format() {
         SampleFormat::F32 => build::<f32>(&device, config, sink, failed)?,
         SampleFormat::F64 => build::<f64>(&device, config, sink, failed)?,
@@ -121,6 +132,17 @@ fn open(sink: Sender<Vec<u8>>, failed: Arc<AtomicBool>) -> Result<cpal::Stream, 
     };
     stream.play()?;
     Ok(stream)
+}
+
+/// The device's config for [`RATE`], one channel, in floats or 16-bit samples, if it has one.
+fn wire_config(device: &cpal::Device) -> Option<cpal::SupportedStreamConfig> {
+    let ranges: Vec<_> = device.supported_input_configs().ok()?.collect();
+    [SampleFormat::F32, SampleFormat::I16].into_iter().find_map(|format| {
+        ranges
+            .iter()
+            .find(|r| r.channels() == 1 && r.sample_format() == format && r.min_sample_rate() <= RATE && RATE <= r.max_sample_rate())
+            .map(|r| r.with_sample_rate(RATE))
+    })
 }
 
 fn build<T>(device: &cpal::Device, config: cpal::StreamConfig, sink: Sender<Vec<u8>>, failed: Arc<AtomicBool>) -> Result<cpal::Stream, CaptureError>
@@ -151,59 +173,85 @@ where
     Ok(device.build_input_stream::<T, _, _>(config, data, error, None)?)
 }
 
-/// Converts a mono stream from one sample rate to another, in chunks, by linear interpolation.
-/// Going down (48 kHz to 16 kHz, say), a moving average first takes out what the lower rate
-/// can't hold, so it doesn't fold back as noise.
+/// Output samples on each side of a windowed-sinc kernel: its length, so how sharp the
+/// filter's edge is (about 6% of the output rate wide).
+const HALF_TAPS: f64 = 24.0;
+/// Kernel table entries per input sample, interpolated between.
+const PHASES: usize = 256;
+
+/// Converts a mono stream from one sample rate to another, in chunks: band-limited
+/// interpolation with a Blackman-windowed sinc. Its cutoff, 90% of the lower rate's Nyquist
+/// frequency (7.2 kHz for 16 kHz), keeps the consonants speech recognizers listen for, while
+/// anything the output rate can't hold is filtered out rather than folded back as noise.
 struct Resampler {
-    /// Input samples per output sample.
+    /// Input samples per output sample; 1 passes samples straight through.
     step: f64,
-    /// Where the next output sample falls, counted from `last` (0) into the next chunk.
-    pos: f64,
-    /// The previous chunk's last (smoothed) sample.
-    last: f32,
-    /// The moving average's recent inputs, and their sum.
-    window: VecDeque<f32>,
-    width: usize,
-    sum: f32,
+    /// Kernel half-width, in input samples.
+    half: usize,
+    /// The kernel at `PHASES` points per input sample, from 0 to `half`.
+    table: Vec<f32>,
+    /// Input not yet used up, and the stream position of its first sample.
+    buf: Vec<f32>,
+    base: u64,
+    /// The stream position (in input samples) of the next output sample.
+    next: f64,
 }
 
 impl Resampler {
     fn new(from: u32, to: u32) -> Self {
         let step = f64::from(from.max(1)) / f64::from(to.max(1));
-        let width = if step > 1.0 { step.round() as usize } else { 1 };
-        Self { step, pos: 0.0, last: 0.0, window: VecDeque::with_capacity(width + 1), width, sum: 0.0 }
+        // Cutoff in cycles per input sample.
+        let cutoff = 0.45 / step.max(1.0);
+        let half = (HALF_TAPS * step.max(1.0)).ceil() as usize;
+        let table = (0..=half * PHASES)
+            .map(|i| {
+                let x = i as f64 / PHASES as f64;
+                let sinc = if x == 0.0 { 1.0 } else { (std::f64::consts::PI * 2.0 * cutoff * x).sin() / (std::f64::consts::PI * 2.0 * cutoff * x) };
+                let w = x / half as f64;
+                let window = 0.42 + 0.5 * (std::f64::consts::PI * w).cos() + 0.08 * (2.0 * std::f64::consts::PI * w).cos();
+                (2.0 * cutoff * sinc * window) as f32
+            })
+            .collect();
+        Self { step, half, table, buf: Vec::new(), base: 0, next: 0.0 }
     }
 
-    fn smooth(&mut self, x: f32) -> f32 {
-        if self.width <= 1 {
-            return x;
-        }
-        self.window.push_back(x);
-        self.sum += x;
-        if self.window.len() > self.width {
-            self.sum -= self.window.pop_front().unwrap_or(0.0);
-        }
-        self.sum / self.window.len() as f32
+    /// The kernel at `x` input samples from its center.
+    fn kernel(&self, x: f64) -> f32 {
+        let at = x.abs() * PHASES as f64;
+        let i = at as usize;
+        let (Some(&a), b) = (self.table.get(i), self.table.get(i + 1).copied().unwrap_or(0.0)) else {
+            return 0.0;
+        };
+        a + (b - a) * (at - i as f64) as f32
     }
 
     /// Resample `input`, appending 16-bit samples to `out`.
     fn push(&mut self, input: &[f32], out: &mut Vec<i16>) {
-        let input: Vec<f32> = input.iter().map(|&x| self.smooth(x)).collect();
-        // Index 0 is `last`, index k is input[k - 1]; interpolating between i and i + 1 needs
-        // i + 1 <= len.
-        let len = input.len() as f64;
-        while self.pos < len {
-            let i = self.pos as usize;
-            let frac = (self.pos - i as f64) as f32;
-            let a = if i == 0 { self.last } else { input[i - 1] };
-            let b = input[i];
-            out.push(to_i16(a + (b - a) * frac));
-            self.pos += self.step;
+        if self.step == 1.0 {
+            out.extend(input.iter().map(|&x| to_i16(x)));
+            return;
         }
-        self.pos -= len;
-        if let Some(&l) = input.last() {
-            self.last = l;
+        self.buf.extend_from_slice(input);
+        let end = self.base + self.buf.len() as u64;
+        let half = self.half as i64;
+        loop {
+            let center = self.next.floor() as i64;
+            // It needs input up to `half` samples past its center.
+            if center + half >= end as i64 {
+                break;
+            }
+            let frac = self.next - center as f64;
+            let mut sum = 0.0f32;
+            for j in (center - half + 1).max(self.base as i64)..=center + half {
+                sum += self.buf[(j - self.base as i64) as usize] * self.kernel((j - center) as f64 - frac);
+            }
+            out.push(to_i16(sum));
+            self.next += self.step;
         }
+        // Keep what the next output's kernel reaches back to.
+        let keep = (self.next.floor() as i64 - half + 1).max(self.base as i64) as u64;
+        self.buf.drain(..(keep - self.base) as usize);
+        self.base = keep;
     }
 }
 
@@ -224,47 +272,67 @@ mod tests {
         out
     }
 
+    fn tone(rate: u32, hz: f64, secs: f64, amp: f32) -> Vec<f32> {
+        let n = (f64::from(rate) * secs) as usize;
+        (0..n).map(|i| amp * (2.0 * std::f64::consts::PI * hz * i as f64 / f64::from(rate)).sin() as f32).collect()
+    }
+
+    /// The level of `out`, past the filter's start-up, relative to full scale.
+    fn rms(out: &[i16]) -> f64 {
+        let s = &out[out.len() / 4..out.len() * 3 / 4];
+        (s.iter().map(|&v| (f64::from(v) / 32767.0).powi(2)).sum::<f64>() / s.len() as f64).sqrt()
+    }
+
+    fn db(ratio: f64) -> f64 {
+        20.0 * ratio.log10()
+    }
+
     #[test]
-    fn same_rate_passes_through_one_sample_late() {
+    fn same_rate_passes_through() {
         let input: Vec<f32> = (0..100).map(|i| i as f32 / 100.0).collect();
         let out = run(RATE, &input, 7);
-        assert_eq!(out.len(), input.len());
-        assert_eq!(out[0], 0);
-        for (o, i) in out[1..].iter().zip(&input) {
-            assert_eq!(*o, to_i16(*i));
+        assert_eq!(out, input.iter().map(|&x| to_i16(x)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn keeps_duration_across_chunks() {
+        for from in [48_000, 44_100, 96_000, 8_000] {
+            for chunk in [441, 480, 512, 1000, 48_000] {
+                let out = run(from, &vec![0.25f32; from as usize], chunk);
+                // Less the kernel's reach ahead (`HALF_TAPS` output samples, twice that
+                // upsampling), which comes out with the next chunk.
+                let short = 16_000 - out.len() as i64;
+                assert!((0..=50).contains(&short), "{from} chunk {chunk}: {}", out.len());
+            }
         }
     }
 
     #[test]
-    fn downsampling_keeps_duration_across_chunks() {
-        let input = vec![0.25f32; 48_000];
-        for chunk in [480, 512, 1000, 48_000] {
-            let out = run(48_000, &input, chunk);
-            assert!((out.len() as i64 - 16_000).abs() <= 1, "chunk {chunk}: {}", out.len());
-        }
-        let out = run(44_100, &vec![0.0f32; 44_100], 441);
-        assert!((out.len() as i64 - 16_000).abs() <= 1, "{}", out.len());
-    }
-
-    #[test]
-    fn downsampling_keeps_a_steady_level_and_drops_the_highest_tone() {
+    fn keeps_a_steady_level() {
         let out = run(48_000, &vec![0.5f32; 4800], 480);
-        assert!(out[10..].iter().all(|&s| (s - to_i16(0.5)).abs() <= 1));
-        // A tone at 24 kHz (alternating samples) can't exist at 16 kHz: it averages away
-        // instead of folding back into the audible range.
-        let tone: Vec<f32> = (0..4800).map(|i| if i % 2 == 0 { 0.8 } else { -0.8 }).collect();
-        let out = run(48_000, &tone, 480);
-        let peak = out[10..].iter().map(|s| s.unsigned_abs()).max().unwrap();
-        assert!(peak < to_i16(0.8) as u16 / 2, "{peak}");
+        assert!(out[100..].iter().all(|&s| (s - to_i16(0.5)).abs() <= 40), "{:?}", &out[100..110]);
+    }
+
+    /// Speech up to 7 kHz (the consonants) comes through; what 16 kHz can't hold doesn't fold
+    /// back into it.
+    #[test]
+    fn passes_speech_and_stops_aliases() {
+        for from in [48_000, 44_100] {
+            for hz in [300.0, 1000.0, 3000.0, 5000.0, 6500.0] {
+                let level = db(rms(&run(from, &tone(from, hz, 0.5, 0.5), 512)) / (0.5 / 2f64.sqrt()));
+                assert!(level.abs() < 0.5, "{from} Hz, {hz} Hz tone: {level:.2} dB");
+            }
+            for hz in [8800.0, 10_000.0, 13_000.0, 20_000.0] {
+                let level = db(rms(&run(from, &tone(from, hz, 0.5, 0.5), 512)) / (0.5 / 2f64.sqrt()));
+                assert!(level < -50.0, "{from} Hz, {hz} Hz tone: {level:.2} dB");
+            }
+        }
     }
 
     #[test]
-    fn upsampling_interpolates() {
-        let out = run(8_000, &[0.0, 1.0, 0.0], 3);
-        assert_eq!(out.len(), 6);
-        assert_eq!(out[2], to_i16(0.0));
-        assert_eq!(out[3], to_i16(0.5));
-        assert_eq!(out[4], to_i16(1.0));
+    fn upsampling_keeps_a_tone() {
+        let level = db(rms(&run(8_000, &tone(8_000, 1000.0, 0.5, 0.5), 160)) / (0.5 / 2f64.sqrt()));
+        assert!(level.abs() < 0.5, "{level:.2} dB");
     }
 
     #[test]
