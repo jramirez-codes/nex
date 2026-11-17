@@ -145,6 +145,34 @@ pub(super) fn spawn_detached(argv: &[String], cwd: Option<&Path>) {
     }
 }
 
+/// Run `program args` and return its output, or `None` if it isn't installed, fails, or
+/// takes longer than `timeout` (it is then killed).
+pub(super) fn output_within(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(program).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    // Read on a thread so a large output can't fill the pipe while we wait.
+    let reader = std::thread::spawn(move || {
+        let mut out = Vec::new();
+        stdout.read_to_end(&mut out).map(|_| out)
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(5)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    };
+    let out = reader.join().ok()?.ok()?;
+    status.success().then_some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

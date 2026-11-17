@@ -1,6 +1,6 @@
 [package]
 name = "nex"
-version = "0.9.1"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A fast, GPU-accelerated terminal emulator for Linux and macOS with tabs, split panes and a file explorer built in."
@@ -23,6 +23,8 @@ memmap2 = "0.9"
 # Per-OS dependencies, used only by src/platform/<os>/.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+# Registering the PTY wrapper that scans for OSC 7 (see src/terminal/osc7.rs); alacritty_terminal's version.
+polling = "3.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Drag and drop with other windows on Wayland (see src/platform/linux/dnd/).
@@ -61,6 +63,7 @@ depends = "$auto, fontconfig, libxkbcommon0, libegl1, libgl1"
 assets = [
     ["target/release/nex", "usr/bin/", "755"],
     ["assets/nex.desktop", "usr/share/applications/", "644"],
+    ["assets/nex-files.desktop", "usr/share/applications/", "644"],
     ["assets/nex.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["config.example", "usr/share/doc/nex/config.example", "644"],
     ["README.md", "usr/share/doc/nex/README.md", "644"],

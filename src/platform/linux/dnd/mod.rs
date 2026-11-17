@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use egui::{DroppedFile, Event, HoveredFile, PointerButton, Pos2, RawInput, TouchDeviceId, TouchId, TouchPhase};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
-use wayland_client::backend::{Backend, ObjectId};
+use wayland_client::backend::{Backend, ObjectId, WaylandError};
 use wayland_client::protocol::wl_buffer::WlBuffer;
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_data_device::{self, WlDataDevice};
@@ -52,7 +52,7 @@ use wayland_client::protocol::wl_touch::{self, WlTouch};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum};
 
 use crate::file_explorer::fs_ops::parse_paths;
-use crate::platform::{DragImage, dnd_log as log};
+use crate::platform::{ClipboardFiles, DragImage, dnd_log as log};
 
 macro_rules! trace {
     ($($t:tt)*) => { log(format_args!($($t)*)) };
@@ -60,10 +60,16 @@ macro_rules! trace {
 
 const URI_LIST: &str = "text/uri-list";
 const TEXT: &str = "text/plain;charset=utf-8";
+const PNG: &str = "image/png";
 /// Text types a pasted selection may come in, best first.
 const PASTE_TYPES: [&str; 5] = [TEXT, "UTF8_STRING", "text/plain", "TEXT", "STRING"];
 /// How long a paste waits for the app holding the clipboard to send it.
 const PASTE_TIMEOUT: Duration = Duration::from_secs(2);
+/// The same for an image, which can be megabytes.
+const IMAGE_TIMEOUT: Duration = Duration::from_secs(8);
+/// Image types a drop with no files (an image dragged out of a browser) is read as, best
+/// first, with the extension it's saved under. Other `image/*` types come after these.
+const DROP_IMAGE_TYPES: [(&str, &str); 4] = [(PNG, "png"), ("image/jpeg", "jpg"), ("image/gif", "gif"), ("image/webp", "webp")];
 
 /// A paste key was pressed in the window since the last frame (set by `note_paste_key`).
 static PASTE_KEY: AtomicBool = AtomicBool::new(false);
@@ -114,6 +120,46 @@ impl Early {
         conn.flush().map_err(|e| e.to_string())?;
         trace!("data device made");
         Ok(Self { display: display as usize, conn, queue, state, manager, device })
+    }
+}
+
+/// `blocking_dispatch` in a loop, that also wakes when `stop` is readable or closed, and then
+/// returns, leaving the socket alone. Returns too when the connection fails.
+fn dispatch_until_stopped(queue: &mut EventQueue<State>, state: &mut State, stop: &std::io::PipeReader) {
+    use std::os::fd::AsRawFd;
+    let would_block = |e: &WaylandError| matches!(e, WaylandError::Io(e) if e.kind() == std::io::ErrorKind::WouldBlock);
+    loop {
+        if queue.dispatch_pending(state).is_err() {
+            return;
+        }
+        match queue.flush() {
+            Err(e) if !would_block(&e) => return,
+            _ => {}
+        }
+        // `None`: events arrived for this queue meanwhile; dispatch them first.
+        let Some(guard) = queue.prepare_read() else { continue };
+        let mut fds = [
+            libc::pollfd { fd: guard.connection_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: stop.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+        ];
+        // SAFETY: two valid pollfds for open fds.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue; // Dropping `guard` cancels the read.
+            }
+            return;
+        }
+        if fds[1].revents != 0 {
+            trace!("dispatch thread stopping");
+            return;
+        }
+        if fds[0].revents != 0 {
+            match guard.read() {
+                Err(e) if !would_block(&e) => return,
+                _ => {}
+            }
+        }
     }
 }
 
@@ -194,6 +240,21 @@ pub struct Dnd {
     touch_down: Option<(TouchDeviceId, TouchId, Pos2)>,
     /// The files fed to egui last were dropped as a move (not a copy).
     drop_moves: bool,
+    /// Dropped to tell the thread to stop (see [`Drop`] for `Dnd`).
+    stop: Option<std::io::PipeWriter>,
+    /// Disconnects when the thread has stopped.
+    stopped: std::sync::mpsc::Receiver<()>,
+}
+
+/// Stop the thread before the Wayland connection goes. `main` drops the event loop, which
+/// disconnects from the display, after the app (and this) is dropped; a thread still
+/// reading the display then would use freed memory and crash nex as it quits.
+impl Drop for Dnd {
+    fn drop(&mut self) {
+        self.stop.take();
+        // Waits for the thread, but never holds up quitting for long.
+        let _ = self.stopped.recv_timeout(Duration::from_secs(1));
+    }
 }
 
 impl Dnd {
@@ -252,32 +313,84 @@ impl Dnd {
         let (compositor, shm) = (state.compositor.clone(), state.shm.clone());
         conn.flush().map_err(|e| e.to_string())?;
 
+        let (stop_rx, stop) = std::io::pipe().map_err(|e| e.to_string())?;
+        let (done, stopped) = std::sync::mpsc::channel::<()>();
         std::thread::Builder::new()
             .name("nex-wl-dnd".into())
             .spawn(move || {
-                while queue.blocking_dispatch(&mut state).is_ok() {}
+                dispatch_until_stopped(&mut queue, &mut state, &stop_rx);
+                // Let go of the connection's objects while the display is still there.
+                drop((queue, state));
+                drop(done);
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { conn, qh, manager, device, surface, compositor, shm, shared, hovering: false, _relay, handed_off: None, touch_down: None, drop_moves: false })
+        Ok(Self {
+            conn,
+            qh,
+            manager,
+            device,
+            surface,
+            compositor,
+            shm,
+            shared,
+            hovering: false,
+            _relay,
+            handed_off: None,
+            touch_down: None,
+            drop_moves: false,
+            stop: Some(stop),
+            stopped,
+        })
     }
 
     /// The clipboard's text, if it holds any: read from the app holding it, waiting at most
     /// `PASTE_TIMEOUT`.
     fn clipboard_text(&self) -> Option<String> {
-        let offer = self.shared.lock().unwrap().selection.clone()?;
-        let types = offer.data::<OfferData>()?.types.lock().unwrap().clone();
+        let types = self.clipboard_types()?;
         let Some(mime) = PASTE_TYPES.into_iter().find(|t| types.iter().any(|x| x == t)) else {
             trace!("paste: no text in the clipboard ({types:?})");
             return None;
         };
+        let bytes = self.read_clipboard(mime, PASTE_TIMEOUT)?;
+        let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
+        trace!("paste: {} bytes as {mime}", text.len());
+        (!text.is_empty()).then_some(text)
+    }
+
+    /// Copied files (a file manager's copy) or an image (a screenshot), if the clipboard
+    /// holds either.
+    pub fn clipboard_files(&self) -> Option<ClipboardFiles> {
+        let types = self.clipboard_types()?;
+        let has = |t: &str| types.iter().any(|x| x == t);
+        if has(URI_LIST) {
+            let paths = parse_paths(&String::from_utf8_lossy(&self.read_clipboard(URI_LIST, PASTE_TIMEOUT)?));
+            if !paths.is_empty() {
+                return Some(ClipboardFiles::Paths(paths));
+            }
+        }
+        if has(PNG) {
+            let png = self.read_clipboard(PNG, IMAGE_TIMEOUT).filter(|b| !b.is_empty())?;
+            trace!("paste: {} bytes of {PNG}", png.len());
+            return Some(ClipboardFiles::Png(png));
+        }
+        None
+    }
+
+    /// The types the clipboard's current owner offers.
+    fn clipboard_types(&self) -> Option<Vec<String>> {
+        let offer = self.shared.lock().unwrap().selection.clone()?;
+        let types = offer.data::<OfferData>()?.types.lock().unwrap().clone();
+        Some(types)
+    }
+
+    /// The clipboard's contents as `mime`, waiting at most `timeout` for its owner.
+    fn read_clipboard(&self, mime: &str, timeout: Duration) -> Option<Vec<u8>> {
+        let offer = self.shared.lock().unwrap().selection.clone()?;
         let (reader, writer) = std::io::pipe().ok()?;
         offer.receive(mime.into(), writer.as_fd());
         drop(writer);
         self.conn.flush().ok()?;
-        let bytes = read_until_closed(reader, PASTE_TIMEOUT)?;
-        let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
-        trace!("paste: {} bytes as {mime}", text.len());
-        (!text.is_empty()).then_some(text)
+        read_until_closed(reader, timeout)
     }
 
     /// Hand `paths` to the compositor as a drag out of this window, continuing the press that
@@ -365,11 +478,10 @@ impl Dnd {
     /// Before each frame: report an incoming drag to egui as winit does on X11, and a paste
     /// key egui couldn't paste for.
     pub fn feed(&mut self, ctx: &egui::Context, raw: &mut RawInput) {
-        if PASTE_KEY.swap(false, Ordering::Relaxed) && !raw.events.iter().any(|e| matches!(e, Event::Paste(_))) {
-            if let Some(text) = self.clipboard_text() {
+        if PASTE_KEY.swap(false, Ordering::Relaxed) && !raw.events.iter().any(|e| matches!(e, Event::Paste(_)))
+            && let Some(text) = self.clipboard_text() {
                 raw.events.push(Event::Paste(text));
             }
-        }
         let (hover, dropped) = {
             let mut s = self.shared.lock().unwrap();
             let size = ctx.content_rect().size() * ctx.zoom_factor();
@@ -447,6 +559,21 @@ impl OfferData {
     fn moves(&self) -> bool {
         self.action.load(Ordering::Relaxed) == DndAction::Move.bits()
     }
+
+    /// The image type to read a drop as when it carries no local files, with the extension
+    /// to save it under. A browser's image drag offers the image's URL as `text/uri-list`
+    /// (an `https://` one, not a file) and the image itself as `image/png` and the like.
+    fn image_type(&self) -> Option<(String, String)> {
+        let types = self.types.lock().unwrap();
+        for (mime, ext) in DROP_IMAGE_TYPES {
+            if types.iter().any(|t| t == mime) {
+                return Some((mime.to_string(), ext.to_string()));
+            }
+        }
+        let other = types.iter().find(|t| t.starts_with("image/") && !t.contains(';'))?;
+        let ext = other["image/".len()..].trim_start_matches("x-").split('+').next().unwrap_or("img").to_string();
+        Some((other.clone(), ext))
+    }
 }
 
 /// The background thread's state.
@@ -460,7 +587,7 @@ struct State {
     shm: Option<WlShm>,
     pointer: Option<WlPointer>,
     touch: Option<WlTouch>,
-    /// The drag over the window now, if it carries files.
+    /// The drag over the window now, if it carries files (or an image).
     offer: Option<WlDataOffer>,
     /// Where the drag over this window's surface is now (possibly off the window).
     at: Option<(f64, f64)>,
@@ -528,21 +655,39 @@ impl State {
         // Before version 3 there are no actions: a drop is a copy.
         let moves = offer.version() >= 3 && offer.data::<OfferData>().is_some_and(OfferData::moves);
         trace!("receiving drop (offer v{}), move: {moves}", offer.version());
-        let Ok((mut reader, writer)) = std::io::pipe() else { return };
-        offer.receive(URI_LIST.into(), writer.as_fd());
-        drop(writer);
-        let _ = self.conn.flush();
+        let data = offer.data::<OfferData>();
+        let uris = data.is_some_and(|d| d.uris.load(Ordering::Relaxed));
+        let image = data.and_then(OfferData::image_type);
+        let reader = if uris {
+            let Ok((reader, writer)) = std::io::pipe() else { return };
+            offer.receive(URI_LIST.into(), writer.as_fd());
+            drop(writer);
+            let _ = self.conn.flush();
+            Some(reader)
+        } else {
+            None
+        };
         let (conn, shared, ctx) = (self.conn.clone(), self.shared.clone(), self.ctx.clone());
         std::thread::spawn(move || {
             let mut text = String::new();
-            let _ = reader.read_to_string(&mut text);
+            if let Some(mut reader) = reader {
+                let _ = reader.read_to_string(&mut text);
+            }
+            let mut paths = parse_paths(&text);
+            trace!("received {} bytes, {} existing path(s)", text.len(), paths.len());
+            // No local files (a browser's image, whose URI is a web URL): save the image
+            // itself and drop that file, so a terminal types its path as for any file.
+            if paths.is_empty()
+                && let Some((mime, ext)) = image
+                    && let Some(path) = receive_image(&conn, &offer, &mime, &ext) {
+                        text = file_uri(&path);
+                        paths = vec![path];
+                    }
             if offer.version() >= 3 {
                 offer.finish();
             }
             offer.destroy();
             let _ = conn.flush();
-            let paths = parse_paths(&text);
-            trace!("received {} bytes, {} existing path(s)", text.len(), paths.len());
             match dest {
                 Dest::Here(at) if !paths.is_empty() => {
                     shared.lock().unwrap().dropped.push((paths, at, moves));
@@ -555,6 +700,23 @@ impl State {
                 Dest::Here(_) => {}
             }
         });
+    }
+}
+
+/// Read a drop's image as `mime` and save it to a temp file (see `remote::save_image`).
+fn receive_image(conn: &Connection, offer: &WlDataOffer, mime: &str, ext: &str) -> Option<PathBuf> {
+    let (reader, writer) = std::io::pipe().ok()?;
+    offer.receive(mime.into(), writer.as_fd());
+    drop(writer);
+    conn.flush().ok()?;
+    let bytes = read_until_closed(reader, IMAGE_TIMEOUT).filter(|b| !b.is_empty())?;
+    trace!("received {} bytes of {mime}", bytes.len());
+    match crate::remote::save_image(&bytes, "dropped", ext) {
+        Ok(path) => Some(path),
+        Err(e) => {
+            trace!("couldn't save the dropped image: {e}");
+            None
+        }
     }
 }
 
@@ -630,14 +792,16 @@ impl Dispatch<WlDataDevice, ()> for State {
         match event {
             wl_data_device::Event::Enter { serial, x, y, id, .. } => {
                 let Some(offer) = id else { return };
-                let files = offer.data::<OfferData>().is_some_and(|d| d.uris.load(Ordering::Relaxed));
-                trace!("drag entered at ({x:.0}, {y:.0}), files: {files}");
-                if !files {
+                let data = offer.data::<OfferData>();
+                let files = data.is_some_and(|d| d.uris.load(Ordering::Relaxed));
+                let image = data.and_then(OfferData::image_type).map(|(mime, _)| mime);
+                trace!("drag entered at ({x:.0}, {y:.0}), files: {files}, image: {image:?}");
+                let Some(mime) = (if files { Some(URI_LIST.to_string()) } else { image }) else {
                     offer.accept(serial, None);
                     offer.destroy();
                     return;
-                }
-                offer.accept(serial, Some(URI_LIST.into()));
+                };
+                offer.accept(serial, Some(mime));
                 if offer.version() >= 3 {
                     // Files dropped on an explorer move there, as they do within the window
                     // (Ctrl copies; see `App::file_drops`). A terminal just types their paths.
@@ -765,5 +929,15 @@ mod tests {
         assert!(!uri.contains(' '));
         assert_eq!(parse_paths(&format!("{uri}\r\n")), vec![file]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dropped_images_prefer_png() {
+        let offer = |types: &[&str]| OfferData { types: Mutex::new(types.iter().map(|t| t.to_string()).collect()), ..Default::default() };
+        let pick = |types: &[&str]| offer(types).image_type();
+        // Firefox: the page's URL as a uri-list, the image in several formats.
+        assert_eq!(pick(&["text/x-moz-url", URI_LIST, "text/html", "image/jpeg", PNG]), Some((PNG.into(), "png".into())));
+        assert_eq!(pick(&["image/svg+xml"]), Some(("image/svg+xml".into(), "svg".into())));
+        assert_eq!(pick(&[URI_LIST, TEXT]), None);
     }
 }

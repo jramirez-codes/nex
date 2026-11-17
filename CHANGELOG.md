@@ -6,6 +6,45 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-17
+
+### Added
+
+- Files and images reach SSH sessions. Dropping files onto a pane running `ssh`, or pasting
+  a copied image or copied files there (Ctrl+V or Ctrl+Shift+V; Cmd+V on macOS), copies
+  them to a new folder under the remote host's `$TMPDIR` (or `/tmp`) and types the remote
+  paths, so a program on the other end, such as Claude Code, can open them. The upload runs
+  over a second `ssh` with the pane's own options and `BatchMode`, so it can't type a
+  password. When a host asks for one, nex offers to turn on connection sharing: a short block
+  at the end of `~/.ssh/config`, matching only ssh run inside nex, that makes each session a
+  `ControlMaster` the upload can ride on. Reconnect once and later uploads reuse the login
+  typed into the pane. Hosts reached with keys or an agent need nothing. If an upload can't
+  log in, the local paths are typed instead. Turn it off with `ssh-upload = false`.
+- Splits and new tabs follow SSH sessions. Splitting a pane running `ssh`, or opening a new
+  tab from it, opens another session on the same host, in the same remote folder. Typing
+  `exit` there drops to a local shell, as in the original pane. With connection sharing on,
+  the new session reuses the pane's login. When it's off and the host would ask for a password
+  again, nex offers to turn it on first. The remote folder comes from the remote shell's
+  OSC 7 report (fish sends one; see the README for bash and zsh), or from a `user@host: dir`
+  window title such as Debian and Ubuntu's bash sets. Otherwise the session opens in the
+  remote home. Turn it off with `ssh-follow = false`.
+- nex can be your file manager. `nex --explorer` opens on the Files tab, and a folder argument
+  (`nex ~/Downloads`, or a `file://` URI) opens the Files tab in that folder. A new hidden
+  `nex-files.desktop` entry handles `inode/directory`, so
+  `xdg-mime default nex-files.desktop inode/directory` makes folders open in nex.
+- `explorer-view = list | grid` picks the layout file explorers open in.
+
+### Fixed
+
+- Ctrl+V with an image (and no text) on the clipboard now reaches the program as `^V`, so
+  Claude Code can paste the image itself. Before, nex swallowed the key.
+- An image dragged in from a browser (Firefox, Chromium) onto a pane now drops. nex saves it
+  to a temp file and types that path, so Claude Code picks it up as an image. Dropped on an
+  explorer, it lands in that folder. Before, the drop did nothing on Wayland: the drag's only
+  URI was the image's web address, not a file.
+- nex could crash as it quit on Wayland: the drag and drop thread kept reading the
+  display's connection while it was being closed. The thread now stops first.
+
 ## [0.9.1] - 2026-11-16
 
 ### Changed
@@ -329,7 +368,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/jramirez-codes/nex/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/jramirez-codes/nex/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/jramirez-codes/nex/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/jramirez-codes/nex/compare/v0.8.1...v0.8.2

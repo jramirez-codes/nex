@@ -18,26 +18,36 @@ const PAD: Vec2 = Vec2::new(14.0, 7.0);
 /// Gap between the toast and the bottom of its area.
 const MARGIN: f32 = 18.0;
 
+/// How long a toast worth reading (an error) is on screen (seconds).
+const LONG_TOAST_TIME: f64 = 5.0;
+
 pub struct Toast {
     text: String,
     shown_at: f64,
+    /// Seconds on screen, including the fades.
+    time: f64,
 }
 
 impl Toast {
     pub fn new(ctx: &egui::Context, text: String) -> Self {
-        Self { text, shown_at: ctx.input(|i| i.time) }
+        Self { text, shown_at: ctx.input(|i| i.time), time: TOAST_TIME }
+    }
+
+    /// A toast that stays long enough to read a sentence (an error).
+    pub fn long(ctx: &egui::Context, text: String) -> Self {
+        Self { time: LONG_TOAST_TIME, ..Self::new(ctx, text) }
     }
 
     /// Paint the toast centered near the bottom of `area`. Returns `false` once it has expired.
     pub fn paint(&self, ctx: &egui::Context, area: Rect, theme: &Theme) -> bool {
         let age = ctx.input(|i| i.time) - self.shown_at;
-        if age >= TOAST_TIME {
+        if age >= self.time {
             return false;
         }
         // 0 → 1 while fading in, 1 while shown, 1 → 0 while fading out.
         let (alpha, rise) = if animations(ctx) {
             let fade_in = ease_out((age / FADE_TIME) as f32);
-            let fade_out = ease_out(((TOAST_TIME - age) / FADE_TIME) as f32);
+            let fade_out = ease_out(((self.time - age) / FADE_TIME) as f32);
             (fade_in.min(fade_out), fade_in)
         } else {
             (1.0, 1.0)

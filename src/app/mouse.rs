@@ -101,14 +101,12 @@ impl App {
     /// A button press: open a Ctrl+clicked (Cmd+clicked on macOS) link, report it to the program, or start a selection.
     fn on_press(&mut self, pos: Pos2, button: PointerButton, modifiers: Modifiers) {
         let Some((id, rect)) = self.terminal_at(pos) else { return };
-        if modifiers.command && button == PointerButton::Primary {
-            if let Some((link_pane, link)) = &self.hover_link {
-                if *link_pane == id {
+        if modifiers.command && button == PointerButton::Primary
+            && let Some((link_pane, link)) = &self.hover_link
+                && *link_pane == id {
                     crate::platform::open_uri(link.uri.as_ref());
                     return;
                 }
-            }
-        }
         self.pending.push(Action::FocusPane(id));
         let m = self.pane_metrics(id);
         let Some(t) = self.panes.get_mut(&id) else { return };
@@ -227,12 +225,11 @@ impl App {
             if self.mouse.click_count == 1 && !self.mouse.moved {
                 // A plain click (no drag) clears the selection.
                 t.term.lock().selection = None;
-            } else if self.cfg.copy_on_select {
-                if let Some(text) = t.selection_text() {
+            } else if self.cfg.copy_on_select
+                && let Some(text) = t.selection_text() {
                     self.clipboard_toast(ctx, "Copied", &text);
                     ctx.copy_text(text);
                 }
-            }
         }
     }
 
@@ -283,8 +280,8 @@ impl App {
         let ctrl = ctx.input(|i| i.modifiers.command);
         let previous = self.hover_link.as_ref().map(|(id, l)| (*id, l.range.clone()));
         self.hover_link = None;
-        if let (true, Some(pos), None) = (ctrl, hover, self.mouse.capture) {
-            if let Some((id, rect)) = self.terminal_at(pos) {
+        if let (true, Some(pos), None) = (ctrl, hover, self.mouse.capture)
+            && let Some((id, rect)) = self.terminal_at(pos) {
                 let m = self.pane_metrics(id);
                 if let Some(t) = self.panes.get(&id) {
                     let (point, ..) = render::point_at(pos, rect, m, t);
@@ -292,7 +289,6 @@ impl App {
                     self.hover_link = self.links.link_at(&term, point).map(|l| (id, l));
                 }
             }
-        }
         if self.hover_link.is_some() {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
         }

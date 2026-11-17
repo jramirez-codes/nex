@@ -28,12 +28,22 @@ window-padding = 10
 pane-headers = true
 animations = true           # pane splits / closes, focus fades, title-bar tabs
 tab-animation = glide       # switching tabs: glide | ink | none
+explorer-view = list        # file explorer layout: list | grid
 mobile = false              # phone-sized touch screens: tabs in a left sidebar, bigger buttons
 
 cursor-style = block        # block | bar | underline
 cursor-style-blink = true
 copy-on-select = false
 clipboard-toasts = true     # "Copied …" / "Pasted …" toasts for terminal copy and paste
+# Files dropped (or an image or files pasted) into a pane running `ssh` are copied to a temp
+# folder on the remote host, and the remote paths typed. Keys and agents just work; for a
+# host that wants a password, nex offers to turn on connection sharing in ~/.ssh/config so
+# uploads reuse the pane's login. If an upload can't log in, the local paths are typed.
+ssh-upload = true
+# Splitting a pane that's running ssh, or opening a new tab from it, opens another session on
+# the same host, in the same remote folder. With connection sharing on, it reuses the pane's
+# login. The folder comes from the remote shell (OSC 7, or a "user@host: dir" title).
+ssh-follow = true
 scrollback-limit = 10000
 
 # command = fish

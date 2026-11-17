@@ -154,11 +154,10 @@ impl FileExplorer {
 
     pub(super) fn complete_location(&mut self) {
         let dir = self.dir.clone();
-        if let Some(field) = self.location.as_mut() {
-            if let Some(text) = complete_location(&field.text, &dir) {
+        if let Some(field) = self.location.as_mut()
+            && let Some(text) = complete_location(&field.text, &dir) {
                 field.set_text(text);
             }
-        }
     }
 
     /// Add typed text to the find query and select the first matching name.

@@ -13,12 +13,14 @@ use super::keymap::{self, ClipboardKey};
 
 impl App {
     pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {
+        let paste_key = platform::take_paste_key();
         // Explorer dialogs (delete confirmation, Properties) read the keyboard themselves; no
         // key may reach a shell or run a shortcut behind them.
-        if self.explorers.values().any(|b| b.modal_open()) {
+        if self.explorers.values().any(|b| b.modal_open()) || self.upload_modal_open() {
             return;
         }
         let (events, mods) = ctx.input(|i| (i.events.clone(), i.modifiers));
+        let pasted = events.iter().any(|e| matches!(e, Event::Paste(_)));
         // A key press that ran a shortcut also arrives as text (Alt+1 → "1"); drop that text so
         // it doesn't reach the shell too.
         let mut shortcut_ran = false;
@@ -36,6 +38,38 @@ impl App {
                 _ => {}
             }
         }
+        if let (Some(shift), false) = (paste_key, pasted) {
+            self.on_textless_paste(ctx, shift);
+        }
+    }
+
+    /// A paste key egui made no `Paste` event for: the clipboard holds no text (an image, say).
+    /// In an `ssh` session the image or files are uploaded to the remote host; otherwise a
+    /// plain Ctrl+V still reaches the program as `^V` (Claude Code reads the image itself).
+    fn on_textless_paste(&mut self, ctx: &egui::Context, shift: bool) {
+        let Some(id) = self.focused_pane().filter(|id| self.panes.contains_key(id)) else { return };
+        if self.search.is_some() {
+            return;
+        }
+        if self.upload_pasted_files(ctx, id) {
+            return;
+        }
+        if !shift && platform::SHORTCUTS == platform::ShortcutStyle::Ctrl {
+            self.send_to_focused(&[0x16]);
+        }
+    }
+
+    /// If pane `id` runs `ssh` and the clipboard holds copied files or an image, upload them
+    /// to the remote host (their remote paths are typed once there). Returns whether it did.
+    fn upload_pasted_files(&mut self, ctx: &egui::Context, id: crate::app::layout::PaneId) -> bool {
+        let Some(target) = self.ssh_target(id) else { return false };
+        let files = match &self.dnd {
+            Some(dnd) => dnd.clipboard_files(),
+            None => platform::clipboard_files(),
+        };
+        let Some(files) = files else { return false };
+        self.upload_clipboard(ctx, id, target, files);
+        true
     }
 
     fn focused_terminal(&mut self) -> Option<&mut Terminal> {
@@ -89,11 +123,10 @@ impl App {
     /// Move to the next search match (older if `up`) and scroll it into view.
     fn search_step(&mut self, up: bool) {
         let Some(s) = self.search.as_mut() else { return };
-        if let Some(p) = s.step(up) {
-            if let Some(t) = self.panes.get(&s.pane) {
+        if let Some(p) = s.step(up)
+            && let Some(t) = self.panes.get(&s.pane) {
                 t.term.lock().scroll_to_point(p);
             }
-        }
     }
 
     /// Typed text: into a file explorer (its text fields, or type-to-find), the search field or
@@ -146,6 +179,14 @@ impl App {
         }
         if let (Event::Paste(text), Some(s)) = (&event, self.search.as_mut()) {
             s.query.push_str(text.lines().next().unwrap_or_default());
+            return;
+        }
+        // Ctrl+V or Ctrl+Shift+V in an `ssh` session, with files or an image copied: upload
+        // them rather than paste text the remote side can't use.
+        if let Event::Paste(_) = event
+            && let Some(id) = self.focused_pane().filter(|id| self.panes.contains_key(id))
+            && self.upload_pasted_files(ctx, id)
+        {
             return;
         }
         match (keymap::clipboard_key(&event, mods), event) {

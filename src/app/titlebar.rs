@@ -193,7 +193,7 @@ impl App {
                 if f.tint > 0.0 {
                     let fill = TAB_HOVER.gamma_multiply(f.tint);
                     painter.rect_filled(d.rect.shrink(1.0), 8, fill);
-                    painter.rect_stroke(d.rect.shrink(1.0), 8, Stroke::new(1.0, TAB_SEPARATOR.gamma_multiply(f.tint * 0.6)), StrokeKind::Inside);
+                    painter.rect_stroke(d.rect.shrink(1.0), 8, Stroke::new(1.0_f32, TAB_SEPARATOR.gamma_multiply(f.tint * 0.6)), StrokeKind::Inside);
                 }
                 if f.content > 0.0 {
                     let mut p = painter.clone();
@@ -312,8 +312,8 @@ impl App {
         let r = slots.rect(i as f32);
         let uid = self.tabs[i].uid;
         let resp = ui.interact(r, Id::new(("tab", uid)), Sense::click_and_drag());
-        if resp.dragged_by(PointerButton::Primary) {
-            if let Some(pos) = resp.interact_pointer_pos() {
+        if resp.dragged_by(PointerButton::Primary)
+            && let Some(pos) = resp.interact_pointer_pos() {
                 let target = slots.slot_at(pos);
                 if target != i {
                     let tab = self.tabs.remove(i);
@@ -323,7 +323,6 @@ impl App {
                     return true;
                 }
             }
-        }
         if resp.drag_started_by(PointerButton::Primary) {
             self.show_tab(i);
         }
@@ -344,7 +343,7 @@ impl App {
                 let sx = r.right();
                 [Pos2::new(sx, r.center().y - 8.0), Pos2::new(sx, r.center().y + 8.0)]
             };
-            painter.line_segment(seg, Stroke::new(1.0, TAB_SEPARATOR));
+            painter.line_segment(seg, Stroke::new(1.0_f32, TAB_SEPARATOR));
         }
 
         if slots.vertical {

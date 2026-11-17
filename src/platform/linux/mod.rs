@@ -2,6 +2,7 @@
 //! glibc heap tuning.
 
 mod apps;
+mod clipboard;
 mod dnd;
 mod fonts;
 mod memory;
@@ -13,6 +14,7 @@ pub use super::unix::{
     symlink,
 };
 pub use apps::{apps_for, mime_type, open_with};
+pub use clipboard::clipboard_files;
 pub use dnd::Dnd;
 pub use fonts::{FALLBACK_FAMILIES, find_font, nerd_mono_families};
 pub use memory::{trim_heap, tune_allocator};

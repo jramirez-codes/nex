@@ -112,6 +112,7 @@ impl ApplicationHandler<UserEvent> for WinitApp<'_> {
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
             WindowEvent::KeyboardInput { event: key, .. } if key.state == ElementState::Pressed && is_paste(self.mods, &key.logical_key, key.physical_key) => {
                 Dnd::note_paste_key();
+                super::paste_key_pressed(self.mods.shift_key());
             }
             WindowEvent::RedrawRequested => {
                 if let Some(p) = &mut self.pacer {

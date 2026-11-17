@@ -185,15 +185,14 @@ impl Node {
             Direction::Left | Direction::Right => Axis::Horizontal,
             Direction::Up | Direction::Down => Axis::Vertical,
         };
-        if let Some((path, _)) = self.enclosing_split(target, axis) {
-            if let Some(r) = self.ratio_mut(&path) {
+        if let Some((path, _)) = self.enclosing_split(target, axis)
+            && let Some(r) = self.ratio_mut(&path) {
                 let delta = match dir {
                     Direction::Right | Direction::Down => amount,
                     Direction::Left | Direction::Up => -amount,
                 };
                 *r = (*r + delta).clamp(0.1, 0.9);
             }
-        }
     }
 
     /// Lay out panes in `rect`, leaving `gap` between siblings.

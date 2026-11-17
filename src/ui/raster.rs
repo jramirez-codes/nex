@@ -18,7 +18,7 @@ pub fn render(ctx: &Context, shapes: Vec<ClippedShape>, origin: Pos2, px_per_poi
         let clip_max = to_px(prim.clip_rect.max);
         let (cx0, cy0) = (clip_min.x.max(0.0), clip_min.y.max(0.0));
         let (cx1, cy1) = (clip_max.x.min(w as f32), clip_max.y.min(h as f32));
-        for tri in mesh.indices.chunks_exact(3) {
+        for tri in mesh.indices.as_chunks::<3>().0 {
             let v = [&mesh.vertices[tri[0] as usize], &mesh.vertices[tri[1] as usize], &mesh.vertices[tri[2] as usize]];
             let p = v.map(|v| to_px(v.pos));
             let area = edge(p[0], p[1], p[2]);

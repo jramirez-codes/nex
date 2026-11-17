@@ -26,7 +26,8 @@
 //! | `SHORTCUTS` | which [`ShortcutStyle`] the keymap uses |
 //! | `WINDOW` | the [`WindowDefaults`] for the window and its title bar |
 //! | `FALLBACK_FAMILIES` | system fonts tried for glyphs the grid font lacks |
-//! | `proc_info(pid)` | a shell's foreground process name and cwd ([`ProcInfo`]) |
+//! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |
+//! | `clipboard_files()` | an image or copied files on the clipboard ([`ClipboardFiles`]), where `Dnd` can't read it |
 //! | `pty_options(..)` / `pty_pid(..)` | build the PTY options, read the child's pid |
 //! | `shell_env()` | variables the shell needs but may not inherit (`LANG` on macOS) |
 //! | `opened_from_desktop()` | started by Finder / a launcher rather than a shell |
@@ -84,6 +85,35 @@ pub struct ProcInfo {
     pub name: Option<String>,
     /// Its working directory.
     pub cwd: Option<PathBuf>,
+    /// Its command line (`ssh -p 2222 user@host`), empty where the OS doesn't say.
+    pub argv: Vec<String>,
+}
+
+/// What the clipboard holds that isn't text: copied files, or an image (as PNG).
+/// Windows has no backend that reads these yet, so nothing constructs them there.
+#[cfg_attr(windows, allow(dead_code))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClipboardFiles {
+    Paths(Vec<PathBuf>),
+    Png(Vec<u8>),
+}
+
+/// The last paste key (Ctrl+V / Cmd+V, with or without Shift) seen by the window, for the
+/// app to notice a paste that egui made no `Paste` event for (the clipboard held no text).
+/// 0: none, 1: without Shift, 2: with Shift.
+static PASTE_KEY: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// A paste key went down (see `winit_app`).
+pub fn paste_key_pressed(shift: bool) {
+    PASTE_KEY.store(if shift { 2 } else { 1 }, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether a paste key went down since the last call, and if so whether Shift was held.
+pub fn take_paste_key() -> Option<bool> {
+    match PASTE_KEY.swap(0, std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        n => Some(n == 2),
+    }
 }
 
 /// An app offered in the explorer's "Open With" menu.

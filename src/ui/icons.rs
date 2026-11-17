@@ -123,7 +123,7 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>) {
     // Gloss: lighter upper half, darker lower edge.
     let upper = Rect::from_min_max(r.min, Pos2::new(r.right(), r.center().y));
     p.rect_filled(upper, top_radius(radius), Color32::from_white_alpha(if is_light(base) { 40 } else { 22 }));
-    p.rect_stroke(r, radius, Stroke::new(1.0, Color32::from_white_alpha(38)), StrokeKind::Inside);
+    p.rect_stroke(r, radius, Stroke::new(1.0_f32, Color32::from_white_alpha(38)), StrokeKind::Inside);
 
     // The glyph lives in a centered square; a squashed tile shrinks and fades it.
     let squash = (r.width() / r.height()).clamp(0.0, 1.0);
@@ -243,7 +243,7 @@ pub fn header_glyph(p: &Painter, r: Rect, process: &str, mark: Option<&str>, col
             let s = r.width();
             let o = rr.left_top();
             let bg = Color32::from_rgb(0x24, 0x20, 0x24);
-            let stroke = Stroke::new(1.4, bg);
+            let stroke = Stroke::new(1.4_f32, bg);
             p.add(Shape::line(
                 vec![o + Vec2::new(s * 0.22, s * 0.22), o + Vec2::new(s * 0.4, s * 0.4), o + Vec2::new(s * 0.22, s * 0.58)],
                 stroke,
@@ -273,7 +273,7 @@ fn hexagon(p: &Painter, c: Pos2, radius: f32, stroke: Stroke, fill: Option<Color
 
 /// A small display/workspace glyph for the title bar label.
 pub fn workspace_glyph(p: &Painter, r: Rect, c: Color32) {
-    let s = Stroke::new(1.3, c);
+    let s = Stroke::new(1.3_f32, c);
     let screen = Rect::from_min_max(r.min, Pos2::new(r.right(), r.bottom() - 3.0));
     p.rect_stroke(screen, 2, s, StrokeKind::Inside);
     p.line_segment([Pos2::new(r.center().x - 3.0, r.bottom()), Pos2::new(r.center().x + 3.0, r.bottom())], s);
@@ -333,7 +333,7 @@ pub fn icon_file(p: &Painter, r: Rect, c: Color32) {
     let w = r.height() * 0.78;
     let r = Rect::from_center_size(r.center(), Vec2::new(w, r.height()));
     let fold = w * 0.35;
-    let s = Stroke::new(1.2, c);
+    let s = Stroke::new(1.2_f32, c);
     let pts = vec![
         r.left_top(),
         Pos2::new(r.right() - fold, r.top()),
@@ -350,7 +350,7 @@ pub fn icon_file(p: &Painter, r: Rect, c: Color32) {
 
 /// An upward chevron (parent folder).
 pub fn icon_chevron_up(p: &Painter, r: Rect, c: Color32) {
-    let s = Stroke::new(1.5, c);
+    let s = Stroke::new(1.5_f32, c);
     let k = r.width() * 0.4;
     let ctr = r.center() + Vec2::new(0.0, k * 0.3);
     p.add(Shape::line(vec![ctr + Vec2::new(-k, 0.0), ctr + Vec2::new(0.0, -k), ctr + Vec2::new(k, 0.0)], s));
@@ -358,7 +358,7 @@ pub fn icon_chevron_up(p: &Painter, r: Rect, c: Color32) {
 
 /// A left-pointing chevron (Back).
 pub fn icon_chevron_left(p: &Painter, r: Rect, c: Color32) {
-    let s = Stroke::new(1.5, c);
+    let s = Stroke::new(1.5_f32, c);
     let k = r.width() * 0.4;
     let ctr = r.center() + Vec2::new(-k * 0.3, 0.0);
     p.add(Shape::line(vec![ctr + Vec2::new(k * 0.75, -k), ctr + Vec2::new(-k * 0.25, 0.0), ctr + Vec2::new(k * 0.75, k)], s));
@@ -366,7 +366,7 @@ pub fn icon_chevron_left(p: &Painter, r: Rect, c: Color32) {
 
 /// A right-pointing chevron (Forward).
 pub fn icon_chevron_right(p: &Painter, r: Rect, c: Color32) {
-    let s = Stroke::new(1.5, c);
+    let s = Stroke::new(1.5_f32, c);
     let k = r.width() * 0.4;
     let ctr = r.center() + Vec2::new(k * 0.3, 0.0);
     p.add(Shape::line(vec![ctr + Vec2::new(-k * 0.75, -k), ctr + Vec2::new(k * 0.25, 0.0), ctr + Vec2::new(-k * 0.75, k)], s));
@@ -374,7 +374,7 @@ pub fn icon_chevron_right(p: &Painter, r: Rect, c: Color32) {
 
 /// Three horizontal lines with leading dots (list view).
 pub fn icon_list(p: &Painter, r: Rect, c: Color32) {
-    let s = Stroke::new(1.3, c);
+    let s = Stroke::new(1.3_f32, c);
     for k in 0..3 {
         let y = r.top() + r.height() * (0.2 + 0.3 * k as f32);
         p.circle_filled(Pos2::new(r.left() + 1.5, y), 1.2, c);
@@ -388,7 +388,7 @@ pub fn icon_grid(p: &Painter, r: Rect, c: Color32) {
     let cell = (r.width() - gap) / 2.0;
     for (x, y) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
         let min = r.min + Vec2::new(x * (cell + gap), y * (cell + gap));
-        p.rect_stroke(Rect::from_min_size(min, Vec2::splat(cell)), 1.5, Stroke::new(1.2, c), StrokeKind::Inside);
+        p.rect_stroke(Rect::from_min_size(min, Vec2::splat(cell)), 1.5, Stroke::new(1.2_f32, c), StrokeKind::Inside);
     }
 }
 
@@ -399,11 +399,11 @@ pub fn icon_check(p: &Painter, r: Rect, c: Color32, on: bool) {
     if on {
         p.circle_filled(ctr, rad, c);
         let k = rad * 0.5;
-        let s = Stroke::new(1.6, Color32::WHITE);
+        let s = Stroke::new(1.6_f32, Color32::WHITE);
         p.add(Shape::line(vec![ctr + Vec2::new(-k, 0.0), ctr + Vec2::new(-k * 0.25, k * 0.7), ctr + Vec2::new(k, -k * 0.6)], s));
     } else {
         p.circle_filled(ctr, rad, Color32::from_black_alpha(60));
-        p.circle_stroke(ctr, rad - 0.6, Stroke::new(1.2, c));
+        p.circle_stroke(ctr, rad - 0.6, Stroke::new(1.2_f32, c));
     }
 }
 
