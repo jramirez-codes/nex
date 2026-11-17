@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use egui::{DroppedFile, Event, HoveredFile, PointerButton, Pos2, RawInput, TouchDeviceId, TouchId, TouchPhase};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
-use wayland_client::backend::{Backend, ObjectId};
+use wayland_client::backend::{Backend, ObjectId, WaylandError};
 use wayland_client::protocol::wl_buffer::WlBuffer;
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_data_device::{self, WlDataDevice};
@@ -123,6 +123,46 @@ impl Early {
     }
 }
 
+/// `blocking_dispatch` in a loop, that also wakes when `stop` is readable or closed, and then
+/// returns, leaving the socket alone. Returns too when the connection fails.
+fn dispatch_until_stopped(queue: &mut EventQueue<State>, state: &mut State, stop: &std::io::PipeReader) {
+    use std::os::fd::AsRawFd;
+    let would_block = |e: &WaylandError| matches!(e, WaylandError::Io(e) if e.kind() == std::io::ErrorKind::WouldBlock);
+    loop {
+        if queue.dispatch_pending(state).is_err() {
+            return;
+        }
+        match queue.flush() {
+            Err(e) if !would_block(&e) => return,
+            _ => {}
+        }
+        // `None`: events arrived for this queue meanwhile; dispatch them first.
+        let Some(guard) = queue.prepare_read() else { continue };
+        let mut fds = [
+            libc::pollfd { fd: guard.connection_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: stop.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+        ];
+        // SAFETY: two valid pollfds for open fds.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue; // Dropping `guard` cancels the read.
+            }
+            return;
+        }
+        if fds[1].revents != 0 {
+            trace!("dispatch thread stopping");
+            return;
+        }
+        if fds[0].revents != 0 {
+            match guard.read() {
+                Err(e) if !would_block(&e) => return,
+                _ => {}
+            }
+        }
+    }
+}
+
 /// Read `reader` to its end, giving up (`None`) after `timeout`.
 fn read_until_closed(mut reader: std::io::PipeReader, timeout: Duration) -> Option<Vec<u8>> {
     use std::os::fd::AsRawFd;
@@ -200,6 +240,21 @@ pub struct Dnd {
     touch_down: Option<(TouchDeviceId, TouchId, Pos2)>,
     /// The files fed to egui last were dropped as a move (not a copy).
     drop_moves: bool,
+    /// Dropped to tell the thread to stop (see [`Drop`] for `Dnd`).
+    stop: Option<std::io::PipeWriter>,
+    /// Disconnects when the thread has stopped.
+    stopped: std::sync::mpsc::Receiver<()>,
+}
+
+/// Stop the thread before the Wayland connection goes. `main` drops the event loop, which
+/// disconnects from the display, after the app (and this) is dropped; a thread still
+/// reading the display then would use freed memory and crash nex as it quits.
+impl Drop for Dnd {
+    fn drop(&mut self) {
+        self.stop.take();
+        // Waits for the thread, but never holds up quitting for long.
+        let _ = self.stopped.recv_timeout(Duration::from_secs(1));
+    }
 }
 
 impl Dnd {
@@ -258,13 +313,34 @@ impl Dnd {
         let (compositor, shm) = (state.compositor.clone(), state.shm.clone());
         conn.flush().map_err(|e| e.to_string())?;
 
+        let (stop_rx, stop) = std::io::pipe().map_err(|e| e.to_string())?;
+        let (done, stopped) = std::sync::mpsc::channel::<()>();
         std::thread::Builder::new()
             .name("nex-wl-dnd".into())
             .spawn(move || {
-                while queue.blocking_dispatch(&mut state).is_ok() {}
+                dispatch_until_stopped(&mut queue, &mut state, &stop_rx);
+                // Let go of the connection's objects while the display is still there.
+                drop((queue, state));
+                drop(done);
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { conn, qh, manager, device, surface, compositor, shm, shared, hovering: false, _relay, handed_off: None, touch_down: None, drop_moves: false })
+        Ok(Self {
+            conn,
+            qh,
+            manager,
+            device,
+            surface,
+            compositor,
+            shm,
+            shared,
+            hovering: false,
+            _relay,
+            handed_off: None,
+            touch_down: None,
+            drop_moves: false,
+            stop: Some(stop),
+            stopped,
+        })
     }
 
     /// The clipboard's text, if it holds any: read from the app holding it, waiting at most
