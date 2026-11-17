@@ -419,14 +419,32 @@ scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them i
 
 ## Roadmap
 
-- [ ] Color emoji
-- [ ] Quick terminal (drop-down on a global hotkey)
-- [ ] Command palette
-- [ ] Shell integration (OSC 7 cwd, prompt marks, jump between prompts)
-- [ ] Themes collection
+### Done
+
+- [x] Tabs, split panes, zoom, resize and keyboard focus between splits
+- [x] Swap panes by dragging a header or with the keyboard
+- [x] Built-in file explorer with copy / move progress, Open With, rename and Properties
+- [x] Drag and drop between windows on Wayland (another nex, Thunar, Nautilus)
+- [x] Tab, close, zoom and equalize animations (`glide` and `ink` tab switches)
+- [x] Faster launch and lower idle memory
 - [x] macOS support
 - [x] macOS app bundle
+
+### Next
+
+- [ ] Custom keybindings in the config file
+- [ ] Shell integration (OSC 7 cwd, prompt marks, jump between prompts)
+- [ ] Themes collection
+- [ ] Command palette
+- [ ] Color emoji
 - [ ] Signed and notarized macOS app
+
+### Later
+
+- [ ] Restore tabs and splits on launch
+- [ ] Quick terminal (drop-down on a global hotkey)
+- [ ] Desktop notifications (OSC 9 / OSC 777) and bell options
+- [ ] Inline images (kitty graphics protocol)
 - [ ] Drag files out to Finder
 - [ ] Windows support
 
