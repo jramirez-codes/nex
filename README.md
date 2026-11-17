@@ -113,9 +113,10 @@ the window is; the first frame appears about 120 ms after launch.
 - **Files and images over SSH.** Drop a file onto a pane running `ssh`, or paste a copied
   image or files, and nex copies them to a temp folder on the remote host and types the
   remote paths, so a remote Claude Code (or anything else) can open them. It reuses the pane's
-  own `ssh` options and needs a login without a password prompt (keys, an agent or
-  `ControlMaster`); otherwise the local paths are typed as before. `ssh-upload = false` turns
-  it off.
+  own `ssh` options. Keys and agents just work; for a host that asks for a password, nex
+  offers once to turn on connection sharing (a block in `~/.ssh/config` that applies only
+  inside nex), and after one reconnect, uploads ride on the login you typed in the pane.
+  `ssh-upload = false` turns it off.
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
   an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
   selection into another folder, explorer or terminal pane.

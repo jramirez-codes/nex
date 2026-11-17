@@ -36,8 +36,9 @@ cursor-style-blink = true
 copy-on-select = false
 clipboard-toasts = true     # "Copied …" / "Pasted …" toasts for terminal copy and paste
 # Files dropped (or an image or files pasted) into a pane running `ssh` are copied to a temp
-# folder on the remote host, and the remote paths typed. Needs ssh to log in without a
-# password prompt (keys, an agent or ControlMaster); otherwise the local paths are typed.
+# folder on the remote host, and the remote paths typed. Keys and agents just work; for a
+# host that wants a password, nex offers to turn on connection sharing in ~/.ssh/config so
+# uploads reuse the pane's login. If an upload can't log in, the local paths are typed.
 ssh-upload = true
 scrollback-limit = 10000
 

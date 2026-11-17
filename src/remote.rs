@@ -12,6 +12,10 @@
 //! `ControlMaster` connection to share. When it can't log in, the caller falls back to the
 //! local paths.
 //!
+//! For hosts that want a password, nex offers to add a block to `~/.ssh/config` (see
+//! [`enable_sharing`]) that makes every `ssh` started in a nex pane share its connection. The
+//! upload then rides on the login typed into the pane, with no password of its own.
+//!
 //! The files travel as one `tar` stream (so folders work too, and symlinks are followed),
 //! unpacked by `sh` on the remote side, whatever the login shell is.
 
@@ -42,6 +46,42 @@ const UPLOAD_OPTS: &[&str] = &[
     "-o", "PermitLocalCommand=no",
     "-o", "ForwardX11=no",
 ];
+
+/// The first line of the block nex adds to `~/.ssh/config`, to tell whether it's there.
+const SHARING_MARK: &str = "# Added by nex:";
+
+/// Connection sharing for `ssh` run inside nex (panes set `TERM_PROGRAM=nex`, and so does the
+/// upload). It goes at the end of the file, so the user's own settings come first and win.
+/// `ControlPersist` puts the shared connection in the background, so closing the pane that
+/// opened it doesn't wait on other panes using it, and it ends a minute after the last one.
+/// The `x` prefix keeps `test` happy when the variable is unset, in any shell.
+const SHARING_BLOCK: &str = "# Added by nex: ssh started in a nex pane shares its connection, so files dropped
+# into the pane are uploaded over the login you already typed. Safe to remove.
+Match exec \"test x$TERM_PROGRAM = xnex\"
+  ControlMaster auto
+  ControlPath ~/.ssh/nex-%C
+  ControlPersist 60
+";
+
+/// Why an upload failed.
+#[derive(Debug, PartialEq, Eq)]
+pub enum UploadError {
+    /// The host wants a password (or another prompt) the upload can't answer.
+    NeedsLogin,
+    Other(String),
+}
+
+impl From<String> for UploadError {
+    fn from(e: String) -> Self {
+        Self::Other(e)
+    }
+}
+
+impl From<&str> for UploadError {
+    fn from(e: &str) -> Self {
+        Self::Other(e.to_string())
+    }
+}
 
 /// Make a folder for the upload, unpack the stream into it, and print its path.
 const REMOTE_SCRIPT: &str = r#"d=$(mktemp -d "${TMPDIR:-/tmp}/nex.XXXXXX") && tar xf - -C "$d" && printf '%s\n' "$d""#;
@@ -131,7 +171,7 @@ impl SshTarget {
 
 /// Copy `paths` (files or folders) to a new folder on the remote host. Returns each one's
 /// remote path, quoted for a shell. Blocks until done: run it on a worker thread.
-pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, String> {
+pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, UploadError> {
     let mut tar = Command::new("tar");
     // macOS's tar would otherwise add `._name` files for extended attributes.
     tar.env("COPYFILE_DISABLE", "1").arg("-chf").arg("-");
@@ -152,6 +192,9 @@ pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, Stri
         .map_err(|e| format!("couldn't run tar: {e}"))?;
     let stream = tar.stdout.take().ok_or("couldn't run tar")?;
     let ssh = Command::new("ssh")
+        // So the sharing block in `~/.ssh/config` finds the pane's connection, whatever
+        // terminal nex itself was started from.
+        .env("TERM_PROGRAM", "nex")
         .args(target.upload_args())
         .stdin(stream)
         .stdout(Stdio::piped())
@@ -166,14 +209,79 @@ pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, Stri
     let tar_ok = tar.wait().is_ok_and(|s| s.success());
 
     if !out.status.success() {
-        return Err(last_line(&String::from_utf8_lossy(&out.stderr)).unwrap_or_else(|| format!("ssh exited with {}", out.status)));
+        let err = String::from_utf8_lossy(&out.stderr);
+        if needs_login(&err) {
+            return Err(UploadError::NeedsLogin);
+        }
+        return Err(last_line(&err).unwrap_or_else(|| format!("ssh exited with {}", out.status)).into());
     }
     if !tar_ok {
-        return Err(last_line(&tar_err).unwrap_or_else(|| "tar failed".into()));
+        return Err(last_line(&tar_err).unwrap_or_else(|| "tar failed".into()).into());
     }
     let dir = String::from_utf8_lossy(&out.stdout).lines().next_back().map(str::trim).filter(|d| d.starts_with('/')).map(str::to_string);
     let dir = dir.ok_or("the remote host didn't say where it put the files")?;
     Ok(names.iter().map(|n| posix_quote(&format!("{dir}/{n}"))).collect())
+}
+
+/// ssh's error when every way it could log in without asking was refused:
+/// `user@host: Permission denied (publickey,password).`
+fn needs_login(stderr: &str) -> bool {
+    stderr.lines().any(|l| l.contains("Permission denied ("))
+}
+
+/// The user's ssh config file.
+fn ssh_config() -> Option<PathBuf> {
+    crate::platform::home_dir().map(|h| h.join(".ssh").join("config"))
+}
+
+/// Whether `~/.ssh/config` has nex's sharing block (see [`enable_sharing`]).
+pub fn sharing_enabled() -> bool {
+    ssh_config().and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|c| has_sharing(&c))
+}
+
+fn has_sharing(config: &str) -> bool {
+    config.lines().any(|l| l.trim_start().starts_with(SHARING_MARK))
+}
+
+/// Connection sharing is a Unix ssh feature; Windows' OpenSSH doesn't have it.
+pub const SHARING_SUPPORTED: bool = cfg!(unix);
+
+/// Add the sharing block to the end of `~/.ssh/config`, making the file (private, as ssh
+/// requires) and `~/.ssh` if needed. Sessions started from then on share their connection.
+pub fn enable_sharing() -> std::io::Result<()> {
+    use std::io::Write;
+    let path = ssh_config().ok_or_else(|| std::io::Error::other("no home folder"))?;
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e),
+    };
+    if has_sharing(&existing) {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        let mut b = std::fs::DirBuilder::new();
+        b.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+        b.create(dir)?;
+    }
+    let mut open = std::fs::OpenOptions::new();
+    open.append(true).create(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+    open.open(&path)?.write_all(sharing_addition(&existing).as_bytes())
+}
+
+/// What to append to a config file holding `existing`: the block, set off by a blank line.
+fn sharing_addition(existing: &str) -> String {
+    let sep = match existing {
+        "" => "",
+        e if e.ends_with("\n\n") => "",
+        e if e.ends_with('\n') => "\n",
+        _ => "\n\n",
+    };
+    format!("{sep}{SHARING_BLOCK}")
 }
 
 /// Save clipboard image bytes to a local temp file, named like a screenshot, to upload.
@@ -287,6 +395,43 @@ mod tests {
         assert_eq!(posix_quote("/tmp/nex.ab12/a.png"), "/tmp/nex.ab12/a.png");
         assert_eq!(posix_quote("/tmp/x/it's here"), r"'/tmp/x/it'\''s here'");
         assert_eq!(last_line("warning\nPermission denied (publickey).\n\n").as_deref(), Some("Permission denied (publickey)."));
+    }
+
+    #[test]
+    fn login_errors() {
+        assert!(needs_login("jr@10.0.0.2: Permission denied (publickey,password).\n"));
+        assert!(!needs_login("ssh: connect to host x port 22: Connection refused\n"));
+        assert!(!needs_login("tar: a.txt: Cannot open: Permission denied\n"));
+    }
+
+    #[test]
+    fn sharing_block() {
+        assert!(!has_sharing("Host x\n  User me\n"));
+        assert!(has_sharing(&format!("Host x\n  User me\n{}", sharing_addition("Host x\n  User me\n"))));
+        assert_eq!(sharing_addition(""), SHARING_BLOCK);
+        assert_eq!(sharing_addition("Host x"), format!("\n\n{SHARING_BLOCK}"));
+        assert!(sharing_addition("Host x\n").starts_with("\n# Added by nex:"));
+        assert!(sharing_addition("Host x\n\n").starts_with("# Added by nex:"));
+    }
+
+    /// ssh itself reads the block: the sharing options apply inside nex only.
+    #[test]
+    fn ssh_reads_sharing_block() {
+        let dir = std::env::temp_dir().join(format!("nex-sharing-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = dir.join("config");
+        std::fs::write(&cfg, format!("Host *\n  Port 2200\n{}", sharing_addition("Host *\n  Port 2200\n"))).unwrap();
+        let resolved = |term: &str| {
+            let out = Command::new("ssh").args(["-G", "-F"]).arg(&cfg).arg("example.invalid").env("TERM_PROGRAM", term).output();
+            out.ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        };
+        if let (Some(inside), Some(outside)) = (resolved("nex"), resolved("xterm")) {
+            assert!(inside.lines().any(|l| l == "controlmaster auto"), "{inside}");
+            assert!(inside.lines().any(|l| l == "controlpersist 60"), "{inside}");
+            assert!(outside.lines().any(|l| l == "controlmaster false"), "{outside}");
+            assert!(inside.lines().any(|l| l == "port 2200"));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// The remote half, run here with a local `sh` standing in for ssh.

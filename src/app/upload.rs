@@ -1,13 +1,19 @@
 //! Files dropped or pasted into a pane running `ssh`: copied to the remote host on a worker
-//! thread (see `crate::remote`), then their remote paths typed into the pane.
+//! thread (see `crate::remote`), then their remote paths typed into the pane. When the host
+//! wants a password, nex offers once to turn on connection sharing, so later uploads reuse
+//! the pane's login.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
+use egui::Id;
+
 use crate::app::layout::PaneId;
 use crate::platform::ClipboardFiles;
-use crate::remote::{self, SshTarget};
+use crate::remote::{self, SshTarget, UploadError};
+use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
+use crate::ui::theme::Theme;
 use crate::ui::toast::Toast;
 
 use super::App;
@@ -21,7 +27,7 @@ pub(super) struct Upload {
     fallback: Vec<PathBuf>,
     /// The temp file a pasted image was saved to, removed once the upload is done.
     temp: Option<PathBuf>,
-    rx: Receiver<Result<Vec<String>, String>>,
+    rx: Receiver<Result<Vec<String>, UploadError>>,
 }
 
 impl App {
@@ -100,7 +106,7 @@ impl App {
                     self.toast = Some(Toast::new(ctx, format!("Uploaded to {}", up.host)));
                 }
                 Err(e) => {
-                    self.toast = Some(Toast::long(ctx, format!("Couldn't upload to {}: {e}", up.host)));
+                    self.upload_failed(ctx, &up.host, e);
                     if !up.fallback.is_empty() {
                         self.insert_paths(up.pane, &up.fallback);
                     }
@@ -111,4 +117,88 @@ impl App {
             ctx.request_repaint_after(Duration::from_millis(200));
         }
     }
+
+    fn upload_failed(&mut self, ctx: &egui::Context, host: &str, e: UploadError) {
+        let msg = match e {
+            UploadError::Other(e) => format!("Couldn't upload to {host}: {e}"),
+            // Sharing is on, but this session started before it was (or outside nex).
+            UploadError::NeedsLogin if remote::sharing_enabled() => {
+                format!("Couldn't upload: log out of {host} (type exit) and ssh back in, then drop the file again.")
+            }
+            UploadError::NeedsLogin if remote::SHARING_SUPPORTED && !self.sharing_declined => {
+                self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string()));
+                return;
+            }
+            UploadError::NeedsLogin => format!("Couldn't upload: {host} needs a password, and the upload can't type one."),
+        };
+        self.toast = Some(Toast::long(ctx, msg));
+    }
+
+    /// A modal dialog is open over the terminals and takes the keyboard.
+    pub(super) fn upload_modal_open(&self) -> bool {
+        self.sharing_prompt.is_some()
+    }
+
+    /// Offered when an upload needed a password: Turn On adds the sharing block to
+    /// `~/.ssh/config`, then the alert stays up to say the session must be logged into again
+    /// (a session already open can't start sharing). Not Now isn't asked again this run.
+    pub(super) fn sharing_dialog(&mut self, ctx: &egui::Context, theme: &Theme) {
+        let Some(prompt) = self.sharing_prompt.clone() else { return };
+        let (icon, title, body, steps, primary, secondary) = match &prompt {
+            SharingPrompt::Offer(host) => (
+                AlertIcon::Lock,
+                format!("{host} needs a password"),
+                "nex can share your ssh connection, so uploads reuse the login you already \
+                 typed. It adds a small nex-only block to ~/.ssh/config."
+                    .to_string(),
+                Vec::new(),
+                "Turn On",
+                Some("Not Now"),
+            ),
+            SharingPrompt::Reconnect(host) => (
+                AlertIcon::Done,
+                "Sharing is on".to_string(),
+                "Log in once more to start sharing.".to_string(),
+                vec![
+                    format!("Type `exit` to log out of {host}"),
+                    "ssh back in with your password".to_string(),
+                    "Drop the file again".to_string(),
+                ],
+                "Got It",
+                None,
+            ),
+            SharingPrompt::Failed(e) => (
+                AlertIcon::Warning,
+                "Couldn't turn on sharing".to_string(),
+                format!("~/.ssh/config couldn't be updated: {e}"),
+                Vec::new(),
+                "OK",
+                None,
+            ),
+        };
+        let alert = Alert { id: Id::new("nex-ssh-sharing"), icon, title: &title, body: &body, steps: &steps, primary, secondary, touch: self.cfg.mobile };
+        let Some(choice) = alert.show(ctx, theme) else { return };
+        self.sharing_prompt = match (prompt, choice) {
+            (SharingPrompt::Offer(host), AlertChoice::Primary) => Some(match remote::enable_sharing() {
+                Ok(()) => SharingPrompt::Reconnect(host),
+                Err(e) => SharingPrompt::Failed(e.to_string()),
+            }),
+            (SharingPrompt::Offer(_), AlertChoice::Secondary) => {
+                self.sharing_declined = true;
+                None
+            }
+            _ => None,
+        };
+    }
+}
+
+/// What the connection-sharing dialog is showing.
+#[derive(Clone)]
+pub(super) enum SharingPrompt {
+    /// An upload to this host needed a password: offer to turn sharing on.
+    Offer(String),
+    /// Sharing was just turned on: the open session has to be logged into again.
+    Reconnect(String),
+    /// `~/.ssh/config` couldn't be written.
+    Failed(String),
 }

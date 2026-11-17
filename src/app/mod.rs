@@ -137,6 +137,10 @@ pub struct App {
     toast: Option<Toast>,
     /// Files on their way to an `ssh` pane's remote host.
     uploads: Vec<upload::Upload>,
+    /// The connection-sharing dialog, after an upload couldn't log in.
+    sharing_prompt: Option<upload::SharingPrompt>,
+    /// Not Now was picked in that offer: don't ask again this run.
+    sharing_declined: bool,
 }
 
 impl App {
@@ -200,6 +204,8 @@ impl App {
             dnd: crate::platform::Dnd::new(cc),
             toast: None,
             uploads: Vec::new(),
+            sharing_prompt: None,
+            sharing_declined: false,
         }
     }
 }
@@ -381,6 +387,7 @@ impl App {
         self.file_drops(&ctx, &theme);
         file_explorer::paint_drag_ghost(&ctx, &theme);
         self.window_resize_edges(&ctx, full);
+        self.sharing_dialog(&ctx, &theme);
         if self.toast.as_ref().is_some_and(|t| !t.paint(&ctx, area, &theme)) {
             self.toast = None;
         }

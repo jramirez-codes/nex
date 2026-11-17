@@ -12,9 +12,12 @@ All notable changes to nex are documented here. The format follows
   a copied image or copied files there (Ctrl+V or Ctrl+Shift+V; Cmd+V on macOS), copies
   them to a new folder under the remote host's `$TMPDIR` (or `/tmp`) and types the remote
   paths, so a program on the other end, such as Claude Code, can open them. The upload runs
-  over a second `ssh` with the pane's own options and `BatchMode`, so it needs keys, an agent
-  or `ControlMaster`. If it can't log in, a toast says why and the local paths are typed
-  instead. Turn it off with `ssh-upload = false`.
+  over a second `ssh` with the pane's own options and `BatchMode`, so it can't type a
+  password. When a host asks for one, nex offers to turn on connection sharing: a short block
+  at the end of `~/.ssh/config`, matching only ssh run inside nex, that makes each session a
+  `ControlMaster` the upload can ride on. Reconnect once and later uploads reuse the login
+  typed into the pane. Hosts reached with keys or an agent need nothing. If an upload can't
+  log in, the local paths are typed instead. Turn it off with `ssh-upload = false`.
 - nex can be your file manager. `nex --explorer` opens on the Files tab, and a folder argument
   (`nex ~/Downloads`, or a `file://` URI) opens the Files tab in that folder. A new hidden
   `nex-files.desktop` entry handles `inode/directory`, so
