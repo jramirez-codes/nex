@@ -90,6 +90,8 @@ pub struct ProcInfo {
 }
 
 /// What the clipboard holds that isn't text: copied files, or an image (as PNG).
+/// Windows has no backend that reads these yet, so nothing constructs them there.
+#[cfg_attr(windows, allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClipboardFiles {
     Paths(Vec<PathBuf>),

@@ -4,6 +4,10 @@
 //! nex reads a local shell's directory from the OS, so this matters for `ssh` sessions: a
 //! remote shell that reports its directory lets a split or new tab open in that same place
 //! on the remote host (see [`crate::remote::SshTarget::session_command`]).
+//!
+//! Only Unix wraps the PTY with [`ScanPty`]; the scanner itself is platform-neutral (and
+//! tested everywhere), so it is unused, not broken, on Windows.
+#![cfg_attr(not(unix), allow(dead_code))]
 
 use std::io::{self, Read};
 use std::sync::{Arc, Mutex};
