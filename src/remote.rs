@@ -179,16 +179,21 @@ pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, Stri
 /// Save clipboard image bytes to a local temp file, named like a screenshot, to upload.
 /// The caller removes its folder once the upload is done.
 pub fn save_png(png: &[u8]) -> std::io::Result<PathBuf> {
+    save_image(png, "pasted", "png")
+}
+
+/// Save image bytes to a fresh temp folder as `<prefix>-<local time>.<ext>`
+/// ("pasted-2026-11-17-1405.png"), for a paste or a drop that carried an image but no file.
+pub fn save_image(bytes: &[u8], prefix: &str, ext: &str) -> std::io::Result<PathBuf> {
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
     let dir = std::env::temp_dir().join(format!("nex-paste-{}-{}", std::process::id(), stamp.as_nanos()));
     std::fs::create_dir_all(&dir)?;
     let name = match crate::platform::format_local_time(std::time::SystemTime::now()) {
-        // "2026-11-17 14:05" → "pasted-2026-11-17-1405.png"
-        Some(t) => format!("pasted-{}.png", t.replace(' ', "-").replace(':', "")),
-        None => format!("pasted-{}.png", stamp.as_secs()),
+        Some(t) => format!("{prefix}-{}.{ext}", t.replace(' ', "-").replace(':', "")),
+        None => format!("{prefix}-{}.{ext}", stamp.as_secs()),
     };
     let path = dir.join(name);
-    std::fs::write(&path, png)?;
+    std::fs::write(&path, bytes)?;
     Ok(path)
 }
 

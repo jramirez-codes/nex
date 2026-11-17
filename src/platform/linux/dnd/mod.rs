@@ -67,6 +67,9 @@ const PASTE_TYPES: [&str; 5] = [TEXT, "UTF8_STRING", "text/plain", "TEXT", "STRI
 const PASTE_TIMEOUT: Duration = Duration::from_secs(2);
 /// The same for an image, which can be megabytes.
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(8);
+/// Image types a drop with no files (an image dragged out of a browser) is read as, best
+/// first, with the extension it's saved under. Other `image/*` types come after these.
+const DROP_IMAGE_TYPES: [(&str, &str); 4] = [(PNG, "png"), ("image/jpeg", "jpg"), ("image/gif", "gif"), ("image/webp", "webp")];
 
 /// A paste key was pressed in the window since the last frame (set by `note_paste_key`).
 static PASTE_KEY: AtomicBool = AtomicBool::new(false);
@@ -481,6 +484,21 @@ impl OfferData {
     fn moves(&self) -> bool {
         self.action.load(Ordering::Relaxed) == DndAction::Move.bits()
     }
+
+    /// The image type to read a drop as when it carries no local files, with the extension
+    /// to save it under. A browser's image drag offers the image's URL as `text/uri-list`
+    /// (an `https://` one, not a file) and the image itself as `image/png` and the like.
+    fn image_type(&self) -> Option<(String, String)> {
+        let types = self.types.lock().unwrap();
+        for (mime, ext) in DROP_IMAGE_TYPES {
+            if types.iter().any(|t| t == mime) {
+                return Some((mime.to_string(), ext.to_string()));
+            }
+        }
+        let other = types.iter().find(|t| t.starts_with("image/") && !t.contains(';'))?;
+        let ext = other["image/".len()..].trim_start_matches("x-").split('+').next().unwrap_or("img").to_string();
+        Some((other.clone(), ext))
+    }
 }
 
 /// The background thread's state.
@@ -494,7 +512,7 @@ struct State {
     shm: Option<WlShm>,
     pointer: Option<WlPointer>,
     touch: Option<WlTouch>,
-    /// The drag over the window now, if it carries files.
+    /// The drag over the window now, if it carries files (or an image).
     offer: Option<WlDataOffer>,
     /// Where the drag over this window's surface is now (possibly off the window).
     at: Option<(f64, f64)>,
@@ -562,21 +580,41 @@ impl State {
         // Before version 3 there are no actions: a drop is a copy.
         let moves = offer.version() >= 3 && offer.data::<OfferData>().is_some_and(OfferData::moves);
         trace!("receiving drop (offer v{}), move: {moves}", offer.version());
-        let Ok((mut reader, writer)) = std::io::pipe() else { return };
-        offer.receive(URI_LIST.into(), writer.as_fd());
-        drop(writer);
-        let _ = self.conn.flush();
+        let data = offer.data::<OfferData>();
+        let uris = data.is_some_and(|d| d.uris.load(Ordering::Relaxed));
+        let image = data.and_then(OfferData::image_type);
+        let reader = if uris {
+            let Ok((reader, writer)) = std::io::pipe() else { return };
+            offer.receive(URI_LIST.into(), writer.as_fd());
+            drop(writer);
+            let _ = self.conn.flush();
+            Some(reader)
+        } else {
+            None
+        };
         let (conn, shared, ctx) = (self.conn.clone(), self.shared.clone(), self.ctx.clone());
         std::thread::spawn(move || {
             let mut text = String::new();
-            let _ = reader.read_to_string(&mut text);
+            if let Some(mut reader) = reader {
+                let _ = reader.read_to_string(&mut text);
+            }
+            let mut paths = parse_paths(&text);
+            trace!("received {} bytes, {} existing path(s)", text.len(), paths.len());
+            // No local files (a browser's image, whose URI is a web URL): save the image
+            // itself and drop that file, so a terminal types its path as for any file.
+            if paths.is_empty() {
+                if let Some((mime, ext)) = image {
+                    if let Some(path) = receive_image(&conn, &offer, &mime, &ext) {
+                        text = file_uri(&path);
+                        paths = vec![path];
+                    }
+                }
+            }
             if offer.version() >= 3 {
                 offer.finish();
             }
             offer.destroy();
             let _ = conn.flush();
-            let paths = parse_paths(&text);
-            trace!("received {} bytes, {} existing path(s)", text.len(), paths.len());
             match dest {
                 Dest::Here(at) if !paths.is_empty() => {
                     shared.lock().unwrap().dropped.push((paths, at, moves));
@@ -589,6 +627,23 @@ impl State {
                 Dest::Here(_) => {}
             }
         });
+    }
+}
+
+/// Read a drop's image as `mime` and save it to a temp file (see `remote::save_image`).
+fn receive_image(conn: &Connection, offer: &WlDataOffer, mime: &str, ext: &str) -> Option<PathBuf> {
+    let (reader, writer) = std::io::pipe().ok()?;
+    offer.receive(mime.into(), writer.as_fd());
+    drop(writer);
+    conn.flush().ok()?;
+    let bytes = read_until_closed(reader, IMAGE_TIMEOUT).filter(|b| !b.is_empty())?;
+    trace!("received {} bytes of {mime}", bytes.len());
+    match crate::remote::save_image(&bytes, "dropped", ext) {
+        Ok(path) => Some(path),
+        Err(e) => {
+            trace!("couldn't save the dropped image: {e}");
+            None
+        }
     }
 }
 
@@ -664,14 +719,16 @@ impl Dispatch<WlDataDevice, ()> for State {
         match event {
             wl_data_device::Event::Enter { serial, x, y, id, .. } => {
                 let Some(offer) = id else { return };
-                let files = offer.data::<OfferData>().is_some_and(|d| d.uris.load(Ordering::Relaxed));
-                trace!("drag entered at ({x:.0}, {y:.0}), files: {files}");
-                if !files {
+                let data = offer.data::<OfferData>();
+                let files = data.is_some_and(|d| d.uris.load(Ordering::Relaxed));
+                let image = data.and_then(OfferData::image_type).map(|(mime, _)| mime);
+                trace!("drag entered at ({x:.0}, {y:.0}), files: {files}, image: {image:?}");
+                let Some(mime) = (if files { Some(URI_LIST.to_string()) } else { image }) else {
                     offer.accept(serial, None);
                     offer.destroy();
                     return;
-                }
-                offer.accept(serial, Some(URI_LIST.into()));
+                };
+                offer.accept(serial, Some(mime));
                 if offer.version() >= 3 {
                     // Files dropped on an explorer move there, as they do within the window
                     // (Ctrl copies; see `App::file_drops`). A terminal just types their paths.
@@ -801,4 +858,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn dropped_images_prefer_png() {
+        let offer = |types: &[&str]| OfferData { types: Mutex::new(types.iter().map(|t| t.to_string()).collect()), ..Default::default() };
+        let pick = |types: &[&str]| offer(types).image_type().map(|(m, e)| (m, e));
+        // Firefox: the page's URL as a uri-list, the image in several formats.
+        assert_eq!(pick(&["text/x-moz-url", URI_LIST, "text/html", "image/jpeg", PNG]), Some((PNG.into(), "png".into())));
+        assert_eq!(pick(&["image/svg+xml"]), Some(("image/svg+xml".into(), "svg".into())));
+        assert_eq!(pick(&[URI_LIST, TEXT]), None);
+    }
 }

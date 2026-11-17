@@ -25,6 +25,10 @@ All notable changes to nex are documented here. The format follows
 
 - Ctrl+V with an image (and no text) on the clipboard now reaches the program as `^V`, so
   Claude Code can paste the image itself. Before, nex swallowed the key.
+- An image dragged in from a browser (Firefox, Chromium) onto a pane now drops. nex saves it
+  to a temp file and types that path, so Claude Code picks it up as an image. Dropped on an
+  explorer, it lands in that folder. Before, the drop did nothing on Wayland: the drag's only
+  URI was the image's web address, not a file.
 
 ## [0.9.1] - 2026-11-16
 
