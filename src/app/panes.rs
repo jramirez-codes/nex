@@ -18,6 +18,7 @@ use crate::ui::{icons, paint};
 use super::actions::Action;
 use super::keymap;
 use super::metrics::cell_px;
+use super::mic::MicState;
 use super::motion::Ghost;
 use super::tab::{PaneDrag, Tab};
 use super::tab_switch::Shown;
@@ -373,6 +374,36 @@ impl App {
                 {
                     self.pending.push(action);
                 }
+            }
+        }
+
+        // The mic button, for a pane running ssh: on hover like the others, but always while
+        // the mic is shared, so it's never on without showing it.
+        if let Some(mic) = self.mic_state(id).filter(|&m| show_buttons || m != MicState::Off) {
+            let host = self.mic_host(id).unwrap_or_default();
+            let label = match mic {
+                MicState::Off => format!("Share microphone with {host}"),
+                MicState::Shared => format!("Stop sharing microphone with {host}"),
+                MicState::Live => format!("Stop sharing microphone with {host} (recording)"),
+            };
+            let tip = match keymap::shortcut_label(&self.bindings, Action::ToggleMic(0)) {
+                Some(keys) if pane.focused => format!("{label}  ({keys})"),
+                _ => label,
+            };
+            let (normal, hover) = match mic {
+                MicState::Live => (ERROR, ERROR),
+                MicState::Shared => (theme.text_bright, theme.text_bright),
+                MicState::Off => (theme.text_dim, theme.text_bright),
+            };
+            let r = Rect::from_center_size(Pos2::new(bx, cy), Vec2::splat(size));
+            bx -= step;
+            if IconButton::new(r, Id::new(("pane-mic", id)), normal, hover)
+                .icon_rect(r.shrink(inset))
+                .hover(HoverShape::Rounded(8), HOVER)
+                .tooltip(&tip)
+                .show(ui, painter, |p: &Painter, r: Rect, c: Color32| icons::icon_mic(p, r, c, mic != MicState::Off))
+            {
+                self.pending.push(Action::ToggleMic(id));
             }
         }
 

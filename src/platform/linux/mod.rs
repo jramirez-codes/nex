@@ -54,3 +54,6 @@ pub fn shell_env() -> Vec<(String, String)> {
 pub fn open_uri(uri: &std::ffi::OsStr) {
     super::unix::spawn_opener("xdg-open", uri);
 }
+
+/// Where to let nex use the microphone, after the OS refused it.
+pub const MIC_PERMISSION_HINT: &str = "Check that your user can open audio devices (the `audio` group), and that no other app has the microphone.";

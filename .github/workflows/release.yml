@@ -38,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev fontconfig dpkg-dev
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libasound2-dev fontconfig dpkg-dev
 
       - uses: dtolnay/rust-toolchain@1.88.0
 

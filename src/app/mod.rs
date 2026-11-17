@@ -17,6 +17,7 @@ mod tab_motion;
 mod tab_switch;
 mod titlebar;
 mod transition;
+mod mic;
 mod upload;
 mod window;
 mod workspace;
@@ -144,6 +145,8 @@ pub struct App {
     sharing_declined: bool,
     /// A split or tab into an ssh session, waiting on the sharing alert (see `follow`).
     pending_pane: Option<follow::PendingPane>,
+    /// Hosts this machine's microphone is shared with (see `mic.rs`).
+    mics: mic::Mics,
 }
 
 impl App {
@@ -209,12 +212,18 @@ impl App {
             uploads: Vec::new(),
             sharing_prompt: None,
             sharing_declined: false,
+            mics: mic::Mics::default(),
             pending_pane: None,
         }
     }
 }
 
 impl eframe::App for App {
+    /// Stop sharing the microphone, so hosts get their own `~/.asoundrc` back.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.stop_mics();
+    }
+
     /// Files dragged in from another window, reported as winit does on X11.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         // egui makes its font atlas as wide as the GPU allows (16384 px), most of it empty,
@@ -247,6 +256,7 @@ impl eframe::App for App {
 
         self.poll_ptys(ctx);
         self.poll_uploads(ctx);
+        self.poll_mics(ctx);
         if self.close_if_empty(ctx) {
             return;
         }

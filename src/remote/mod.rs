@@ -1,26 +1,28 @@
-//! Files dropped or pasted into a pane running `ssh`, sent to the remote host.
+//! Talking to the host a pane's `ssh` is connected to, over a second connection of nex's own.
 //!
-//! A path typed into an ssh session names a file on *this* machine, which the remote side
-//! can't open (and a remote program such as Claude Code can't read this machine's clipboard
-//! either). So when a pane's foreground process is `ssh`, nex copies the files over a second
-//! ssh connection to the same host, into a fresh folder under the remote `$TMPDIR` (or
-//! `/tmp`), and types the *remote* paths instead.
+//! ```text
+//! remote/
+//!   mod.rs     this file: reading a pane's ssh command line (SshTarget), the options nex's
+//!              own connections use, and connection sharing in ~/.ssh/config
+//!   upload.rs  files dropped or pasted into an ssh pane, copied to the remote host
+//!   mic.rs     the local microphone shared with the remote host, as its default ALSA mic
+//! ```
 //!
-//! The second connection reuses the pane's own `ssh` arguments (port, user, identity, jump
-//! hosts, `-o` options), minus forwardings and the remote command. It runs with
-//! `BatchMode=yes`: it can't ask for a password, so it works with keys, an agent, or a
-//! `ControlMaster` connection to share. When it can't log in, the caller falls back to the
-//! local paths.
-//!
-//! For hosts that want a password, nex offers to add a block to `~/.ssh/config` (see
-//! [`enable_sharing`]) that makes every `ssh` started in a nex pane share its connection. The
-//! upload then rides on the login typed into the pane, with no password of its own.
-//!
-//! The files travel as one `tar` stream (so folders work too, and symlinks are followed),
-//! unpacked by `sh` on the remote side, whatever the login shell is.
+//! nex's connections reuse the pane's own `ssh` arguments (port, user, identity, jump hosts,
+//! `-o` options), minus forwardings and the remote command. They run with `BatchMode=yes`:
+//! they can't ask for a password, so they work with keys, an agent, or a `ControlMaster`
+//! connection to share. For hosts that want a password, nex offers to add a block to
+//! `~/.ssh/config` (see [`enable_sharing`]) that makes every `ssh` started in a nex pane share
+//! its connection, so nex's connections ride on the login typed into the pane.
 
-use std::io::Read;
-use std::path::{Path, PathBuf};
+pub mod mic;
+mod upload;
+
+pub use upload::{UploadError, remove_saved, save_png, upload};
+#[cfg(target_os = "linux")]
+pub use upload::save_image;
+
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 /// ssh options that take a value (from ssh's `getopt` string).
@@ -32,9 +34,10 @@ const NOT_A_SESSION: &str = "GVQOWs";
 /// flags, backgrounding, becoming a control master, verbosity, the escape character.
 const DROPPED: &str = "LRDNTtfnMve";
 
-/// Options put before the user's own: ssh keeps the first value it sees for an option, so
-/// these win over the pane's `-o` options and the config file.
-const UPLOAD_OPTS: &[&str] = &[
+/// Options for nex's own connections (uploads, the mic), put before the user's own: ssh keeps
+/// the first value it sees for an option, so these win over the pane's `-o` options and the
+/// config file.
+const BATCH_OPTS: &[&str] = &[
     "-T",
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=8",
@@ -63,31 +66,8 @@ Match exec \"test x$TERM_PROGRAM = xnex\"
   ControlPersist 60
 ";
 
-/// Why an upload failed.
-#[derive(Debug, PartialEq, Eq)]
-pub enum UploadError {
-    /// The host wants a password (or another prompt) the upload can't answer.
-    NeedsLogin,
-    Other(String),
-}
-
-impl From<String> for UploadError {
-    fn from(e: String) -> Self {
-        Self::Other(e)
-    }
-}
-
-impl From<&str> for UploadError {
-    fn from(e: &str) -> Self {
-        Self::Other(e.to_string())
-    }
-}
-
-/// Make a folder for the upload, unpack the stream into it, and print its path.
-const REMOTE_SCRIPT: &str = r#"d=$(mktemp -d "${TMPDIR:-/tmp}/nex.XXXXXX") && tar xf - -C "$d" && printf '%s\n' "$d""#;
-
 /// The host a pane's `ssh` is connected to, as the options needed to connect again.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SshTarget {
     /// The pane's connection options, in order (`-p 2222`, `-J jump`, `-o …`).
     pub opts: Vec<String>,
@@ -184,76 +164,32 @@ impl SshTarget {
         vec!["/bin/sh".into(), "-c".into(), format!("set -m; {ssh}; exec \"${{SHELL:-/bin/sh}}\"{login}")]
     }
 
-    /// The upload's full `ssh` argument list (without the program name).
-    fn upload_args(&self) -> Vec<String> {
-        let mut args: Vec<String> = UPLOAD_OPTS.iter().map(|s| s.to_string()).collect();
+    /// The full `ssh` argument list (without the program name) for one of nex's own
+    /// connections to this host, running `script` under `sh` there.
+    fn batch_args(&self, script: &str) -> Vec<String> {
+        let mut args: Vec<String> = BATCH_OPTS.iter().map(|s| s.to_string()).collect();
         args.extend(self.opts.iter().cloned());
         args.push("--".into());
         args.push(self.destination.clone());
         // ssh hands this to the remote login shell (which may be fish or csh): one
         // single-quoted word that every shell passes to `sh` unchanged.
-        args.push(format!("sh -c {}", posix_quote(REMOTE_SCRIPT)));
+        args.push(format!("sh -c {}", posix_quote(script)));
         args
     }
-}
 
-/// Copy `paths` (files or folders) to a new folder on the remote host. Returns each one's
-/// remote path, quoted for a shell. Blocks until done: run it on a worker thread.
-pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, UploadError> {
-    let mut tar = Command::new("tar");
-    // macOS's tar would otherwise add `._name` files for extended attributes.
-    tar.env("COPYFILE_DISABLE", "1").arg("-chf").arg("-");
-    let mut names = Vec::new();
-    for p in paths {
-        let (Some(parent), Some(name)) = (p.parent(), p.file_name()) else { continue };
-        tar.arg("-C").arg(parent).arg(name);
-        names.push(name.to_string_lossy().into_owned());
-    }
-    if names.is_empty() {
-        return Err("nothing to upload".into());
-    }
-    let mut tar = tar
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("couldn't run tar: {e}"))?;
-    let stream = tar.stdout.take().ok_or("couldn't run tar")?;
-    let ssh = Command::new("ssh")
+    /// A `Command` for [`batch_args`](Self::batch_args), with no stdin or stdout set.
+    fn batch_command(&self, script: &str) -> Command {
+        let mut ssh = Command::new("ssh");
         // So the sharing block in `~/.ssh/config` finds the pane's connection, whatever
         // terminal nex itself was started from.
-        .env("TERM_PROGRAM", "nex")
-        .args(target.upload_args())
-        .stdin(stream)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("couldn't run ssh: {e}"))?;
-    let out = ssh.wait_with_output().map_err(|e| e.to_string())?;
-    let mut tar_err = String::new();
-    if let Some(mut e) = tar.stderr.take() {
-        let _ = e.read_to_string(&mut tar_err);
+        ssh.env("TERM_PROGRAM", "nex").args(self.batch_args(script));
+        ssh
     }
-    let tar_ok = tar.wait().is_ok_and(|s| s.success());
-
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        if needs_login(&err) {
-            return Err(UploadError::NeedsLogin);
-        }
-        return Err(last_line(&err).unwrap_or_else(|| format!("ssh exited with {}", out.status)).into());
-    }
-    if !tar_ok {
-        return Err(last_line(&tar_err).unwrap_or_else(|| "tar failed".into()).into());
-    }
-    let dir = String::from_utf8_lossy(&out.stdout).lines().next_back().map(str::trim).filter(|d| d.starts_with('/')).map(str::to_string);
-    let dir = dir.ok_or("the remote host didn't say where it put the files")?;
-    Ok(names.iter().map(|n| posix_quote(&format!("{dir}/{n}"))).collect())
 }
 
 /// ssh's error when every way it could log in without asking was refused:
 /// `user@host: Permission denied (publickey,password).`
-fn needs_login(stderr: &str) -> bool {
+pub(super) fn needs_login(stderr: &str) -> bool {
     stderr.lines().any(|l| l.contains("Permission denied ("))
 }
 
@@ -341,41 +277,14 @@ fn sharing_addition(existing: &str) -> String {
     format!("{sep}{SHARING_BLOCK}")
 }
 
-/// Save clipboard image bytes to a local temp file, named like a screenshot, to upload.
-/// The caller removes its folder once the upload is done.
-pub fn save_png(png: &[u8]) -> std::io::Result<PathBuf> {
-    save_image(png, "pasted", "png")
-}
-
-/// Save image bytes to a fresh temp folder as `<prefix>-<local time>.<ext>`
-/// ("pasted-2026-11-17-1405.png"), for a paste or a drop that carried an image but no file.
-pub fn save_image(bytes: &[u8], prefix: &str, ext: &str) -> std::io::Result<PathBuf> {
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-    let dir = std::env::temp_dir().join(format!("nex-paste-{}-{}", std::process::id(), stamp.as_nanos()));
-    std::fs::create_dir_all(&dir)?;
-    let name = match crate::platform::format_local_time(std::time::SystemTime::now()) {
-        Some(t) => format!("{prefix}-{}.{ext}", t.replace(' ', "-").replace(':', "")),
-        None => format!("{prefix}-{}.{ext}", stamp.as_secs()),
-    };
-    let path = dir.join(name);
-    std::fs::write(&path, bytes)?;
-    Ok(path)
-}
-
-/// Remove a folder made by [`save_png`].
-pub fn remove_saved(path: &Path) {
-    if let Some(dir) = path.parent().filter(|d| d.file_name().is_some_and(|n| n.to_string_lossy().starts_with("nex-paste-"))) {
-        let _ = std::fs::remove_dir_all(dir);
-    }
-}
 
 /// The last non-empty line of an error output.
-fn last_line(s: &str) -> Option<String> {
+pub(super) fn last_line(s: &str) -> Option<String> {
     s.lines().map(str::trim).rfind(|l| !l.is_empty()).map(str::to_string)
 }
 
 /// Quote for a POSIX shell (only when needed).
-fn posix_quote(s: &str) -> String {
+pub(super) fn posix_quote(s: &str) -> String {
     let safe = |c: char| c.is_ascii_alphanumeric() || "_./-+:,@%=~".contains(c);
     if !s.is_empty() && s.chars().all(safe) { s.to_string() } else { format!("'{}'", s.replace('\'', r"'\''")) }
 }
@@ -478,16 +387,6 @@ mod tests {
     }
 
     #[test]
-    fn upload_command() {
-        let args = parse("ssh -p 2222 -t me@host htop").unwrap().upload_args();
-        let tail = &args[args.len() - 5..];
-        assert_eq!(&tail[..4], ["-p", "2222", "--", "me@host"]);
-        assert!(tail[4].starts_with("sh -c 'd=$(mktemp -d"));
-        // Our options come first, so they win over the pane's.
-        assert_eq!(&args[..3], ["-T", "-o", "BatchMode=yes"]);
-    }
-
-    #[test]
     fn quoting() {
         assert_eq!(posix_quote("/tmp/nex.ab12/a.png"), "/tmp/nex.ab12/a.png");
         assert_eq!(posix_quote("/tmp/x/it's here"), r"'/tmp/x/it'\''s here'");
@@ -531,25 +430,4 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// The remote half, run here with a local `sh` standing in for ssh.
-    #[test]
-    fn remote_script_unpacks() {
-        let src = std::env::temp_dir().join(format!("nex-remote-test-{}", std::process::id()));
-        let tmp = src.join("remote-tmp");
-        std::fs::create_dir_all(&tmp).unwrap();
-        std::fs::write(src.join("a b.txt"), "hello").unwrap();
-        let mut tar = Command::new("tar").args(["-chf", "-", "-C"]).arg(&src).arg("a b.txt").stdout(Stdio::piped()).spawn().unwrap();
-        let out = Command::new("sh")
-            .args(["-c", REMOTE_SCRIPT])
-            .env("TMPDIR", &tmp)
-            .stdin(tar.stdout.take().unwrap())
-            .output()
-            .unwrap();
-        assert!(tar.wait().unwrap().success());
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let dir = String::from_utf8(out.stdout).unwrap();
-        let got = std::fs::read_to_string(Path::new(dir.trim()).join("a b.txt")).unwrap();
-        assert_eq!(got, "hello");
-        std::fs::remove_dir_all(&src).unwrap();
-    }
 }

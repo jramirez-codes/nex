@@ -365,6 +365,15 @@ impl Terminal {
         crate::remote::SshTarget::from_argv(&self.process_argv)
     }
 
+    /// Like [`ssh_target`](Self::ssh_target), but from the last process poll, without asking
+    /// the OS again: cheap enough to call every frame.
+    pub fn last_ssh_target(&self) -> Option<crate::remote::SshTarget> {
+        if self.process != "ssh" {
+            return None;
+        }
+        crate::remote::SshTarget::from_argv(&self.process_argv)
+    }
+
     /// The directory this pane's `ssh` session is in on the remote host, as far as nex can
     /// tell: what the remote shell last reported with OSC 7, else the directory in a
     /// `user@host: dir` title. `None` when the remote side says neither.
