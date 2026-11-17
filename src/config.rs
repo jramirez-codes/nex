@@ -53,6 +53,8 @@ pub struct Config {
     pub animations: bool,
     /// How switching tabs animates (when `animations` is on).
     pub tab_animation: TabAnimation,
+    /// How new file explorers lay out their folder (`explorer-view = list | grid`).
+    pub explorer_view: crate::file_explorer::View,
     /// Phone-sized touch screens: the title bar becomes a left sidebar of large icon tiles,
     /// and pane headers get bigger buttons.
     pub mobile: bool,
@@ -62,6 +64,9 @@ pub struct Config {
     pub copy_on_select: bool,
     /// Show a "Copied …" / "Pasted …" toast for terminal copy and paste.
     pub clipboard_toasts: bool,
+    /// Files dropped or pasted into a pane running `ssh` are copied to the remote host,
+    /// and their remote paths typed (see `remote`).
+    pub ssh_upload: bool,
     pub scrollback_limit: usize,
     /// Command to run instead of the user's login shell.
     pub command: Option<String>,
@@ -107,12 +112,14 @@ impl Default for Config {
             pane_headers: true,
             animations: true,
             tab_animation: TabAnimation::Glide,
+            explorer_view: crate::file_explorer::View::List,
             mobile: false,
 
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
             copy_on_select: false,
             clipboard_toasts: true,
+            ssh_upload: true,
             scrollback_limit: 10_000,
             command: None,
         }
@@ -209,6 +216,13 @@ impl Config {
                     _ => return Err(format!("invalid tab-animation `{value}`")),
                 }
             }
+            "explorer-view" => {
+                self.explorer_view = match value {
+                    "list" => crate::file_explorer::View::List,
+                    "grid" => crate::file_explorer::View::Grid,
+                    _ => return Err(format!("invalid explorer-view `{value}`")),
+                }
+            }
             "mobile" => self.mobile = boolean(value)?,
             "cursor-style" => {
                 self.cursor_style = match value {
@@ -221,6 +235,7 @@ impl Config {
             "cursor-style-blink" => self.cursor_blink = boolean(value)?,
             "copy-on-select" => self.copy_on_select = value != "false",
             "clipboard-toasts" => self.clipboard_toasts = boolean(value)?,
+            "ssh-upload" => self.ssh_upload = boolean(value)?,
             "scrollback-limit" => {
                 self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?
             }
@@ -279,6 +294,18 @@ mod tests {
         cfg.apply("mobile", "true").unwrap();
         assert!(cfg.mobile);
         assert!(cfg.apply("mobile", "yes").is_err());
+    }
+
+    #[test]
+    fn explorer_view_picks_a_layout() {
+        use crate::file_explorer::View;
+        let mut cfg = Config::default();
+        assert_eq!(cfg.explorer_view, View::List);
+        cfg.apply("explorer-view", "grid").unwrap();
+        assert_eq!(cfg.explorer_view, View::Grid);
+        cfg.apply("explorer-view", "list").unwrap();
+        assert_eq!(cfg.explorer_view, View::List);
+        assert!(cfg.apply("explorer-view", "icons").is_err());
     }
 
     #[test]

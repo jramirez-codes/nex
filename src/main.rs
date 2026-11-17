@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod file_explorer;
 mod platform;
+mod remote;
 mod render;
 mod terminal;
 mod ui;

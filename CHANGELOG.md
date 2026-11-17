@@ -6,6 +6,26 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Files and images reach SSH sessions. Dropping files onto a pane running `ssh`, or pasting
+  a copied image or copied files there (Ctrl+V or Ctrl+Shift+V; Cmd+V on macOS), copies
+  them to a new folder under the remote host's `$TMPDIR` (or `/tmp`) and types the remote
+  paths, so a program on the other end, such as Claude Code, can open them. The upload runs
+  over a second `ssh` with the pane's own options and `BatchMode`, so it needs keys, an agent
+  or `ControlMaster`. If it can't log in, a toast says why and the local paths are typed
+  instead. Turn it off with `ssh-upload = false`.
+- nex can be your file manager. `nex --explorer` opens on the Files tab, and a folder argument
+  (`nex ~/Downloads`, or a `file://` URI) opens the Files tab in that folder. A new hidden
+  `nex-files.desktop` entry handles `inode/directory`, so
+  `xdg-mime default nex-files.desktop inode/directory` makes folders open in nex.
+- `explorer-view = list | grid` picks the layout file explorers open in.
+
+### Fixed
+
+- Ctrl+V with an image (and no text) on the clipboard now reaches the program as `^V`, so
+  Claude Code can paste the image itself. Before, nex swallowed the key.
+
 ## [0.9.1] - 2026-11-16
 
 ### Changed

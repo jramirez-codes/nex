@@ -22,8 +22,10 @@ install -m755 "$BIN" "$PREFIX/bin/nex"
 if [ "$(uname -s)" = Linux ]; then
   # Absolute Exec path: desktop launchers often don't inherit the shell's PATH (e.g. ~/.local/bin).
   install -d "$PREFIX/share/applications" "$PREFIX/share/icons/hicolor/scalable/apps"
-  sed "s|^Exec=nex|Exec=$PREFIX/bin/nex|" assets/nex.desktop > "$PREFIX/share/applications/nex.desktop"
-  chmod 644 "$PREFIX/share/applications/nex.desktop"
+  for entry in nex nex-files; do
+    sed "s|^Exec=nex|Exec=$PREFIX/bin/nex|" "assets/$entry.desktop" > "$PREFIX/share/applications/$entry.desktop"
+    chmod 644 "$PREFIX/share/applications/$entry.desktop"
+  done
   install -m644 assets/nex.svg "$PREFIX/share/icons/hicolor/scalable/apps/nex.svg"
   command -v update-desktop-database >/dev/null && update-desktop-database -q "$PREFIX/share/applications" || true
 elif [ "$(uname -s)" = Darwin ]; then

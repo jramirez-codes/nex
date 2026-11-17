@@ -117,10 +117,17 @@ impl App {
                 .or_else(crate::platform::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
             let id = self.alloc_pane_id();
-            self.explorers.insert(id, FileExplorer::new(dir));
+            self.explorers.insert(id, self.new_explorer(dir));
             self.explorer_tab = Some(Tab::new(id, id));
         }
         self.explorer_active = true;
+    }
+
+    /// A file explorer at `dir`, in the configured layout (`explorer-view`).
+    fn new_explorer(&self, dir: PathBuf) -> FileExplorer {
+        let mut b = FileExplorer::new(dir);
+        b.view = self.cfg.explorer_view;
+        b
     }
 
     pub(super) fn close_explorer(&mut self) {
@@ -161,7 +168,7 @@ impl App {
             .or_else(crate::platform::home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
         let new = self.alloc_pane_id();
-        self.explorers.insert(new, FileExplorer::new(dir));
+        self.explorers.insert(new, self.new_explorer(dir));
         self.attach_split(ctx, target, axis, new);
     }
 

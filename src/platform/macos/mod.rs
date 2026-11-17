@@ -2,6 +2,7 @@
 //! nex.app.
 
 mod apps;
+mod clipboard;
 mod launch;
 mod memory;
 mod proc;
@@ -15,6 +16,7 @@ pub use super::unix::{
     symlink,
 };
 pub use apps::{apps_for, mime_type, open_with};
+pub use clipboard::clipboard_files;
 pub use launch::{opened_from_desktop, shell_env};
 pub use memory::{trim_heap, tune_allocator};
 pub use proc::proc_info;

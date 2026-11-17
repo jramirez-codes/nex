@@ -26,6 +26,11 @@ impl Dnd {
         false
     }
 
+    /// `platform::clipboard_files` reads the clipboard here.
+    pub fn clipboard_files(&self) -> Option<super::ClipboardFiles> {
+        None
+    }
+
     /// Raise this window after a drop.
     pub fn focus_window(&self) {}
 

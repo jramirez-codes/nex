@@ -24,5 +24,29 @@ pub fn proc_info(pid: u32) -> ProcInfo {
         .filter(|s| !s.is_empty());
     let fg_cwd = std::fs::read_link(format!("/proc/{fg_pid}/cwd")).ok();
 
-    ProcInfo { name, cwd: fg_cwd.or(shell_cwd) }
+    let argv = std::fs::read(format!("/proc/{fg_pid}/cmdline")).map(|b| split_cmdline(&b)).unwrap_or_default();
+
+    ProcInfo { name, cwd: fg_cwd.or(shell_cwd), argv }
+}
+
+/// `/proc/<pid>/cmdline`: the arguments, each ended by a NUL.
+fn split_cmdline(bytes: &[u8]) -> Vec<String> {
+    bytes.split(|&b| b == 0).filter(|a| !a.is_empty()).map(|a| String::from_utf8_lossy(a).into_owned()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_cmdline() {
+        assert_eq!(split_cmdline(b"ssh\0-p\02222\0host\0"), ["ssh", "-p", "2222", "host"]);
+        assert!(split_cmdline(b"").is_empty());
+    }
+
+    #[test]
+    fn reads_own_argv() {
+        let info = proc_info(std::process::id());
+        assert!(!info.argv.is_empty());
+    }
 }

@@ -61,7 +61,7 @@ jobs:
           name="nex-${GITHUB_REF_NAME}-${{ matrix.arch }}-linux"
           mkdir -p "dist/$name/assets"
           cp target/release/nex install.sh LICENSE README.md CHANGELOG.md config.example "dist/$name/"
-          cp assets/nex.desktop assets/nex.svg "dist/$name/assets/"
+          cp assets/nex.desktop assets/nex-files.desktop assets/nex.svg "dist/$name/assets/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name"
 

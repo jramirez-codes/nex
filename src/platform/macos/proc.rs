@@ -17,6 +17,7 @@ pub fn proc_info(pid: u32) -> ProcInfo {
     ProcInfo {
         name: name(fg).or_else(|| name(shell)),
         cwd: cwd(fg).or_else(|| cwd(shell)),
+        argv: args(fg).unwrap_or_default(),
     }
 }
 
@@ -56,10 +57,15 @@ fn command_name(argv0: &str) -> Option<String> {
     (!base.is_empty()).then(|| base.to_string())
 }
 
-/// `argv[0]` from `KERN_PROCARGS2`: an `int` argc, the executable path, NUL padding, then
-/// the arguments.
+/// `argv[0]` (see [`args`]).
 fn argv0(pid: u32) -> Option<String> {
-    let mut buf = vec![0u8; 16 * 1024];
+    args(pid)?.into_iter().next()
+}
+
+/// The command line from `KERN_PROCARGS2`: an `int` argc, the executable path, NUL padding,
+/// then the arguments, each ended by a NUL (then the environment, which is skipped).
+fn args(pid: u32) -> Option<Vec<String>> {
+    let mut buf = vec![0u8; 64 * 1024];
     let mut len = buf.len();
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
     // SAFETY: `buf` is valid for `len` bytes and the kernel writes at most that many (a
@@ -68,11 +74,21 @@ fn argv0(pid: u32) -> Option<String> {
     if rc != 0 {
         return None;
     }
-    let rest = buf.get(size_of::<libc::c_int>()..len)?;
+    parse_procargs(buf.get(..len)?)
+}
+
+fn parse_procargs(buf: &[u8]) -> Option<Vec<String>> {
+    let argc = libc::c_int::from_ne_bytes(buf.get(..size_of::<libc::c_int>())?.try_into().ok()?);
+    let rest = &buf[size_of::<libc::c_int>()..];
     let after_path = &rest[rest.iter().position(|&b| b == 0)?..];
-    let start = after_path.iter().position(|&b| b != 0)?;
-    let arg = CStr::from_bytes_until_nul(&after_path[start..]).ok()?;
-    Some(arg.to_string_lossy().into_owned())
+    let mut at = &after_path[after_path.iter().position(|&b| b != 0)?..];
+    let mut out = Vec::new();
+    for _ in 0..argc.max(0) {
+        let Ok(arg) = CStr::from_bytes_until_nul(at) else { break };
+        out.push(arg.to_string_lossy().into_owned());
+        at = &at[arg.to_bytes().len() + 1..];
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 fn kernel_name(pid: u32) -> Option<String> {
@@ -102,6 +118,13 @@ mod tests {
         assert_eq!(info.cwd, std::env::current_dir().ok());
         assert_eq!(info.name.as_deref(), argv0(std::process::id()).as_deref().and_then(command_name).as_deref());
         assert!(info.name.is_some_and(|n| !n.is_empty()));
+    }
+
+    #[test]
+    fn procargs() {
+        let mut buf = 3i32.to_ne_bytes().to_vec();
+        buf.extend_from_slice(b"/usr/bin/ssh\0\0\0ssh\0-p2222\0host\0HOME=/x\0");
+        assert_eq!(parse_procargs(&buf).unwrap(), ["ssh", "-p2222", "host"]);
     }
 
     #[test]

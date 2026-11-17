@@ -84,6 +84,8 @@ pub struct Terminal {
     osc_title_owner: String,
     /// Name of the foreground process (e.g. `fish`, `node`, `nvim`).
     pub process: String,
+    /// The foreground process's command line (to reconnect to an `ssh` session's host).
+    process_argv: Vec<String>,
     pub cwd: Option<PathBuf>,
     pub exited: bool,
     pub bell_at: Option<Instant>,
@@ -185,6 +187,7 @@ impl Terminal {
             osc_title: None,
             osc_title_owner: String::new(),
             process: String::new(),
+            process_argv: Vec::new(),
             cwd,
             exited: false,
             bell_at: None,
@@ -339,10 +342,21 @@ impl Terminal {
         let info = platform::proc_info(self.pid);
         if let Some(name) = info.name {
             self.process = name;
+            self.process_argv = info.argv;
         }
         if let Some(cwd) = info.cwd {
             self.cwd = Some(cwd);
         }
+    }
+
+    /// The host this pane's foreground `ssh` is connected to, if that is what it's running.
+    /// Refreshes the process info first, so an `ssh` started a moment ago counts.
+    pub fn ssh_target(&mut self) -> Option<crate::remote::SshTarget> {
+        self.refresh_process_info();
+        if self.process != "ssh" {
+            return None;
+        }
+        crate::remote::SshTarget::from_argv(&self.process_argv)
     }
 
     /// The label shown in pane headers, e.g. "Node ~/Sites/rex-snake".

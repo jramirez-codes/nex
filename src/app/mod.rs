@@ -16,6 +16,7 @@ mod tab_motion;
 mod tab_switch;
 mod titlebar;
 mod transition;
+mod upload;
 mod window;
 mod workspace;
 mod zoom;
@@ -123,6 +124,8 @@ pub struct App {
     last_pointer: Option<Pos2>,
     /// Flags passed on to the nex started by Ctrl+Shift+N (`--config`, `--app-id`).
     new_window_args: Vec<String>,
+    /// `--explorer` (or a folder argument): show the Files tab once the first shell opens.
+    open_explorer: bool,
     /// `-e` command, run by the first pane only; later panes start the shell.
     first_command: Option<Vec<String>>,
     /// The first shell, started before the window existed (see `Terminal::spawn_early`);
@@ -132,6 +135,8 @@ pub struct App {
     dnd: Option<crate::platform::Dnd>,
     /// The "Copied …" / "Pasted …" message currently on screen.
     toast: Option<Toast>,
+    /// Files on their way to an `ssh` pane's remote host.
+    uploads: Vec<upload::Upload>,
 }
 
 impl App {
@@ -188,11 +193,13 @@ impl App {
             explorer_active: false,
             last_pointer: None,
             new_window_args: args.for_new_window(),
+            open_explorer: args.explorer,
             // An early terminal already runs the `-e` command.
             first_command: if early_terminal.is_some() { None } else { args.command },
             early_terminal,
             dnd: crate::platform::Dnd::new(cc),
             toast: None,
+            uploads: Vec::new(),
         }
     }
 }
@@ -222,9 +229,14 @@ impl eframe::App for App {
             self.started = true;
             let cwd = std::env::current_dir().ok();
             self.new_tab(ctx, cwd);
+            if self.open_explorer {
+                // Opened as a file manager: the Files tab, at the first shell's folder.
+                self.toggle_explorer();
+            }
         }
 
         self.poll_ptys(ctx);
+        self.poll_uploads(ctx);
         if self.close_if_empty(ctx) {
             return;
         }

@@ -28,12 +28,17 @@ window-padding = 10
 pane-headers = true
 animations = true           # pane splits / closes, focus fades, title-bar tabs
 tab-animation = glide       # switching tabs: glide | ink | none
+explorer-view = list        # file explorer layout: list | grid
 mobile = false              # phone-sized touch screens: tabs in a left sidebar, bigger buttons
 
 cursor-style = block        # block | bar | underline
 cursor-style-blink = true
 copy-on-select = false
 clipboard-toasts = true     # "Copied …" / "Pasted …" toasts for terminal copy and paste
+# Files dropped (or an image or files pasted) into a pane running `ssh` are copied to a temp
+# folder on the remote host, and the remote paths typed. Needs ssh to log in without a
+# password prompt (keys, an agent or ControlMaster); otherwise the local paths are typed.
+ssh-upload = true
 scrollback-limit = 10000
 
 # command = fish

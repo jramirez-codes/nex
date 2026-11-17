@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=nex Files
+GenericName=File Manager
+Comment=Browse folders in nex's file explorer
+Exec=nex --explorer %u
+Icon=nex
+Terminal=false
+NoDisplay=true
+MimeType=inode/directory;
+Categories=System;FileManager;
+StartupWMClass=nex

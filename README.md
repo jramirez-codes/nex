@@ -110,6 +110,12 @@ the window is; the first frame appears about 120 ms after launch.
   terminal to type their paths, or drop them in from other apps. Name clashes get a `(2)`
   suffix instead of overwriting anything. Delete asks for confirmation first, since it's
   permanent.
+- **Files and images over SSH.** Drop a file onto a pane running `ssh`, or paste a copied
+  image or files, and nex copies them to a temp folder on the remote host and types the
+  remote paths, so a remote Claude Code (or anything else) can open them. It reuses the pane's
+  own `ssh` options and needs a login without a password prompt (keys, an agent or
+  `ControlMaster`); otherwise the local paths are typed as before. `ssh-upload = false` turns
+  it off.
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
   an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
   selection into another folder, explorer or terminal pane.
@@ -231,8 +237,10 @@ cursor-style = block                         # block | bar | underline
 window-controls = false                      # hide the close / minimize / maximize buttons
 copy-on-select = false
 clipboard-toasts = false                     # no "Copied …" / "Pasted …" toasts
+ssh-upload = false                           # type local paths for drops into an ssh pane
 animations = false                           # turn off pane and tab animations
 tab-animation = ink                          # switching tabs: glide (default) | ink | none
+explorer-view = grid                         # file explorers open as a grid (default: list)
 mobile = false                               # phone-sized touch screens: tabs in a left sidebar
 command = fish                               # defaults to your login shell
 ```
@@ -246,6 +254,8 @@ nex --config ~/kiosk.conf          # another config file instead of ~/.config/ne
 nex --app-id=dev.me.Scratch        # Wayland app_id (X11 class), for window rules
 nex --working-directory ~/code     # where the first shell starts
 nex -e htop                        # run a program instead of the shell (the rest of the line)
+nex --explorer                     # open on the Files tab
+nex ~/Downloads                    # open the Files tab in a folder (a path or file:// URI)
 ```
 
 `-e` only applies to the first pane; new tabs and splits start your shell. The window closes
@@ -357,6 +367,17 @@ the box. An installed Nerd Font Mono is used instead if you have one.
 macOS, yes: releases include `nex.app`, a universal build for Apple Silicon and Intel Macs
 (see [Installation](#installation)). Signing and notarization are on the [roadmap](#roadmap). Windows isn't supported yet, but the platform
 layer (`src/platform/`) is set up for it.
+
+**Can nex be my file manager?**
+Yes. Installing nex (`install.sh` or the `.deb`) adds a hidden `nex-files.desktop` entry that
+opens a folder on the Files tab. Make it the default handler for folders:
+
+```sh
+xdg-mime default nex-files.desktop inode/directory
+```
+
+After that, `xdg-open ~/Downloads` and apps that open folders through xdg-open start nex on the
+Files tab. Add `explorer-view = grid` to your config to get the grid layout by default.
 
 **How is nex related to Alacritty?**
 nex uses `alacritty_terminal`, Alacritty's VT parser and grid, as its terminal engine. The

@@ -52,7 +52,7 @@ use wayland_client::protocol::wl_touch::{self, WlTouch};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum};
 
 use crate::file_explorer::fs_ops::parse_paths;
-use crate::platform::{DragImage, dnd_log as log};
+use crate::platform::{ClipboardFiles, DragImage, dnd_log as log};
 
 macro_rules! trace {
     ($($t:tt)*) => { log(format_args!($($t)*)) };
@@ -60,10 +60,13 @@ macro_rules! trace {
 
 const URI_LIST: &str = "text/uri-list";
 const TEXT: &str = "text/plain;charset=utf-8";
+const PNG: &str = "image/png";
 /// Text types a pasted selection may come in, best first.
 const PASTE_TYPES: [&str; 5] = [TEXT, "UTF8_STRING", "text/plain", "TEXT", "STRING"];
 /// How long a paste waits for the app holding the clipboard to send it.
 const PASTE_TIMEOUT: Duration = Duration::from_secs(2);
+/// The same for an image, which can be megabytes.
+const IMAGE_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// A paste key was pressed in the window since the last frame (set by `note_paste_key`).
 static PASTE_KEY: AtomicBool = AtomicBool::new(false);
@@ -264,20 +267,51 @@ impl Dnd {
     /// The clipboard's text, if it holds any: read from the app holding it, waiting at most
     /// `PASTE_TIMEOUT`.
     fn clipboard_text(&self) -> Option<String> {
-        let offer = self.shared.lock().unwrap().selection.clone()?;
-        let types = offer.data::<OfferData>()?.types.lock().unwrap().clone();
+        let types = self.clipboard_types()?;
         let Some(mime) = PASTE_TYPES.into_iter().find(|t| types.iter().any(|x| x == t)) else {
             trace!("paste: no text in the clipboard ({types:?})");
             return None;
         };
+        let bytes = self.read_clipboard(mime, PASTE_TIMEOUT)?;
+        let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
+        trace!("paste: {} bytes as {mime}", text.len());
+        (!text.is_empty()).then_some(text)
+    }
+
+    /// Copied files (a file manager's copy) or an image (a screenshot), if the clipboard
+    /// holds either.
+    pub fn clipboard_files(&self) -> Option<ClipboardFiles> {
+        let types = self.clipboard_types()?;
+        let has = |t: &str| types.iter().any(|x| x == t);
+        if has(URI_LIST) {
+            let paths = parse_paths(&String::from_utf8_lossy(&self.read_clipboard(URI_LIST, PASTE_TIMEOUT)?));
+            if !paths.is_empty() {
+                return Some(ClipboardFiles::Paths(paths));
+            }
+        }
+        if has(PNG) {
+            let png = self.read_clipboard(PNG, IMAGE_TIMEOUT).filter(|b| !b.is_empty())?;
+            trace!("paste: {} bytes of {PNG}", png.len());
+            return Some(ClipboardFiles::Png(png));
+        }
+        None
+    }
+
+    /// The types the clipboard's current owner offers.
+    fn clipboard_types(&self) -> Option<Vec<String>> {
+        let offer = self.shared.lock().unwrap().selection.clone()?;
+        let types = offer.data::<OfferData>()?.types.lock().unwrap().clone();
+        Some(types)
+    }
+
+    /// The clipboard's contents as `mime`, waiting at most `timeout` for its owner.
+    fn read_clipboard(&self, mime: &str, timeout: Duration) -> Option<Vec<u8>> {
+        let offer = self.shared.lock().unwrap().selection.clone()?;
         let (reader, writer) = std::io::pipe().ok()?;
         offer.receive(mime.into(), writer.as_fd());
         drop(writer);
         self.conn.flush().ok()?;
-        let bytes = read_until_closed(reader, PASTE_TIMEOUT)?;
-        let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
-        trace!("paste: {} bytes as {mime}", text.len());
-        (!text.is_empty()).then_some(text)
+        read_until_closed(reader, timeout)
     }
 
     /// Hand `paths` to the compositor as a drag out of this window, continuing the press that
@@ -766,4 +800,5 @@ mod tests {
         assert_eq!(parse_paths(&format!("{uri}\r\n")), vec![file]);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
 }
