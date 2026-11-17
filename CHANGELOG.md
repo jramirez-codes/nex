@@ -10,12 +10,13 @@ All notable changes to nex are documented here. The format follows
 
 - Share your microphone with an SSH session (experimental). The mic button in an `ssh`
   pane's header, or `Ctrl+Shift+M` (`Cmd+Shift+M` on macOS), makes this machine's mic the
-  host's default ALSA microphone, so programs there that record can hear you. That includes
-  Claude Code's voice mode. The local mic only records while a program on the host has it
-  open, and the button turns red while it does. Nothing is installed on the host: nex adds a
-  block to `~/.asoundrc` (removed when sharing stops) and runs `sh` and `cat`. Linux hosts with
-  `libasound2` only. `ssh-mic = auto` shares with every `ssh` pane, and `ssh-mic = off` hides
-  the button.
+  host's default microphone, so programs there that record can hear you. That includes
+  Claude Code's voice mode. The local mic only records while a program on the host is
+  recording, and the button turns red while it does. Nothing is installed on the host. On
+  hosts running PipeWire the mic is a source there ("Microphone (shared by nex)"), made the
+  default while shared. Other Linux hosts with `libasound2` get a block in `~/.asoundrc`,
+  removed when sharing stops. `ssh-mic = auto` shares with every `ssh` pane, and
+  `ssh-mic = off` hides the button.
 
 ## [0.10.1] - 2026-11-17
 

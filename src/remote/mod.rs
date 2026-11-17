@@ -5,7 +5,7 @@
 //!   mod.rs     this file: reading a pane's ssh command line (SshTarget), the options nex's
 //!              own connections use, and connection sharing in ~/.ssh/config
 //!   upload.rs  files dropped or pasted into an ssh pane, copied to the remote host
-//!   mic.rs     the local microphone shared with the remote host, as its default ALSA mic
+//!   mic.rs     the local microphone shared with the remote host, as its default mic
 //! ```
 //!
 //! nex's connections reuse the pane's own `ssh` arguments (port, user, identity, jump hosts,

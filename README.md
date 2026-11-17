@@ -150,24 +150,28 @@ gets a path it can open.
 Programs on an ssh host record from *that* machine, which usually has no microphone. That's
 why Claude Code's voice mode says "Remote servers usually have none". Click the mic button
 in the pane's header (or press `Ctrl+Shift+M`, `Cmd+Shift+M` on macOS), and the host's default
-ALSA capture device becomes your local mic:
+microphone becomes your local mic:
 
 ```text
-your mic ─▶ nex ─▶ a waiting ssh session (sh + cat) ─▶ ~/.nex/mic.fifo ─▶ ALSA default ─▶ the program
+PipeWire host: your mic ─▶ nex ─▶ ssh ─▶ pw-cat ("Microphone (shared by nex)") ─▶ PipeWire ─▶ the program
+other Linux:   your mic ─▶ nex ─▶ a waiting ssh session (sh + dd) ─▶ ~/.nex/mic.fifo ─▶ ALSA default ─▶ the program
 ```
 
-- **Off until something records.** nex keeps one session waiting on the host. Your mic starts
-  only when a program there opens the default mic, and stops when it closes it. The button is
-  red while recording.
-- **Nothing installed.** nex adds a marked block to the host's `~/.asoundrc` and removes it when
-  sharing stops (when you click again, close the last pane on that host, or quit). It needs a
-  Linux host with `libasound2`, which programs that record need anyway.
+- **Off until something records.** Your mic starts only when a program on the host starts
+  recording, and stops when it stops. The button is red while recording.
+- **Nothing installed.** On a host running PipeWire, nex adds a source there and makes it the
+  default while sharing, then puts the previous default back. Elsewhere it adds a marked block
+  to `~/.asoundrc` and removes it when sharing stops (when you click again, close the last pane
+  on that host, or quit). It needs a Linux host with PipeWire or `libasound2`.
+- **Speech quality.** Audio goes out as 16 kHz mono, what speech recognizers use, starting
+  about 0.2 s late to ride out network hiccups. Release Claude Code's push-to-talk a moment
+  after you finish speaking: what's still on the way when it stops recording is lost.
 - **Same login rules as uploads:** keys, agents and connection sharing work, and passwords
   aren't typed.
 - `ssh-mic = auto` shares with every ssh pane nex can log in to without a password.
 
-Untested so far: whether Claude Code's voice mode accepts a mic with no sound card behind it.
-`arecord` on the host is the quickest check.
+Without PipeWire, recording works best with `arecord` (Claude Code uses it on hosts without a
+sound card): ALSA reads the shared mic in `arecord`'s block size.
 
 ### Following your remote folder
 
