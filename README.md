@@ -1,6 +1,6 @@
 <!-- LOGO -->
 <h1 align="center">
-  <img src="assets/nex.svg" alt="nex terminal emulator logo" width="128">
+  <img src="assets/nex-animated.svg" alt="nex terminal emulator logo" width="128">
   <br>nex
 </h1>
 
