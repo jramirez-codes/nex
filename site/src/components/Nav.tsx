@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { REPO, RELEASES, asset } from '../links'
+import { REPO, RELEASES } from '../links'
 import { platformName, usePlatform } from '../platform'
+import AnimatedLogo from './AnimatedLogo'
 import './nav.css'
 
 const LINKS = [
@@ -46,7 +47,7 @@ export default function Nav() {
     <header className={`nav ${scrolled || open ? 'scrolled' : ''} ${open ? 'open' : ''}`}>
       <nav className="nav-inner" aria-label="Main">
         <a className="nav-brand" href="#top" onClick={close}>
-          <img src={asset('nex.svg')} alt="" width={26} height={26} />
+          <AnimatedLogo size={26} />
           nex
         </a>
         <div className="nav-links">

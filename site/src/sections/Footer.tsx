@@ -1,5 +1,6 @@
-import { REPO, RELEASES, asset } from '../links'
+import { REPO, RELEASES } from '../links'
 import { platformName, usePlatform } from '../platform'
+import AnimatedLogo from '../components/AnimatedLogo'
 import './footer.css'
 
 export default function Footer() {
@@ -7,7 +8,7 @@ export default function Footer() {
   return (
     <footer className="footer">
       <div className="footer-cta">
-        <img src={asset('nex.svg')} alt="" width={72} height={72} />
+        <AnimatedLogo size={72} onView />
         <h2>Try nex today.</h2>
         <p>Free and open source, for macOS and Linux. Coming next: a quick drop-down terminal, a command palette and shell integration.</p>
         <div className="footer-actions">
