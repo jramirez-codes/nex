@@ -51,7 +51,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 55,
@@ -181,7 +181,7 @@
                             "value": 256.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 256.0
                           }
                         ]
@@ -458,111 +458,7 @@
                             "value": 352.5
                           },
                           {
-                            "frame": 319,
-                            "value": 352.5
-                          },
-                          {
-                            "frame": 320,
-                            "value": 352.48
-                          },
-                          {
-                            "frame": 321,
-                            "value": 352.42
-                          },
-                          {
-                            "frame": 322,
-                            "value": 352.33
-                          },
-                          {
-                            "frame": 323,
-                            "value": 352.23
-                          },
-                          {
-                            "frame": 324,
-                            "value": 352.17
-                          },
-                          {
-                            "frame": 325,
-                            "value": 352.14
-                          },
-                          {
-                            "frame": 326,
-                            "value": 352.15
-                          },
-                          {
-                            "frame": 327,
-                            "value": 352.2
-                          },
-                          {
-                            "frame": 328,
-                            "value": 352.29
-                          },
-                          {
-                            "frame": 329,
-                            "value": 352.38
-                          },
-                          {
-                            "frame": 330,
-                            "value": 352.46
-                          },
-                          {
-                            "frame": 331,
-                            "value": 352.5
-                          },
-                          {
-                            "frame": 332,
-                            "value": 352.5
-                          },
-                          {
-                            "frame": 333,
-                            "value": 352.46
-                          },
-                          {
-                            "frame": 334,
-                            "value": 352.38
-                          },
-                          {
-                            "frame": 335,
-                            "value": 352.29
-                          },
-                          {
-                            "frame": 336,
-                            "value": 352.2
-                          },
-                          {
-                            "frame": 337,
-                            "value": 352.15
-                          },
-                          {
-                            "frame": 338,
-                            "value": 352.14
-                          },
-                          {
-                            "frame": 339,
-                            "value": 352.17
-                          },
-                          {
-                            "frame": 340,
-                            "value": 352.23
-                          },
-                          {
-                            "frame": 341,
-                            "value": 352.33
-                          },
-                          {
-                            "frame": 342,
-                            "value": 352.42
-                          },
-                          {
-                            "frame": 343,
-                            "value": 352.48
-                          },
-                          {
-                            "frame": 344,
-                            "value": 352.5
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 352.5
                           }
                         ]
@@ -763,115 +659,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 318,
-                            "value": 100.0
-                          },
-                          {
-                            "frame": 319,
-                            "value": 100.01
-                          },
-                          {
-                            "frame": 320,
-                            "value": 100.74
-                          },
-                          {
-                            "frame": 321,
-                            "value": 102.78
-                          },
-                          {
-                            "frame": 322,
-                            "value": 105.84
-                          },
-                          {
-                            "frame": 323,
-                            "value": 108.95
-                          },
-                          {
-                            "frame": 324,
-                            "value": 111.11
-                          },
-                          {
-                            "frame": 325,
-                            "value": 111.98
-                          },
-                          {
-                            "frame": 326,
-                            "value": 111.61
-                          },
-                          {
-                            "frame": 327,
-                            "value": 109.96
-                          },
-                          {
-                            "frame": 328,
-                            "value": 107.14
-                          },
-                          {
-                            "frame": 329,
-                            "value": 103.92
-                          },
-                          {
-                            "frame": 330,
-                            "value": 101.4
-                          },
-                          {
-                            "frame": 331,
-                            "value": 100.15
-                          },
-                          {
-                            "frame": 332,
-                            "value": 100.15
-                          },
-                          {
-                            "frame": 333,
-                            "value": 101.4
-                          },
-                          {
-                            "frame": 334,
-                            "value": 103.92
-                          },
-                          {
-                            "frame": 335,
-                            "value": 107.14
-                          },
-                          {
-                            "frame": 336,
-                            "value": 109.96
-                          },
-                          {
-                            "frame": 337,
-                            "value": 111.61
-                          },
-                          {
-                            "frame": 338,
-                            "value": 111.98
-                          },
-                          {
-                            "frame": 339,
-                            "value": 111.11
-                          },
-                          {
-                            "frame": 340,
-                            "value": 108.95
-                          },
-                          {
-                            "frame": 341,
-                            "value": 105.84
-                          },
-                          {
-                            "frame": 342,
-                            "value": 102.78
-                          },
-                          {
-                            "frame": 343,
-                            "value": 100.74
-                          },
-                          {
-                            "frame": 344,
-                            "value": 100.01
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -1028,111 +816,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 319,
-                            "value": 100.0
-                          },
-                          {
-                            "frame": 320,
-                            "value": 99.51
-                          },
-                          {
-                            "frame": 321,
-                            "value": 98.15
-                          },
-                          {
-                            "frame": 322,
-                            "value": 96.11
-                          },
-                          {
-                            "frame": 323,
-                            "value": 94.03
-                          },
-                          {
-                            "frame": 324,
-                            "value": 92.59
-                          },
-                          {
-                            "frame": 325,
-                            "value": 92.02
-                          },
-                          {
-                            "frame": 326,
-                            "value": 92.26
-                          },
-                          {
-                            "frame": 327,
-                            "value": 93.36
-                          },
-                          {
-                            "frame": 328,
-                            "value": 95.24
-                          },
-                          {
-                            "frame": 329,
-                            "value": 97.39
-                          },
-                          {
-                            "frame": 330,
-                            "value": 99.07
-                          },
-                          {
-                            "frame": 331,
-                            "value": 99.9
-                          },
-                          {
-                            "frame": 332,
-                            "value": 99.9
-                          },
-                          {
-                            "frame": 333,
-                            "value": 99.07
-                          },
-                          {
-                            "frame": 334,
-                            "value": 97.39
-                          },
-                          {
-                            "frame": 335,
-                            "value": 95.24
-                          },
-                          {
-                            "frame": 336,
-                            "value": 93.36
-                          },
-                          {
-                            "frame": 337,
-                            "value": 92.26
-                          },
-                          {
-                            "frame": 338,
-                            "value": 92.02
-                          },
-                          {
-                            "frame": 339,
-                            "value": 92.59
-                          },
-                          {
-                            "frame": 340,
-                            "value": 94.03
-                          },
-                          {
-                            "frame": 341,
-                            "value": 96.11
-                          },
-                          {
-                            "frame": 342,
-                            "value": 98.15
-                          },
-                          {
-                            "frame": 343,
-                            "value": 99.51
-                          },
-                          {
-                            "frame": 344,
-                            "value": 100.0
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -1229,7 +913,7 @@
                             "value": 0.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 0.0
                           }
                         ]
@@ -1258,7 +942,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -1285,7 +969,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 50,
@@ -1415,7 +1099,7 @@
                             "value": 256.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 256.0
                           }
                         ]
@@ -1644,7 +1328,7 @@
                             "value": 364.21
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 364.21
                           }
                         ]
@@ -1737,7 +1421,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -1878,7 +1562,7 @@
                             "value": 1.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 1.0
                           }
                         ]
@@ -1975,7 +1659,7 @@
                             "value": 0.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 0.0
                           }
                         ]
@@ -2008,7 +1692,7 @@
                             "value": 0.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 0.0
                           }
                         ]
@@ -2035,7 +1719,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 44,
@@ -2165,7 +1849,7 @@
                             "value": 256.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 256.0
                           }
                         ]
@@ -2338,7 +2022,7 @@
                             "value": 268.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 268.0
                           }
                         ]
@@ -2431,7 +2115,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -2632,127 +2316,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 180,
-                            "value": 100.0
-                          },
-                          {
-                            "frame": 181,
-                            "value": 93.73
-                          },
-                          {
-                            "frame": 182,
-                            "value": 74.29
-                          },
-                          {
-                            "frame": 183,
-                            "value": 46.45
-                          },
-                          {
-                            "frame": 184,
-                            "value": 22.52
-                          },
-                          {
-                            "frame": 185,
-                            "value": 10.96
-                          },
-                          {
-                            "frame": 186,
-                            "value": 10.96
-                          },
-                          {
-                            "frame": 187,
-                            "value": 17.16
-                          },
-                          {
-                            "frame": 188,
-                            "value": 29.34
-                          },
-                          {
-                            "frame": 189,
-                            "value": 46.45
-                          },
-                          {
-                            "frame": 190,
-                            "value": 65.41
-                          },
-                          {
-                            "frame": 191,
-                            "value": 82.14
-                          },
-                          {
-                            "frame": 192,
-                            "value": 93.73
-                          },
-                          {
-                            "frame": 193,
-                            "value": 99.33
-                          },
-                          {
-                            "frame": 194,
-                            "value": 100.0
-                          },
-                          {
-                            "frame": 315,
-                            "value": 100.0
-                          },
-                          {
-                            "frame": 316,
-                            "value": 93.73
-                          },
-                          {
-                            "frame": 317,
-                            "value": 74.29
-                          },
-                          {
-                            "frame": 318,
-                            "value": 46.45
-                          },
-                          {
-                            "frame": 319,
-                            "value": 22.52
-                          },
-                          {
-                            "frame": 320,
-                            "value": 10.96
-                          },
-                          {
-                            "frame": 321,
-                            "value": 10.96
-                          },
-                          {
-                            "frame": 322,
-                            "value": 17.16
-                          },
-                          {
-                            "frame": 323,
-                            "value": 29.34
-                          },
-                          {
-                            "frame": 324,
-                            "value": 46.45
-                          },
-                          {
-                            "frame": 325,
-                            "value": 65.41
-                          },
-                          {
-                            "frame": 326,
-                            "value": 82.14
-                          },
-                          {
-                            "frame": 327,
-                            "value": 93.73
-                          },
-                          {
-                            "frame": 328,
-                            "value": 99.33
-                          },
-                          {
-                            "frame": 329,
-                            "value": 100.0
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -2849,7 +2413,7 @@
                             "value": 0.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 0.0
                           }
                         ]
@@ -2878,7 +2442,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -2905,7 +2469,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 38,
@@ -3035,7 +2599,7 @@
                             "value": 256.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 256.0
                           }
                         ]
@@ -3200,7 +2764,7 @@
                             "value": 298.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 298.0
                           }
                         ]
@@ -3293,7 +2857,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -3386,7 +2950,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -3483,7 +3047,7 @@
                             "value": 0.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 0.0
                           }
                         ]
@@ -3512,7 +3076,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -3539,7 +3103,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 33,
@@ -3757,115 +3321,7 @@
                             "value": 338.02
                           },
                           {
-                            "frame": 285,
-                            "value": 338.02
-                          },
-                          {
-                            "frame": 286,
-                            "value": 337.91
-                          },
-                          {
-                            "frame": 287,
-                            "value": 337.36
-                          },
-                          {
-                            "frame": 288,
-                            "value": 336.35
-                          },
-                          {
-                            "frame": 289,
-                            "value": 335.15
-                          },
-                          {
-                            "frame": 290,
-                            "value": 334.17
-                          },
-                          {
-                            "frame": 291,
-                            "value": 333.65
-                          },
-                          {
-                            "frame": 292,
-                            "value": 333.62
-                          },
-                          {
-                            "frame": 293,
-                            "value": 334.22
-                          },
-                          {
-                            "frame": 294,
-                            "value": 335.52
-                          },
-                          {
-                            "frame": 295,
-                            "value": 337.23
-                          },
-                          {
-                            "frame": 296,
-                            "value": 338.77
-                          },
-                          {
-                            "frame": 297,
-                            "value": 339.7
-                          },
-                          {
-                            "frame": 298,
-                            "value": 339.96
-                          },
-                          {
-                            "frame": 299,
-                            "value": 339.78
-                          },
-                          {
-                            "frame": 300,
-                            "value": 339.29
-                          },
-                          {
-                            "frame": 301,
-                            "value": 338.55
-                          },
-                          {
-                            "frame": 302,
-                            "value": 337.79
-                          },
-                          {
-                            "frame": 303,
-                            "value": 337.26
-                          },
-                          {
-                            "frame": 304,
-                            "value": 337.05
-                          },
-                          {
-                            "frame": 305,
-                            "value": 337.07
-                          },
-                          {
-                            "frame": 306,
-                            "value": 337.21
-                          },
-                          {
-                            "frame": 307,
-                            "value": 337.44
-                          },
-                          {
-                            "frame": 308,
-                            "value": 337.7
-                          },
-                          {
-                            "frame": 309,
-                            "value": 337.91
-                          },
-                          {
-                            "frame": 310,
-                            "value": 338.01
-                          },
-                          {
-                            "frame": 311,
-                            "value": 338.02
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 338.02
                           }
                         ]
@@ -4046,115 +3502,7 @@
                             "value": 184.01
                           },
                           {
-                            "frame": 285,
-                            "value": 184.01
-                          },
-                          {
-                            "frame": 286,
-                            "value": 183.98
-                          },
-                          {
-                            "frame": 287,
-                            "value": 183.87
-                          },
-                          {
-                            "frame": 288,
-                            "value": 183.7
-                          },
-                          {
-                            "frame": 289,
-                            "value": 183.54
-                          },
-                          {
-                            "frame": 290,
-                            "value": 183.45
-                          },
-                          {
-                            "frame": 291,
-                            "value": 183.41
-                          },
-                          {
-                            "frame": 292,
-                            "value": 183.41
-                          },
-                          {
-                            "frame": 293,
-                            "value": 183.45
-                          },
-                          {
-                            "frame": 294,
-                            "value": 183.58
-                          },
-                          {
-                            "frame": 295,
-                            "value": 183.85
-                          },
-                          {
-                            "frame": 296,
-                            "value": 184.18
-                          },
-                          {
-                            "frame": 297,
-                            "value": 184.42
-                          },
-                          {
-                            "frame": 298,
-                            "value": 184.49
-                          },
-                          {
-                            "frame": 299,
-                            "value": 184.44
-                          },
-                          {
-                            "frame": 300,
-                            "value": 184.31
-                          },
-                          {
-                            "frame": 301,
-                            "value": 184.12
-                          },
-                          {
-                            "frame": 302,
-                            "value": 183.96
-                          },
-                          {
-                            "frame": 303,
-                            "value": 183.85
-                          },
-                          {
-                            "frame": 304,
-                            "value": 183.81
-                          },
-                          {
-                            "frame": 305,
-                            "value": 183.82
-                          },
-                          {
-                            "frame": 306,
-                            "value": 183.84
-                          },
-                          {
-                            "frame": 307,
-                            "value": 183.89
-                          },
-                          {
-                            "frame": 308,
-                            "value": 183.94
-                          },
-                          {
-                            "frame": 309,
-                            "value": 183.98
-                          },
-                          {
-                            "frame": 310,
-                            "value": 184.0
-                          },
-                          {
-                            "frame": 311,
-                            "value": 184.01
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 184.01
                           }
                         ]
@@ -4207,7 +3555,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -4260,7 +3608,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -4445,115 +3793,7 @@
                             "value": 0.0
                           },
                           {
-                            "frame": 285,
-                            "value": 0.0
-                          },
-                          {
-                            "frame": 286,
-                            "value": -0.22
-                          },
-                          {
-                            "frame": 287,
-                            "value": -1.36
-                          },
-                          {
-                            "frame": 288,
-                            "value": -3.41
-                          },
-                          {
-                            "frame": 289,
-                            "value": -5.83
-                          },
-                          {
-                            "frame": 290,
-                            "value": -7.8
-                          },
-                          {
-                            "frame": 291,
-                            "value": -8.84
-                          },
-                          {
-                            "frame": 292,
-                            "value": -8.9
-                          },
-                          {
-                            "frame": 293,
-                            "value": -7.68
-                          },
-                          {
-                            "frame": 294,
-                            "value": -5.07
-                          },
-                          {
-                            "frame": 295,
-                            "value": -1.61
-                          },
-                          {
-                            "frame": 296,
-                            "value": 1.54
-                          },
-                          {
-                            "frame": 297,
-                            "value": 3.47
-                          },
-                          {
-                            "frame": 298,
-                            "value": 4.0
-                          },
-                          {
-                            "frame": 299,
-                            "value": 3.63
-                          },
-                          {
-                            "frame": 300,
-                            "value": 2.61
-                          },
-                          {
-                            "frame": 301,
-                            "value": 1.08
-                          },
-                          {
-                            "frame": 302,
-                            "value": -0.47
-                          },
-                          {
-                            "frame": 303,
-                            "value": -1.56
-                          },
-                          {
-                            "frame": 304,
-                            "value": -1.99
-                          },
-                          {
-                            "frame": 305,
-                            "value": -1.94
-                          },
-                          {
-                            "frame": 306,
-                            "value": -1.66
-                          },
-                          {
-                            "frame": 307,
-                            "value": -1.19
-                          },
-                          {
-                            "frame": 308,
-                            "value": -0.65
-                          },
-                          {
-                            "frame": 309,
-                            "value": -0.23
-                          },
-                          {
-                            "frame": 310,
-                            "value": -0.02
-                          },
-                          {
-                            "frame": 311,
-                            "value": 0.0
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 0.0
                           }
                         ]
@@ -4606,7 +3846,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -4633,7 +3873,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 27,
@@ -4763,7 +4003,7 @@
                             "value": 256.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 256.0
                           }
                         ]
@@ -4928,7 +4168,7 @@
                             "value": 298.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 298.0
                           }
                         ]
@@ -5021,7 +4261,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -5114,7 +4354,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -5211,7 +4451,7 @@
                             "value": 0.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 0.0
                           }
                         ]
@@ -5240,7 +4480,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -5267,7 +4507,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 22,
@@ -5469,7 +4709,7 @@
                             "value": 174.01
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 174.01
                           }
                         ]
@@ -5638,7 +4878,7 @@
                             "value": 175.99
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 175.99
                           }
                         ]
@@ -5723,7 +4963,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -5808,7 +5048,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -5977,7 +5217,7 @@
                             "value": 0.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 0.0
                           }
                         ]
@@ -6006,7 +5246,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -6033,7 +5273,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 17,
@@ -6089,7 +5329,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 12,
@@ -6327,199 +5567,7 @@
                             "value": 698.17
                           },
                           {
-                            "frame": 247,
-                            "value": 698.17
-                          },
-                          {
-                            "frame": 248,
-                            "value": -729.81
-                          },
-                          {
-                            "frame": 249,
-                            "value": -726.82
-                          },
-                          {
-                            "frame": 250,
-                            "value": -720.43
-                          },
-                          {
-                            "frame": 251,
-                            "value": -710.13
-                          },
-                          {
-                            "frame": 252,
-                            "value": -695.34
-                          },
-                          {
-                            "frame": 253,
-                            "value": -675.32
-                          },
-                          {
-                            "frame": 254,
-                            "value": -649.25
-                          },
-                          {
-                            "frame": 255,
-                            "value": -616.16
-                          },
-                          {
-                            "frame": 256,
-                            "value": -575.03
-                          },
-                          {
-                            "frame": 257,
-                            "value": -524.9
-                          },
-                          {
-                            "frame": 258,
-                            "value": -465.16
-                          },
-                          {
-                            "frame": 259,
-                            "value": -395.93
-                          },
-                          {
-                            "frame": 260,
-                            "value": -318.6
-                          },
-                          {
-                            "frame": 261,
-                            "value": -235.93
-                          },
-                          {
-                            "frame": 262,
-                            "value": -151.54
-                          },
-                          {
-                            "frame": 263,
-                            "value": -68.97
-                          },
-                          {
-                            "frame": 264,
-                            "value": 9.2
-                          },
-                          {
-                            "frame": 265,
-                            "value": 81.52
-                          },
-                          {
-                            "frame": 266,
-                            "value": 147.51
-                          },
-                          {
-                            "frame": 267,
-                            "value": 207.26
-                          },
-                          {
-                            "frame": 268,
-                            "value": 261.16
-                          },
-                          {
-                            "frame": 269,
-                            "value": 309.72
-                          },
-                          {
-                            "frame": 270,
-                            "value": 353.45
-                          },
-                          {
-                            "frame": 271,
-                            "value": 392.87
-                          },
-                          {
-                            "frame": 272,
-                            "value": 428.42
-                          },
-                          {
-                            "frame": 273,
-                            "value": 460.5
-                          },
-                          {
-                            "frame": 274,
-                            "value": 489.46
-                          },
-                          {
-                            "frame": 275,
-                            "value": 515.61
-                          },
-                          {
-                            "frame": 276,
-                            "value": 539.2
-                          },
-                          {
-                            "frame": 277,
-                            "value": 560.48
-                          },
-                          {
-                            "frame": 278,
-                            "value": 579.64
-                          },
-                          {
-                            "frame": 279,
-                            "value": 596.87
-                          },
-                          {
-                            "frame": 280,
-                            "value": 612.32
-                          },
-                          {
-                            "frame": 281,
-                            "value": 626.12
-                          },
-                          {
-                            "frame": 282,
-                            "value": 638.41
-                          },
-                          {
-                            "frame": 283,
-                            "value": 649.29
-                          },
-                          {
-                            "frame": 284,
-                            "value": 658.86
-                          },
-                          {
-                            "frame": 285,
-                            "value": 667.2
-                          },
-                          {
-                            "frame": 286,
-                            "value": 674.4
-                          },
-                          {
-                            "frame": 287,
-                            "value": 680.52
-                          },
-                          {
-                            "frame": 288,
-                            "value": 685.64
-                          },
-                          {
-                            "frame": 289,
-                            "value": 689.81
-                          },
-                          {
-                            "frame": 290,
-                            "value": 693.08
-                          },
-                          {
-                            "frame": 291,
-                            "value": 695.51
-                          },
-                          {
-                            "frame": 292,
-                            "value": 697.13
-                          },
-                          {
-                            "frame": 293,
-                            "value": 697.99
-                          },
-                          {
-                            "frame": 294,
-                            "value": 698.17
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 698.17
                           }
                         ]
@@ -6724,199 +5772,7 @@
                             "value": 421.19
                           },
                           {
-                            "frame": 247,
-                            "value": 421.19
-                          },
-                          {
-                            "frame": 248,
-                            "value": -98.55
-                          },
-                          {
-                            "frame": 249,
-                            "value": -97.46
-                          },
-                          {
-                            "frame": 250,
-                            "value": -95.13
-                          },
-                          {
-                            "frame": 251,
-                            "value": -91.39
-                          },
-                          {
-                            "frame": 252,
-                            "value": -86.0
-                          },
-                          {
-                            "frame": 253,
-                            "value": -78.72
-                          },
-                          {
-                            "frame": 254,
-                            "value": -69.23
-                          },
-                          {
-                            "frame": 255,
-                            "value": -57.18
-                          },
-                          {
-                            "frame": 256,
-                            "value": -42.21
-                          },
-                          {
-                            "frame": 257,
-                            "value": -23.97
-                          },
-                          {
-                            "frame": 258,
-                            "value": -2.22
-                          },
-                          {
-                            "frame": 259,
-                            "value": 22.97
-                          },
-                          {
-                            "frame": 260,
-                            "value": 51.12
-                          },
-                          {
-                            "frame": 261,
-                            "value": 81.21
-                          },
-                          {
-                            "frame": 262,
-                            "value": 111.93
-                          },
-                          {
-                            "frame": 263,
-                            "value": 141.98
-                          },
-                          {
-                            "frame": 264,
-                            "value": 170.43
-                          },
-                          {
-                            "frame": 265,
-                            "value": 196.75
-                          },
-                          {
-                            "frame": 266,
-                            "value": 220.77
-                          },
-                          {
-                            "frame": 267,
-                            "value": 242.52
-                          },
-                          {
-                            "frame": 268,
-                            "value": 262.13
-                          },
-                          {
-                            "frame": 269,
-                            "value": 279.81
-                          },
-                          {
-                            "frame": 270,
-                            "value": 295.73
-                          },
-                          {
-                            "frame": 271,
-                            "value": 310.07
-                          },
-                          {
-                            "frame": 272,
-                            "value": 323.01
-                          },
-                          {
-                            "frame": 273,
-                            "value": 334.69
-                          },
-                          {
-                            "frame": 274,
-                            "value": 345.23
-                          },
-                          {
-                            "frame": 275,
-                            "value": 354.75
-                          },
-                          {
-                            "frame": 276,
-                            "value": 363.33
-                          },
-                          {
-                            "frame": 277,
-                            "value": 371.08
-                          },
-                          {
-                            "frame": 278,
-                            "value": 378.05
-                          },
-                          {
-                            "frame": 279,
-                            "value": 384.32
-                          },
-                          {
-                            "frame": 280,
-                            "value": 389.95
-                          },
-                          {
-                            "frame": 281,
-                            "value": 394.97
-                          },
-                          {
-                            "frame": 282,
-                            "value": 399.44
-                          },
-                          {
-                            "frame": 283,
-                            "value": 403.4
-                          },
-                          {
-                            "frame": 284,
-                            "value": 406.88
-                          },
-                          {
-                            "frame": 285,
-                            "value": 409.92
-                          },
-                          {
-                            "frame": 286,
-                            "value": 412.54
-                          },
-                          {
-                            "frame": 287,
-                            "value": 414.77
-                          },
-                          {
-                            "frame": 288,
-                            "value": 416.63
-                          },
-                          {
-                            "frame": 289,
-                            "value": 418.15
-                          },
-                          {
-                            "frame": 290,
-                            "value": 419.34
-                          },
-                          {
-                            "frame": 291,
-                            "value": 420.22
-                          },
-                          {
-                            "frame": 292,
-                            "value": 420.82
-                          },
-                          {
-                            "frame": 293,
-                            "value": 421.13
-                          },
-                          {
-                            "frame": 294,
-                            "value": 421.19
-                          },
-                          {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 421.19
                           }
                         ]
@@ -6943,7 +5799,7 @@
               "keyframes": [
                 {
                   "start": 0,
-                  "duration": 346,
+                  "duration": 111,
                   "elements": [
                     {
                       "id": 7,
@@ -7045,7 +5901,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -7114,7 +5970,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]
@@ -7151,7 +6007,7 @@
                             "value": 100.0
                           },
                           {
-                            "frame": 345,
+                            "frame": 110,
                             "value": 100.0
                           }
                         ]

@@ -4,7 +4,7 @@
     Animated nex logo. The collie pops onto the tile and wakes up: eyes open,
     a few sniffs, a look left and right, a double blink and a tongue blep,
     while the ears spring up (the right one flops over) and a sheen sweeps the
-    tile. Then it idles: blinks, an ear twitch and a sniff. The final pose is
+    tile. It plays once (about 3.6s) and stays on the final pose, which is
     identical to assets/nex.svg; reduced-motion users get the static icon.
   -->
   <defs>
@@ -27,7 +27,7 @@
   </defs>
 
   <style>
-    .tile, .tilt, .head, .ear-l, .ear-r, .eyes, .eyes-wake, .nose, .nose-wake, .tongue, .sheen {
+    .tile, .tilt, .head, .ear-l, .ear-r, .eyes-wake, .nose-wake, .tongue, .sheen {
       transform-box: view-box;
     }
     .tile   { transform-origin: 64px 64px; animation: tile-in .45s cubic-bezier(.2,.9,.3,1.2) both; }
@@ -37,17 +37,12 @@
     .ear-l  { transform-origin: 46px 54px;
               animation: ear-l-in .55s .75s cubic-bezier(.3,1.6,.5,1) both; }
     .ear-r  { transform-origin: 83px 53px;
-              animation: ear-r-in .9s .85s ease-out both,
-                         ear-twitch 7s 3.35s ease-in-out infinite; }
+              animation: ear-r-in .9s .85s ease-out both; }
     .eyes-wake { transform-origin: 64px 67px; animation: eyes-wake 3.6s ease-in-out both; }
-    .eyes   { transform-origin: 64px 67px;
-              animation: blink 4.5s 1.95s ease-in-out infinite; }
     .nose-wake { transform-origin: 64px 87px; animation: nose-wake 3.6s ease-in-out both; }
-    .nose   { transform-origin: 64px 87px;
-              animation: sniff 7s 4.75s ease-in-out infinite; }
     .tongue { transform-origin: 64px 91px; transform: scaleY(0); opacity: 0;
               animation: blep 3.6s ease-in-out both; }
-    .sheen  { animation: sheen 7s 1.25s cubic-bezier(.4,0,.2,1) infinite both; }
+    .sheen  { animation: sheen 1.54s 1.25s cubic-bezier(.4,0,.2,1) both; }
 
     @keyframes tile-in {
       from { transform: scale(.82); opacity: 0; }
@@ -70,12 +65,6 @@
       55%  { transform: rotate(7deg); }
       78%  { transform: rotate(-3deg); }
       100% { transform: none; opacity: 1; }
-    }
-    @keyframes ear-twitch {
-      0%, 88%, 100% { transform: none; }
-      91% { transform: rotate(-9deg); }
-      94% { transform: rotate(4deg); }
-      97% { transform: rotate(-2deg); }
     }
     /* waking up: generated from the intro timeline */
     @keyframes eyes-wake {
@@ -140,22 +129,13 @@
        98.61% { transform: scaleY(0.01); opacity: 0; }
          100% { transform: scaleY(0.01); opacity: 0; }
     }
-    @keyframes blink {
-      0%, 90%, 100% { transform: none; }
-      94%           { transform: scaleY(.1); }
-    }
-    @keyframes sniff {
-      0%, 84%, 100% { transform: none; }
-      87%, 93%      { transform: scale(1.12, .92); }
-      90%, 96%      { transform: none; }
-    }
     @keyframes sheen {
-      0%   { transform: translateX(-190px); }
-      22%, 100% { transform: translateX(190px); }
+      from { transform: translateX(-190px); }
+      to   { transform: translateX(190px); }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .tile, .tilt, .head, .ear-l, .ear-r, .eyes, .eyes-wake, .nose, .nose-wake, .tongue, .sheen { animation: none; }
+      .tile, .tilt, .head, .ear-l, .ear-r, .eyes-wake, .nose-wake, .tongue, .sheen { animation: none; }
       .sheen  { visibility: hidden; }
     }
   </style>
@@ -186,13 +166,13 @@
       <path d="M61 36 H67 Q69 50 69.500 61 Q70 71 80 77 Q91 84 88 96 L80 113 H48 L40 96 Q37 84 48 77 Q58 71 58.500 61 Q59 50 61 36 Z" fill="#f4f1f7"/>
     </g>
     <g class="eyes-wake">
-      <g class="eyes">
+      <g>
         <circle cx="47" cy="67" r="4.500" fill="#16141a"/>
         <circle cx="81" cy="67" r="4.500" fill="#16141a"/>
       </g>
     </g>
     <g class="tongue"><path d="M60.5 91 Q60 101.5 64 101.5 Q68 101.5 67.5 91 Z" fill="#ff7aa2"/><path d="M64 94.5 V99" stroke="#d94f7c" stroke-width="1" stroke-linecap="round"/></g>
-    <g class="nose-wake"><g class="nose">
+    <g class="nose-wake"><g>
       <path d="M57 84 Q64 80.500 71 84 Q71 89 64 94 Q57 89 57 84 Z" fill="#16141a" stroke="#16141a" stroke-width="2" stroke-linejoin="round"/>
     </g></g>
   </g>
