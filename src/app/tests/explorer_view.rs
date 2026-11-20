@@ -17,9 +17,7 @@ fn run(app: &mut App, ctx: &egui::Context) {
 
 /// Open the Files tab and split another explorer off it; the layouts of both.
 fn explorer_views(mobile: bool, view: View) -> Vec<View> {
-    let mut cfg = Config::default();
-    cfg.mobile = mobile;
-    cfg.explorer_view = view;
+    let cfg = Config { mobile, explorer_view: view, ..Default::default() };
     let ctx = egui::Context::default();
     let cc = eframe::CreationContext::_new_kittest(ctx.clone());
     let mut app = App::new(&cc, cfg, Default::default(), None);
