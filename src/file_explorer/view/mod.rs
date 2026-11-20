@@ -1,6 +1,9 @@
 //! Drawing an explorer pane: the path bar (Back / Forward / Up, breadcrumbs or the location
 //! field), the listing, the action bar with job progress, the context menu and dialogs.
 
+pub(super) mod items;
+pub(super) mod properties;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -15,7 +18,7 @@ use crate::ui::{icons, paint};
 
 use crate::file_explorer::fs::ops::count;
 use crate::file_explorer::input::{Command, ExplorerDrag, PointerInput};
-use crate::file_explorer::items::{ItemState, Layout, Sizes, name_rect, paint_row, paint_tile, sizes};
+use crate::file_explorer::view::items::{ItemState, Layout, Sizes, name_rect, paint_row, paint_tile, sizes};
 use crate::file_explorer::fs::transfer::{Clip, JobSummary, Op, clipboard};
 use crate::file_explorer::{FileExplorer, View};
 

@@ -12,20 +12,20 @@ use crate::file_explorer::fs::ops::human_size;
 use crate::file_explorer::input::{ExplorerDrag, Ghost};
 
 /// Sizes of the explorer's parts; touch screens get larger hit targets.
-pub(super) struct Sizes {
-    pub(super) bar: f32,
-    pub(super) row: f32,
-    pub(super) tile: Vec2,
-    pub(super) icon: f32,
-    pub(super) action_bar: f32,
-    pub(super) button: f32,
-    pub(super) font: f32,
+pub(in crate::file_explorer) struct Sizes {
+    pub(in crate::file_explorer) bar: f32,
+    pub(in crate::file_explorer) row: f32,
+    pub(in crate::file_explorer) tile: Vec2,
+    pub(in crate::file_explorer) icon: f32,
+    pub(in crate::file_explorer) action_bar: f32,
+    pub(in crate::file_explorer) button: f32,
+    pub(in crate::file_explorer) font: f32,
     /// The zoom level, for paddings and small marks that aren't listed above.
-    pub(super) scale: f32,
+    pub(in crate::file_explorer) scale: f32,
 }
 
 /// Sizes at zoom level `zoom` (1.0 = normal).
-pub(super) fn sizes(touch: bool, zoom: f32) -> Sizes {
+pub(in crate::file_explorer) fn sizes(touch: bool, zoom: f32) -> Sizes {
     let (bar, row, tile, icon, action_bar, button, font) = if touch {
         (40.0, 40.0, Vec2::new(112.0, 104.0), 44.0, 52.0, 38.0, 14.0)
     } else {
@@ -37,20 +37,20 @@ pub(super) fn sizes(touch: bool, zoom: f32) -> Sizes {
 
 /// Where items are laid out in the listing.
 #[derive(Clone, Copy)]
-pub(super) struct Layout {
-    pub(super) list: Rect,
-    pub(super) cols: usize,
-    pub(super) item: Vec2,
+pub(in crate::file_explorer) struct Layout {
+    pub(in crate::file_explorer) list: Rect,
+    pub(in crate::file_explorer) cols: usize,
+    pub(in crate::file_explorer) item: Vec2,
 }
 
 impl Layout {
-    pub(super) fn item_rect(&self, i: usize, scroll: f32) -> Rect {
+    pub(in crate::file_explorer) fn item_rect(&self, i: usize, scroll: f32) -> Rect {
         let (row, col) = (i / self.cols, i % self.cols);
         let min = self.list.min + Vec2::new(col as f32 * self.item.x, row as f32 * self.item.y - scroll);
         Rect::from_min_size(min, self.item)
     }
 
-    pub(super) fn item_at(&self, pos: Pos2, scroll: f32, len: usize) -> Option<usize> {
+    pub(in crate::file_explorer) fn item_at(&self, pos: Pos2, scroll: f32, len: usize) -> Option<usize> {
         if !self.list.contains(pos) {
             return None;
         }
@@ -61,7 +61,7 @@ impl Layout {
         (col < self.cols && i < len).then_some(i)
     }
 
-    pub(super) fn rows(&self, len: usize) -> usize {
+    pub(in crate::file_explorer) fn rows(&self, len: usize) -> usize {
         len.div_ceil(self.cols)
     }
 }
@@ -126,23 +126,23 @@ fn paint_ghost(p: &Painter, origin: Pos2, g: &Ghost, c: &Theme, copy: bool) {
     }
 }
 
-pub(super) struct ItemState {
-    pub(super) marked: bool,
-    pub(super) cursor: bool,
-    pub(super) hovered: bool,
-    pub(super) drop: bool,
-    pub(super) dimmed: bool,
-    pub(super) selecting: bool,
+pub(in crate::file_explorer) struct ItemState {
+    pub(in crate::file_explorer) marked: bool,
+    pub(in crate::file_explorer) cursor: bool,
+    pub(in crate::file_explorer) hovered: bool,
+    pub(in crate::file_explorer) drop: bool,
+    pub(in crate::file_explorer) dimmed: bool,
+    pub(in crate::file_explorer) selecting: bool,
     /// The listing is the home folder (Desktop, Downloads… get their marks).
-    pub(super) in_home: bool,
+    pub(in crate::file_explorer) in_home: bool,
     /// The name is being edited: the rename field is drawn there instead.
-    pub(super) hide_name: bool,
+    pub(in crate::file_explorer) hide_name: bool,
 }
 
 /// Draw `e`'s icon in `r`: a folder (with a mark on well-known ones), a colored glyph for a
 /// known kind of file, or a plain page. `large` (grid tiles) draws glyphs on a page and
 /// prints unknown files' extensions; symlinks get a small link badge either way.
-pub(super) fn paint_icon(p: &Painter, r: Rect, e: &Entry, fade: f32, c: &Theme, large: bool, in_home: bool) {
+pub(in crate::file_explorer) fn paint_icon(p: &Painter, r: Rect, e: &Entry, fade: f32, c: &Theme, large: bool, in_home: bool) {
     let glyph = (!e.is_dir).then(|| file_icons::file_glyph(&e.name, e.executable)).flatten();
     if e.is_dir {
         icons::icon_folder(p, r, ACCENT.gamma_multiply(fade));
@@ -176,7 +176,7 @@ pub(super) fn paint_icon(p: &Painter, r: Rect, e: &Entry, fade: f32, c: &Theme, 
 }
 
 /// Where a row's or tile's name is drawn, for the rename field on top of it.
-pub(super) fn name_rect(view: View, item: Rect, s: &Sizes, selecting: bool) -> Rect {
+pub(in crate::file_explorer) fn name_rect(view: View, item: Rect, s: &Sizes, selecting: bool) -> Rect {
     let k = s.scale;
     match view {
         View::List => {
@@ -193,7 +193,7 @@ pub(super) fn name_rect(view: View, item: Rect, s: &Sizes, selecting: bool) -> R
     }
 }
 
-pub(super) fn item_background(p: &Painter, r: Rect, st: &ItemState) {
+pub(in crate::file_explorer) fn item_background(p: &Painter, r: Rect, st: &ItemState) {
     if st.drop {
         p.rect_filled(r, 8, ACCENT.gamma_multiply(0.22));
         p.rect_stroke(r, 8, Stroke::new(1.5_f32, ACCENT), StrokeKind::Inside);
@@ -207,7 +207,7 @@ pub(super) fn item_background(p: &Painter, r: Rect, st: &ItemState) {
 }
 
 /// Where a row's icon is drawn.
-pub(super) fn row_icon_rect(row: Rect, s: &Sizes, selecting: bool) -> Rect {
+pub(in crate::file_explorer) fn row_icon_rect(row: Rect, s: &Sizes, selecting: bool) -> Rect {
     let k = s.scale;
     let left = row.left() + 8.0 * k + if selecting { 22.0 * k } else { 0.0 };
     let glyph_h = (s.row * 0.55).min(18.0 * k);
@@ -215,14 +215,14 @@ pub(super) fn row_icon_rect(row: Rect, s: &Sizes, selecting: bool) -> Rect {
 }
 
 /// Where a grid tile's icon is drawn.
-pub(super) fn tile_icon_rect(cell: Rect, s: &Sizes, is_dir: bool) -> Rect {
+pub(in crate::file_explorer) fn tile_icon_rect(cell: Rect, s: &Sizes, is_dir: bool) -> Rect {
     let tile = cell.shrink(4.0 * s.scale);
     let center = Pos2::new(tile.center().x, tile.top() + 8.0 * s.scale + s.icon / 2.0);
     let size = if is_dir { Vec2::new(s.icon * 1.12, s.icon * 0.86) } else { Vec2::splat(s.icon) };
     Rect::from_center_size(center, size)
 }
 
-pub(super) fn paint_row(p: &Painter, row: Rect, e: &Entry, st: &ItemState, c: &Theme, s: &Sizes) {
+pub(in crate::file_explorer) fn paint_row(p: &Painter, row: Rect, e: &Entry, st: &ItemState, c: &Theme, s: &Sizes) {
     let k = s.scale;
     item_background(p, row.shrink2(Vec2::new(0.0, 1.0)), st);
     if st.selecting {
@@ -244,7 +244,7 @@ pub(super) fn paint_row(p: &Painter, row: Rect, e: &Entry, st: &ItemState, c: &T
     p.galley(Pos2::new(size_x, row.center().y - size_galley.size().y / 2.0), size_galley, c.text_dim);
 }
 
-pub(super) fn paint_tile(p: &Painter, cell: Rect, e: &Entry, st: &ItemState, c: &Theme, s: &Sizes) {
+pub(in crate::file_explorer) fn paint_tile(p: &Painter, cell: Rect, e: &Entry, st: &ItemState, c: &Theme, s: &Sizes) {
     let k = s.scale;
     let tile = cell.shrink(4.0 * k);
     item_background(p, tile, st);

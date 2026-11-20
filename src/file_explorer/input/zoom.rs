@@ -4,7 +4,7 @@
 use egui::Pos2;
 
 use crate::file_explorer::FileExplorer;
-use crate::file_explorer::items::Layout;
+use crate::file_explorer::view::items::Layout;
 
 const MIN_ZOOM: f32 = 0.6;
 const MAX_ZOOM: f32 = 2.5;
@@ -69,7 +69,7 @@ fn anchor(layout: &Layout, scroll: f32, at: Option<Pos2>) -> Anchor {
 mod tests {
     use egui::{Rect, Vec2};
 
-    use crate::file_explorer::items::sizes;
+    use crate::file_explorer::view::items::sizes;
     use crate::file_explorer::tests::fixture;
     use super::*;
 

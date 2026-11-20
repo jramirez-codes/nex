@@ -19,8 +19,6 @@
 
 pub mod fs;
 mod input;
-mod items;
-mod properties;
 #[cfg(test)]
 mod ui_test;
 mod view;
@@ -37,13 +35,13 @@ use crate::terminal::tilde;
 use fs::ops::read_entries;
 use input::edit::{Find, OpenWith, Rename};
 use input::Press;
-use items::Layout;
+use view::items::Layout;
 use input::line_edit::LineEdit;
-use properties::Properties;
+use view::properties::Properties;
 use fs::transfer::{FS_GENERATION, Job};
 
 pub use input::{ExplorerDrag, release_pos};
-pub use items::{drag_image, paint_drag_ghost};
+pub use view::items::{drag_image, paint_drag_ghost};
 pub use fs::transfer::{Op, files_changed};
 
 /// How often an idle listing is re-read so files created elsewhere show up (where the

@@ -232,11 +232,11 @@ fn drag_shows_the_items_icon_at_its_size() {
         h.b.view = view;
         h.frame(vec![]);
         let layout = h.b.layout.expect("laid out");
-        let s = crate::file_explorer::items::sizes(false, 1.0);
+        let s = crate::file_explorer::view::items::sizes(false, 1.0);
         let item = layout.item_rect(0, 0.0);
         let icon = match view {
-            crate::file_explorer::View::List => crate::file_explorer::items::row_icon_rect(item, &s, false),
-            crate::file_explorer::View::Grid => crate::file_explorer::items::tile_icon_rect(item, &s, h.b.entries[0].is_dir),
+            crate::file_explorer::View::List => crate::file_explorer::view::items::row_icon_rect(item, &s, false),
+            crate::file_explorer::View::Grid => crate::file_explorer::view::items::tile_icon_rect(item, &s, h.b.entries[0].is_dir),
         };
         let at = icon.center() + Vec2::new(2.0, 1.0);
         let button = |pressed, pos| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
