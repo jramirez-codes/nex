@@ -10,7 +10,7 @@ use crate::ui::{glide, icons, paint};
 
 use crate::app::App;
 use crate::app::actions::Action;
-use crate::app::pane_drag::{DropTarget, SPRING_DELAY};
+use crate::app::workspace::pane_drag::{DropTarget, SPRING_DELAY};
 use crate::app::tab_motion::{GLYPH, TabDrawn};
 
 const TAB_HEIGHT: f32 = 30.0;

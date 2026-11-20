@@ -1,5 +1,10 @@
 //! Opening and closing tabs and panes, and finding the focused one.
 
+pub(super) mod tab;
+pub(super) mod draw;
+pub(super) mod metrics;
+pub(super) mod pane_drag;
+
 use std::path::PathBuf;
 
 use egui::{Pos2, Rect};
@@ -10,8 +15,8 @@ use crate::terminal::Terminal;
 use crate::ui::icons;
 
 use crate::app::ssh::follow::Place;
-use crate::app::metrics::cell_px;
-use crate::app::tab::Tab;
+use crate::app::workspace::metrics::cell_px;
+use crate::app::workspace::tab::Tab;
 use crate::app::tab_motion::{TabDrawn, TabGhost};
 use crate::app::{App, PANE_GAP};
 
@@ -33,7 +38,7 @@ impl App {
     /// Spawn a shell sized for `card`, so its first output is already laid out correctly.
     /// `font_size` is the new pane's own zoom level (`None` = config default). `command` runs
     /// instead of the shell.
-    pub(super) fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
+    pub(in crate::app) fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
         let id = self.alloc_pane_id();
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);
@@ -64,35 +69,35 @@ impl App {
         }
     }
 
-    pub(super) fn focused_pane(&self) -> Option<PaneId> {
+    pub(in crate::app) fn focused_pane(&self) -> Option<PaneId> {
         self.cur_tab().map(|t| t.focused)
     }
 
     /// The tab being shown: the Files tab or the active terminal tab.
-    pub(super) fn cur_tab(&self) -> Option<&Tab> {
+    pub(in crate::app) fn cur_tab(&self) -> Option<&Tab> {
         if self.explorer_active { self.explorer_tab.as_ref() } else { self.tabs.get(self.active) }
     }
 
-    pub(super) fn cur_tab_mut(&mut self) -> Option<&mut Tab> {
+    pub(in crate::app) fn cur_tab_mut(&mut self) -> Option<&mut Tab> {
         if self.explorer_active { self.explorer_tab.as_mut() } else { self.tabs.get_mut(self.active) }
     }
 
     /// The tab (Files or terminal) containing `pane`.
-    pub(super) fn tab_with(&mut self, pane: PaneId) -> Option<&mut Tab> {
+    pub(in crate::app) fn tab_with(&mut self, pane: PaneId) -> Option<&mut Tab> {
         self.explorer_tab.iter_mut().chain(self.tabs.iter_mut()).find(|t| t.contains(pane))
     }
 
-    pub(super) fn show_tab(&mut self, index: usize) {
+    pub(in crate::app) fn show_tab(&mut self, index: usize) {
         self.active = index;
         self.explorer_active = false;
     }
 
-    pub(super) fn focused_cwd(&self) -> Option<PathBuf> {
+    pub(in crate::app) fn focused_cwd(&self) -> Option<PathBuf> {
         self.focused_pane().and_then(|id| self.pane_cwd(id))
     }
 
     /// Working directory of a pane: the shell's cwd, or the folder a explorer is showing.
-    pub(super) fn pane_cwd(&self, id: PaneId) -> Option<PathBuf> {
+    pub(in crate::app) fn pane_cwd(&self, id: PaneId) -> Option<PathBuf> {
         match self.explorers.get(&id) {
             Some(b) => Some(b.dir.clone()),
             None => self.panes.get(&id).and_then(|t| t.cwd.clone()),
@@ -100,7 +105,7 @@ impl App {
     }
 
     /// `(title, process)` for a pane's tab and header.
-    pub(super) fn pane_label(&self, id: PaneId) -> (String, String) {
+    pub(in crate::app) fn pane_label(&self, id: PaneId) -> (String, String) {
         if let Some(b) = self.explorers.get(&id) {
             return (b.title(), icons::EXPLORER_PROCESS.into());
         }
@@ -109,7 +114,7 @@ impl App {
 
     /// Show the Files tab (opening it at the focused directory the first time), or hide it
     /// again, back to the terminal tab that was showing.
-    pub(super) fn toggle_explorer(&mut self) {
+    pub(in crate::app) fn toggle_explorer(&mut self) {
         if self.explorer_active {
             if !self.tabs.is_empty() {
                 self.explorer_active = false;
@@ -135,7 +140,7 @@ impl App {
         b
     }
 
-    pub(super) fn close_explorer(&mut self) {
+    pub(in crate::app) fn close_explorer(&mut self) {
         if let Some(tab) = self.explorer_tab.take() {
             for id in tab.root.panes() {
                 self.forget_pane(id);
@@ -144,7 +149,7 @@ impl App {
         self.explorer_active = false;
     }
 
-    pub(super) fn new_tab(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>) {
+    pub(in crate::app) fn new_tab(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>) {
         if let Some(id) = self.spawn_pane(ctx, cwd, command, self.content_area, None) {
             self.tabs.push(Tab::new(id, id));
             self.show_tab(self.tabs.len() - 1);
@@ -152,12 +157,12 @@ impl App {
     }
 
     /// Split a terminal off `target`, in its directory (and its ssh session, see `follow`).
-    pub(super) fn split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
+    pub(in crate::app) fn split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
         self.open_from(ctx, Some(target), Place::Split(target, axis));
     }
 
     /// Split a terminal starting in `cwd` (running `command`, else the shell) off `target`.
-    pub(super) fn split_at(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis, cwd: Option<PathBuf>, command: Option<Vec<String>>) {
+    pub(in crate::app) fn split_at(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis, cwd: Option<PathBuf>, command: Option<Vec<String>>) {
         let card = self.split_card(target, axis);
         // The new pane starts at the zoom level of the pane it was split from.
         let font_size = self.pane_fonts.get(&target).copied();
@@ -167,7 +172,7 @@ impl App {
     }
 
     /// Split a file explorer off `target`, showing `target`'s directory, in the same tab.
-    pub(super) fn split_explorer(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
+    pub(in crate::app) fn split_explorer(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
         let dir = self
             .pane_cwd(target)
             .or_else(crate::platform::home_dir)
@@ -205,7 +210,7 @@ impl App {
 
     /// Swap panes `a` and `b` (in the shown tab). Focus stays on whichever was focused, now
     /// in its new slot; both cards glide there.
-    pub(super) fn swap_panes(&mut self, ctx: &egui::Context, a: PaneId, b: PaneId) {
+    pub(in crate::app) fn swap_panes(&mut self, ctx: &egui::Context, a: PaneId, b: PaneId) {
         let Some(tab) = self.cur_tab_mut() else { return };
         if tab.zoomed || !tab.root.swap(a, b) {
             return;
@@ -215,7 +220,7 @@ impl App {
 
     /// Move `pane` to the `dir` side of `target`, focusing it. From another tab, that tab
     /// loses it (closing if it was its last pane) and `target`'s tab is shown.
-    pub(super) fn move_pane(&mut self, ctx: &egui::Context, pane: PaneId, target: PaneId, dir: Direction) {
+    pub(in crate::app) fn move_pane(&mut self, ctx: &egui::Context, pane: PaneId, target: PaneId, dir: Direction) {
         if let Some(tab) = self.tab_with(pane).filter(|t| t.contains(target)) {
             if !tab.zoomed && tab.root.move_pane(pane, target, dir) {
                 tab.focused = pane;
@@ -229,7 +234,7 @@ impl App {
 
     /// Move `pane` into the tab with `uid`, beside its focused pane: to the right of a wide
     /// pane, below a tall one.
-    pub(super) fn pane_to_tab(&mut self, ctx: &egui::Context, pane: PaneId, uid: u64) {
+    pub(in crate::app) fn pane_to_tab(&mut self, ctx: &egui::Context, pane: PaneId, uid: u64) {
         let (Some(src), Some(dst)) = (self.tab_index_with(pane), self.tabs.iter().position(|t| t.uid == uid)) else { return };
         if src == dst {
             return;
@@ -244,7 +249,7 @@ impl App {
     }
 
     /// Give `pane` a tab of its own, just after the one it leaves (which keeps its others).
-    pub(super) fn pane_to_new_tab(&mut self, ctx: &egui::Context, pane: PaneId) {
+    pub(in crate::app) fn pane_to_new_tab(&mut self, ctx: &egui::Context, pane: PaneId) {
         let Some(src) = self.tab_index_with(pane) else { return };
         let tab = &mut self.tabs[src];
         if !tab.remove_pane(pane) {
@@ -284,7 +289,7 @@ impl App {
     }
 
     /// Show the tab (terminal or Files) with `uid`, if it is still open.
-    pub(super) fn show_tab_uid(&mut self, uid: u64) {
+    pub(in crate::app) fn show_tab_uid(&mut self, uid: u64) {
         if self.explorer_tab.as_ref().is_some_and(|t| t.uid == uid) {
             self.explorer_active = true;
         } else if let Some(i) = self.tabs.iter().position(|t| t.uid == uid) {
@@ -294,7 +299,7 @@ impl App {
 
     /// Put a pane being dragged by its header back where it was, showing its tab again if
     /// the drag had opened another.
-    pub(super) fn cancel_pane_drag(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn cancel_pane_drag(&mut self, ctx: &egui::Context) {
         let Some(d) = self.pane_drag.take() else { return };
         if let Some(tab) = self.cur_tab_mut() {
             tab.motion.kick_reflow(ctx);
@@ -304,7 +309,7 @@ impl App {
 
     /// Close one pane; closing a tab's last pane closes the tab. A pane closed out of a
     /// split collapses and fades out (its last frame is kept for that).
-    pub(super) fn close_pane(&mut self, ctx: &egui::Context, id: PaneId) {
+    pub(in crate::app) fn close_pane(&mut self, ctx: &egui::Context, id: PaneId) {
         let (title, process) = self.pane_label(id);
         let shapes = self.panes.get_mut(&id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
@@ -326,7 +331,7 @@ impl App {
         }
     }
 
-    pub(super) fn close_tab(&mut self, index: usize) {
+    pub(in crate::app) fn close_tab(&mut self, index: usize) {
         self.close_tab_labeled(index, None);
     }
 

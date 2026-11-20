@@ -384,7 +384,7 @@ fn holding_over_a_tab_opens_it_to_place_the_pane() {
     let (from, tab) = (s.header(left), s.tab_at(second));
     s.grab(from, tab);
     assert_eq!(s.shown_uid(), first, "opened before the delay");
-    s.hold(crate::app::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     assert_eq!(s.shown_uid(), second);
     s.settle();
     // Onto the left edge of the lone pane there.
@@ -403,7 +403,7 @@ fn escape_after_opening_another_tab_goes_back() {
     let (mut s, left, right, first, second, lone) = two_tabs();
     let (from, tab) = (s.header(left), s.tab_at(second));
     s.grab(from, tab);
-    s.hold(crate::app::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     assert_eq!(s.shown_uid(), second);
     s.escape();
     s.release(tab);
@@ -419,7 +419,7 @@ fn moving_a_tabs_last_pane_away_closes_the_tab_but_keeps_the_pane() {
     s.settle();
     let (from, tab) = (s.header(lone), s.tab_at(first));
     s.grab(from, tab);
-    s.hold(crate::app::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     assert_eq!(s.shown_uid(), first);
     s.settle();
     let r = s.card(right);
@@ -484,7 +484,7 @@ fn lone_pane_placed_in_a_lone_tab_merges_them() {
     let (mut s, first, a, second, b) = two_lone_tabs();
     let (from, tab) = (s.header(a), s.tab_at(second));
     s.grab(from, tab);
-    s.hold(crate::app::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     assert_eq!(s.shown_uid(), second);
     s.settle();
     let r = s.card(b);
@@ -501,7 +501,7 @@ fn lone_pane_dropped_mid_pane_in_a_lone_tab_merges_them() {
     let (mut s, first, a, second, b) = two_lone_tabs();
     let (from, tab) = (s.header(a), s.tab_at(second));
     s.grab(from, tab);
-    s.hold(crate::app::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     s.settle();
     let to = s.card(b).center();
     s.move_to(tab, to);

@@ -10,7 +10,7 @@ use crate::ui::theme::{ACCENT, Theme};
 use crate::ui::widgets::is_maximized;
 
 use crate::app::App;
-use crate::app::panes::PANE_RADIUS;
+use crate::app::workspace::draw::PANE_RADIUS;
 use crate::app::actions::Action;
 
 const RESIZE_BORDER: f32 = 6.0;

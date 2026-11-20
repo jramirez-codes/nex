@@ -16,14 +16,14 @@ use crate::ui::{icons, paint};
 
 use crate::app::actions::Action;
 use crate::app::input::keymap;
-use crate::app::metrics::cell_px;
+use crate::app::workspace::metrics::cell_px;
 use crate::app::ssh::mic::MicState;
 use crate::app::motion::Ghost;
-use crate::app::pane_drag::DragFrame;
+use crate::app::workspace::pane_drag::DragFrame;
 use crate::app::tab_switch::Shown;
 use crate::app::{App, PANE_GAP};
 
-pub(super) const PANE_RADIUS: u8 = 12;
+pub(in crate::app) const PANE_RADIUS: u8 = 12;
 const BLINK_INTERVAL: Duration = Duration::from_millis(600);
 /// How long a pane's border flashes after the terminal bell.
 const BELL_FLASH: Duration = Duration::from_millis(200);
@@ -52,7 +52,7 @@ struct PaneView {
 }
 
 impl App {
-    pub(super) fn panes_area(&mut self, ui: &mut Ui, area: Rect, theme: &Theme) {
+    pub(in crate::app) fn panes_area(&mut self, ui: &mut Ui, area: Rect, theme: &Theme) {
         self.term_rects.clear();
         self.card_rects.clear();
         let ctx = ui.ctx().clone();

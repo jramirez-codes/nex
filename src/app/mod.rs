@@ -5,12 +5,8 @@ mod actions;
 mod chrome;
 mod input;
 mod ssh;
-mod metrics;
 mod motion;
-mod pane_drag;
-mod panes;
 mod reload;
-mod tab;
 mod tab_motion;
 mod tab_switch;
 mod transition;
@@ -39,7 +35,7 @@ use crate::ui::widgets::is_maximized;
 use actions::Action;
 use input::keymap::{Binding, keybindings};
 use input::mouse::MouseState;
-use tab::Tab;
+use workspace::tab::Tab;
 use tab_switch::TabSwitch;
 use tab_motion::{TabDrawn, TabGhost};
 
@@ -110,7 +106,7 @@ pub struct App {
     /// pane a tab of its own.
     strip_rect: Option<Rect>,
     /// A pane being dragged by its header, if any (it can be carried to another tab).
-    pane_drag: Option<pane_drag::PaneDrag>,
+    pane_drag: Option<workspace::pane_drag::PaneDrag>,
     /// The tab-switch transition (`tab-animation`): the old tab's panes giving way to the new.
     switch: TabSwitch,
     /// File-explorer panes (the Files tab). They share the pane id space and split tree with
