@@ -9,10 +9,10 @@ use crate::terminal::Terminal;
 
 use crate::app::App;
 use crate::app::actions::Action;
-use crate::app::keymap::{self, ClipboardKey};
+use crate::app::input::keymap::{self, ClipboardKey};
 
 impl App {
-    pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let paste_key = platform::take_paste_key();
         // Explorer dialogs (delete confirmation, Properties) read the keyboard themselves; no
         // key may reach a shell or run a shortcut behind them.

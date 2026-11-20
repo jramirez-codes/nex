@@ -9,7 +9,7 @@ use crate::terminal::search::Search;
 
 use crate::app::App;
 use crate::app::ssh::follow::Place;
-use crate::app::zoom::EXPLORER_ZOOM_STEP;
+use crate::app::input::zoom::EXPLORER_ZOOM_STEP;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Action {

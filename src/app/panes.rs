@@ -15,7 +15,7 @@ use crate::ui::widgets::{HoverShape, IconButton, IconFn, pressed_in};
 use crate::ui::{icons, paint};
 
 use crate::app::actions::Action;
-use crate::app::keymap;
+use crate::app::input::keymap;
 use crate::app::metrics::cell_px;
 use crate::app::ssh::mic::MicState;
 use crate::app::motion::Ghost;

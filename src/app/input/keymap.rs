@@ -13,7 +13,7 @@ use crate::app::actions::Action;
 
 /// The exact modifiers a shortcut needs. `cmd` is the macOS Command key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub(super) struct Mods {
+pub(in crate::app) struct Mods {
     ctrl: bool,
     shift: bool,
     alt: bool,
@@ -41,19 +41,19 @@ impl Mods {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Binding {
+pub(in crate::app) struct Binding {
     mods: Mods,
     key: Key,
     action: Action,
 }
 
 /// The shortcut for `key` pressed with `mods`, if there is one.
-pub(super) fn lookup(bindings: &[Binding], key: Key, mods: Modifiers) -> Option<Action> {
+pub(in crate::app) fn lookup(bindings: &[Binding], key: Key, mods: Modifiers) -> Option<Action> {
     bindings.iter().find(|b| b.key == key && b.mods.held(mods)).map(|b| b.action)
 }
 
 /// The first shortcut for `action`, written out for a tooltip ("Ctrl+Shift+W", "Cmd+D").
-pub(super) fn shortcut_label(bindings: &[Binding], action: Action) -> Option<String> {
+pub(in crate::app) fn shortcut_label(bindings: &[Binding], action: Action) -> Option<String> {
     let b = bindings.iter().find(|b| b.action == action)?;
     let style = platform::SHORTCUTS;
     let mut parts = Vec::new();
@@ -74,7 +74,7 @@ pub(super) fn shortcut_label(bindings: &[Binding], action: Action) -> Option<Str
 }
 
 /// The shortcuts for this OS.
-pub(super) fn keybindings() -> Vec<Binding> {
+pub(in crate::app) fn keybindings() -> Vec<Binding> {
     bindings_for(platform::SHORTCUTS)
 }
 
@@ -196,7 +196,7 @@ fn cmd_style() -> Vec<(Mods, Key, Action)> {
 /// What a copy / cut / paste event (egui makes them from the OS's clipboard keys) means in a
 /// terminal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ClipboardKey {
+pub(in crate::app) enum ClipboardKey {
     /// Use the system clipboard.
     Clipboard,
     /// Send this control character to the program instead (Ctrl+C → SIGINT).
@@ -204,7 +204,7 @@ pub(super) enum ClipboardKey {
     Ignore,
 }
 
-pub(super) fn clipboard_key(event: &Event, mods: Modifiers) -> ClipboardKey {
+pub(in crate::app) fn clipboard_key(event: &Event, mods: Modifiers) -> ClipboardKey {
     clipboard_key_for(platform::SHORTCUTS, event, mods)
 }
 

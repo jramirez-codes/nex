@@ -2,12 +2,10 @@
 //! Each concern lives in its own submodule; this file holds the state and the frame loop.
 
 mod actions;
+mod input;
 mod ssh;
-mod keyboard;
-mod keymap;
 mod metrics;
 mod motion;
-mod mouse;
 mod pane_drag;
 mod panes;
 mod reload;
@@ -19,7 +17,6 @@ mod titlebar;
 mod transition;
 mod window;
 mod workspace;
-mod zoom;
 #[cfg(test)]
 mod tests;
 
@@ -42,8 +39,8 @@ use crate::ui::toast::{self, Toast};
 use crate::ui::widgets::is_maximized;
 
 use actions::Action;
-use keymap::{Binding, keybindings};
-use mouse::MouseState;
+use input::keymap::{Binding, keybindings};
+use input::mouse::MouseState;
 use tab::Tab;
 use tab_switch::TabSwitch;
 use tab_motion::{TabDrawn, TabGhost};
