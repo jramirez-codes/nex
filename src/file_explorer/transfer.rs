@@ -11,8 +11,8 @@ use egui::Pos2;
 
 use crate::terminal::tilde;
 
-use super::FileExplorer;
-use super::fs_ops::{count, delete_paths, human_size, parse_paths, run_op};
+use crate::file_explorer::FileExplorer;
+use crate::file_explorer::fs_ops::{count, delete_paths, human_size, parse_paths, run_op};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {

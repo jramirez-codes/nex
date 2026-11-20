@@ -8,8 +8,8 @@ use std::sync::atomic::Ordering;
 
 use crate::terminal::tilde;
 
-use super::Entry;
-use super::transfer::{Op, Progress};
+use crate::file_explorer::Entry;
+use crate::file_explorer::transfer::{Op, Progress};
 
 /// Files are copied in chunks this big, so a copy can report progress and be cancelled.
 const CHUNK: usize = 1 << 20;

@@ -3,8 +3,8 @@
 
 use egui::Pos2;
 
-use super::FileExplorer;
-use super::items::Layout;
+use crate::file_explorer::FileExplorer;
+use crate::file_explorer::items::Layout;
 
 const MIN_ZOOM: f32 = 0.6;
 const MAX_ZOOM: f32 = 2.5;
@@ -69,8 +69,8 @@ fn anchor(layout: &Layout, scroll: f32, at: Option<Pos2>) -> Anchor {
 mod tests {
     use egui::{Rect, Vec2};
 
-    use super::super::items::sizes;
-    use super::super::tests::fixture;
+    use crate::file_explorer::items::sizes;
+    use crate::file_explorer::tests::fixture;
     use super::*;
 
     fn list_layout(row: f32) -> Layout {

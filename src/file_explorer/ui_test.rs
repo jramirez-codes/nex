@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
-use super::FileExplorer;
-use super::tests::fixture;
+use crate::file_explorer::FileExplorer;
+use crate::file_explorer::tests::fixture;
 use crate::ui::theme::Theme;
 
 pub(super) struct Harness {
@@ -190,7 +190,7 @@ fn menu_open_with_over_other_rows() {
     // A stand-in app (`true` ignores the file) so the test doesn't start a real one.
     let app = crate::platform::AppChoice { name: "Stand-in".into(), command: "true".into(), default: true };
     let apps = std::sync::Arc::new(std::sync::Mutex::new(Some(vec![app])));
-    h.b.open_with = Some(super::edit::OpenWith { path: dir.join("file03.txt"), apps });
+    h.b.open_with = Some(crate::file_explorer::edit::OpenWith { path: dir.join("file03.txt"), apps });
     menu_over_rows(&mut h, &dir);
     let r = h.find("Open With ⏵").expect("Open With in the menu");
     h.frame(vec![Event::PointerMoved(r.center())]);
@@ -227,28 +227,28 @@ fn action_bar_delete_asks_first() {
 #[test]
 fn drag_shows_the_items_icon_at_its_size() {
     let dir = fixture("drag-ghost");
-    for view in [super::View::List, super::View::Grid] {
+    for view in [crate::file_explorer::View::List, crate::file_explorer::View::Grid] {
         let mut h = Harness::new(dir.clone());
         h.b.view = view;
         h.frame(vec![]);
         let layout = h.b.layout.expect("laid out");
-        let s = super::items::sizes(false, 1.0);
+        let s = crate::file_explorer::items::sizes(false, 1.0);
         let item = layout.item_rect(0, 0.0);
         let icon = match view {
-            super::View::List => super::items::row_icon_rect(item, &s, false),
-            super::View::Grid => super::items::tile_icon_rect(item, &s, h.b.entries[0].is_dir),
+            crate::file_explorer::View::List => crate::file_explorer::items::row_icon_rect(item, &s, false),
+            crate::file_explorer::View::Grid => crate::file_explorer::items::tile_icon_rect(item, &s, h.b.entries[0].is_dir),
         };
         let at = icon.center() + Vec2::new(2.0, 1.0);
         let button = |pressed, pos| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
         h.frame(vec![Event::PointerMoved(at)]);
         h.frame(vec![button(true, at)]);
         h.frame(vec![Event::PointerMoved(at + Vec2::new(30.0, 30.0))]);
-        let drag = egui::DragAndDrop::payload::<super::ExplorerDrag>(&h.ctx).expect("dragging");
+        let drag = egui::DragAndDrop::payload::<crate::file_explorer::ExplorerDrag>(&h.ctx).expect("dragging");
         assert_eq!(drag.ghost.size, icon.size());
         assert_eq!(drag.ghost.grab, at - icon.min);
 
         let mut image = None;
-        let _ = h.ctx.run(RawInput::default(), |ctx| image = super::drag_image(ctx, &h.theme, &drag));
+        let _ = h.ctx.run(RawInput::default(), |ctx| image = crate::file_explorer::drag_image(ctx, &h.theme, &drag));
         let img = image.expect("an image");
         // The icon plus a pixel of margin, with the pointer where it was grabbed.
         assert!(img.size[0] as f32 >= icon.width() && img.size[0] as f32 <= icon.width() + 4.0, "{:?} vs {icon:?}", img.size);

@@ -13,11 +13,11 @@ use crate::ui::theme::{ACCENT, ERROR, HAIRLINE, Theme, white_alpha};
 use crate::ui::widgets::IconButton;
 use crate::ui::{icons, paint};
 
-use super::fs_ops::count;
-use super::input::{Command, ExplorerDrag, PointerInput};
-use super::items::{ItemState, Layout, Sizes, name_rect, paint_row, paint_tile, sizes};
-use super::transfer::{Clip, JobSummary, Op, clipboard};
-use super::{FileExplorer, View};
+use crate::file_explorer::fs_ops::count;
+use crate::file_explorer::input::{Command, ExplorerDrag, PointerInput};
+use crate::file_explorer::items::{ItemState, Layout, Sizes, name_rect, paint_row, paint_tile, sizes};
+use crate::file_explorer::transfer::{Clip, JobSummary, Op, clipboard};
+use crate::file_explorer::{FileExplorer, View};
 
 /// How long a finished operation's message stays in the action bar.
 pub(super) const STATUS_TIME: Duration = Duration::from_secs(4);

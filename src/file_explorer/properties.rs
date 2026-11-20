@@ -13,9 +13,9 @@ use crate::layout::PaneId;
 use crate::terminal::tilde;
 use crate::ui::theme::{ACCENT, Theme};
 
-use super::fs_ops::{human_size, thousands, tree_summary};
-use super::items::{paint_icon, sizes};
-use super::{Entry, FileExplorer};
+use crate::file_explorer::fs_ops::{human_size, thousands, tree_summary};
+use crate::file_explorer::items::{paint_icon, sizes};
+use crate::file_explorer::{Entry, FileExplorer};
 
 pub(super) struct Properties {
     path: PathBuf,
