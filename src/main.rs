@@ -1,5 +1,4 @@
 mod app;
-mod audio;
 mod cli;
 mod config;
 mod file_explorer;

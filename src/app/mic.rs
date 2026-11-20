@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use crate::layout::PaneId;
-use crate::audio::CaptureError;
+use crate::remote::audio::CaptureError;
 use crate::config::SshMic;
 use crate::remote::mic::{Event, MicError, Share};
 use crate::remote::{self, SshTarget};

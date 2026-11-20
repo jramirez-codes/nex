@@ -35,7 +35,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::{SshTarget, last_line, needs_login};
-use crate::audio::{self, Capture, CaptureError};
+use super::audio::{self, Capture, CaptureError};
 
 /// The first line of nex's block in `~/.asoundrc`, and the last.
 const MARK: &str = "# Added by nex: microphone";

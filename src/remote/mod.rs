@@ -15,6 +15,7 @@
 //! `~/.ssh/config` (see [`enable_sharing`]) that makes every `ssh` started in a nex pane share
 //! its connection, so nex's connections ride on the login typed into the pane.
 
+pub mod audio;
 pub mod mic;
 mod upload;
 
