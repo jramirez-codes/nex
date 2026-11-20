@@ -89,8 +89,13 @@ pub struct Terminal {
     pub cwd: Option<PathBuf>,
     /// The directory the shell last reported with OSC 7 (see [`osc7`]).
     osc7: osc7::Slot,
+    /// Raised when the program sends a notification OSC (see [`osc7::Alert`]).
+    alert: osc7::Alert,
     pub exited: bool,
     pub bell_at: Option<Instant>,
+    /// The program rang the bell or sent a notification since the user last looked at this
+    /// pane (shown as a dot on its tab).
+    pub attention: bool,
     /// Last time the user typed into this pane (keeps the cursor solid while typing).
     pub last_input: Instant,
     /// Fractional scroll accumulated from smooth (pixel) wheel deltas.
@@ -169,12 +174,13 @@ impl Terminal {
         let pty = tty::new(&options, window_size, id)?;
         let pid = platform::pty_pid(&pty);
         let osc7 = osc7::Slot::default();
+        let repaint = Arc::new(OnceLock::new());
+        let alert = osc7::Alert::new(repaint.clone());
         #[cfg(unix)]
-        let pty = osc7::ScanPty::new(pty, osc7.clone())?;
+        let pty = osc7::ScanPty::new(pty, osc7.clone(), alert.clone())?;
 
         let (tx, events) = mpsc::channel();
         let visible = Arc::new(AtomicBool::new(true));
-        let repaint = Arc::new(OnceLock::new());
         let proxy = EventProxy { tx, ctx: repaint.clone(), visible: visible.clone() };
         let term = Arc::new(FairMutex::new(Term::new(term_config(cfg), &size, proxy.clone())));
 
@@ -195,8 +201,10 @@ impl Terminal {
             process_argv: Vec::new(),
             cwd,
             osc7,
+            alert,
             exited: false,
             bell_at: None,
+            attention: false,
             last_input: Instant::now(),
             scroll_accum: 0.0,
             generation: 0,
@@ -277,10 +285,16 @@ impl Terminal {
                     let text = format(window_size(self.size, self.cell_px));
                     self.write(text.into_bytes());
                 }
-                Event::Bell => self.bell_at = Some(Instant::now()),
+                Event::Bell => {
+                    self.bell_at = Some(Instant::now());
+                    self.attention = true;
+                }
                 Event::ChildExit(_) | Event::Exit => self.exited = true,
                 Event::MouseCursorDirty | Event::CursorBlinkingChange | Event::Wakeup => {}
             }
+        }
+        if self.alert.take() {
+            self.attention = true;
         }
     }
 

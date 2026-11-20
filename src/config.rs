@@ -52,6 +52,8 @@ pub struct Config {
     pub selection_background: Color32,
     pub selection_foreground: Option<Color32>,
     pub palette: [Color32; 16],
+    /// The dot on a tab whose program is waiting for input; unset follows `palette` 3 (yellow).
+    pub tab_attention_color: Option<Color32>,
 
     pub background_opacity: f32,
     pub unfocused_split_opacity: f32,
@@ -101,6 +103,7 @@ impl Default for Config {
             cursor_color: hex("e8e3ec"),
             selection_background: hex("4a4048"),
             selection_foreground: None,
+            tab_attention_color: None,
             palette: [
                 hex("2b2830"), // black
                 hex("f2777a"), // red
@@ -165,6 +168,11 @@ pub fn modified() -> Option<SystemTime> {
 }
 
 impl Config {
+    /// The tab attention dot's color (`tab-attention-color`, else palette 3).
+    pub fn attention_color(&self) -> Color32 {
+        self.tab_attention_color.unwrap_or(self.palette[3])
+    }
+
     pub fn load() -> Self {
         let mut cfg = Config::default();
         let path = config_path();
@@ -208,6 +216,7 @@ impl Config {
             "cursor-color" => self.cursor_color = color(value)?,
             "selection-background" => self.selection_background = color(value)?,
             "selection-foreground" => self.selection_foreground = Some(color(value)?),
+            "tab-attention-color" => self.tab_attention_color = Some(color(value)?),
             "palette" => {
                 // Ghostty syntax: `palette = 4=#6cb6ff`
                 let (idx, col) = value.split_once('=').ok_or("expected `palette = N=#rrggbb`")?;
@@ -312,6 +321,15 @@ mod tests {
         assert_eq!(strip_comment(" block        # block | bar").trim(), "block");
         assert_eq!(strip_comment(" #1f1b1e").trim(), "#1f1b1e");
         assert_eq!(strip_comment(" 4=#6cb6ff  # blue").trim(), "4=#6cb6ff");
+    }
+
+    #[test]
+    fn tab_attention_color_defaults_to_yellow() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.attention_color(), cfg.palette[3]);
+        cfg.apply("tab-attention-color", "#ff3b30").unwrap();
+        assert_eq!(cfg.attention_color(), Color32::from_rgb(0xff, 0x3b, 0x30));
+        assert!(cfg.apply("tab-attention-color", "red-ish").is_err());
     }
 
     #[test]

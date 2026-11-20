@@ -17,6 +17,9 @@ selection-background = #4a4048
 # palette = 0=#2b2830
 # palette = 1=#f2777a
 # ... entries 0-15
+# Dot on a tab whose program rang the bell or wants input (e.g. Claude Code).
+# Default (unset): palette 3, yellow.
+# tab-attention-color = #ffcc66
 
 background-opacity = 0.90
 unfocused-split-opacity = 0.90

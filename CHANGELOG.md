@@ -6,6 +6,15 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A pulsing dot on the top-left corner of a tab's icon when a program in it rings the bell or sends a
+  desktop notification (OSC 9, OSC 99 or OSC 777) and you aren't looking at it, such as Claude
+  Code waiting for permission. It clears when you switch to that pane. When nex is in the
+  background, the dock or taskbar is flagged as well. Claude Code needs
+  `preferredNotifChannel` set to `terminal_bell` (or `iterm2`) to send one.
+  `tab-attention-color = #rrggbb` sets the dot's color (yellow, palette 3, by default).
+
 ## [0.11.0] - 2026-11-17
 
 ### Added
