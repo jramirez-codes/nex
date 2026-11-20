@@ -12,24 +12,24 @@ use egui::{Pos2, Rect, Shape, Ui, Vec2};
 use crate::config::TabAnimation;
 use crate::ui::glide;
 
-use crate::app::transition::{self, Switch, Transition, tessellator};
+use crate::app::animation::transition::{self, Switch, Transition, tessellator};
 
 /// The tab being drawn this frame, and how a switch to it should look.
-pub(super) struct Shown {
-    pub(super) uid: u64,
+pub(in crate::app) struct Shown {
+    pub(in crate::app) uid: u64,
     /// Its place in the tab strip: -1 for the Files tab, else its index.
-    pub(super) pos: isize,
+    pub(in crate::app) pos: isize,
     /// The pane area.
-    pub(super) area: Rect,
+    pub(in crate::app) area: Rect,
     /// Where its tab is, brought onto the pane area's edge.
-    pub(super) origin: Pos2,
+    pub(in crate::app) origin: Pos2,
     /// The tab strip runs top to bottom (the mobile sidebar).
-    pub(super) vertical: bool,
-    pub(super) style: TabAnimation,
+    pub(in crate::app) vertical: bool,
+    pub(in crate::app) style: TabAnimation,
 }
 
 #[derive(Default)]
-pub(super) struct TabSwitch {
+pub(in crate::app) struct TabSwitch {
     /// The tab shown last frame: its uid and place in the strip.
     shown: Option<(u64, isize)>,
     /// What its panes painted, before any restyling.
@@ -41,7 +41,7 @@ impl TabSwitch {
     /// Call before painting the panes of `tab`. If it is not the tab shown last frame, start
     /// a transition. Paints the old sheet while one runs, and returns where the new sheet's
     /// shapes start.
-    pub(super) fn begin(&mut self, ui: &Ui, tab: &Shown) -> ShapeIdx {
+    pub(in crate::app) fn begin(&mut self, ui: &Ui, tab: &Shown) -> ShapeIdx {
         let ctx = ui.ctx();
         let now = ctx.input(|i| i.time);
         let previous = self.shown.replace((tab.uid, tab.pos));
@@ -68,7 +68,7 @@ impl TabSwitch {
 
     /// Call after painting the panes: remember them (the next switch starts from them) and,
     /// while a transition runs, restyle them.
-    pub(super) fn end(&mut self, ui: &Ui, start: ShapeIdx) {
+    pub(in crate::app) fn end(&mut self, ui: &Ui, start: ShapeIdx) {
         let ctx = ui.ctx();
         let now = ctx.input(|i| i.time);
         // Made outside `graphics_mut`: it reads the fonts, which that lock would deadlock on.

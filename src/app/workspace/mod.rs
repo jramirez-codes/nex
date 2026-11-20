@@ -17,7 +17,7 @@ use crate::ui::icons;
 use crate::app::ssh::follow::Place;
 use crate::app::workspace::metrics::cell_px;
 use crate::app::workspace::tab::Tab;
-use crate::app::tab_motion::{TabDrawn, TabGhost};
+use crate::app::animation::tab_close::{TabDrawn, TabGhost};
 use crate::app::{App, PANE_GAP};
 
 impl App {

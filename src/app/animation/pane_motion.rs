@@ -20,36 +20,36 @@ const FOCUS_FADE: f64 = 0.12;
 const APPEAR_SCALE: f32 = 0.97;
 
 /// Where a pane is drawn this frame.
-pub(super) struct Placed {
-    pub(super) id: PaneId,
+pub(in crate::app) struct Placed {
+    pub(in crate::app) id: PaneId,
     /// The (possibly animated) card rect to paint.
-    pub(super) card: Rect,
+    pub(in crate::app) card: Rect,
     /// The card rect the layout gives it: terminals are sized and hit-tested here.
-    pub(super) target: Rect,
+    pub(in crate::app) target: Rect,
     /// Opacity: below 1 while a pane fades in.
-    pub(super) alpha: f32,
+    pub(in crate::app) alpha: f32,
     /// Drawn above the other panes (a zoomed pane shrinking back into its slot).
-    pub(super) on_top: bool,
+    pub(in crate::app) on_top: bool,
     /// Its content scales with the card instead of being clipped (zoom).
-    pub(super) scale_content: bool,
+    pub(in crate::app) scale_content: bool,
 }
 
 /// A closed pane still fading out: what it looked like when it closed.
-pub(super) struct Ghost {
+pub(in crate::app) struct Ghost {
     card: Rect,
     /// Where it collapses to, resolved on the first frame the new layout is known.
     to: Option<Rect>,
     /// The card position its shapes were built for.
     origin: Pos2,
     start: f64,
-    pub(super) title: String,
-    pub(super) process: String,
-    pub(super) shapes: Vec<Shape>,
+    pub(in crate::app) title: String,
+    pub(in crate::app) process: String,
+    pub(in crate::app) shapes: Vec<Shape>,
 }
 
 impl Ghost {
     /// The ghost's card this frame, how far its shapes moved, and its opacity.
-    pub(super) fn at(&self, now: f64) -> (Rect, egui::Vec2, f32) {
+    pub(in crate::app) fn at(&self, now: f64) -> (Rect, egui::Vec2, f32) {
         let e = ease_out(((now - self.start) / PANE_ANIM) as f32);
         let card = self.to.map_or(self.card, |to| self.card.lerp_towards(&to, e));
         (card, card.min - self.origin, 1.0 - e)
@@ -57,7 +57,7 @@ impl Ghost {
 }
 
 #[derive(Default)]
-pub(super) struct PaneMotion {
+pub(in crate::app) struct PaneMotion {
     /// `(drawn, target)` card rects from the last frame.
     last: HashMap<PaneId, (Rect, Rect)>,
     /// Start rects of the running transition.
@@ -81,7 +81,7 @@ impl PaneMotion {
     }
 
     /// `new` was split off `target`: it grows out of `target`'s far edge as `target` shrinks.
-    pub(super) fn kick_split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis, new: PaneId) {
+    pub(in crate::app) fn kick_split(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis, new: PaneId) {
         if !glide::animations(ctx) {
             return;
         }
@@ -93,7 +93,7 @@ impl PaneMotion {
 
     /// Ease every card from where it is drawn now to wherever the next layout puts it (after
     /// a swap, or when a dragged pane's drop preview changes).
-    pub(super) fn kick_reflow(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn kick_reflow(&mut self, ctx: &egui::Context) {
         if !glide::animations(ctx) {
             return;
         }
@@ -105,7 +105,7 @@ impl PaneMotion {
     /// and content scale between the two. Zooming in, the `others` (id, title, process, last
     /// frame) stay where they are and fade out under it; zooming out, they fade back in
     /// under it.
-    pub(super) fn kick_zoom(&mut self, ctx: &egui::Context, pane: PaneId, zooming_in: bool, others: Vec<(PaneId, String, String, Vec<Shape>)>) {
+    pub(in crate::app) fn kick_zoom(&mut self, ctx: &egui::Context, pane: PaneId, zooming_in: bool, others: Vec<(PaneId, String, String, Vec<Shape>)>) {
         if !glide::animations(ctx) {
             return;
         }
@@ -124,7 +124,7 @@ impl PaneMotion {
     }
 
     /// Pane `id` was closed: leave a ghost that collapses and fades while the rest move.
-    pub(super) fn kick_close(&mut self, ctx: &egui::Context, id: PaneId, title: String, process: String, shapes: Vec<Shape>) {
+    pub(in crate::app) fn kick_close(&mut self, ctx: &egui::Context, id: PaneId, title: String, process: String, shapes: Vec<Shape>) {
         if !glide::animations(ctx) {
             return;
         }
@@ -138,7 +138,7 @@ impl PaneMotion {
     /// Where each pane is drawn this frame, given the rects the layout wants. A pane in
     /// `goals` heads there instead of its layout rect (a drop preview: its terminal keeps the
     /// layout's size). The `held` pane (being dragged) is drawn exactly where it is held.
-    pub(super) fn frame(
+    pub(in crate::app) fn frame(
         &mut self,
         ctx: &egui::Context,
         targets: &[(PaneId, Rect)],
@@ -187,12 +187,12 @@ impl PaneMotion {
     }
 
     /// Closed panes still fading out, oldest first (paint them under the live panes).
-    pub(super) fn ghosts(&self) -> &[Ghost] {
+    pub(in crate::app) fn ghosts(&self) -> &[Ghost] {
         &self.ghosts
     }
 
     /// How focused pane `id` looks, 0 (dimmed) to 1 (focused), fading between the two.
-    pub(super) fn focus_amount(&mut self, ctx: &egui::Context, id: PaneId, focused: bool) -> f32 {
+    pub(in crate::app) fn focus_amount(&mut self, ctx: &egui::Context, id: PaneId, focused: bool) -> f32 {
         let target = if focused { 1.0 } else { 0.0 };
         self.focus.entry(id).or_insert_with(|| Glide::new(FOCUS_FADE)).value(ctx, target)
     }

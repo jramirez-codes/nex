@@ -35,43 +35,43 @@ const SQUARE: f32 = 18.0;
 const TAB_RADIUS: f32 = 8.0;
 const SQUARE_RADIUS: f32 = 6.0;
 /// The × glyph's size at rest (the close button's icon rect).
-pub(super) const GLYPH: f32 = 12.0;
+pub(in crate::app) const GLYPH: f32 = 12.0;
 
 /// Where a tab was drawn last frame, so a close can start from there.
 #[derive(Clone, Copy)]
-pub(super) struct TabDrawn {
-    pub(super) rect: Rect,
-    pub(super) close: Rect,
-    pub(super) icon: Rect,
-    pub(super) text_left: f32,
-    pub(super) active: bool,
+pub(in crate::app) struct TabDrawn {
+    pub(in crate::app) rect: Rect,
+    pub(in crate::app) close: Rect,
+    pub(in crate::app) icon: Rect,
+    pub(in crate::app) text_left: f32,
+    pub(in crate::app) active: bool,
 }
 
 /// A closed tab still playing its close animation.
-pub(super) struct TabGhost {
-    pub(super) drawn: TabDrawn,
+pub(in crate::app) struct TabGhost {
+    pub(in crate::app) drawn: TabDrawn,
     /// The slot it left, in the strip as it is now (later closes shift it left).
-    pub(super) index: usize,
+    pub(in crate::app) index: usize,
     /// Set on the first frame it is drawn (closing a tab doesn't have the frame time).
-    pub(super) start: Option<f64>,
-    pub(super) title: String,
-    pub(super) process: String,
-    pub(super) mark: Option<String>,
+    pub(in crate::app) start: Option<f64>,
+    pub(in crate::app) title: String,
+    pub(in crate::app) process: String,
+    pub(in crate::app) mark: Option<String>,
 }
 
 /// How a ghost looks this frame.
-pub(super) struct GhostFrame {
+pub(in crate::app) struct GhostFrame {
     /// Size of the whole tab (tint, icon, title), shrinking toward the × center: 1 to 0.
-    pub(super) scale: f32,
+    pub(in crate::app) scale: f32,
     /// Opacity of the title and icon.
-    pub(super) content: f32,
+    pub(in crate::app) content: f32,
     /// Opacity of the tab's tint (only a background tab has one; the active tab's is the pill).
-    pub(super) tint: f32,
+    pub(in crate::app) tint: f32,
     /// Opacity and scale of the ×.
-    pub(super) glyph: f32,
-    pub(super) glyph_scale: f32,
+    pub(in crate::app) glyph: f32,
+    pub(in crate::app) glyph_scale: f32,
     /// How much of a slot the closed tab still takes up in the strip, 1 to 0.
-    pub(super) gap: f32,
+    pub(in crate::app) gap: f32,
 }
 
 /// Progress of `t` through `[a, b]`, 0 to 1.
@@ -92,12 +92,12 @@ impl TabGhost {
         self.start.map_or(0.0, |s| now - s)
     }
 
-    pub(super) fn done(&self, now: f64) -> bool {
+    pub(in crate::app) fn done(&self, now: f64) -> bool {
         self.elapsed(now) >= if self.drawn.active { RETURN_END } else { VANISH_END }
     }
 
     /// The × center, which a background tab shrinks into.
-    pub(super) fn pivot(&self) -> egui::Pos2 {
+    pub(in crate::app) fn pivot(&self) -> egui::Pos2 {
         self.drawn.close.center()
     }
 
@@ -111,7 +111,7 @@ impl TabGhost {
         (self.drawn.rect.lerp_towards(&self.square(), e), lerp(TAB_RADIUS, SQUARE_RADIUS, e))
     }
 
-    pub(super) fn frame(&self, now: f64) -> GhostFrame {
+    pub(in crate::app) fn frame(&self, now: f64) -> GhostFrame {
         let t = self.elapsed(now);
         let gap = 1.0 - ease_out(phase(t, GAP_START, GAP_END));
         if self.drawn.active {
@@ -141,7 +141,7 @@ impl TabGhost {
     /// The glass pill while the active tab closes: it folds into the square, then grows back
     /// out onto `target` (where the pill belongs this frame). With nowhere to go it shrinks
     /// away instead. `None` once there is nothing left to draw.
-    pub(super) fn pill(&self, now: f64, target: Option<Rect>) -> Option<(Rect, f32)> {
+    pub(in crate::app) fn pill(&self, now: f64, target: Option<Rect>) -> Option<(Rect, f32)> {
         let t = self.elapsed(now);
         if t < FOLD {
             let (r, radius) = self.folded(t);

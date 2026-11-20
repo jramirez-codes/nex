@@ -2,14 +2,11 @@
 //! Each concern lives in its own submodule; this file holds the state and the frame loop.
 
 mod actions;
+mod animation;
 mod chrome;
 mod input;
 mod ssh;
-mod motion;
 mod reload;
-mod tab_motion;
-mod tab_switch;
-mod transition;
 mod workspace;
 #[cfg(test)]
 mod tests;
@@ -36,8 +33,8 @@ use actions::Action;
 use input::keymap::{Binding, keybindings};
 use input::mouse::MouseState;
 use workspace::tab::Tab;
-use tab_switch::TabSwitch;
-use tab_motion::{TabDrawn, TabGhost};
+use animation::tab_switch::TabSwitch;
+use animation::tab_close::{TabDrawn, TabGhost};
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;

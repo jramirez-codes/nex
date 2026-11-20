@@ -11,7 +11,7 @@ use crate::ui::{glide, icons, paint};
 use crate::app::App;
 use crate::app::actions::Action;
 use crate::app::workspace::pane_drag::{DropTarget, SPRING_DELAY};
-use crate::app::tab_motion::{GLYPH, TabDrawn};
+use crate::app::animation::tab_close::{GLYPH, TabDrawn};
 
 const TAB_HEIGHT: f32 = 30.0;
 /// Padding between the tab track's edge and the tabs inside it.

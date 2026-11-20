@@ -18,9 +18,9 @@ use crate::app::actions::Action;
 use crate::app::input::keymap;
 use crate::app::workspace::metrics::cell_px;
 use crate::app::ssh::mic::MicState;
-use crate::app::motion::Ghost;
+use crate::app::animation::pane_motion::Ghost;
 use crate::app::workspace::pane_drag::DragFrame;
-use crate::app::tab_switch::Shown;
+use crate::app::animation::tab_switch::Shown;
 use crate::app::{App, PANE_GAP};
 
 pub(in crate::app) const PANE_RADIUS: u8 = 12;
