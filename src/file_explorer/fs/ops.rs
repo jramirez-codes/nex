@@ -9,12 +9,12 @@ use std::sync::atomic::Ordering;
 use crate::terminal::tilde;
 
 use crate::file_explorer::Entry;
-use crate::file_explorer::transfer::{Op, Progress};
+use crate::file_explorer::fs::transfer::{Op, Progress};
 
 /// Files are copied in chunks this big, so a copy can report progress and be cancelled.
 const CHUNK: usize = 1 << 20;
 
-pub(super) fn count(n: usize) -> String {
+pub(in crate::file_explorer) fn count(n: usize) -> String {
     if n == 1 { "1 item".into() } else { format!("{n} items") }
 }
 
@@ -83,13 +83,13 @@ fn remove_any(path: &Path) -> std::io::Result<()> {
 
 /// Bytes of the files in `path` (itself, or everything inside a folder). Links count as
 /// nothing and aren't followed.
-pub(super) fn tree_size(path: &Path) -> u64 {
+pub(in crate::file_explorer) fn tree_size(path: &Path) -> u64 {
     tree_summary(path, &mut |_, _| true).0
 }
 
 /// `(bytes, items)` inside `path`, not counting `path` itself. `keep_going` sees the running
 /// totals every so often and can stop the walk by returning false.
-pub(super) fn tree_summary(path: &Path, keep_going: &mut dyn FnMut(u64, usize) -> bool) -> (u64, usize) {
+pub(in crate::file_explorer) fn tree_summary(path: &Path, keep_going: &mut dyn FnMut(u64, usize) -> bool) -> (u64, usize) {
     let Ok(meta) = std::fs::symlink_metadata(path) else { return (0, 0) };
     if !meta.is_dir() {
         return (if meta.is_file() { meta.len() } else { 0 }, 0);
@@ -114,7 +114,7 @@ pub(super) fn tree_summary(path: &Path, keep_going: &mut dyn FnMut(u64, usize) -
 }
 
 /// `dest/name`, or `dest/name (2).ext`, `(3)`, … if that's taken.
-pub(super) fn unique_target(dest: &Path, name: &OsStr) -> PathBuf {
+pub(in crate::file_explorer) fn unique_target(dest: &Path, name: &OsStr) -> PathBuf {
     let first = dest.join(name);
     if std::fs::symlink_metadata(&first).is_err() {
         return first;
@@ -128,7 +128,7 @@ pub(super) fn unique_target(dest: &Path, name: &OsStr) -> PathBuf {
         .unwrap_or(first)
 }
 
-pub(super) fn copy_recursive(src: &Path, dst: &Path, progress: &Progress) -> std::io::Result<()> {
+pub(in crate::file_explorer) fn copy_recursive(src: &Path, dst: &Path, progress: &Progress) -> std::io::Result<()> {
     progress.check()?;
     let meta = std::fs::symlink_metadata(src)?;
     if meta.file_type().is_symlink() {
@@ -169,7 +169,7 @@ fn copy_file(src: &Path, dst: &Path, meta: &std::fs::Metadata, progress: &Progre
     std::fs::set_permissions(dst, meta.permissions())
 }
 
-pub(super) fn move_path(src: &Path, dst: &Path, progress: &Progress) -> std::io::Result<()> {
+pub(in crate::file_explorer) fn move_path(src: &Path, dst: &Path, progress: &Progress) -> std::io::Result<()> {
     let size = tree_size(src);
     progress.set_current(&src.file_name().unwrap_or_default().to_string_lossy());
     match std::fs::rename(src, dst) {
@@ -200,7 +200,7 @@ fn invalid_name(name: &str) -> Option<&'static str> {
 }
 
 /// Rename `path` to `new_name` in the same folder. Never replaces an existing file.
-pub(super) fn rename_path(path: &Path, new_name: &str) -> Result<PathBuf, String> {
+pub(in crate::file_explorer) fn rename_path(path: &Path, new_name: &str) -> Result<PathBuf, String> {
     if let Some(why) = invalid_name(new_name) {
         return Err(why.into());
     }
@@ -219,7 +219,7 @@ pub(super) fn rename_path(path: &Path, new_name: &str) -> Result<PathBuf, String
 
 /// Make an empty folder ("New Folder", "New Folder (2)", …) or file ("Untitled", …) in
 /// `dest`. Returns its path.
-pub(super) fn create_new(dest: &Path, folder: bool) -> Result<PathBuf, String> {
+pub(in crate::file_explorer) fn create_new(dest: &Path, folder: bool) -> Result<PathBuf, String> {
     let target = unique_target(dest, OsStr::new(if folder { "New Folder" } else { "Untitled" }));
     let result = if folder {
         std::fs::create_dir(&target)
@@ -230,7 +230,7 @@ pub(super) fn create_new(dest: &Path, folder: bool) -> Result<PathBuf, String> {
 }
 
 /// A typed location as a path: `~` is the home folder and relative paths start at `cwd`.
-pub(super) fn expand_location(text: &str, cwd: &Path) -> PathBuf {
+pub(in crate::file_explorer) fn expand_location(text: &str, cwd: &Path) -> PathBuf {
     let text = text.trim();
     let home = || crate::platform::home_dir().unwrap_or_else(|| PathBuf::from("/"));
     let path = if text == "~" {
@@ -248,7 +248,7 @@ pub(super) fn expand_location(text: &str, cwd: &Path) -> PathBuf {
 
 /// Tab completion for a typed location: extend the last part as far as all matches agree,
 /// adding a `/` after a single folder. `None` when there's nothing to add.
-pub(super) fn complete_location(text: &str, cwd: &Path) -> Option<String> {
+pub(in crate::file_explorer) fn complete_location(text: &str, cwd: &Path) -> Option<String> {
     if text == "~" {
         return Some("~/".into());
     }
@@ -308,7 +308,7 @@ pub fn percent_decode(s: &str) -> String {
 }
 
 /// List `dir`: folders first, then files, each sorted case-insensitively by name.
-pub(super) fn read_entries(dir: &Path, show_hidden: bool) -> std::io::Result<Vec<Entry>> {
+pub(in crate::file_explorer) fn read_entries(dir: &Path, show_hidden: bool) -> std::io::Result<Vec<Entry>> {
     let mut entries: Vec<Entry> = std::fs::read_dir(dir)?
         .filter_map(Result::ok)
         .filter_map(|de| {
@@ -330,7 +330,7 @@ pub(super) fn read_entries(dir: &Path, show_hidden: bool) -> std::io::Result<Vec
     Ok(entries)
 }
 
-pub(super) fn human_size(bytes: u64) -> String {
+pub(in crate::file_explorer) fn human_size(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "K", "M", "G", "T"];
     let mut v = bytes as f64;
     let mut unit = 0;
@@ -342,7 +342,7 @@ pub(super) fn human_size(bytes: u64) -> String {
 }
 
 /// `1234567` → `1,234,567`.
-pub(super) fn thousands(n: u64) -> String {
+pub(in crate::file_explorer) fn thousands(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, c) in s.chars().enumerate() {

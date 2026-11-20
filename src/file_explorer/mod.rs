@@ -17,13 +17,12 @@
 //! right-click menu or the action bar) asks for confirmation, then permanently deletes the
 //! selection.
 
+pub mod fs;
 mod edit;
-pub mod fs_ops;
 mod input;
 mod items;
 mod line_edit;
 mod properties;
-mod transfer;
 #[cfg(test)]
 mod ui_test;
 mod view;
@@ -38,17 +37,17 @@ use egui::{Pos2, Rect};
 
 use crate::terminal::tilde;
 
-use fs_ops::read_entries;
+use fs::ops::read_entries;
 use edit::{Find, OpenWith, Rename};
 use input::Press;
 use items::Layout;
 use line_edit::LineEdit;
 use properties::Properties;
-use transfer::{FS_GENERATION, Job};
+use fs::transfer::{FS_GENERATION, Job};
 
 pub use input::{ExplorerDrag, release_pos};
 pub use items::{drag_image, paint_drag_ghost};
-pub use transfer::{Op, files_changed};
+pub use fs::transfer::{Op, files_changed};
 
 /// How often an idle listing is re-read so files created elsewhere show up (where the
 /// folder can't be watched; see `platform::DirWatch`).

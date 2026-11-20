@@ -13,7 +13,7 @@ use crate::layout::PaneId;
 use crate::terminal::tilde;
 use crate::ui::theme::{ACCENT, Theme};
 
-use crate::file_explorer::fs_ops::{human_size, thousands, tree_summary};
+use crate::file_explorer::fs::ops::{human_size, thousands, tree_summary};
 use crate::file_explorer::items::{paint_icon, sizes};
 use crate::file_explorer::{Entry, FileExplorer};
 

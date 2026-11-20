@@ -10,9 +10,9 @@ use crate::platform::AppChoice;
 use crate::terminal::tilde;
 
 use crate::file_explorer::FileExplorer;
-use crate::file_explorer::fs_ops::{complete_location, create_new, expand_location, rename_path};
+use crate::file_explorer::fs::ops::{complete_location, create_new, expand_location, rename_path};
 use crate::file_explorer::line_edit::LineEdit;
-use crate::file_explorer::transfer::{FS_GENERATION, clipboard, set_clipboard};
+use crate::file_explorer::fs::transfer::{FS_GENERATION, clipboard, set_clipboard};
 
 /// Type-to-find forgets what was typed after this long without a key.
 pub(super) const FIND_TIMEOUT: Duration = Duration::from_millis(1500);

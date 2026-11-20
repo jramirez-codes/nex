@@ -12,7 +12,7 @@ use egui::Pos2;
 use crate::terminal::tilde;
 
 use crate::file_explorer::FileExplorer;
-use crate::file_explorer::fs_ops::{count, delete_paths, human_size, parse_paths, run_op};
+use crate::file_explorer::fs::ops::{count, delete_paths, human_size, parse_paths, run_op};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
@@ -27,20 +27,20 @@ pub struct Clip {
     pub cut: bool,
 }
 
-pub(super) static CLIPBOARD: Mutex<Option<Clip>> = Mutex::new(None);
+pub(in crate::file_explorer) static CLIPBOARD: Mutex<Option<Clip>> = Mutex::new(None);
 
 pub fn clipboard() -> Option<Clip> {
     CLIPBOARD.lock().map(|c| c.clone()).unwrap_or(None)
 }
 
-pub(super) fn set_clipboard(clip: Option<Clip>) {
+pub(in crate::file_explorer) fn set_clipboard(clip: Option<Clip>) {
     if let Ok(mut c) = CLIPBOARD.lock() {
         *c = clip;
     }
 }
 
 /// Bumped whenever a file operation finishes, so every explorer re-reads its listing.
-pub(super) static FS_GENERATION: AtomicU64 = AtomicU64::new(0);
+pub(in crate::file_explorer) static FS_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Files changed outside the explorers' own jobs (another window moved them away): every
 /// explorer re-reads its listing on its next frame.
@@ -87,7 +87,7 @@ impl Progress {
 }
 
 /// A copy, move or delete running on its own thread.
-pub(super) struct Job {
+pub(in crate::file_explorer) struct Job {
     rx: Receiver<Result<String, String>>,
     progress: Arc<Progress>,
     /// "Copying 3 items".
@@ -98,13 +98,13 @@ pub(super) struct Job {
 }
 
 /// What the action bar shows while jobs run.
-pub(super) struct JobSummary {
+pub(in crate::file_explorer) struct JobSummary {
     /// 0..=1.
-    pub(super) fraction: f32,
+    pub(in crate::file_explorer) fraction: f32,
     /// "Copying 3 items · 45 M of 120 M · 37% · ~12 s left".
-    pub(super) text: String,
+    pub(in crate::file_explorer) text: String,
     /// The file being worked on now.
-    pub(super) current: String,
+    pub(in crate::file_explorer) current: String,
 }
 
 impl FileExplorer {
@@ -151,7 +151,7 @@ impl FileExplorer {
     }
 
     /// The folder entry under `pos`, unless it's one of the files being dragged.
-    pub(super) fn folder_at(&self, pos: Pos2, dragged: &[PathBuf]) -> Option<PathBuf> {
+    pub(in crate::file_explorer) fn folder_at(&self, pos: Pos2, dragged: &[PathBuf]) -> Option<PathBuf> {
         let layout = self.layout?;
         let i = layout.item_at(pos, self.scroll, self.entries.len())?;
         let e = &self.entries[i];
@@ -203,7 +203,7 @@ impl FileExplorer {
     }
 
     /// Stop every running job (each stops at its next chunk or item).
-    pub(super) fn cancel_jobs(&mut self) {
+    pub(in crate::file_explorer) fn cancel_jobs(&mut self) {
         for job in &self.jobs {
             job.progress.cancel.store(true, Ordering::Relaxed);
         }
@@ -217,12 +217,12 @@ impl FileExplorer {
         }
     }
 
-    pub(super) fn cancel_delete(&mut self) {
+    pub(in crate::file_explorer) fn cancel_delete(&mut self) {
         self.confirm_delete = None;
     }
 
     /// The user confirmed: permanently delete on a background thread.
-    pub(super) fn confirm_delete(&mut self, ctx: &egui::Context) {
+    pub(in crate::file_explorer) fn confirm_delete(&mut self, ctx: &egui::Context) {
         let Some(paths) = self.confirm_delete.take() else { return };
         // Deleted files can't be pasted any more.
         if let Some(mut clip) = clipboard() {
@@ -238,11 +238,11 @@ impl FileExplorer {
         });
     }
 
-    pub(super) fn set_status(&mut self, text: String, error: bool) {
+    pub(in crate::file_explorer) fn set_status(&mut self, text: String, error: bool) {
         self.status = Some((text, error, Instant::now()));
     }
 
-    pub(super) fn poll_jobs(&mut self, ctx: &egui::Context) {
+    pub(in crate::file_explorer) fn poll_jobs(&mut self, ctx: &egui::Context) {
         let mut finished = Vec::new();
         self.jobs.retain(|job| match job.rx.try_recv() {
             Ok(r) => {
@@ -269,7 +269,7 @@ impl FileExplorer {
     }
 
     /// The running jobs, added up into one line and one bar.
-    pub(super) fn job_summary(&self) -> Option<JobSummary> {
+    pub(in crate::file_explorer) fn job_summary(&self) -> Option<JobSummary> {
         let first = self.jobs.first()?;
         let fraction_of = |job: &Job| {
             let (done, total) = job.progress.amounts();

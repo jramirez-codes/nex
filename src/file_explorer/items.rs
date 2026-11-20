@@ -8,7 +8,7 @@ use crate::ui::file_icons::{self, LINK_MARK};
 use crate::ui::{icons, paint};
 
 use crate::file_explorer::{Entry, View};
-use crate::file_explorer::fs_ops::human_size;
+use crate::file_explorer::fs::ops::human_size;
 use crate::file_explorer::input::{ExplorerDrag, Ghost};
 
 /// Sizes of the explorer's parts; touch screens get larger hit targets.
