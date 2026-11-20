@@ -9,22 +9,22 @@ use crate::file_explorer::FileExplorer;
 use crate::file_explorer::tests::fixture;
 use crate::ui::theme::Theme;
 
-pub(super) struct Harness {
-    pub(super) ctx: egui::Context,
-    pub(super) b: FileExplorer,
+pub(in crate::file_explorer) struct Harness {
+    pub(in crate::file_explorer) ctx: egui::Context,
+    pub(in crate::file_explorer) b: FileExplorer,
     theme: Theme,
     /// Labeled widgets and where they are. Accessibility updates only carry what changed,
     /// so this keeps every node seen, newest first.
-    pub(super) nodes: Vec<(String, Rect)>,
+    pub(in crate::file_explorer) nodes: Vec<(String, Rect)>,
     seen: std::collections::HashMap<u64, (String, Rect, u64)>,
     time: f64,
     pass: u64,
     /// Modifier keys held down.
-    pub(super) mods: Modifiers,
+    pub(in crate::file_explorer) mods: Modifiers,
 }
 
 impl Harness {
-    pub(super) fn new(dir: PathBuf) -> Self {
+    pub(in crate::file_explorer) fn new(dir: PathBuf) -> Self {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         crate::render::fonts::install(&ctx, &crate::config::Config::default());
@@ -35,7 +35,7 @@ impl Harness {
         h
     }
 
-    pub(super) fn frame(&mut self, events: Vec<Event>) {
+    pub(in crate::file_explorer) fn frame(&mut self, events: Vec<Event>) {
         self.time += 0.05;
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
@@ -65,7 +65,7 @@ impl Harness {
         self.nodes = nodes.into_iter().map(|(l, r, _)| (l, r)).collect();
     }
 
-    pub(super) fn click_at(&mut self, at: Pos2, button: PointerButton) {
+    pub(in crate::file_explorer) fn click_at(&mut self, at: Pos2, button: PointerButton) {
         let press = |pressed| Event::PointerButton { pos: at, button, pressed, modifiers: Modifiers::NONE };
         self.frame(vec![Event::PointerMoved(at)]);
         self.frame(vec![press(true)]);
@@ -74,24 +74,24 @@ impl Harness {
     }
 
     /// Press and release in one frame, as a quick click often arrives.
-    pub(super) fn quick_click_at(&mut self, at: Pos2, button: PointerButton) {
+    pub(in crate::file_explorer) fn quick_click_at(&mut self, at: Pos2, button: PointerButton) {
         let press = |pressed| Event::PointerButton { pos: at, button, pressed, modifiers: Modifiers::NONE };
         self.frame(vec![Event::PointerMoved(at)]);
         self.frame(vec![press(true), press(false)]);
         self.frame(vec![]);
     }
 
-    pub(super) fn find(&self, label: &str) -> Option<Rect> {
+    pub(in crate::file_explorer) fn find(&self, label: &str) -> Option<Rect> {
         self.nodes.iter().find(|(l, _)| l == label).map(|(_, r)| *r)
     }
 
-    pub(super) fn click_label(&mut self, label: &str) {
+    pub(in crate::file_explorer) fn click_label(&mut self, label: &str) {
         let r = self.find(label).unwrap_or_else(|| panic!("no “{label}” in {:?}", self.nodes.iter().map(|n| &n.0).collect::<Vec<_>>()));
         self.click_at(r.center(), PointerButton::Primary);
     }
 
     /// The center of row `i` of the list view.
-    pub(super) fn row(&self, i: usize) -> Pos2 {
+    pub(in crate::file_explorer) fn row(&self, i: usize) -> Pos2 {
         Pos2::new(200.0, 30.0 + 4.0 + 24.0 * i as f32 + 12.0)
     }
 }
