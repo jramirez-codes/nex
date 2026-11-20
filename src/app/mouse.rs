@@ -10,8 +10,8 @@ use crate::terminal::input::{self, MouseAction, MouseButton};
 use crate::layout::PaneId;
 use crate::render;
 
-use super::App;
-use super::actions::Action;
+use crate::app::App;
+use crate::app::actions::Action;
 
 /// Clicks closer together than this (in time and distance) count as a double/triple click.
 const MULTI_CLICK_TIME: Duration = Duration::from_millis(400);

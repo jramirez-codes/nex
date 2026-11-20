@@ -7,9 +7,9 @@ use crate::platform;
 use crate::terminal::input;
 use crate::terminal::Terminal;
 
-use super::App;
-use super::actions::Action;
-use super::keymap::{self, ClipboardKey};
+use crate::app::App;
+use crate::app::actions::Action;
+use crate::app::keymap::{self, ClipboardKey};
 
 impl App {
     pub(super) fn handle_keyboard(&mut self, ctx: &egui::Context) {

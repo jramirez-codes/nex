@@ -15,8 +15,8 @@ use crate::remote::mic::{Event, MicError, Share};
 use crate::remote::{self, SshTarget};
 use crate::ui::toast::Toast;
 
-use super::App;
-use super::upload::SharingPrompt;
+use crate::app::App;
+use crate::app::upload::SharingPrompt;
 
 /// How often panes are checked for hosts to share with or stop sharing with.
 const CHECK_INTERVAL: Duration = Duration::from_millis(750);

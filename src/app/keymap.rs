@@ -9,7 +9,7 @@ use egui::{Event, Key, Modifiers};
 use crate::layout::{Axis, Direction};
 use crate::platform::{self, ShortcutStyle};
 
-use super::actions::Action;
+use crate::app::actions::Action;
 
 /// The exact modifiers a shortcut needs. `cmd` is the macOS Command key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

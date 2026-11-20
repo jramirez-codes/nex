@@ -9,9 +9,9 @@ use crate::layout::PaneId;
 use crate::ui::theme::{ACCENT, Theme};
 use crate::ui::widgets::is_maximized;
 
-use super::App;
-use super::panes::PANE_RADIUS;
-use super::actions::Action;
+use crate::app::App;
+use crate::app::panes::PANE_RADIUS;
+use crate::app::actions::Action;
 
 const RESIZE_BORDER: f32 = 6.0;
 

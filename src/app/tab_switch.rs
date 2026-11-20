@@ -12,7 +12,7 @@ use egui::{Pos2, Rect, Shape, Ui, Vec2};
 use crate::config::TabAnimation;
 use crate::ui::glide;
 
-use super::transition::{self, Switch, Transition, tessellator};
+use crate::app::transition::{self, Switch, Transition, tessellator};
 
 /// The tab being drawn this frame, and how a switch to it should look.
 pub(super) struct Shown {

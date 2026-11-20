@@ -7,9 +7,9 @@ use egui::ViewportCommand;
 use crate::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
-use super::App;
-use super::follow::Place;
-use super::zoom::EXPLORER_ZOOM_STEP;
+use crate::app::App;
+use crate::app::follow::Place;
+use crate::app::zoom::EXPLORER_ZOOM_STEP;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Action {

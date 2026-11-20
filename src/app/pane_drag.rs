@@ -9,8 +9,8 @@ use egui::{Event, PointerButton, Pos2, Rect, Vec2};
 
 use crate::layout::{Direction, PaneId};
 
-use super::actions::Action;
-use super::{App, PANE_GAP};
+use crate::app::actions::Action;
+use crate::app::{App, PANE_GAP};
 
 /// How long a dragged pane is held over a tab before that tab opens.
 pub(super) const SPRING_DELAY: f64 = 0.5;

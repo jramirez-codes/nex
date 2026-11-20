@@ -4,9 +4,9 @@
 
 use std::path::PathBuf;
 
-use super::App;
+use crate::app::App;
 use crate::layout::{Axis, PaneId};
-use super::upload::SharingPrompt;
+use crate::app::upload::SharingPrompt;
 use crate::remote;
 
 /// Where a new terminal goes.

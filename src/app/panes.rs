@@ -14,14 +14,14 @@ use crate::ui::theme::{ERROR, HOVER, Theme, darken};
 use crate::ui::widgets::{HoverShape, IconButton, IconFn, pressed_in};
 use crate::ui::{icons, paint};
 
-use super::actions::Action;
-use super::keymap;
-use super::metrics::cell_px;
-use super::mic::MicState;
-use super::motion::Ghost;
-use super::pane_drag::DragFrame;
-use super::tab_switch::Shown;
-use super::{App, PANE_GAP};
+use crate::app::actions::Action;
+use crate::app::keymap;
+use crate::app::metrics::cell_px;
+use crate::app::mic::MicState;
+use crate::app::motion::Ghost;
+use crate::app::pane_drag::DragFrame;
+use crate::app::tab_switch::Shown;
+use crate::app::{App, PANE_GAP};
 
 pub(super) const PANE_RADIUS: u8 = 12;
 const BLINK_INTERVAL: Duration = Duration::from_millis(600);

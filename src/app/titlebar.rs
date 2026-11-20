@@ -8,10 +8,10 @@ use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
 use crate::ui::{glide, icons, paint};
 
-use super::App;
-use super::actions::Action;
-use super::pane_drag::{DropTarget, SPRING_DELAY};
-use super::tab_motion::{GLYPH, TabDrawn};
+use crate::app::App;
+use crate::app::actions::Action;
+use crate::app::pane_drag::{DropTarget, SPRING_DELAY};
+use crate::app::tab_motion::{GLYPH, TabDrawn};
 
 const TAB_HEIGHT: f32 = 30.0;
 /// Padding between the tab track's edge and the tabs inside it.

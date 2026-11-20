@@ -3,7 +3,7 @@
 use crate::layout::{Node, PaneId};
 use crate::ui::glide::Glide;
 
-use super::motion::PaneMotion;
+use crate::app::motion::PaneMotion;
 
 pub(super) struct Tab {
     /// Stable identity (survives reordering) for egui widget ids.

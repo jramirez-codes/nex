@@ -6,7 +6,7 @@ use crate::layout::PaneId;
 use crate::render::{CellMetrics, FONT_REGULAR};
 use crate::terminal::GridSize;
 
-use super::App;
+use crate::app::App;
 
 impl App {
     /// The terminal content rect inside a pane card (below the header, inside the padding).

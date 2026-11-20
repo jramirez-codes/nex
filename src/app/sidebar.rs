@@ -8,9 +8,9 @@ use crate::ui::theme::{HOVER, Theme};
 use crate::ui::widgets::{HoverShape, IconButton};
 use crate::ui::{icons, paint};
 
-use super::App;
-use super::actions::Action;
-use super::titlebar::{TRACK_PAD, paint_lights, sidebar_tile_parts, toggle_maximized};
+use crate::app::App;
+use crate::app::actions::Action;
+use crate::app::titlebar::{TRACK_PAD, paint_lights, sidebar_tile_parts, toggle_maximized};
 
 pub(super) const SIDEBAR_WIDTH: f32 = 96.0;
 /// A tab or Files tile: a 56pt icon with its title underneath.

@@ -9,11 +9,11 @@ use crate::layout::{Axis, Direction, Node, PaneId};
 use crate::terminal::Terminal;
 use crate::ui::icons;
 
-use super::follow::Place;
-use super::metrics::cell_px;
-use super::tab::Tab;
-use super::tab_motion::{TabDrawn, TabGhost};
-use super::{App, PANE_GAP};
+use crate::app::follow::Place;
+use crate::app::metrics::cell_px;
+use crate::app::tab::Tab;
+use crate::app::tab_motion::{TabDrawn, TabGhost};
+use crate::app::{App, PANE_GAP};
 
 impl App {
     /// A fresh id for a new pane (terminal or file explorer).

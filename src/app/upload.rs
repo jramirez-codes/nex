@@ -16,7 +16,7 @@ use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
 use crate::ui::theme::Theme;
 use crate::ui::toast::Toast;
 
-use super::App;
+use crate::app::App;
 
 /// An upload on its way to a pane's remote host.
 pub(super) struct Upload {
