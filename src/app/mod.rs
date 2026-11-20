@@ -278,6 +278,7 @@ impl eframe::App for App {
             return;
         }
 
+        self.clear_seen_attention(ctx);
         self.glyphs.begin_frame(ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.draw_window(ui));
         self.glyphs.end_frame(ctx);
@@ -317,14 +318,32 @@ impl App {
     /// Read PTY events; panes whose shell exited are closed (like Ghostty).
     fn poll_ptys(&mut self, ctx: &egui::Context) {
         let mut exited = Vec::new();
+        let mut alerted = false;
         for (id, t) in &mut self.panes {
+            let had = t.attention;
             t.process_events(ctx, &self.cfg);
+            alerted |= t.attention && !had;
             if t.exited {
                 exited.push(*id);
             }
         }
+        // A program wants input while nex is in the background: flag it in the dock/taskbar.
+        if alerted && !ctx.input(|i| i.focused) {
+            ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        }
         for id in exited {
             self.close_pane(ctx, id);
+        }
+    }
+
+    /// Looking at a pane (the shown tab's focused pane, window focused) answers its bell. Run
+    /// after this frame's tab switches and before drawing, so the shown tab never flashes a dot.
+    fn clear_seen_attention(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.focused)
+            && let Some(seen) = self.cur_tab().map(|t| t.focused)
+            && let Some(t) = self.panes.get_mut(&seen)
+        {
+            t.attention = false;
         }
     }
 

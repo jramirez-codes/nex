@@ -219,6 +219,10 @@ ssh-mic = off        # no mic button in ssh panes
 - **Image paste for Claude Code.** With an image on the clipboard, `Ctrl+V` reaches the
   program as `^V`, so Claude Code pastes the image itself. Images dragged in from a browser
   are saved to a temp file and their path typed.
+- **Tabs that tell you when a program is waiting.** When a program rings the bell or sends a
+  desktop notification (OSC 9, OSC 99 or OSC 777) in a tab you aren't looking at, a pulsing dot
+  shows on the top-left corner of the tab's icon until you switch to that pane. If nex is in the background,
+  the dock or taskbar flags it too. For Claude Code, see the [FAQ](#faq).
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
   an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
   selection into another folder, explorer or terminal pane.
@@ -333,6 +337,7 @@ adjust-cell-height = 12%
 background = #1f1b1e
 foreground = #d9d4dd
 palette = 4=#6cb6ff                          # override any of the 16 ANSI colors
+tab-attention-color = #ffcc66                # dot on a tab waiting for input (unset = palette 3)
 
 background-opacity = 0.90
 unfocused-split-opacity = 0.90
@@ -461,6 +466,12 @@ every pane shows its program and folder. Splits of an `ssh` pane open on the sam
 you don't need tmux on the remote side just to get a second shell there. nex doesn't detach
 sessions, so keep tmux if you need work to survive a dropped connection.
 
+**How do I get a tab dot when Claude Code asks for input?**
+Claude Code doesn't recognise nex, so tell it to notify with the terminal bell:
+`claude config set --global preferredNotifChannel terminal_bell` (or pick "Terminal Bell"
+under Notifications in `/config`). `iterm2` (OSC 9) works too. Any other program that rings
+the bell, such as `make; printf '\a'`, gets the same dot.
+
 **Does nex need anything installed on my servers?**
 No. nex uses the `ssh` on your machine and plain `sh` and `tar` on the server. For splits to
 open in your current remote folder, the remote shell should report it (fish and Debian/Ubuntu
@@ -571,6 +582,7 @@ scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them i
 - [x] Drop and paste files into `ssh` sessions
 - [x] Splits and new tabs that follow `ssh` sessions
 - [x] File manager mode (`nex --explorer`, default handler for folders)
+- [x] Tab dot when a program rings the bell or sends a notification
 
 ### Next
 

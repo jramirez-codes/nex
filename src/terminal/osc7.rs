@@ -5,12 +5,16 @@
 //! remote shell that reports its directory lets a split or new tab open in that same place
 //! on the remote host (see [`crate::remote::SshTarget::session_command`]).
 //!
+//! The same scan also spots desktop-notification OSCs (9, 99 and 777), which programs such as
+//! Claude Code send when they want the user's attention; see [`Alert`].
+//!
 //! Only Unix wraps the PTY with [`ScanPty`]; the scanner itself is platform-neutral (and
 //! tested everywhere), so it is unused, not broken, on Windows.
 #![cfg_attr(not(unix), allow(dead_code))]
 
 use std::io::{self, Read};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// A directory reported with OSC 7.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +26,32 @@ pub struct Report {
 
 /// The latest report, shared between the PTY thread and the pane.
 pub type Slot = Arc<Mutex<Option<Report>>>;
+
+/// Raised by the PTY thread when the program sends a notification OSC; the pane takes it on
+/// its next frame. Raising it repaints the window even when the pane is hidden.
+#[derive(Clone, Default)]
+pub struct Alert {
+    raised: Arc<AtomicBool>,
+    repaint: Arc<OnceLock<egui::Context>>,
+}
+
+impl Alert {
+    pub fn new(repaint: Arc<OnceLock<egui::Context>>) -> Self {
+        Self { raised: Arc::default(), repaint }
+    }
+
+    fn raise(&self) {
+        self.raised.store(true, Ordering::Relaxed);
+        if let Some(ctx) = self.repaint.get() {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Whether a notification came in since the last call.
+    pub fn take(&self) -> bool {
+        self.raised.swap(false, Ordering::Relaxed)
+    }
+}
 
 /// Longest OSC body kept; longer ones (images, say) are skipped.
 const MAX_OSC: usize = 4096;
@@ -44,11 +74,13 @@ enum State {
 pub struct Scanner {
     state: State,
     buf: Vec<u8>,
+    /// Set when a notification OSC completes; cleared by whoever reads it.
+    pub notified: bool,
 }
 
 impl Default for Scanner {
     fn default() -> Self {
-        Self { state: State::Ground, buf: Vec::new() }
+        Self { state: State::Ground, buf: Vec::new(), notified: false }
     }
 }
 
@@ -109,9 +141,29 @@ impl Scanner {
     }
 
     fn finish(&mut self) -> Option<Report> {
+        if is_notification(&self.buf) {
+            self.notified = true;
+            return None;
+        }
         let body = self.buf.strip_prefix(b"7;")?;
         parse(&String::from_utf8_lossy(body))
     }
+}
+
+/// A desktop notification: OSC 9 (iTerm2), OSC 777 `notify` (urxvt, Ghostty) or OSC 99
+/// (kitty). ConEmu's numbered OSC 9 commands (`9;4;…` is a progress bar) and kitty's
+/// capability queries are not notifications.
+fn is_notification(body: &[u8]) -> bool {
+    if let Some(text) = body.strip_prefix(b"9;") {
+        let digits = text.iter().take_while(|b| b.is_ascii_digit()).count();
+        let numbered = digits > 0 && matches!(text.get(digits), None | Some(b';'));
+        return !numbered;
+    }
+    if let Some(rest) = body.strip_prefix(b"99;") {
+        let meta = rest.split(|&b| b == b';').next().unwrap_or_default();
+        return !meta.windows(3).any(|w| w == b"p=?");
+    }
+    body.starts_with(b"777;notify;")
 }
 
 /// `file://host/path` (or another scheme, such as kitty's `kitty-shell-cwd://`).
@@ -141,11 +193,13 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// A reader that passes everything through and stores each OSC 7 report in `slot`.
+/// A reader that passes everything through, stores each OSC 7 report in `slot` and raises
+/// `alert` on notifications.
 pub struct ScanReader<R> {
     inner: R,
     scanner: Scanner,
     slot: Slot,
+    alert: Alert,
 }
 
 impl<R: Read> Read for ScanReader<R> {
@@ -155,6 +209,9 @@ impl<R: Read> Read for ScanReader<R> {
             && let Ok(mut slot) = self.slot.lock()
         {
             *slot = Some(report);
+        }
+        if std::mem::take(&mut self.scanner.notified) {
+            self.alert.raise();
         }
         Ok(n)
     }
@@ -173,9 +230,9 @@ mod pty {
     use alacritty_terminal::tty::{ChildEvent, EventedPty, EventedReadWrite, Pty};
     use polling::{Event, PollMode, Poller};
 
-    use super::{ScanReader, Scanner, Slot};
+    use super::{Alert, ScanReader, Scanner, Slot};
 
-    /// A [`Pty`] whose output is scanned for OSC 7. Reads go through a second handle on the
+    /// A [`Pty`] whose output is scanned for OSC 7 and notifications. Reads go through a second handle on the
     /// same PTY; registration, writes, resizes and child events go to the [`Pty`] itself.
     pub struct ScanPty {
         pty: Pty,
@@ -183,9 +240,9 @@ mod pty {
     }
 
     impl ScanPty {
-        pub fn new(mut pty: Pty, slot: Slot) -> io::Result<Self> {
+        pub fn new(mut pty: Pty, slot: Slot, alert: Alert) -> io::Result<Self> {
             let file = pty.reader().try_clone()?;
-            Ok(Self { pty, reader: ScanReader { inner: file, scanner: Scanner::default(), slot } })
+            Ok(Self { pty, reader: ScanReader { inner: file, scanner: Scanner::default(), slot, alert } })
         }
     }
 
@@ -282,6 +339,40 @@ mod tests {
     fn last_report_in_a_chunk_wins() {
         let mut s = Scanner::default();
         assert_eq!(s.feed(b"\x1b]7;file://h/a\x07\x1b]7;file://h/b\x07"), report("h", "/b"));
+    }
+
+    fn notifies(chunks: &[&[u8]]) -> bool {
+        let mut s = Scanner::default();
+        for c in chunks {
+            s.feed(c);
+        }
+        s.notified
+    }
+
+    #[test]
+    fn finds_notifications() {
+        assert!(notifies(&[b"\x1b]9;Claude needs your permission\x07"]));
+        assert!(notifies(&[b"\x1b]9;1 file changed\x1b\\"]));
+        assert!(notifies(&[b"\x1b]777;notify;Claude Code;Waiting for input\x07"]));
+        assert!(notifies(&[b"\x1b]99;i=1:d=0;Hello\x1b\\"]));
+        assert!(notifies(&[b"\x1b]99;;hi\x07"]));
+        assert!(notifies(&[b"out\x1b]9;he", b"llo\x07more"]));
+    }
+
+    #[test]
+    fn ignores_non_notifications() {
+        assert!(!notifies(&[b"\x1b]9;4;1;50\x07"])); // ConEmu progress
+        assert!(!notifies(&[b"\x1b]9;4\x07"]));
+        assert!(!notifies(&[b"\x1b]99;i=x:p=?;\x1b\\"])); // kitty capability query
+        assert!(!notifies(&[b"\x1b]777;preexec\x07"]));
+        assert!(!notifies(&[b"\x1b]0;title\x07\x1b]7;file://h/x\x07\x07"]));
+    }
+
+    #[test]
+    fn notifications_leave_osc7_alone() {
+        let mut s = Scanner::default();
+        assert_eq!(s.feed(b"\x1b]7;file://h/a\x07\x1b]9;hi\x07"), report("h", "/a"));
+        assert!(s.notified);
     }
 
     #[test]

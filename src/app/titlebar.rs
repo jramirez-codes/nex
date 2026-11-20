@@ -352,6 +352,9 @@ impl App {
             // A tad smaller than the tile's icon square, leaving room for the deck to fan out.
             let icon = Rect::from_center_size(icon.center(), icon.size() * 0.84);
             self.tab_icon(&ctx, painter, i, icon, icons::SIDEBAR_STACK_STEP, true);
+            if self.tab_needs_attention(i) {
+                paint_attention(&ctx, painter, icon.left_top() + Vec2::splat(2.0), self.cfg.attention_color(), theme, self.cfg.animations);
+            }
             let (title, process) = self.pane_label(self.tabs[i].focused);
             let title = icons::title_mark(&process, &title).1.to_string();
             let color = if active { theme.text_bright } else { theme.text_dim };
@@ -374,6 +377,10 @@ impl App {
         let text_right = if hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
         let title_color = if active { theme.text_bright } else { theme.text_dim };
         paint::faded_text(painter, Pos2::new(text_left, r.center().y), title, FontId::proportional(13.5), title_color, text_right - text_left, 26.0);
+
+        if self.tab_needs_attention(i) {
+            paint_attention(&ctx, painter, icon.left_top() + Vec2::splat(1.0), self.cfg.attention_color(), theme, self.cfg.animations);
+        }
 
         // Close button only on hover, like Safari/Finder tabs.
         let close_clicked = (hovered || ui.rect_contains_pointer(close_r))
@@ -423,6 +430,11 @@ impl App {
         text_left
     }
 
+    /// Whether a pane in tab `i` rang the bell or sent a notification the user hasn't seen.
+    fn tab_needs_attention(&self, i: usize) -> bool {
+        self.tabs[i].root.panes().iter().any(|id| self.panes.get(id).is_some_and(|t| t.attention))
+    }
+
     fn new_tab_button(&mut self, ui: &Ui, rect: Rect, cy: f32, theme: &Theme) {
         let plus = Rect::from_center_size(Pos2::new(rect.right() - 14.0 - PLUS_SIZE / 2.0, cy), Vec2::splat(PLUS_SIZE));
         if IconButton::new(plus, Id::new("new-tab"), theme.text, theme.text_bright)
@@ -432,6 +444,24 @@ impl App {
             self.pending.push(Action::NewTab);
         }
     }
+}
+
+/// One pulse of the attention dot, in seconds.
+const ATTENTION_PULSE: f64 = 1.6;
+
+/// The dot on a tab whose program is waiting for the user, on its icon's top-left corner and
+/// ringed so it stands out on the icon and the active pill. With `animate`, it gently swells
+/// and sends out a fading ring each [`ATTENTION_PULSE`].
+fn paint_attention(ctx: &egui::Context, painter: &egui::Painter, center: Pos2, color: Color32, theme: &Theme, animate: bool) {
+    let mut radius = 4.0;
+    if animate {
+        let phase = (ctx.input(|i| i.time) % ATTENTION_PULSE / ATTENTION_PULSE) as f32;
+        painter.circle_filled(center, radius + 5.0 * phase, color.gamma_multiply(0.4 * (1.0 - phase)));
+        radius += 0.6 * (phase * std::f32::consts::TAU).sin();
+        // ~30 fps is plenty for a slow pulse, and only while a dot is showing.
+        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+    }
+    painter.circle(center, radius, color, Stroke::new(1.5, theme.window));
 }
 
 /// Splits a mobile-sidebar tile into its icon square and the caption line below it.
