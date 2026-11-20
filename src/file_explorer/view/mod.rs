@@ -1,6 +1,9 @@
 //! Drawing an explorer pane: the path bar (Back / Forward / Up, breadcrumbs or the location
 //! field), the listing, the action bar with job progress, the context menu and dialogs.
 
+pub(super) mod items;
+pub(super) mod properties;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -13,11 +16,11 @@ use crate::ui::theme::{ACCENT, ERROR, HAIRLINE, Theme, white_alpha};
 use crate::ui::widgets::IconButton;
 use crate::ui::{icons, paint};
 
-use super::fs_ops::count;
-use super::input::{Command, ExplorerDrag, PointerInput};
-use super::items::{ItemState, Layout, Sizes, name_rect, paint_row, paint_tile, sizes};
-use super::transfer::{Clip, JobSummary, Op, clipboard};
-use super::{FileExplorer, View};
+use crate::file_explorer::fs::ops::count;
+use crate::file_explorer::input::{Command, ExplorerDrag, PointerInput};
+use crate::file_explorer::view::items::{ItemState, Layout, Sizes, name_rect, paint_row, paint_tile, sizes};
+use crate::file_explorer::fs::transfer::{Clip, JobSummary, Op, clipboard};
+use crate::file_explorer::{FileExplorer, View};
 
 /// How long a finished operation's message stays in the action bar.
 pub(super) const STATUS_TIME: Duration = Duration::from_secs(4);

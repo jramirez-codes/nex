@@ -17,17 +17,11 @@
 //! right-click menu or the action bar) asks for confirmation, then permanently deletes the
 //! selection.
 
-mod edit;
-pub mod fs_ops;
+pub mod fs;
 mod input;
-mod items;
-mod line_edit;
-mod properties;
-mod transfer;
 #[cfg(test)]
-mod ui_test;
+mod tests;
 mod view;
-mod zoom;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -38,17 +32,17 @@ use egui::{Pos2, Rect};
 
 use crate::terminal::tilde;
 
-use fs_ops::read_entries;
-use edit::{Find, OpenWith, Rename};
+use fs::ops::read_entries;
+use input::edit::{Find, OpenWith, Rename};
 use input::Press;
-use items::Layout;
-use line_edit::LineEdit;
-use properties::Properties;
-use transfer::{FS_GENERATION, Job};
+use view::items::Layout;
+use input::line_edit::LineEdit;
+use view::properties::Properties;
+use fs::transfer::{FS_GENERATION, Job};
 
 pub use input::{ExplorerDrag, release_pos};
-pub use items::{drag_image, paint_drag_ghost};
-pub use transfer::{Op, files_changed};
+pub use view::items::{drag_image, paint_drag_ghost};
+pub use fs::transfer::{Op, files_changed};
 
 /// How often an idle listing is re-read so files created elsewhere show up (where the
 /// folder can't be watched; see `platform::DirWatch`).
@@ -97,10 +91,10 @@ pub struct FileExplorer {
     /// The last press came from a touch screen: use larger hit targets.
     pub touch: bool,
     scroll: f32,
-    /// Zoom level of this pane (1.0 = normal); see `zoom.rs`.
+    /// Zoom level of this pane (1.0 = normal); see `input/zoom.rs`.
     zoom: f32,
-    /// What to keep in place while zooming, applied on the next paint; see `zoom.rs`.
-    zoom_anchor: Option<zoom::Anchor>,
+    /// What to keep in place while zooming, applied on the next paint; see `input/zoom.rs`.
+    zoom_anchor: Option<input::zoom::Anchor>,
     /// Scroll the selection into view on the next paint (after keyboard moves).
     reveal: bool,
     /// Columns and items per page, from the last paint (for keyboard movement).
@@ -398,103 +392,5 @@ impl FileExplorer {
         } else {
             self.entries.iter().filter(|e| self.marked.contains(&e.path)).map(|e| e.path.clone()).collect()
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    pub(super) fn fixture(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("nex-files-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("beta")).unwrap();
-        std::fs::create_dir_all(dir.join("Alpha")).unwrap();
-        std::fs::create_dir_all(dir.join(".hidden_dir")).unwrap();
-        std::fs::write(dir.join("zeta.txt"), "z").unwrap();
-        std::fs::write(dir.join("Apple.md"), "apple").unwrap();
-        std::fs::write(dir.join(".env"), "x").unwrap();
-        dir
-    }
-
-    fn names(b: &FileExplorer) -> Vec<&str> {
-        b.entries.iter().map(|e| e.name.as_str()).collect()
-    }
-
-    #[test]
-    fn folders_first_then_case_insensitive() {
-        let dir = fixture("sort");
-        let b = FileExplorer::new(dir.clone());
-        assert_eq!(names(&b), ["Alpha", "beta", "Apple.md", "zeta.txt"]);
-        assert_eq!(b.entries[2].size, Some(5));
-        assert_eq!(b.entries[0].size, None);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn hidden_files_toggle() {
-        let dir = fixture("hidden");
-        let mut b = FileExplorer::new(dir.clone());
-        assert!(!names(&b).iter().any(|n| n.starts_with('.')));
-        b.toggle_hidden();
-        assert_eq!(names(&b), [".hidden_dir", "Alpha", "beta", ".env", "Apple.md", "zeta.txt"]);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn up_selects_the_folder_we_came_from() {
-        let dir = fixture("up");
-        let mut b = FileExplorer::new(dir.join("beta"));
-        b.up();
-        assert_eq!(b.dir, dir);
-        assert_eq!(b.entries[b.selected].name, "beta");
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn back_and_forward() {
-        let dir = fixture("history");
-        std::fs::create_dir(dir.join("beta/deep")).unwrap();
-        let mut b = FileExplorer::new(dir.clone());
-        assert!(!b.can_go_back());
-        b.navigate(dir.join("beta"));
-        b.navigate(dir.join("beta/deep"));
-        b.go_back();
-        assert_eq!(b.dir, dir.join("beta"));
-        assert_eq!(b.entries[b.selected].name, "deep");
-        b.go_back();
-        assert_eq!(b.dir, dir);
-        assert_eq!(b.entries[b.selected].name, "beta");
-        assert!(!b.can_go_back());
-        b.go_forward();
-        assert_eq!(b.dir, dir.join("beta"));
-        // Going somewhere new forgets the folders ahead.
-        b.navigate(dir.join("Alpha"));
-        assert!(!b.can_go_forward());
-        b.go_back();
-        assert_eq!(b.dir, dir.join("beta"));
-        // Up counts as a step too.
-        b.up();
-        b.go_back();
-        assert_eq!(b.dir, dir.join("beta"));
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn unreadable_dir_reports_error() {
-        let b = FileExplorer::new(PathBuf::from("/definitely/not/a/real/dir"));
-        assert!(b.error.is_some());
-        assert!(b.entries.is_empty());
-    }
-
-    #[test]
-    fn targets_follow_marks_in_listing_order() {
-        let dir = fixture("targets");
-        let mut b = FileExplorer::new(dir.clone());
-        assert_eq!(b.targets(), [dir.join("Alpha")]);
-        b.toggle_mark(3);
-        b.toggle_mark(1);
-        assert_eq!(b.targets(), [dir.join("beta"), dir.join("zeta.txt")]);
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

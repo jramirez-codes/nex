@@ -51,7 +51,7 @@ use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::protocol::wl_touch::{self, WlTouch};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum};
 
-use crate::file_explorer::fs_ops::parse_paths;
+use crate::file_explorer::fs::ops::parse_paths;
 use crate::platform::{ClipboardFiles, DragImage, dnd_log as log};
 
 macro_rules! trace {

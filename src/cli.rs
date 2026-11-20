@@ -96,7 +96,7 @@ impl Args {
 /// decoded, and a file opens its parent folder.
 fn folder_arg(arg: &str) -> PathBuf {
     let path = match arg.strip_prefix("file://") {
-        Some(rest) => PathBuf::from(crate::file_explorer::fs_ops::percent_decode(rest.strip_prefix("localhost").unwrap_or(rest))),
+        Some(rest) => PathBuf::from(crate::file_explorer::fs::ops::percent_decode(rest.strip_prefix("localhost").unwrap_or(rest))),
         None => PathBuf::from(arg),
     };
     match path.parent() {

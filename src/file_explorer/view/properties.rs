@@ -13,11 +13,11 @@ use crate::layout::PaneId;
 use crate::terminal::tilde;
 use crate::ui::theme::{ACCENT, Theme};
 
-use super::fs_ops::{human_size, thousands, tree_summary};
-use super::items::{paint_icon, sizes};
-use super::{Entry, FileExplorer};
+use crate::file_explorer::fs::ops::{human_size, thousands, tree_summary};
+use crate::file_explorer::view::items::{paint_icon, sizes};
+use crate::file_explorer::{Entry, FileExplorer};
 
-pub(super) struct Properties {
+pub(in crate::file_explorer) struct Properties {
     path: PathBuf,
     /// The name field.
     name: String,
@@ -84,7 +84,7 @@ fn kind(mime: &str, ext: Option<&str>) -> String {
 
 impl Properties {
     #[cfg(test)]
-    pub(super) fn path(&self) -> &std::path::Path {
+    pub(in crate::file_explorer) fn path(&self) -> &std::path::Path {
         &self.path
     }
 
@@ -200,7 +200,7 @@ impl FileExplorer {
 
     /// Open a Properties request from this frame, then draw the dialog. Enter applies a new
     /// name and closes; Escape or a tap outside closes without renaming.
-    pub(super) fn properties_dialog(&mut self, ctx: &egui::Context, pane: PaneId, c: &Theme) {
+    pub(in crate::file_explorer) fn properties_dialog(&mut self, ctx: &egui::Context, pane: PaneId, c: &Theme) {
         // The key that opened the dialog (Alt+Enter) mustn't also close it.
         let just_opened = self.pending_properties.is_some();
         if let Some(path) = self.pending_properties.take() {

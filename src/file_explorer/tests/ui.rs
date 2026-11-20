@@ -5,26 +5,26 @@ use std::path::PathBuf;
 
 use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
-use super::FileExplorer;
-use super::tests::fixture;
+use crate::file_explorer::FileExplorer;
+use crate::file_explorer::tests::fixture;
 use crate::ui::theme::Theme;
 
-pub(super) struct Harness {
-    pub(super) ctx: egui::Context,
-    pub(super) b: FileExplorer,
+pub(in crate::file_explorer) struct Harness {
+    pub(in crate::file_explorer) ctx: egui::Context,
+    pub(in crate::file_explorer) b: FileExplorer,
     theme: Theme,
     /// Labeled widgets and where they are. Accessibility updates only carry what changed,
     /// so this keeps every node seen, newest first.
-    pub(super) nodes: Vec<(String, Rect)>,
+    pub(in crate::file_explorer) nodes: Vec<(String, Rect)>,
     seen: std::collections::HashMap<u64, (String, Rect, u64)>,
     time: f64,
     pass: u64,
     /// Modifier keys held down.
-    pub(super) mods: Modifiers,
+    pub(in crate::file_explorer) mods: Modifiers,
 }
 
 impl Harness {
-    pub(super) fn new(dir: PathBuf) -> Self {
+    pub(in crate::file_explorer) fn new(dir: PathBuf) -> Self {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         crate::render::fonts::install(&ctx, &crate::config::Config::default());
@@ -35,7 +35,7 @@ impl Harness {
         h
     }
 
-    pub(super) fn frame(&mut self, events: Vec<Event>) {
+    pub(in crate::file_explorer) fn frame(&mut self, events: Vec<Event>) {
         self.time += 0.05;
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
@@ -65,7 +65,7 @@ impl Harness {
         self.nodes = nodes.into_iter().map(|(l, r, _)| (l, r)).collect();
     }
 
-    pub(super) fn click_at(&mut self, at: Pos2, button: PointerButton) {
+    pub(in crate::file_explorer) fn click_at(&mut self, at: Pos2, button: PointerButton) {
         let press = |pressed| Event::PointerButton { pos: at, button, pressed, modifiers: Modifiers::NONE };
         self.frame(vec![Event::PointerMoved(at)]);
         self.frame(vec![press(true)]);
@@ -74,24 +74,24 @@ impl Harness {
     }
 
     /// Press and release in one frame, as a quick click often arrives.
-    pub(super) fn quick_click_at(&mut self, at: Pos2, button: PointerButton) {
+    pub(in crate::file_explorer) fn quick_click_at(&mut self, at: Pos2, button: PointerButton) {
         let press = |pressed| Event::PointerButton { pos: at, button, pressed, modifiers: Modifiers::NONE };
         self.frame(vec![Event::PointerMoved(at)]);
         self.frame(vec![press(true), press(false)]);
         self.frame(vec![]);
     }
 
-    pub(super) fn find(&self, label: &str) -> Option<Rect> {
+    pub(in crate::file_explorer) fn find(&self, label: &str) -> Option<Rect> {
         self.nodes.iter().find(|(l, _)| l == label).map(|(_, r)| *r)
     }
 
-    pub(super) fn click_label(&mut self, label: &str) {
+    pub(in crate::file_explorer) fn click_label(&mut self, label: &str) {
         let r = self.find(label).unwrap_or_else(|| panic!("no “{label}” in {:?}", self.nodes.iter().map(|n| &n.0).collect::<Vec<_>>()));
         self.click_at(r.center(), PointerButton::Primary);
     }
 
     /// The center of row `i` of the list view.
-    pub(super) fn row(&self, i: usize) -> Pos2 {
+    pub(in crate::file_explorer) fn row(&self, i: usize) -> Pos2 {
         Pos2::new(200.0, 30.0 + 4.0 + 24.0 * i as f32 + 12.0)
     }
 }
@@ -190,7 +190,7 @@ fn menu_open_with_over_other_rows() {
     // A stand-in app (`true` ignores the file) so the test doesn't start a real one.
     let app = crate::platform::AppChoice { name: "Stand-in".into(), command: "true".into(), default: true };
     let apps = std::sync::Arc::new(std::sync::Mutex::new(Some(vec![app])));
-    h.b.open_with = Some(super::edit::OpenWith { path: dir.join("file03.txt"), apps });
+    h.b.open_with = Some(crate::file_explorer::input::edit::OpenWith { path: dir.join("file03.txt"), apps });
     menu_over_rows(&mut h, &dir);
     let r = h.find("Open With ⏵").expect("Open With in the menu");
     h.frame(vec![Event::PointerMoved(r.center())]);
@@ -227,28 +227,28 @@ fn action_bar_delete_asks_first() {
 #[test]
 fn drag_shows_the_items_icon_at_its_size() {
     let dir = fixture("drag-ghost");
-    for view in [super::View::List, super::View::Grid] {
+    for view in [crate::file_explorer::View::List, crate::file_explorer::View::Grid] {
         let mut h = Harness::new(dir.clone());
         h.b.view = view;
         h.frame(vec![]);
         let layout = h.b.layout.expect("laid out");
-        let s = super::items::sizes(false, 1.0);
+        let s = crate::file_explorer::view::items::sizes(false, 1.0);
         let item = layout.item_rect(0, 0.0);
         let icon = match view {
-            super::View::List => super::items::row_icon_rect(item, &s, false),
-            super::View::Grid => super::items::tile_icon_rect(item, &s, h.b.entries[0].is_dir),
+            crate::file_explorer::View::List => crate::file_explorer::view::items::row_icon_rect(item, &s, false),
+            crate::file_explorer::View::Grid => crate::file_explorer::view::items::tile_icon_rect(item, &s, h.b.entries[0].is_dir),
         };
         let at = icon.center() + Vec2::new(2.0, 1.0);
         let button = |pressed, pos| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
         h.frame(vec![Event::PointerMoved(at)]);
         h.frame(vec![button(true, at)]);
         h.frame(vec![Event::PointerMoved(at + Vec2::new(30.0, 30.0))]);
-        let drag = egui::DragAndDrop::payload::<super::ExplorerDrag>(&h.ctx).expect("dragging");
+        let drag = egui::DragAndDrop::payload::<crate::file_explorer::ExplorerDrag>(&h.ctx).expect("dragging");
         assert_eq!(drag.ghost.size, icon.size());
         assert_eq!(drag.ghost.grab, at - icon.min);
 
         let mut image = None;
-        let _ = h.ctx.run(RawInput::default(), |ctx| image = super::drag_image(ctx, &h.theme, &drag));
+        let _ = h.ctx.run(RawInput::default(), |ctx| image = crate::file_explorer::drag_image(ctx, &h.theme, &drag));
         let img = image.expect("an image");
         // The icon plus a pixel of margin, with the pointer where it was grabbed.
         assert!(img.size[0] as f32 >= icon.width() && img.size[0] as f32 <= icon.width() + 4.0, "{:?} vs {icon:?}", img.size);

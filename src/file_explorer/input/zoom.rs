@@ -3,15 +3,15 @@
 
 use egui::Pos2;
 
-use super::FileExplorer;
-use super::items::Layout;
+use crate::file_explorer::FileExplorer;
+use crate::file_explorer::view::items::Layout;
 
 const MIN_ZOOM: f32 = 0.6;
 const MAX_ZOOM: f32 = 2.5;
 
 /// A point of the listing to keep on screen at the same height across a zoom.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Anchor {
+pub(in crate::file_explorer) struct Anchor {
     /// First item of the row under the point.
     item: usize,
     /// Where the point is inside that row (0 = top, 1 = bottom).
@@ -50,7 +50,7 @@ impl FileExplorer {
 
     /// Scroll so the anchored row is back under its point, now that items have a new size
     /// (and, in grid view, maybe a new column count).
-    pub(super) fn apply_zoom_anchor(&mut self, layout: &Layout) {
+    pub(in crate::file_explorer) fn apply_zoom_anchor(&mut self, layout: &Layout) {
         let Some(a) = self.zoom_anchor.take() else { return };
         let row = (a.item / layout.cols) as f32;
         self.scroll = (row + a.frac) * layout.item.y - a.y;
@@ -69,8 +69,8 @@ fn anchor(layout: &Layout, scroll: f32, at: Option<Pos2>) -> Anchor {
 mod tests {
     use egui::{Rect, Vec2};
 
-    use super::super::items::sizes;
-    use super::super::tests::fixture;
+    use crate::file_explorer::view::items::sizes;
+    use crate::file_explorer::tests::fixture;
     use super::*;
 
     fn list_layout(row: f32) -> Layout {

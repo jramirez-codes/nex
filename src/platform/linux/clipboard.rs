@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use crate::file_explorer::fs_ops::parse_paths;
+use crate::file_explorer::fs::ops::parse_paths;
 use crate::platform::ClipboardFiles;
 use crate::platform::unix::output_within;
 

@@ -543,11 +543,10 @@ src/
 │   └── fonts.rs          font setup + embedded Nerd Font
 ├── file_explorer/    the explorer pane
 │   ├── mod.rs            state, navigation, selection
-│   ├── view.rs           path bar, listing, action bar, context menu
-│   ├── input.rs          clicks, touch gestures, drags, keys
-│   ├── transfer.rs       file clipboard, copy/move jobs, drops
-│   ├── fs_ops.rs         listing, copying, moving, path quoting
-│   └── items.rs, zoom.rs rows, tiles and pinch zoom
+│   ├── fs/               listing, copying, moving, path quoting; file clipboard and jobs
+│   ├── input/            clicks, touch gestures, drags, keys; renaming, location bar, zoom
+│   ├── view/             path bar, listing rows and tiles, action bar, Properties dialog
+│   └── tests/            the folder fixture, unit tests and egui-driven UI tests
 ├── ui/               shared UI kit: theme, glide animation, painting, icons, widgets
 └── platform/         everything OS-specific, behind one API (see platform/mod.rs)
     ├── mod.rs            the shared types and the per-OS switch

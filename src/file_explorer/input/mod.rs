@@ -1,15 +1,19 @@
 //! Pointer and keyboard input: clicks, touch gestures (long press, pan), dragging files,
 //! and the commands menus and buttons issue.
 
+pub(super) mod edit;
+pub(super) mod line_edit;
+pub(super) mod zoom;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
 use egui::{DragAndDrop, Key, Modifiers, Pos2, Rect, Ui, Vec2};
 
-use super::items::{self, Layout};
-use super::line_edit::EditKey;
-use super::transfer::set_clipboard;
-use super::{Entry, FileExplorer, Request, View};
+use crate::file_explorer::view::items::{self, Layout};
+use crate::file_explorer::input::line_edit::EditKey;
+use crate::file_explorer::fs::transfer::set_clipboard;
+use crate::file_explorer::{Entry, FileExplorer, Request, View};
 
 /// Holding a touch this long (without moving) starts selecting.
 pub(super) const LONG_PRESS: f64 = 0.45;
