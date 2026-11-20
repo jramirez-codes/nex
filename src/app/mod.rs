@@ -23,7 +23,7 @@ mod window;
 mod workspace;
 mod zoom;
 #[cfg(test)]
-mod drop_test;
+mod tests;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
