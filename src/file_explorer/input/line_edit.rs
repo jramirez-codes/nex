@@ -7,8 +7,8 @@ use egui::{Color32, FontId, Key, Modifiers, Painter, Pos2, Rect, Stroke, StrokeK
 
 use crate::ui::theme::{ACCENT, Theme};
 
-pub(super) struct LineEdit {
-    pub(super) text: String,
+pub(in crate::file_explorer) struct LineEdit {
+    pub(in crate::file_explorer) text: String,
     cursor: usize,
     /// The other end of the selection (equal to `cursor` when nothing is selected).
     anchor: usize,
@@ -16,7 +16,7 @@ pub(super) struct LineEdit {
 
 /// What a key press did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum EditKey {
+pub(in crate::file_explorer) enum EditKey {
     /// Not a key the field uses.
     Ignored,
     /// Edited the text or moved the caret.
@@ -29,14 +29,14 @@ pub(super) enum EditKey {
 
 impl LineEdit {
     /// A field holding `text`, all of it selected.
-    pub(super) fn new(text: impl Into<String>) -> Self {
+    pub(in crate::file_explorer) fn new(text: impl Into<String>) -> Self {
         let text = text.into();
         let n = text.chars().count();
         Self { text, cursor: n, anchor: 0 }
     }
 
     /// A field holding `text` with chars `start..end` selected (a name without its extension).
-    pub(super) fn with_selection(text: impl Into<String>, start: usize, end: usize) -> Self {
+    pub(in crate::file_explorer) fn with_selection(text: impl Into<String>, start: usize, end: usize) -> Self {
         let text = text.into();
         let end = end.min(text.chars().count());
         Self { text, cursor: end, anchor: start.min(end) }
@@ -54,7 +54,7 @@ impl LineEdit {
         (self.cursor.min(self.anchor), self.cursor.max(self.anchor))
     }
 
-    pub(super) fn selected_text(&self) -> String {
+    pub(in crate::file_explorer) fn selected_text(&self) -> String {
         let (a, b) = self.selection();
         self.text[self.byte(a)..self.byte(b)].to_string()
     }
@@ -73,14 +73,14 @@ impl LineEdit {
     }
 
     /// Cut the selection out (for Ctrl+X).
-    pub(super) fn cut(&mut self) -> String {
+    pub(in crate::file_explorer) fn cut(&mut self) -> String {
         let s = self.selected_text();
         self.delete_selection();
         s
     }
 
     /// Type `s` over the selection. Line breaks and control characters are dropped.
-    pub(super) fn insert(&mut self, s: &str) {
+    pub(in crate::file_explorer) fn insert(&mut self, s: &str) {
         let s: String = s.chars().filter(|c| !c.is_control()).collect();
         self.delete_selection();
         let at = self.byte(self.cursor);
@@ -90,7 +90,7 @@ impl LineEdit {
     }
 
     /// Replace the text, with the caret at the end.
-    pub(super) fn set_text(&mut self, s: String) {
+    pub(in crate::file_explorer) fn set_text(&mut self, s: String) {
         self.text = s;
         self.cursor = self.len();
         self.anchor = self.cursor;
@@ -119,7 +119,7 @@ impl LineEdit {
         j
     }
 
-    pub(super) fn key(&mut self, key: Key, mods: Modifiers) -> EditKey {
+    pub(in crate::file_explorer) fn key(&mut self, key: Key, mods: Modifiers) -> EditKey {
         // Ctrl jumps by word on Linux; Option does on macOS.
         let by_word = mods.ctrl || mods.alt;
         let len = self.len();
@@ -169,7 +169,7 @@ impl LineEdit {
 
     /// Draw the field in `r`. A press inside it this frame moves the caret there (Shift
     /// extends the selection); a double-click selects everything.
-    pub(super) fn paint(&mut self, p: &Painter, r: Rect, font: FontId, c: &Theme) {
+    pub(in crate::file_explorer) fn paint(&mut self, p: &Painter, r: Rect, font: FontId, c: &Theme) {
         p.rect_filled(r, 6, Color32::from_black_alpha(90));
         p.rect_stroke(r, 6, Stroke::new(1.0_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
         let inner = r.shrink2(Vec2::new(6.0, 0.0));

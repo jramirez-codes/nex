@@ -190,7 +190,7 @@ fn menu_open_with_over_other_rows() {
     // A stand-in app (`true` ignores the file) so the test doesn't start a real one.
     let app = crate::platform::AppChoice { name: "Stand-in".into(), command: "true".into(), default: true };
     let apps = std::sync::Arc::new(std::sync::Mutex::new(Some(vec![app])));
-    h.b.open_with = Some(crate::file_explorer::edit::OpenWith { path: dir.join("file03.txt"), apps });
+    h.b.open_with = Some(crate::file_explorer::input::edit::OpenWith { path: dir.join("file03.txt"), apps });
     menu_over_rows(&mut h, &dir);
     let r = h.find("Open With ⏵").expect("Open With in the menu");
     h.frame(vec![Event::PointerMoved(r.center())]);

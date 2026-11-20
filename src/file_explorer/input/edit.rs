@@ -11,29 +11,29 @@ use crate::terminal::tilde;
 
 use crate::file_explorer::FileExplorer;
 use crate::file_explorer::fs::ops::{complete_location, create_new, expand_location, rename_path};
-use crate::file_explorer::line_edit::LineEdit;
+use crate::file_explorer::input::line_edit::LineEdit;
 use crate::file_explorer::fs::transfer::{FS_GENERATION, clipboard, set_clipboard};
 
 /// Type-to-find forgets what was typed after this long without a key.
-pub(super) const FIND_TIMEOUT: Duration = Duration::from_millis(1500);
+pub(in crate::file_explorer) const FIND_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// An item being renamed: its path, and the name being typed.
-pub(super) struct Rename {
-    pub(super) path: PathBuf,
-    pub(super) field: LineEdit,
+pub(in crate::file_explorer) struct Rename {
+    pub(in crate::file_explorer) path: PathBuf,
+    pub(in crate::file_explorer) field: LineEdit,
 }
 
-pub(super) struct Find {
-    pub(super) query: String,
-    pub(super) at: Instant,
+pub(in crate::file_explorer) struct Find {
+    pub(in crate::file_explorer) query: String,
+    pub(in crate::file_explorer) at: Instant,
     /// Nothing in the folder matches.
-    pub(super) missed: bool,
+    pub(in crate::file_explorer) missed: bool,
 }
 
 /// The apps that can open one file; `apps` is `None` while they're still being looked up.
-pub(super) struct OpenWith {
-    pub(super) path: PathBuf,
-    pub(super) apps: Arc<Mutex<Option<Vec<AppChoice>>>>,
+pub(in crate::file_explorer) struct OpenWith {
+    pub(in crate::file_explorer) path: PathBuf,
+    pub(in crate::file_explorer) apps: Arc<Mutex<Option<Vec<AppChoice>>>>,
 }
 
 /// The part of `name` a rename selects first: everything before the extension.
@@ -66,7 +66,7 @@ impl FileExplorer {
     }
 
     /// Apply the typed name. On failure the field stays open with the error shown.
-    pub(super) fn commit_rename(&mut self) {
+    pub(in crate::file_explorer) fn commit_rename(&mut self) {
         let Some(r) = self.rename.take() else { return };
         let new_name = r.field.text.trim().to_string();
         if r.path.file_name().is_some_and(|n| n.to_string_lossy() == new_name) {
@@ -83,7 +83,7 @@ impl FileExplorer {
 
     /// Rename `path`, then show and select it under its new name. Used by the rename field
     /// and the Properties dialog.
-    pub(super) fn rename_item(&mut self, path: &Path, new_name: &str) -> Result<PathBuf, String> {
+    pub(in crate::file_explorer) fn rename_item(&mut self, path: &Path, new_name: &str) -> Result<PathBuf, String> {
         let new = rename_path(path, new_name)?;
         // Cut or copied files keep pointing at the right file.
         if let Some(mut clip) = clipboard() {
@@ -98,7 +98,7 @@ impl FileExplorer {
         Ok(new)
     }
 
-    pub(super) fn select_path(&mut self, path: &Path) {
+    pub(in crate::file_explorer) fn select_path(&mut self, path: &Path) {
         if let Some(i) = self.entries.iter().position(|e| e.path == path) {
             self.marked.clear();
             self.selected = i;
@@ -135,7 +135,7 @@ impl FileExplorer {
     }
 
     /// Go to the typed folder, or open the typed file. Unknown paths keep the field open.
-    pub(super) fn commit_location(&mut self) {
+    pub(in crate::file_explorer) fn commit_location(&mut self) {
         let Some(field) = self.location.take() else { return };
         let path = expand_location(&field.text, &self.dir);
         if path.is_dir() {
@@ -152,7 +152,7 @@ impl FileExplorer {
         }
     }
 
-    pub(super) fn complete_location(&mut self) {
+    pub(in crate::file_explorer) fn complete_location(&mut self) {
         let dir = self.dir.clone();
         if let Some(field) = self.location.as_mut()
             && let Some(text) = complete_location(&field.text, &dir) {
@@ -161,7 +161,7 @@ impl FileExplorer {
     }
 
     /// Add typed text to the find query and select the first matching name.
-    pub(super) fn find_type(&mut self, text: &str) {
+    pub(in crate::file_explorer) fn find_type(&mut self, text: &str) {
         let find = self.find.get_or_insert_with(|| Find { query: String::new(), at: Instant::now(), missed: false });
         find.query.push_str(text);
         find.at = Instant::now();
@@ -169,7 +169,7 @@ impl FileExplorer {
     }
 
     /// Backspace in the query. Returns false when there was no query to edit.
-    pub(super) fn find_backspace(&mut self) -> bool {
+    pub(in crate::file_explorer) fn find_backspace(&mut self) -> bool {
         let Some(find) = self.find.as_mut() else { return false };
         find.query.pop();
         find.at = Instant::now();
@@ -183,7 +183,7 @@ impl FileExplorer {
 
     /// Select the next match at or after the cursor (`step` 0), or the next / previous one
     /// after it (`step` 1 / -1), wrapping around.
-    pub(super) fn find_step(&mut self, step: isize) {
+    pub(in crate::file_explorer) fn find_step(&mut self, step: isize) {
         let Some(find) = self.find.as_mut() else { return };
         find.at = Instant::now();
         let found = find_match(&self.entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), &find.query, self.selected, step);
@@ -196,7 +196,7 @@ impl FileExplorer {
     }
 
     /// Forget the query once the user stops typing.
-    pub(super) fn expire_find(&mut self, ctx: &egui::Context) {
+    pub(in crate::file_explorer) fn expire_find(&mut self, ctx: &egui::Context) {
         if let Some(find) = &self.find {
             let left = FIND_TIMEOUT.saturating_sub(find.at.elapsed());
             if left.is_zero() {
@@ -208,7 +208,7 @@ impl FileExplorer {
     }
 
     /// Look up the apps for `path` on a thread (reading desktop entries takes a moment).
-    pub(super) fn load_open_with(&mut self, ctx: &egui::Context, path: PathBuf) {
+    pub(in crate::file_explorer) fn load_open_with(&mut self, ctx: &egui::Context, path: PathBuf) {
         if self.open_with.as_ref().is_some_and(|o| o.path == path) {
             return;
         }
@@ -225,7 +225,7 @@ impl FileExplorer {
     }
 
     /// Open the right-clicked file with the `k`th app of its "Open With" list.
-    pub(super) fn open_with_app(&mut self, k: usize) {
+    pub(in crate::file_explorer) fn open_with_app(&mut self, k: usize) {
         let Some(o) = &self.open_with else { return };
         let app = o.apps.lock().ok().and_then(|a| a.as_ref().and_then(|a| a.get(k).cloned()));
         if let Some(app) = app {

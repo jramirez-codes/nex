@@ -18,15 +18,12 @@
 //! selection.
 
 pub mod fs;
-mod edit;
 mod input;
 mod items;
-mod line_edit;
 mod properties;
 #[cfg(test)]
 mod ui_test;
 mod view;
-mod zoom;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -38,10 +35,10 @@ use egui::{Pos2, Rect};
 use crate::terminal::tilde;
 
 use fs::ops::read_entries;
-use edit::{Find, OpenWith, Rename};
+use input::edit::{Find, OpenWith, Rename};
 use input::Press;
 use items::Layout;
-use line_edit::LineEdit;
+use input::line_edit::LineEdit;
 use properties::Properties;
 use fs::transfer::{FS_GENERATION, Job};
 
@@ -99,7 +96,7 @@ pub struct FileExplorer {
     /// Zoom level of this pane (1.0 = normal); see `zoom.rs`.
     zoom: f32,
     /// What to keep in place while zooming, applied on the next paint; see `zoom.rs`.
-    zoom_anchor: Option<zoom::Anchor>,
+    zoom_anchor: Option<input::zoom::Anchor>,
     /// Scroll the selection into view on the next paint (after keyboard moves).
     reveal: bool,
     /// Columns and items per page, from the last paint (for keyboard movement).
