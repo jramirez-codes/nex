@@ -236,18 +236,69 @@ impl Sim {
     fn order(&self) -> Vec<PaneId> {
         self.app.cur_tab().unwrap().root.panes()
     }
-    /// Drag from `from` to `to` with the mouse, then let go.
-    fn mouse_drag(&mut self, from: Pos2, to: Pos2) {
-        let btn = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+    /// Press the mouse at `from` (a header) and drag to `to`, still holding the button.
+    fn grab(&mut self, from: Pos2, to: Pos2) {
         self.frame(vec![Event::PointerMoved(from)]);
         self.frame(vec![btn(from, true)]);
+        self.move_to(from, to);
+        assert!(self.app.pane_drag.is_some(), "header drag never started");
+    }
+    /// Move the held mouse from `from` to `to`.
+    fn move_to(&mut self, from: Pos2, to: Pos2) {
         for k in 1..=20 {
             self.frame(vec![Event::PointerMoved(from + (to - from) * (k as f32 / 20.0))]);
         }
-        assert!(self.app.cur_tab().unwrap().drag.is_some(), "header drag never started");
-        self.frame(vec![btn(to, false)]);
+    }
+    /// Let go of the mouse at `at`, and let everything settle.
+    fn release(&mut self, at: Pos2) {
+        self.frame(vec![btn(at, false)]);
         self.settle();
     }
+    /// Drag from `from` to `to` with the mouse, then let go.
+    fn mouse_drag(&mut self, from: Pos2, to: Pos2) {
+        self.grab(from, to);
+        self.release(to);
+    }
+    /// Keep still for `secs`.
+    fn hold(&mut self, secs: f64) {
+        for _ in 0..(secs / 0.016).ceil() as usize {
+            self.frame(vec![]);
+        }
+    }
+    fn escape(&mut self) {
+        let key = Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        self.frame(vec![key]);
+        self.settle();
+    }
+    /// Where tab `uid` is drawn in the title bar.
+    fn tab_at(&self, uid: u64) -> Pos2 {
+        self.app.tab_hits.iter().find(|(u, _)| *u == uid).expect("tab not drawn").1.center()
+    }
+    fn shown_uid(&self) -> u64 {
+        self.app.cur_tab().unwrap().uid
+    }
+    /// The panes of the tab with `uid`.
+    fn panes_of(&self, uid: u64) -> Vec<PaneId> {
+        self.app.tabs.iter().find(|t| t.uid == uid).expect("no such tab").root.panes()
+    }
+}
+
+fn btn(pos: Pos2, pressed: bool) -> Event {
+    Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() }
+}
+
+/// Two terminals side by side in the first tab (shown), and a second tab with one terminal.
+/// Returns `(sim, left, right, first tab, second tab, its pane)`.
+fn two_tabs() -> (Sim, PaneId, PaneId, u64, u64, PaneId) {
+    let (mut s, left, right) = two_terminals();
+    let first = s.shown_uid();
+    let c = s.ctx.clone();
+    s.app.new_tab(&c, None, None);
+    s.settle();
+    let (second, lone) = (s.shown_uid(), s.order()[0]);
+    s.app.show_tab(0);
+    s.settle();
+    (s, left, right, first, second, lone)
 }
 
 #[test]
@@ -261,12 +312,124 @@ fn drag_header_onto_pane_swaps_them() {
 }
 
 #[test]
-fn drag_header_dropped_on_nothing_cancels() {
+fn drag_header_onto_bottom_edge_stacks_them() {
+    let (mut s, left, right) = two_terminals();
+    let r = s.card(right);
+    let (from, to) = (s.header(left), Pos2::new(r.center().x, r.bottom() - 15.0));
+    s.mouse_drag(from, to);
+    assert_eq!(s.order(), vec![right, left]);
+    let Some(crate::app::layout::Node::Split { axis, .. }) = s.app.cur_tab().map(|t| &t.root) else { panic!("not split") };
+    assert_eq!(*axis, Axis::Vertical);
+    assert!(s.card(left).top() > s.card(right).bottom());
+    assert_eq!(s.app.focused_pane(), Some(left));
+}
+
+#[test]
+fn drag_header_onto_own_slot_or_escape_cancels() {
     let (mut s, left, right) = two_terminals();
     let from = s.header(left);
-    s.mouse_drag(from, Pos2::new(600.0, 10.0));
+    let home = s.card(left).center();
+    s.mouse_drag(from, home);
     assert_eq!(s.order(), vec![left, right]);
-    assert!(s.app.cur_tab().unwrap().drag.is_none());
+    assert!(s.app.pane_drag.is_none());
+
+    let to = s.card(right).center();
+    s.grab(from, to);
+    s.escape();
+    assert!(s.app.pane_drag.is_none());
+    s.release(to);
+    assert_eq!(s.order(), vec![left, right]);
+}
+
+#[test]
+fn drag_header_onto_title_bar_opens_a_new_tab() {
+    let (mut s, left, right) = two_terminals();
+    let first = s.shown_uid();
+    let from = s.header(left);
+    s.mouse_drag(from, Pos2::new(600.0, 10.0));
+    assert_eq!(s.app.tabs.len(), 2);
+    assert_ne!(s.shown_uid(), first);
+    assert_eq!(s.order(), vec![left]);
+    assert_eq!(s.panes_of(first), vec![right]);
+}
+
+#[test]
+fn a_lone_pane_has_nowhere_new_to_go() {
+    let (mut s, _dir) = setup();
+    s.settle();
+    let only = s.terminals()[0];
+    let from = s.header(only);
+    s.frame(vec![Event::PointerMoved(from)]);
+    s.frame(vec![btn(from, true)]);
+    s.move_to(from, Pos2::new(600.0, 10.0));
+    assert!(s.app.pane_drag.is_none(), "a tab's only pane, with no other tab, can't be dragged");
+    s.release(Pos2::new(600.0, 10.0));
+    assert_eq!(s.app.tabs.len(), 1);
+}
+
+#[test]
+fn drop_straight_onto_a_tab_moves_the_pane_there() {
+    let (mut s, left, right, first, second, lone) = two_tabs();
+    let (from, to) = (s.header(left), s.tab_at(second));
+    s.mouse_drag(from, to);
+    assert_eq!(s.shown_uid(), second);
+    assert_eq!(s.panes_of(second), vec![lone, left]);
+    assert_eq!(s.panes_of(first), vec![right]);
+    assert_eq!(s.app.focused_pane(), Some(left));
+}
+
+#[test]
+fn holding_over_a_tab_opens_it_to_place_the_pane() {
+    let (mut s, left, right, first, second, lone) = two_tabs();
+    let (from, tab) = (s.header(left), s.tab_at(second));
+    s.grab(from, tab);
+    assert_eq!(s.shown_uid(), first, "opened before the delay");
+    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    assert_eq!(s.shown_uid(), second);
+    s.settle();
+    // Onto the left edge of the lone pane there.
+    let r = s.card(lone);
+    let to = Pos2::new(r.left() + 20.0, r.center().y);
+    s.move_to(tab, to);
+    s.release(to);
+    assert_eq!(s.shown_uid(), second);
+    assert_eq!(s.panes_of(second), vec![left, lone]);
+    assert_eq!(s.panes_of(first), vec![right]);
+    assert!(s.card(left).right() < s.card(lone).left());
+}
+
+#[test]
+fn escape_after_opening_another_tab_goes_back() {
+    let (mut s, left, right, first, second, lone) = two_tabs();
+    let (from, tab) = (s.header(left), s.tab_at(second));
+    s.grab(from, tab);
+    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    assert_eq!(s.shown_uid(), second);
+    s.escape();
+    s.release(tab);
+    assert_eq!(s.shown_uid(), first);
+    assert_eq!(s.panes_of(first), vec![left, right]);
+    assert_eq!(s.panes_of(second), vec![lone]);
+}
+
+#[test]
+fn moving_a_tabs_last_pane_away_closes_the_tab_but_keeps_the_pane() {
+    let (mut s, left, right, first, second, lone) = two_tabs();
+    s.app.show_tab(1);
+    s.settle();
+    let (from, tab) = (s.header(lone), s.tab_at(first));
+    s.grab(from, tab);
+    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    assert_eq!(s.shown_uid(), first);
+    s.settle();
+    let r = s.card(right);
+    let to = Pos2::new(r.center().x, r.bottom() - 15.0);
+    s.move_to(tab, to);
+    s.release(to);
+    assert_eq!(s.app.tabs.len(), 1);
+    assert!(s.app.tabs.iter().all(|t| t.uid != second));
+    assert_eq!(s.panes_of(first), vec![left, right, lone]);
+    assert!(s.app.panes.contains_key(&lone), "the terminal was closed");
 }
 
 #[test]
@@ -290,4 +453,60 @@ fn keyboard_swap_with_neighbor() {
     s.settle();
     assert_eq!(s.order(), vec![right, left]);
     assert_eq!(s.app.focused_pane(), Some(left));
+}
+
+/// Two tabs of one terminal each (the first shown): `(sim, first, its pane, second, its pane)`.
+fn two_lone_tabs() -> (Sim, u64, PaneId, u64, PaneId) {
+    let (mut s, _dir) = setup();
+    s.settle();
+    let (first, a) = (s.shown_uid(), s.order()[0]);
+    let c = s.ctx.clone();
+    s.app.new_tab(&c, None, None);
+    s.settle();
+    let (second, b) = (s.shown_uid(), s.order()[0]);
+    s.app.show_tab(0);
+    s.settle();
+    (s, first, a, second, b)
+}
+
+#[test]
+fn lone_pane_dropped_on_a_lone_tab_merges_them() {
+    let (mut s, first, a, second, b) = two_lone_tabs();
+    let (from, to) = (s.header(a), s.tab_at(second));
+    s.mouse_drag(from, to);
+    assert_eq!(s.app.tabs.len(), 1, "the emptied tab stayed");
+    assert!(s.app.tabs.iter().all(|t| t.uid != first));
+    assert_eq!(s.panes_of(second), vec![b, a]);
+}
+
+#[test]
+fn lone_pane_placed_in_a_lone_tab_merges_them() {
+    let (mut s, first, a, second, b) = two_lone_tabs();
+    let (from, tab) = (s.header(a), s.tab_at(second));
+    s.grab(from, tab);
+    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    assert_eq!(s.shown_uid(), second);
+    s.settle();
+    let r = s.card(b);
+    let to = Pos2::new(r.center().x, r.bottom() - 15.0);
+    s.move_to(tab, to);
+    s.release(to);
+    assert_eq!(s.app.tabs.len(), 1, "the emptied tab stayed");
+    assert!(s.app.tabs.iter().all(|t| t.uid != first));
+    assert_eq!(s.panes_of(second), vec![b, a]);
+}
+
+#[test]
+fn lone_pane_dropped_mid_pane_in_a_lone_tab_merges_them() {
+    let (mut s, first, a, second, b) = two_lone_tabs();
+    let (from, tab) = (s.header(a), s.tab_at(second));
+    s.grab(from, tab);
+    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    s.settle();
+    let to = s.card(b).center();
+    s.move_to(tab, to);
+    s.release(to);
+    assert_eq!(s.app.tabs.len(), 1, "the emptied tab stayed");
+    assert!(s.app.tabs.iter().all(|t| t.uid != first));
+    assert_eq!(s.panes_of(second), vec![b, a]);
 }

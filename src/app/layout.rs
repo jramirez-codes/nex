@@ -20,7 +20,7 @@ pub enum Direction {
     Down,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Node {
     Leaf(PaneId),
     Split {
@@ -61,19 +61,42 @@ impl Node {
 
     /// Replace leaf `target` with a split containing it and `new` (new pane goes right/below).
     pub fn split(&mut self, target: PaneId, axis: Axis, new: PaneId) -> bool {
+        let dir = match axis {
+            Axis::Horizontal => Direction::Right,
+            Axis::Vertical => Direction::Down,
+        };
+        self.insert(target, dir, new)
+    }
+
+    /// Replace leaf `target` with an even split holding it and `new`, `new` on the `dir` side.
+    pub fn insert(&mut self, target: PaneId, dir: Direction, new: PaneId) -> bool {
         match self {
             Node::Leaf(id) if *id == target => {
-                *self = Node::Split {
-                    axis,
-                    ratio: 0.5,
-                    a: Box::new(Node::Leaf(target)),
-                    b: Box::new(Node::Leaf(new)),
+                let axis = match dir {
+                    Direction::Left | Direction::Right => Axis::Horizontal,
+                    Direction::Up | Direction::Down => Axis::Vertical,
                 };
+                let (t, n) = (Box::new(Node::Leaf(target)), Box::new(Node::Leaf(new)));
+                let (a, b) = match dir {
+                    Direction::Left | Direction::Up => (n, t),
+                    Direction::Right | Direction::Down => (t, n),
+                };
+                *self = Node::Split { axis, ratio: 0.5, a, b };
                 true
             }
             Node::Leaf(_) => false,
-            Node::Split { a, b, .. } => a.split(target, axis, new) || b.split(target, axis, new),
+            Node::Split { a, b, .. } => a.insert(target, dir, new) || b.insert(target, dir, new),
         }
+    }
+
+    /// Move leaf `pane` to the `dir` side of leaf `target` (its old slot closes up). Returns
+    /// false (changing nothing) if either is missing or they are the same pane.
+    pub fn move_pane(&mut self, pane: PaneId, target: PaneId, dir: Direction) -> bool {
+        let ids = self.panes();
+        if pane == target || !ids.contains(&pane) || !ids.contains(&target) {
+            return false;
+        }
+        self.remove(pane) && self.insert(target, dir, pane)
     }
 
     /// Remove a leaf; its sibling takes the parent's place. Returns false if `target` is the
@@ -300,6 +323,35 @@ mod tests {
         let mut n = split(Axis::Vertical, 0.5, Node::Leaf(1), Node::Leaf(2));
         assert!(!n.swap(1, 9));
         assert!(!n.swap(1, 1));
+        assert_eq!(n.panes(), vec![1, 2]);
+    }
+
+    #[test]
+    fn move_side_by_side_to_stacked() {
+        let mut n = split(Axis::Horizontal, 0.5, Node::Leaf(1), Node::Leaf(2));
+        assert!(n.move_pane(1, 2, Direction::Down));
+        assert_eq!(n.panes(), vec![2, 1]);
+        let Node::Split { axis, .. } = n else { panic!() };
+        assert_eq!(axis, Axis::Vertical);
+    }
+
+    #[test]
+    fn move_into_a_nested_split() {
+        let mut n = split(Axis::Horizontal, 0.5, Node::Leaf(1), split(Axis::Vertical, 0.5, Node::Leaf(2), Node::Leaf(3)));
+        assert!(n.move_pane(1, 3, Direction::Left));
+        // 1 left the root, so the vertical split is the root now, with 3 split into [1 | 3].
+        let Node::Split { axis, b, .. } = &n else { panic!() };
+        assert_eq!(*axis, Axis::Vertical);
+        assert!(matches!(**b, Node::Split { axis: Axis::Horizontal, .. }));
+        assert_eq!(n.panes(), vec![2, 1, 3]);
+    }
+
+    #[test]
+    fn move_onto_itself_or_missing_does_nothing() {
+        let mut n = split(Axis::Horizontal, 0.5, Node::Leaf(1), Node::Leaf(2));
+        assert!(!n.move_pane(1, 1, Direction::Up));
+        assert!(!n.move_pane(1, 9, Direction::Up));
+        assert!(!n.move_pane(9, 1, Direction::Up));
         assert_eq!(n.panes(), vec![1, 2]);
     }
 }

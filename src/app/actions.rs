@@ -25,8 +25,14 @@ pub(super) enum Action {
     ResizeSplit(Direction),
     /// Swap the focused pane with its neighbor in this direction.
     Swap(Direction),
-    /// Swap two panes of a tab (a header dropped on another pane).
+    /// Swap two panes of a tab (a header dropped on the middle of another pane).
     SwapPanes(PaneId, PaneId),
+    /// Move a pane to this side of another (a header dropped on its edge), even across tabs.
+    MovePane(PaneId, PaneId, Direction),
+    /// Move a pane into the tab with this uid, beside its focused pane.
+    PaneToTab(PaneId, u64),
+    /// Move a pane out of its tab into a new one of its own.
+    PaneToNewTab(PaneId),
     /// Drop a pane being dragged by its header back where it was.
     CancelPaneDrag,
     ToggleZoom,
@@ -94,6 +100,9 @@ impl App {
                     }
             }
             Action::SwapPanes(a, b) => self.swap_panes(ctx, a, b),
+            Action::MovePane(pane, target, dir) => self.move_pane(ctx, pane, target, dir),
+            Action::PaneToTab(pane, uid) => self.pane_to_tab(ctx, pane, uid),
+            Action::PaneToNewTab(pane) => self.pane_to_new_tab(ctx, pane),
             Action::CancelPaneDrag => self.cancel_pane_drag(ctx),
             Action::ToggleZoom => self.toggle_zoom(ctx, None),
             Action::ToggleZoomPane(id) => self.toggle_zoom(ctx, Some(id)),

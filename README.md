@@ -198,8 +198,10 @@ ssh-mic = off        # no mic button in ssh panes
 ## Features
 
 - **Tabs and splits, built in.** Split right or down, zoom a pane, drag the gaps to resize,
-  drag a pane's header onto another to swap them, and move between splits with the keyboard. Each pane's header has split, zoom and close
-  buttons. You don't need tmux for layout.
+  and move between splits with the keyboard. Drag a pane by its header to rearrange: onto
+  another pane to swap them, onto an edge to put it on that side, onto the title bar to give
+  it its own tab, or over another tab to move it there. Each pane's header has split, zoom
+  and close buttons. You don't need tmux for layout.
 - **File explorer, built in.** `Ctrl+E` splits a file explorer off the current pane, open at
   that pane's folder. The directory label in the title bar is also a Files tab of its own.
   Folders open in place, files open in their default app (or any app from Open With), and

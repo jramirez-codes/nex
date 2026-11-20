@@ -14,6 +14,19 @@ All notable changes to nex are documented here. The format follows
   background, the dock or taskbar is flagged as well. Claude Code needs
   `preferredNotifChannel` set to `terminal_bell` (or `iterm2`) to send one.
   `tab-attention-color = #rrggbb` sets the dot's color (yellow, palette 3, by default).
+- More ways to move a pane by dragging its header. Drop it on the edge of another pane to
+  put it on that side, which turns side-by-side panes into stacked ones and back. Dropping
+  it on the middle of another pane still swaps them. While you drag, the other panes slide
+  to show where everything will land. Drop it on the empty part of the title bar (or the
+  mobile sidebar) to give it a tab of its own. Hold it over another tab for half a second
+  and that tab opens so you can place it there, or let go on the tab to put it beside that
+  tab's focused pane. A tab whose last pane moves away closes, but the pane keeps running.
+  Esc cancels and goes back to the tab you started in.
+
+### Changed
+
+- Dropping a dragged pane header on the title bar now opens it in a new tab instead of
+  cancelling the drag.
 
 ## [0.11.0] - 2026-11-17
 

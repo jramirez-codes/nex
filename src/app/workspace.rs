@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use egui::{Pos2, Rect};
 
 use crate::file_explorer::FileExplorer;
-use crate::app::layout::{Axis, PaneId};
+use crate::app::layout::{Axis, Direction, Node, PaneId};
 use crate::terminal::Terminal;
 use crate::ui::icons;
 
@@ -213,12 +213,93 @@ impl App {
         tab.motion.kick_reflow(ctx);
     }
 
-    /// Put a pane being dragged by its header back where it was.
+    /// Move `pane` to the `dir` side of `target`, focusing it. From another tab, that tab
+    /// loses it (closing if it was its last pane) and `target`'s tab is shown.
+    pub(super) fn move_pane(&mut self, ctx: &egui::Context, pane: PaneId, target: PaneId, dir: Direction) {
+        if let Some(tab) = self.tab_with(pane).filter(|t| t.contains(target)) {
+            if !tab.zoomed && tab.root.move_pane(pane, target, dir) {
+                tab.focused = pane;
+                tab.motion.kick_reflow(ctx);
+            }
+            return;
+        }
+        let (Some(src), Some(dst)) = (self.tab_index_with(pane), self.tab_index_with(target)) else { return };
+        self.transfer(ctx, pane, src, dst, |root| root.insert(target, dir, pane));
+    }
+
+    /// Move `pane` into the tab with `uid`, beside its focused pane: to the right of a wide
+    /// pane, below a tall one.
+    pub(super) fn pane_to_tab(&mut self, ctx: &egui::Context, pane: PaneId, uid: u64) {
+        let (Some(src), Some(dst)) = (self.tab_index_with(pane), self.tabs.iter().position(|t| t.uid == uid)) else { return };
+        if src == dst {
+            return;
+        }
+        let tab = &self.tabs[dst];
+        let target = tab.focused;
+        let mut rects = Vec::new();
+        tab.root.layout(self.content_area, PANE_GAP, &mut rects, &mut Vec::new());
+        let tall = rects.iter().find(|(id, _)| *id == target).is_some_and(|(_, r)| r.height() > r.width());
+        let dir = if tall { Direction::Down } else { Direction::Right };
+        self.transfer(ctx, pane, src, dst, |root| root.insert(target, dir, pane));
+    }
+
+    /// Give `pane` a tab of its own, just after the one it leaves (which keeps its others).
+    pub(super) fn pane_to_new_tab(&mut self, ctx: &egui::Context, pane: PaneId) {
+        let Some(src) = self.tab_index_with(pane) else { return };
+        let tab = &mut self.tabs[src];
+        if !tab.remove_pane(pane) {
+            return;
+        }
+        tab.motion.kick_reflow(ctx);
+        // A fresh uid: the old tab's uid may be this pane's id.
+        let uid = self.alloc_pane_id();
+        self.tabs.insert(src + 1, Tab::new(uid, pane));
+        self.show_tab(src + 1);
+    }
+
+    /// Move `pane` from tab `src` into tab `dst`, where `place` puts it in the split tree.
+    /// It is focused there and that tab is shown; `src` closes if it was its last pane (the
+    /// pane lives on).
+    fn transfer(&mut self, ctx: &egui::Context, pane: PaneId, src: usize, dst: usize, place: impl FnOnce(&mut Node) -> bool) {
+        if src == dst || !place(&mut self.tabs[dst].root) {
+            return;
+        }
+        let uid = self.tabs[dst].uid;
+        let to = &mut self.tabs[dst];
+        to.focused = pane;
+        to.zoomed = false;
+        to.motion.kick_reflow(ctx);
+        let from = &mut self.tabs[src];
+        if from.remove_pane(pane) {
+            from.motion.kick_reflow(ctx);
+        } else {
+            self.take_tab(src);
+        }
+        self.show_tab_uid(uid);
+    }
+
+    /// Index of the terminal tab holding `pane` (not the Files tab).
+    fn tab_index_with(&self, pane: PaneId) -> Option<usize> {
+        self.tabs.iter().position(|t| t.contains(pane))
+    }
+
+    /// Show the tab (terminal or Files) with `uid`, if it is still open.
+    pub(super) fn show_tab_uid(&mut self, uid: u64) {
+        if self.explorer_tab.as_ref().is_some_and(|t| t.uid == uid) {
+            self.explorer_active = true;
+        } else if let Some(i) = self.tabs.iter().position(|t| t.uid == uid) {
+            self.show_tab(i);
+        }
+    }
+
+    /// Put a pane being dragged by its header back where it was, showing its tab again if
+    /// the drag had opened another.
     pub(super) fn cancel_pane_drag(&mut self, ctx: &egui::Context) {
-        if let Some(tab) = self.cur_tab_mut().filter(|t| t.drag.is_some()) {
-            tab.drag = None;
+        let Some(d) = self.pane_drag.take() else { return };
+        if let Some(tab) = self.cur_tab_mut() {
             tab.motion.kick_reflow(ctx);
         }
+        self.show_tab_uid(d.home);
     }
 
     /// Close one pane; closing a tab's last pane closes the tab. A pane closed out of a
@@ -255,7 +336,7 @@ impl App {
         if index >= self.tabs.len() {
             return;
         }
-        let tab = self.tabs.remove(index);
+        let tab = self.take_tab(index);
         if let Some(&drawn) = self.tab_rects.get(&tab.uid) {
             for g in self.tab_ghosts.iter_mut().filter(|g| g.index > index) {
                 g.index -= 1;
@@ -269,9 +350,16 @@ impl App {
         for id in tab.root.panes() {
             self.forget_pane(id);
         }
+    }
+
+    /// Take tab `index` out of the strip, keeping its panes alive (the caller closes or
+    /// rehomes them), and keep the active tab in range.
+    fn take_tab(&mut self, index: usize) -> Tab {
+        let tab = self.tabs.remove(index);
         if self.active >= index && self.active > 0 {
             self.active -= 1;
         }
         self.active = self.active.min(self.tabs.len().saturating_sub(1));
+        tab
     }
 }
