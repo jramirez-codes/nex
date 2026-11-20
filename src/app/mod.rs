@@ -2,6 +2,7 @@
 //! Each concern lives in its own submodule; this file holds the state and the frame loop.
 
 mod actions;
+mod chrome;
 mod input;
 mod ssh;
 mod metrics;
@@ -9,13 +10,10 @@ mod motion;
 mod pane_drag;
 mod panes;
 mod reload;
-mod sidebar;
 mod tab;
 mod tab_motion;
 mod tab_switch;
-mod titlebar;
 mod transition;
-mod window;
 mod workspace;
 #[cfg(test)]
 mod tests;
@@ -309,7 +307,7 @@ impl App {
     fn update_content_area(&mut self, ctx: &egui::Context) {
         let full = ctx.content_rect();
         let min = if self.cfg.mobile {
-            Pos2::new(full.left() + sidebar::SIDEBAR_WIDTH, full.top() + PANE_GAP)
+            Pos2::new(full.left() + chrome::sidebar::SIDEBAR_WIDTH, full.top() + PANE_GAP)
         } else {
             Pos2::new(full.left() + PANE_GAP, full.top() + TITLEBAR_HEIGHT)
         };
@@ -415,7 +413,7 @@ impl App {
         }
 
         if self.cfg.mobile {
-            let sidebar = Rect::from_min_size(full.min, Vec2::new(sidebar::SIDEBAR_WIDTH, full.height()));
+            let sidebar = Rect::from_min_size(full.min, Vec2::new(chrome::sidebar::SIDEBAR_WIDTH, full.height()));
             self.sidebar(ui, sidebar, &theme);
         } else {
             let titlebar = Rect::from_min_size(full.min, Vec2::new(full.width(), TITLEBAR_HEIGHT));

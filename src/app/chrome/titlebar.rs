@@ -15,7 +15,7 @@ use crate::app::tab_motion::{GLYPH, TabDrawn};
 
 const TAB_HEIGHT: f32 = 30.0;
 /// Padding between the tab track's edge and the tabs inside it.
-pub(super) const TRACK_PAD: f32 = 3.0;
+pub(in crate::app) const TRACK_PAD: f32 = 3.0;
 const MIN_TAB_WIDTH: f32 = 80.0;
 const MAX_TAB_WIDTH: f32 = 232.0;
 const PLUS_SIZE: f32 = 28.0;
@@ -71,13 +71,13 @@ impl Light {
     }
 }
 
-pub(super) fn toggle_maximized(ctx: &egui::Context) {
+pub(in crate::app) fn toggle_maximized(ctx: &egui::Context) {
     ctx.send_viewport_cmd(ViewportCommand::Maximized(!is_maximized(ctx)));
 }
 
 /// Where the tabs sit this frame: `shown` slots of `size`, starting at `origin` and running
 /// right (title bar) or down (mobile sidebar).
-pub(super) struct TabSlots {
+pub(in crate::app) struct TabSlots {
     origin: Pos2,
     size: Vec2,
     vertical: bool,
@@ -118,7 +118,7 @@ impl TabSlots {
 
     /// Where the pill is this frame. Between the Files label (`-1.0`) and the first tab it
     /// morphs from the label's rect into the slot's.
-    pub(super) fn pill_rect(&self, label: Rect) -> Option<Rect> {
+    pub(in crate::app) fn pill_rect(&self, label: Rect) -> Option<Rect> {
         let p = self.pill?;
         Some(if p >= 0.0 { self.rect(p) } else { label.lerp_towards(&self.rect(0.0), p + 1.0) })
     }
@@ -127,7 +127,7 @@ impl TabSlots {
 impl App {
     /// Widgets are laid out left to right and registered in that order (later ones win hit
     /// tests), starting with the background drag area.
-    pub(super) fn titlebar(&mut self, ui: &mut Ui, rect: Rect, theme: &Theme) {
+    pub(in crate::app) fn titlebar(&mut self, ui: &mut Ui, rect: Rect, theme: &Theme) {
         let ctx = ui.ctx().clone();
         self.strip_rect = Some(rect);
         let drag = ui.interact(rect, Id::new("titlebar"), Sense::click_and_drag());
@@ -275,7 +275,7 @@ impl App {
 
     /// Paints `track` (holding `visible` slots of `size`) and advances the pill toward the
     /// active tab, or the Files label.
-    pub(super) fn tab_track(&mut self, ui: &Ui, track: Rect, size: Vec2, visible: usize, vertical: bool) -> TabSlots {
+    pub(in crate::app) fn tab_track(&mut self, ui: &Ui, track: Rect, size: Vec2, visible: usize, vertical: bool) -> TabSlots {
         let ctx = ui.ctx().clone();
         paint::tab_track(ui.painter(), track);
         let shown = visible.min(self.tabs.len());
@@ -296,7 +296,7 @@ impl App {
     }
 
     /// The terminal tabs, drawn into `slots` over the track and pill.
-    pub(super) fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
+    pub(in crate::app) fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
         self.tab_rects.clear();
         self.tab_hits.clear();
         for i in 0..slots.shown {
@@ -507,7 +507,7 @@ fn dashed_slot(painter: &egui::Painter, r: Rect, theme: &Theme) {
 }
 
 /// Splits a mobile-sidebar tile into its icon square and the caption line below it.
-pub(super) fn sidebar_tile_parts(r: Rect) -> (Rect, Rect) {
+pub(in crate::app) fn sidebar_tile_parts(r: Rect) -> (Rect, Rect) {
     let side = (r.height() - 26.0).min(r.width() - 16.0).max(8.0);
     let icon = Rect::from_center_size(Pos2::new(r.center().x, r.top() + 5.0 + side / 2.0), Vec2::splat(side));
     let text = Rect::from_min_max(Pos2::new(r.left() + 5.0, icon.bottom() + 2.0), Pos2::new(r.right() - 5.0, r.bottom() - 2.0));
@@ -525,7 +525,7 @@ fn window_controls(ui: &Ui, x: f32, cy: f32) -> f32 {
 
 /// The traffic lights at `centers`, `scale` times their title-bar size, each clickable within
 /// a `hit`-sized square.
-pub(super) fn paint_lights(ui: &Ui, centers: impl Iterator<Item = Pos2>, scale: f32, hit: f32, show_glyphs: bool) {
+pub(in crate::app) fn paint_lights(ui: &Ui, centers: impl Iterator<Item = Pos2>, scale: f32, hit: f32, show_glyphs: bool) {
     let painter = ui.painter();
     for ((k, light), center) in Light::ALL.into_iter().enumerate().zip(centers) {
         let resp = ui.interact(Rect::from_center_size(center, Vec2::splat(hit)), Id::new(("light", k)), Sense::click());
