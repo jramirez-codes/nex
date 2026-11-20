@@ -1,9 +1,10 @@
-//! Opening and closing tabs and panes, and finding the focused one.
+//! Tabs and panes: opening and closing them and finding the focused one (here), drawing them,
+//! their cell metrics, and dragging panes around.
 
-pub(super) mod tab;
 pub(super) mod draw;
 pub(super) mod metrics;
 pub(super) mod pane_drag;
+pub(super) mod tab;
 
 use std::path::PathBuf;
 

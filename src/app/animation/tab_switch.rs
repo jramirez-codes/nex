@@ -1,5 +1,5 @@
 //! Switching tabs: noticing the switch, keeping what the old tab looked like, and handing
-//! both to the transition the `tab-animation` config key picks (see `transition/`).
+//! both to the transition the `tab-animation` config key picks (see `transition/`, beside this file).
 //!
 //! Every frame keeps a copy of what the panes painted (meshes and galleys are shared, so
 //! this is cheap). When the shown tab changes, that copy is the old sheet; the transition

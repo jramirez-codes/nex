@@ -1,12 +1,15 @@
 //! The application: window chrome (title bar + tabs), split panes, input handling.
-//! Each concern lives in its own submodule; this file holds the state and the frame loop.
+//! Each concern lives in its own submodule; this file holds the state and the frame loop:
+//! `input/` (keys, mouse, zoom), `chrome/` (title bar, sidebar, window), `workspace/` (tabs and
+//! panes), `animation/` (motion and tab switches), `ssh/` (remote hosts). `actions` is what
+//! the user can ask for, shared by input and chrome.
 
 mod actions;
 mod animation;
 mod chrome;
 mod input;
-mod ssh;
 mod reload;
+mod ssh;
 mod workspace;
 #[cfg(test)]
 mod tests;
@@ -139,7 +142,7 @@ pub struct App {
     sharing_declined: bool,
     /// A split or tab into an ssh session, waiting on the sharing alert (see `follow`).
     pending_pane: Option<ssh::follow::PendingPane>,
-    /// Hosts this machine's microphone is shared with (see `mic.rs`).
+    /// Hosts this machine's microphone is shared with (see `ssh/mic.rs`).
     mics: ssh::mic::Mics,
 }
 

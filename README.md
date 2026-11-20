@@ -380,7 +380,7 @@ when the program exits. A new window (`Ctrl+Shift+N`, `Cmd+N` on macOS) keeps `-
 ## Keybindings
 
 nex follows Ghostty's defaults on each OS. Both tables live in
-[`src/app/keymap.rs`](src/app/keymap.rs).
+[`src/app/input/keymap.rs`](src/app/input/keymap.rs).
 
 | Action                 | Linux                                                 | macOS                                           |
 | ---------------------- | ----------------------------------------------------- | ----------------------------------------------- |
@@ -520,17 +520,17 @@ src/
 ├── main.rs           window setup (eframe / winit)
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
-├── remote.rs         ssh: uploads, following sessions, connection sharing
+├── layout.rs         binary split tree + directional focus (PaneId, Axis)
+├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture)
 ├── app/              the application: state and frame loop (mod.rs), plus
 │   ├── actions.rs        the actions and carrying them out
-│   ├── keymap.rs         shortcut tables per OS (Ctrl style, Cmd style)
-│   ├── keyboard.rs       keys, text and clipboard routing
-│   ├── mouse.rs          selection, mouse reporting, wheel, links
-│   ├── panes.rs          pane cards, headers, divider dragging
-│   ├── layout.rs         binary split tree + directional focus
-│   ├── titlebar.rs       window buttons, tab track, Files label
-│   ├── workspace.rs      tabs, splits, opening and closing panes
-│   └── …                 tab, window, zoom, metrics
+│   ├── reload.rs         live config reload
+│   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
+│   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
+│   ├── workspace/        tabs, splits, opening and closing panes, drawing panes, pane drag
+│   ├── animation/        pane motion, tab close, tab-switch transitions
+│   ├── ssh/              following ssh sessions, uploads, mic button
+│   └── tests/            whole-App tests driven through egui
 ├── terminal/         one terminal per pane
 │   ├── mod.rs            PTY + VT state, title and cwd
 │   ├── input.rs          keyboard & mouse → xterm escape sequences

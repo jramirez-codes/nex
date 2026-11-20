@@ -1,5 +1,5 @@
 //! Everything the user can ask for (keyboard shortcuts, buttons), and carrying it out.
-//! Which keys ask for what is in `keymap.rs`.
+//! Which keys ask for what is in `input/keymap.rs`.
 
 use alacritty_terminal::grid::Scroll;
 use egui::ViewportCommand;
@@ -59,7 +59,7 @@ pub(super) enum Action {
     ExploreHere,
     CloseExplorer,
     /// Share this machine's microphone with a pane's ssh host, or stop; `ToggleMic(0)` means
-    /// the focused pane (see `mic.rs`).
+    /// the focused pane (see `ssh/mic.rs`).
     ToggleMic(PaneId),
 }
 
