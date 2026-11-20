@@ -17,7 +17,7 @@ use crate::ui::{icons, paint};
 use crate::app::actions::Action;
 use crate::app::keymap;
 use crate::app::metrics::cell_px;
-use crate::app::mic::MicState;
+use crate::app::ssh::mic::MicState;
 use crate::app::motion::Ghost;
 use crate::app::pane_drag::DragFrame;
 use crate::app::tab_switch::Shown;

@@ -8,7 +8,7 @@ use crate::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
 use crate::app::App;
-use crate::app::follow::Place;
+use crate::app::ssh::follow::Place;
 use crate::app::zoom::EXPLORER_ZOOM_STEP;
 
 #[derive(Clone, Copy, Debug, PartialEq)]

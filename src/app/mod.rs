@@ -2,7 +2,7 @@
 //! Each concern lives in its own submodule; this file holds the state and the frame loop.
 
 mod actions;
-mod follow;
+mod ssh;
 mod keyboard;
 mod keymap;
 mod metrics;
@@ -17,8 +17,6 @@ mod tab_motion;
 mod tab_switch;
 mod titlebar;
 mod transition;
-mod mic;
-mod upload;
 mod window;
 mod workspace;
 mod zoom;
@@ -146,15 +144,15 @@ pub struct App {
     /// The "Copied …" / "Pasted …" message currently on screen.
     toast: Option<Toast>,
     /// Files on their way to an `ssh` pane's remote host.
-    uploads: Vec<upload::Upload>,
+    uploads: Vec<ssh::upload::Upload>,
     /// The connection-sharing dialog, after an upload couldn't log in.
-    sharing_prompt: Option<upload::SharingPrompt>,
+    sharing_prompt: Option<ssh::upload::SharingPrompt>,
     /// Not Now was picked in that offer: don't ask again this run.
     sharing_declined: bool,
     /// A split or tab into an ssh session, waiting on the sharing alert (see `follow`).
-    pending_pane: Option<follow::PendingPane>,
+    pending_pane: Option<ssh::follow::PendingPane>,
     /// Hosts this machine's microphone is shared with (see `mic.rs`).
-    mics: mic::Mics,
+    mics: ssh::mic::Mics,
 }
 
 impl App {
@@ -223,7 +221,7 @@ impl App {
             uploads: Vec::new(),
             sharing_prompt: None,
             sharing_declined: false,
-            mics: mic::Mics::default(),
+            mics: ssh::mic::Mics::default(),
             pending_pane: None,
         }
     }

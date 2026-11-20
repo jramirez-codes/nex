@@ -9,7 +9,7 @@ use crate::layout::{Axis, Direction, Node, PaneId};
 use crate::terminal::Terminal;
 use crate::ui::icons;
 
-use crate::app::follow::Place;
+use crate::app::ssh::follow::Place;
 use crate::app::metrics::cell_px;
 use crate::app::tab::Tab;
 use crate::app::tab_motion::{TabDrawn, TabGhost};
