@@ -1,11 +1,10 @@
 //! Drawing the panes of the current tab: cards, headers, terminals, file explorers, search.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use egui::emath::TSTransform;
 use egui::epaint::Shadow;
-use egui::{Color32, CursorIcon, Event, FontId, Id, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Color32, CursorIcon, FontId, Id, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::app::layout::{Axis, Divider, PaneId};
 use crate::render::{self, FrameKey, PaintOptions};
@@ -20,7 +19,7 @@ use super::keymap;
 use super::metrics::cell_px;
 use super::mic::MicState;
 use super::motion::Ghost;
-use super::tab::{PaneDrag, Tab};
+use super::pane_drag::DragFrame;
 use super::tab_switch::Shown;
 use super::{App, PANE_GAP};
 
@@ -72,20 +71,21 @@ impl App {
             style: self.cfg.tab_animation,
         };
         let sheet = self.switch.begin(ui, &shown);
-        let Some(tab) = self.cur_tab_mut() else { return };
-
         let mut rects = Vec::new();
         let mut dividers = Vec::new();
-        if tab.zoomed {
-            rects.push((tab.focused, area));
-        } else {
-            tab.root.layout(area, PANE_GAP, &mut rects, &mut dividers);
+        match self.cur_tab() {
+            Some(tab) if tab.zoomed => rects.push((tab.focused, area)),
+            Some(tab) => tab.root.layout(area, PANE_GAP, &mut rects, &mut dividers),
+            None => return,
         }
-        let DragFrame { goals, held, dropped } = track_pane_drag(&ctx, tab, &rects);
+        let DragFrame { goals, held, mini, dropped } = self.track_pane_drag(&ctx, area, &rects);
         let dragging = held.map(|(id, _)| id);
         if dragging.is_some() {
             ctx.set_cursor_icon(CursorIcon::Grabbing);
         }
+        // Carried over from another tab: drawn over this one's panes, not laid out with them.
+        let visitor = held.filter(|(id, _)| !rects.iter().any(|(r, _)| r == id));
+        let Some(tab) = self.cur_tab_mut() else { return };
         let focused = tab.focused;
         let multi = rects.len() > 1;
         let mut views: Vec<PaneView> = tab
@@ -102,7 +102,7 @@ impl App {
                 lifted: Some(p.id) == dragging,
                 alpha: p.alpha,
                 on_top: p.on_top,
-                scale_content: p.scale_content,
+                scale_content: p.scale_content || (mini && Some(p.id) == dragging),
             })
             .collect();
         // The dragged card goes over the others (and a pane shrinking out of a zoom over
@@ -115,7 +115,7 @@ impl App {
         }
         self.pending.extend(dropped);
         for (id, t) in &self.panes {
-            t.set_visible(rects.iter().any(|(r, _)| r == id));
+            t.set_visible(rects.iter().any(|(r, _)| r == id) || visitor.is_some_and(|(v, _)| v == *id));
         }
         self.drag_dividers(ui, tab_uid, &dividers);
 
@@ -134,11 +134,38 @@ impl App {
             self.card_rects.push((pane.id, pane.target));
         }
         self.switch.end(ui, sheet);
+        if let Some((id, card)) = visitor {
+            self.visiting_pane(ui, id, card, mini, theme, blink_on);
+        }
 
         // Keep blinking cursors blinking.
         let ms = ui.input(|i| i.time * 1000.0);
         let next = BLINK_INTERVAL.as_millis() as f64 - ms % BLINK_INTERVAL.as_millis() as f64;
         ui.ctx().request_repaint_after(Duration::from_millis(next as u64 + 1));
+    }
+
+    /// A pane dragged here from another tab, held at `card`. Its terminal keeps the size of
+    /// its slot back home, and it takes no part in this tab's hit-testing.
+    fn visiting_pane(&mut self, ui: &mut Ui, id: PaneId, card: Rect, mini: bool, theme: &Theme, blink_on: bool) {
+        let Some(slot) = self.pane_drag.as_ref().map(|d| d.slot) else { return };
+        let pane = PaneView {
+            id,
+            card,
+            target: slot,
+            focused: false,
+            focus: 1.0,
+            multi: true,
+            lifted: true,
+            alpha: 1.0,
+            on_top: true,
+            scale_content: mini,
+        };
+        if self.explorers.contains_key(&id) {
+            self.explorer_pane(ui, &pane, theme);
+        } else if self.panes.contains_key(&id) {
+            self.terminal_pane(ui, &pane, theme, blink_on);
+            self.term_rects.retain(|(p, _)| *p != id);
+        }
     }
 
     /// Where tab `uid` is in the strip (its tab, or the Files label), brought onto the
@@ -326,20 +353,20 @@ impl App {
         let id = pane.id;
         let (title, process) = self.pane_label(id);
         let zoomed = self.cur_tab().is_some_and(|t| t.zoomed);
-        let show_buttons = pane.focused || ui.rect_contains_pointer(pane.card);
+        let show_buttons = !pane.lifted && (pane.focused || ui.rect_contains_pointer(pane.card));
 
-        // The header is the handle for dragging the pane onto another to swap them. It is
-        // registered before the buttons, so they stay on top and keep their clicks.
+        // The header is the handle for dragging the pane: onto another pane, or to the tabs
+        // (see `pane_drag`). It is registered before the buttons, so they stay on top and
+        // keep their clicks. A tab's only pane can still be dragged to another tab.
         let handle = ui.interact(header, Id::new(("pane-drag", id)), Sense::click_and_drag());
-        if pane.multi {
+        if pane.multi || (self.tabs.len() > 1 && !self.explorer_active) {
             if handle.hovered() && !handle.dragged() {
                 ui.ctx().set_cursor_icon(CursorIcon::Grab);
             }
-            if handle.drag_started_by(PointerButton::Primary) {
-                let at = ui.input(|i| i.pointer.press_origin()).or(handle.interact_pointer_pos());
-                if let (Some(at), Some(tab)) = (at, self.cur_tab_mut()) {
-                    tab.drag = Some(PaneDrag { pane: id, grab: at - pane.target.min, at, over: None });
-                }
+            if handle.drag_started_by(PointerButton::Primary)
+                && let Some(at) = ui.input(|i| i.pointer.press_origin()).or(handle.interact_pointer_pos())
+            {
+                self.start_pane_drag(id, at, pane.target);
             }
         }
 
@@ -413,57 +440,6 @@ impl App {
             self.pending.push(Action::FocusPane(id));
         }
     }
-}
-
-/// What a header drag means for this frame.
-#[derive(Default)]
-struct DragFrame {
-    /// Where cards head instead of their layout rect (the swap preview).
-    goals: HashMap<PaneId, Rect>,
-    /// The dragged pane and where it is held.
-    held: Option<(PaneId, Rect)>,
-    /// The swap to make, if the pane was just dropped on another.
-    dropped: Option<Action>,
-}
-
-/// Follow a pane being dragged by its header: track the pointer, preview the swap with the
-/// pane under it, and finish when the button is let go.
-fn track_pane_drag(ctx: &egui::Context, tab: &mut Tab, rects: &[(PaneId, Rect)]) -> DragFrame {
-    let none = DragFrame::default();
-    let Some(d) = tab.drag.as_mut() else { return none };
-    let slot = rects.iter().find(|(id, _)| *id == d.pane).map(|&(_, r)| r).filter(|_| rects.len() > 1);
-    let Some(slot) = slot else {
-        // The pane closed, or the tab was zoomed or is down to one pane.
-        tab.drag = None;
-        tab.motion.kick_reflow(ctx);
-        return none;
-    };
-    // Where the button came up, if it did this frame: after a touch lifts, some compositors
-    // move the pointer back to the parked mouse cursor in the same frame.
-    let (released, latest, down) = ctx.input(|i| {
-        let released = i.events.iter().rev().find_map(|e| match e {
-            Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, .. } => Some(*pos),
-            _ => None,
-        });
-        (released, i.pointer.latest_pos(), i.pointer.primary_down())
-    });
-    if let Some(p) = released.or(latest) {
-        d.at = p;
-    }
-    // Hit-test the layout's slots, not the moving cards, so the preview can't flicker.
-    let over = rects.iter().find(|(id, r)| *id != d.pane && r.contains(d.at)).map(|&(id, _)| id);
-    if over != d.over {
-        d.over = over;
-        tab.motion.kick_reflow(ctx);
-    }
-    if released.is_some() || !down {
-        let d = tab.drag.take().expect("drag checked above");
-        tab.motion.kick_reflow(ctx);
-        return DragFrame { dropped: d.over.map(|t| Action::SwapPanes(d.pane, t)), ..none };
-    }
-    let goals = over.map(|t| (t, slot)).into_iter().collect();
-    let held = Rect::from_min_size(d.at - d.grab, slot.size());
-    DragFrame { goals, held: Some((d.pane, held)), dropped: None }
 }
 
 /// Process glyph and title at the left of a pane header, the title fading out before `right`.

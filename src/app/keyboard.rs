@@ -83,7 +83,7 @@ impl App {
     /// A key press goes to the first taker: a shortcut, a file explorer, the search field, or
     /// the shell. Returns whether it ran a shortcut.
     fn on_key(&mut self, key: Key, modifiers: Modifiers) -> bool {
-        if key == Key::Escape && self.cur_tab().is_some_and(|t| t.drag.is_some()) {
+        if key == Key::Escape && self.pane_drag.is_some() {
             self.pending.push(Action::CancelPaneDrag);
             return true;
         }

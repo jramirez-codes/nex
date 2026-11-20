@@ -10,6 +10,7 @@ use crate::ui::{glide, icons, paint};
 
 use super::App;
 use super::actions::Action;
+use super::pane_drag::{DropTarget, SPRING_DELAY};
 use super::tab_motion::{GLYPH, TabDrawn};
 
 const TAB_HEIGHT: f32 = 30.0;
@@ -128,6 +129,7 @@ impl App {
     /// tests), starting with the background drag area.
     pub(super) fn titlebar(&mut self, ui: &mut Ui, rect: Rect, theme: &Theme) {
         let ctx = ui.ctx().clone();
+        self.strip_rect = Some(rect);
         let drag = ui.interact(rect, Id::new("titlebar"), Sense::click_and_drag());
         if drag.drag_started_by(PointerButton::Primary) {
             ctx.send_viewport_cmd(ViewportCommand::StartDrag);
@@ -296,10 +298,35 @@ impl App {
     /// The terminal tabs, drawn into `slots` over the track and pill.
     pub(super) fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
         self.tab_rects.clear();
+        self.tab_hits.clear();
         for i in 0..slots.shown {
             if self.tab_item(ui, slots, i, theme) {
                 break;
             }
+        }
+        // A pane dragged onto the strip's empty space: a dashed slot for its new tab, just
+        // past the last one (or, with no room, around the whole track).
+        if self.pane_drag.as_ref().is_some_and(|d| d.over == Some(DropTarget::NewTab)) && slots.shown > 0 {
+            let next = slots.rect(slots.shown as f32).shrink(1.0);
+            let r = match self.strip_rect {
+                Some(strip) if strip.contains_rect(next) => next,
+                _ => slots.rect(0.0).union(slots.rect(slots.shown as f32 - 1.0)),
+            };
+            dashed_slot(ui.painter(), r, theme);
+        }
+    }
+
+    /// Marks a tab a pane is dragged over: tinted, with a bar filling up until it opens.
+    fn paint_tab_drop_hint(&self, ui: &Ui, uid: u64, r: Rect, theme: &Theme) {
+        let Some(d) = self.pane_drag.as_ref().filter(|d| d.over == Some(DropTarget::Tab(uid))) else { return };
+        let painter = ui.painter();
+        painter.rect_filled(r.shrink(1.0), 8, HOVER_STRONG);
+        if let Some((_, since)) = d.hover.filter(|(u, _)| *u == uid) {
+            let now = ui.input(|i| i.time);
+            let f = (((now - since) / SPRING_DELAY) as f32).clamp(0.0, 1.0);
+            let track = Rect::from_min_max(Pos2::new(r.left() + 10.0, r.bottom() - 4.0), Pos2::new(r.right() - 10.0, r.bottom() - 2.0));
+            painter.rect_filled(track, 1, TAB_SEPARATOR);
+            painter.rect_filled(Rect::from_min_max(track.min, Pos2::new(track.left() + track.width() * f, track.bottom())), 1, theme.text_bright);
         }
     }
 
@@ -326,11 +353,13 @@ impl App {
         if resp.drag_started_by(PointerButton::Primary) {
             self.show_tab(i);
         }
+        self.tab_hits.push((uid, r));
         let active = i == self.active && !self.explorer_active;
         let hovered = resp.hovered();
         if !active && hovered {
             painter.rect_filled(r.shrink(1.0), 8, TAB_HOVER);
         }
+        self.paint_tab_drop_hint(ui, uid, r, theme);
 
         // Hairline separators between neighbours, hidden wherever the pill covers them.
         let boundary = (i + 1) as f32;
@@ -462,6 +491,19 @@ fn paint_attention(ctx: &egui::Context, painter: &egui::Painter, center: Pos2, c
         ctx.request_repaint_after(std::time::Duration::from_millis(33));
     }
     painter.circle(center, radius, color, Stroke::new(1.5, theme.window));
+}
+
+/// Where a pane dropped on the tab strip's empty space would open: a faint, dashed slot.
+fn dashed_slot(painter: &egui::Painter, r: Rect, theme: &Theme) {
+    // Rounded like the tabs (and their hover tint).
+    painter.rect_filled(r, 8, TAB_HOVER);
+    let mut outline = Vec::new();
+    egui::epaint::tessellator::path::rounded_rectangle(&mut outline, r.shrink(0.5), egui::epaint::CornerRadiusF32::same(8.0));
+    if let Some(&first) = outline.first() {
+        outline.push(first);
+    }
+    let stroke = Stroke::new(1.0_f32, theme.text_dim);
+    painter.extend(Shape::dashed_line(&outline, stroke, 4.0, 3.0));
 }
 
 /// Splits a mobile-sidebar tile into its icon square and the caption line below it.

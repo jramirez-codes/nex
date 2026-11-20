@@ -9,6 +9,7 @@ pub mod layout;
 mod metrics;
 mod motion;
 mod mouse;
+mod pane_drag;
 mod panes;
 mod reload;
 mod sidebar;
@@ -110,6 +111,14 @@ pub struct App {
     tab_ghosts: Vec<TabGhost>,
     /// Where the Files tab (the directory label, or the sidebar tile) was drawn this frame.
     files_rect: Option<Rect>,
+    /// Where each visible tab was drawn this frame (title bar or sidebar), by tab uid: where
+    /// a dragged pane can be dropped into another tab.
+    tab_hits: Vec<(u64, Rect)>,
+    /// The title bar or sidebar this frame: dropping a pane on its empty space gives the
+    /// pane a tab of its own.
+    strip_rect: Option<Rect>,
+    /// A pane being dragged by its header, if any (it can be carried to another tab).
+    pane_drag: Option<pane_drag::PaneDrag>,
     /// The tab-switch transition (`tab-animation`): the old tab's panes giving way to the new.
     switch: TabSwitch,
     /// File-explorer panes (the Files tab). They share the pane id space and split tree with
@@ -196,6 +205,9 @@ impl App {
             tab_rects: HashMap::new(),
             tab_ghosts: Vec::new(),
             files_rect: None,
+            tab_hits: Vec::new(),
+            strip_rect: None,
+            pane_drag: None,
             switch: TabSwitch::default(),
             explorers: HashMap::new(),
             explorer_requests: Vec::new(),

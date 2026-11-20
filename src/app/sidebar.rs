@@ -27,6 +27,7 @@ impl App {
     /// starting with the background drag area.
     pub(super) fn sidebar(&mut self, ui: &mut Ui, rect: Rect, theme: &Theme) {
         let ctx = ui.ctx().clone();
+        self.strip_rect = Some(rect);
         let drag = ui.interact(rect, Id::new("sidebar"), Sense::click_and_drag());
         if drag.drag_started_by(PointerButton::Primary) {
             ctx.send_viewport_cmd(ViewportCommand::StartDrag);
