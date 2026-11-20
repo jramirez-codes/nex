@@ -3,17 +3,17 @@
 
 use egui::Pos2;
 
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 
-use super::App;
+use crate::app::App;
 
 /// How much one Ctrl+= / Ctrl+- zooms a file explorer.
-pub(super) const EXPLORER_ZOOM_STEP: f32 = 1.1;
+pub(in crate::app) const EXPLORER_ZOOM_STEP: f32 = 1.1;
 
 impl App {
     /// Zoom the pane under the pinch (or pointer): explorers smoothly, terminals in whole
     /// font points.
-    pub(super) fn handle_pinch(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn handle_pinch(&mut self, ctx: &egui::Context) {
         let (delta, at, pinching) = ctx.input(|i| {
             let multi = i.multi_touch();
             (i.zoom_delta(), multi.map(|m| m.center_pos).or(i.pointer.hover_pos()), multi.is_some())

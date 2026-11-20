@@ -6,7 +6,7 @@ use egui::emath::TSTransform;
 use egui::epaint::Shadow;
 use egui::{Color32, CursorIcon, FontId, Id, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::app::layout::{Axis, Divider, PaneId};
+use crate::layout::{Axis, Divider, PaneId};
 use crate::render::{self, FrameKey, PaintOptions};
 use crate::terminal::search::Search;
 use crate::terminal::GridSize;
@@ -14,16 +14,16 @@ use crate::ui::theme::{ERROR, HOVER, Theme, darken};
 use crate::ui::widgets::{HoverShape, IconButton, IconFn, pressed_in};
 use crate::ui::{icons, paint};
 
-use super::actions::Action;
-use super::keymap;
-use super::metrics::cell_px;
-use super::mic::MicState;
-use super::motion::Ghost;
-use super::pane_drag::DragFrame;
-use super::tab_switch::Shown;
-use super::{App, PANE_GAP};
+use crate::app::actions::Action;
+use crate::app::input::keymap;
+use crate::app::workspace::metrics::cell_px;
+use crate::app::ssh::mic::MicState;
+use crate::app::animation::pane_motion::Ghost;
+use crate::app::workspace::pane_drag::DragFrame;
+use crate::app::animation::tab_switch::Shown;
+use crate::app::{App, PANE_GAP};
 
-pub(super) const PANE_RADIUS: u8 = 12;
+pub(in crate::app) const PANE_RADIUS: u8 = 12;
 const BLINK_INTERVAL: Duration = Duration::from_millis(600);
 /// How long a pane's border flashes after the terminal bell.
 const BELL_FLASH: Duration = Duration::from_millis(200);
@@ -52,7 +52,7 @@ struct PaneView {
 }
 
 impl App {
-    pub(super) fn panes_area(&mut self, ui: &mut Ui, area: Rect, theme: &Theme) {
+    pub(in crate::app) fn panes_area(&mut self, ui: &mut Ui, area: Rect, theme: &Theme) {
         self.term_rects.clear();
         self.card_rects.clear();
         let ctx = ui.ctx().clone();

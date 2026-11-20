@@ -8,15 +8,15 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::app::layout::PaneId;
-use crate::audio::CaptureError;
+use crate::layout::PaneId;
+use crate::remote::audio::CaptureError;
 use crate::config::SshMic;
 use crate::remote::mic::{Event, MicError, Share};
 use crate::remote::{self, SshTarget};
 use crate::ui::toast::Toast;
 
-use super::App;
-use super::upload::SharingPrompt;
+use crate::app::App;
+use crate::app::ssh::upload::SharingPrompt;
 
 /// How often panes are checked for hosts to share with or stop sharing with.
 const CHECK_INTERVAL: Duration = Duration::from_millis(750);
@@ -35,7 +35,7 @@ struct MicShare {
 
 /// Every host the microphone is shared with.
 #[derive(Default)]
-pub(super) struct Mics {
+pub(in crate::app) struct Mics {
     shares: HashMap<SshTarget, MicShare>,
     /// Hosts not to share with automatically again (stopped by hand, or failed) while a pane
     /// is still connected to them.
@@ -45,7 +45,7 @@ pub(super) struct Mics {
 
 /// What a pane header's mic button shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum MicState {
+pub(in crate::app) enum MicState {
     /// The pane runs ssh; its host doesn't have the mic.
     Off,
     /// Shared, waiting for a program on the host to open it.
@@ -56,7 +56,7 @@ pub(super) enum MicState {
 
 impl App {
     /// The mic button for pane `id`, if it should have one (it's running `ssh`).
-    pub(super) fn mic_state(&self, id: PaneId) -> Option<MicState> {
+    pub(in crate::app) fn mic_state(&self, id: PaneId) -> Option<MicState> {
         if self.cfg.ssh_mic == SshMic::Off {
             return None;
         }
@@ -69,12 +69,12 @@ impl App {
     }
 
     /// The host pane `id` is ssh'd into, for the mic button's tooltip.
-    pub(super) fn mic_host(&self, id: PaneId) -> Option<String> {
+    pub(in crate::app) fn mic_host(&self, id: PaneId) -> Option<String> {
         Some(self.panes.get(&id)?.last_ssh_target()?.host().to_string())
     }
 
     /// Share the microphone with pane `id`'s ssh host, or stop sharing it.
-    pub(super) fn toggle_mic(&mut self, ctx: &egui::Context, id: PaneId) {
+    pub(in crate::app) fn toggle_mic(&mut self, ctx: &egui::Context, id: PaneId) {
         if self.cfg.ssh_mic == SshMic::Off {
             return;
         }
@@ -101,7 +101,7 @@ impl App {
     }
 
     /// Read what the shares report, and start or stop shares as panes come and go.
-    pub(super) fn poll_mics(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn poll_mics(&mut self, ctx: &egui::Context) {
         let mut failed = Vec::new();
         let mut toasts = Vec::new();
         for (target, s) in &mut self.mics.shares {
@@ -158,7 +158,7 @@ impl App {
 
     /// Quitting: stop every share and give the hosts a moment to take nex's block back out
     /// of their `~/.asoundrc`.
-    pub(super) fn stop_mics(&mut self) {
+    pub(in crate::app) fn stop_mics(&mut self) {
         let shares: Vec<MicShare> = self.mics.shares.drain().map(|(_, s)| s).collect();
         for s in &shares {
             s.share.halt();

@@ -17,20 +17,20 @@ use egui::{Painter, Pos2, Rect, Vec2};
 use crate::config::TabAnimation;
 
 /// A tab switch that just happened.
-pub(super) struct Switch {
+pub(in crate::app) struct Switch {
     /// What the old tab's panes painted on its last frame.
-    pub(super) old: Vec<ClippedShape>,
+    pub(in crate::app) old: Vec<ClippedShape>,
     /// The pane area.
-    pub(super) area: Rect,
+    pub(in crate::app) area: Rect,
     /// Where the new tab is in the tab strip, brought onto the pane area's edge.
-    pub(super) origin: Pos2,
+    pub(in crate::app) origin: Pos2,
     /// The way content moves: the way the pill moves along the strip (unit length).
-    pub(super) travel: Vec2,
-    pub(super) start: f64,
+    pub(in crate::app) travel: Vec2,
+    pub(in crate::app) start: f64,
 }
 
 /// One running tab-switch transition.
-pub(super) trait Transition {
+pub(in crate::app) trait Transition {
     fn done(&self, now: f64) -> bool;
 
     /// Paint the old sheet. Called before the new tab's panes are drawn, so it lies under them.
@@ -47,7 +47,7 @@ pub(super) trait Transition {
 }
 
 /// Start the transition `style` asks for, if any.
-pub(super) fn start(style: TabAnimation, switch: Switch) -> Option<Box<dyn Transition>> {
+pub(in crate::app) fn start(style: TabAnimation, switch: Switch) -> Option<Box<dyn Transition>> {
     match style {
         TabAnimation::Ink => Some(Box::new(ink::InkSwitch::new(switch))),
         TabAnimation::Glide => Some(Box::new(glide::GlideSwitch::new(switch))),
@@ -56,7 +56,7 @@ pub(super) fn start(style: TabAnimation, switch: Switch) -> Option<Box<dyn Trans
 }
 
 /// A tessellator like the one egui paints with at the end of the frame.
-pub(super) fn tessellator(ctx: &egui::Context) -> Tessellator {
+pub(in crate::app) fn tessellator(ctx: &egui::Context) -> Tessellator {
     let options = ctx.tessellation_options(|o| *o);
     let size = ctx.fonts(|f| f.font_image_size());
     // Prepared discs only speed up tiny circles; panes have none worth it.

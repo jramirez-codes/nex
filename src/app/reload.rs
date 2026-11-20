@@ -6,7 +6,7 @@ use crate::config::{self, Config};
 use crate::render::fonts;
 use crate::ui::glide;
 
-use super::App;
+use crate::app::App;
 
 impl App {
     /// Re-read the config and apply it to the running window and terminals. Most settings are
@@ -18,7 +18,7 @@ impl App {
 
         if cfg.font_family != old.font_family {
             fonts::install(ctx, cfg);
-            self.trim_heap_at = Some(std::time::Instant::now() + super::TRIM_HEAP_DELAY);
+            self.trim_heap_at = Some(std::time::Instant::now() + crate::app::TRIM_HEAP_DELAY);
         }
         // Per-pane zoom is kept unless the default size itself changed.
         if cfg.font_size != old.font_size {

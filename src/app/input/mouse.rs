@@ -7,18 +7,18 @@ use alacritty_terminal::term::TermMode;
 use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, Vec2};
 
 use crate::terminal::input::{self, MouseAction, MouseButton};
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::render;
 
-use super::App;
-use super::actions::Action;
+use crate::app::App;
+use crate::app::actions::Action;
 
 /// Clicks closer together than this (in time and distance) count as a double/triple click.
 const MULTI_CLICK_TIME: Duration = Duration::from_millis(400);
 const MULTI_CLICK_DISTANCE: f32 = 6.0;
 
 #[derive(Default)]
-pub(super) struct MouseState {
+pub(in crate::app) struct MouseState {
     /// Pane receiving drag/release events, with its terminal rect.
     capture: Option<(PaneId, Rect)>,
     /// Button held while reporting to the program, or `None` if we're selecting text.
@@ -33,7 +33,7 @@ pub(super) struct MouseState {
 }
 
 impl App {
-    pub(super) fn handle_mouse(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn handle_mouse(&mut self, ctx: &egui::Context) {
         let (events, hover) = ctx.input(|i| (i.events.clone(), i.pointer.hover_pos()));
         if self.track_pinch(ctx) {
             return;
@@ -94,7 +94,7 @@ impl App {
     }
 
     /// The terminal under `pos`, with its content rect.
-    pub(super) fn terminal_at(&self, pos: Pos2) -> Option<(PaneId, Rect)> {
+    pub(in crate::app) fn terminal_at(&self, pos: Pos2) -> Option<(PaneId, Rect)> {
         self.term_rects.iter().find(|(_, r)| r.contains(pos)).copied()
     }
 

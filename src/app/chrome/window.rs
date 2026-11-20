@@ -5,13 +5,13 @@ use std::path::PathBuf;
 use egui::{Color32, CursorIcon, FontId, Id, LayerId, Order, Rect, ResizeDirection, Stroke, StrokeKind, Vec2, ViewportCommand};
 
 use crate::file_explorer;
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::ui::theme::{ACCENT, Theme};
 use crate::ui::widgets::is_maximized;
 
-use super::App;
-use super::panes::PANE_RADIUS;
-use super::actions::Action;
+use crate::app::App;
+use crate::app::workspace::draw::PANE_RADIUS;
+use crate::app::actions::Action;
 
 const RESIZE_BORDER: f32 = 6.0;
 
@@ -20,7 +20,7 @@ impl App {
     /// paths), or dropped in from another window (into an explorer: moved there, or copied with
     /// Ctrl or when the source only allows copying; onto a terminal: paths inserted). A
     /// terminal running `ssh` gets the files uploaded to its host instead (see `upload`).
-    pub(super) fn file_drops(&mut self, ctx: &egui::Context, theme: &Theme) {
+    pub(in crate::app) fn file_drops(&mut self, ctx: &egui::Context, theme: &Theme) {
         let (pos, released, dropped) = ctx.input(|i| {
             let dropped: Vec<PathBuf> = i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect();
             // On release, where it was released: a touch lift can be followed by a pointer
@@ -97,7 +97,7 @@ impl App {
     }
 
     /// Type shell-quoted paths into a terminal, as if pasted.
-    pub(super) fn insert_paths(&mut self, id: PaneId, paths: &[PathBuf]) {
+    pub(in crate::app) fn insert_paths(&mut self, id: PaneId, paths: &[PathBuf]) {
         if let Some(t) = self.panes.get_mut(&id) {
             let text = paths.iter().map(|p| crate::platform::shell_quote(p)).collect::<Vec<_>>().join(" ");
             t.paste(&format!("{text} "));
@@ -105,7 +105,7 @@ impl App {
     }
 
     /// Frameless windows need their own resize handles at the edges.
-    pub(super) fn window_resize_edges(&self, ctx: &egui::Context, rect: Rect) {
+    pub(in crate::app) fn window_resize_edges(&self, ctx: &egui::Context, rect: Rect) {
         if self.cfg.window_decorations || is_maximized(ctx) {
             return;
         }

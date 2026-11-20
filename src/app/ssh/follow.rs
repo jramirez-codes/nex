@@ -4,14 +4,14 @@
 
 use std::path::PathBuf;
 
-use super::App;
-use super::layout::{Axis, PaneId};
-use super::upload::SharingPrompt;
+use crate::app::App;
+use crate::layout::{Axis, PaneId};
+use crate::app::ssh::upload::SharingPrompt;
 use crate::remote;
 
 /// Where a new terminal goes.
 #[derive(Clone, Copy, Debug)]
-pub(super) enum Place {
+pub(in crate::app) enum Place {
     /// Beside this pane.
     Split(PaneId, Axis),
     Tab,
@@ -19,7 +19,7 @@ pub(super) enum Place {
 
 /// A terminal waiting for the user to answer the connection-sharing alert.
 #[derive(Clone, Debug)]
-pub(super) struct PendingPane {
+pub(in crate::app) struct PendingPane {
     place: Place,
     cwd: Option<PathBuf>,
     command: Vec<String>,
@@ -28,7 +28,7 @@ pub(super) struct PendingPane {
 impl App {
     /// Open a terminal at `place`, following pane `from`: in its directory, and when it's
     /// running `ssh`, in another session on the same host.
-    pub(super) fn open_from(&mut self, ctx: &egui::Context, from: Option<PaneId>, place: Place) {
+    pub(in crate::app) fn open_from(&mut self, ctx: &egui::Context, from: Option<PaneId>, place: Place) {
         let cwd = from.and_then(|id| self.pane_cwd(id));
         let Some((command, target)) = from.and_then(|id| self.ssh_session(id)) else {
             self.open_terminal(ctx, place, cwd, None);
@@ -50,7 +50,7 @@ impl App {
     }
 
     /// Open the terminal that was waiting on the sharing alert, now it's answered.
-    pub(super) fn open_pending(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn open_pending(&mut self, ctx: &egui::Context) {
         let Some(p) = self.pending_pane.take() else { return };
         let place = match p.place {
             Place::Split(target, _) if !self.panes.contains_key(&target) => Place::Tab,

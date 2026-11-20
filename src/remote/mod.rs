@@ -6,6 +6,7 @@
 //!              own connections use, and connection sharing in ~/.ssh/config
 //!   upload.rs  files dropped or pasted into an ssh pane, copied to the remote host
 //!   mic.rs     the local microphone shared with the remote host, as its default mic
+//!   audio.rs   recording from this machine's default microphone (cpal), for mic.rs
 //! ```
 //!
 //! nex's connections reuse the pane's own `ssh` arguments (port, user, identity, jump hosts,
@@ -15,6 +16,7 @@
 //! `~/.ssh/config` (see [`enable_sharing`]) that makes every `ssh` started in a nex pane share
 //! its connection, so nex's connections ride on the login typed into the pane.
 
+pub mod audio;
 pub mod mic;
 mod upload;
 

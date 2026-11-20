@@ -7,13 +7,13 @@ use std::collections::HashMap;
 
 use egui::{Event, PointerButton, Pos2, Rect, Vec2};
 
-use crate::app::layout::{Direction, PaneId};
+use crate::layout::{Direction, PaneId};
 
-use super::actions::Action;
-use super::{App, PANE_GAP};
+use crate::app::actions::Action;
+use crate::app::{App, PANE_GAP};
 
 /// How long a dragged pane is held over a tab before that tab opens.
-pub(super) const SPRING_DELAY: f64 = 0.5;
+pub(in crate::app) const SPRING_DELAY: f64 = 0.5;
 /// How far into a pane, as a fraction of its size, its edges take a drop.
 const EDGE_BAND: f32 = 0.25;
 /// The most room a held pane takes while over the title bar, so the tabs stay visible.
@@ -21,7 +21,7 @@ const MINI: Vec2 = Vec2::new(200.0, 124.0);
 
 /// What letting go of a dragged pane would do.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum DropTarget {
+pub(in crate::app) enum DropTarget {
     /// Trade places with this pane (of the dragged pane's own tab).
     Swap(PaneId),
     /// Move to this side of this pane.
@@ -33,41 +33,41 @@ pub(super) enum DropTarget {
 }
 
 /// A pane being dragged by its header.
-pub(super) struct PaneDrag {
-    pub(super) pane: PaneId,
+pub(in crate::app) struct PaneDrag {
+    pub(in crate::app) pane: PaneId,
     /// The uid of the tab it is in.
-    pub(super) home: u64,
+    pub(in crate::app) home: u64,
     /// Where the pointer holds the card, from the card's top-left corner.
-    pub(super) grab: Vec2,
+    pub(in crate::app) grab: Vec2,
     /// The last known pointer position.
-    pub(super) at: Pos2,
+    pub(in crate::app) at: Pos2,
     /// Its rect in its own tab's layout: its size while held, and what its terminal stays
     /// sized for while another tab is showing.
-    pub(super) slot: Rect,
+    pub(in crate::app) slot: Rect,
     /// What a drop would do right now.
-    pub(super) over: Option<DropTarget>,
+    pub(in crate::app) over: Option<DropTarget>,
     /// The tab under the pointer and when it got there; it opens after `SPRING_DELAY`.
-    pub(super) hover: Option<(u64, f64)>,
+    pub(in crate::app) hover: Option<(u64, f64)>,
     /// Whether it may leave its tab (panes of the Files tab stay in it).
-    pub(super) roams: bool,
+    pub(in crate::app) roams: bool,
 }
 
 /// What a header drag means for this frame.
 #[derive(Default)]
-pub(super) struct DragFrame {
+pub(in crate::app) struct DragFrame {
     /// Where cards head instead of their layout rect (the drop preview).
-    pub(super) goals: HashMap<PaneId, Rect>,
+    pub(in crate::app) goals: HashMap<PaneId, Rect>,
     /// The dragged pane and where it is held.
-    pub(super) held: Option<(PaneId, Rect)>,
+    pub(in crate::app) held: Option<(PaneId, Rect)>,
     /// The held card is shrunk (over the title bar): its content scales with it.
-    pub(super) mini: bool,
+    pub(in crate::app) mini: bool,
     /// What to do, if the pane was just dropped.
-    pub(super) dropped: Option<Action>,
+    pub(in crate::app) dropped: Option<Action>,
 }
 
 /// Which edge band of `r` holds `p`, or `None` for its middle. The nearest edge wins where
 /// two bands overlap (the corners).
-pub(super) fn zone(r: Rect, p: Pos2) -> Option<Direction> {
+pub(in crate::app) fn zone(r: Rect, p: Pos2) -> Option<Direction> {
     let (fx, fy) = ((p.x - r.left()) / r.width(), (p.y - r.top()) / r.height());
     [(fx, Direction::Left), (1.0 - fx, Direction::Right), (fy, Direction::Up), (1.0 - fy, Direction::Down)]
         .into_iter()
@@ -78,7 +78,7 @@ pub(super) fn zone(r: Rect, p: Pos2) -> Option<Direction> {
 
 impl App {
     /// Pick up `pane` (in the shown tab, laid out at `slot`) by its header, held at `at`.
-    pub(super) fn start_pane_drag(&mut self, pane: PaneId, at: Pos2, slot: Rect) {
+    pub(in crate::app) fn start_pane_drag(&mut self, pane: PaneId, at: Pos2, slot: Rect) {
         let Some(home) = self.cur_tab().map(|t| t.uid) else { return };
         let roams = !self.explorer_active;
         self.pane_drag = Some(PaneDrag { pane, home, grab: at - slot.min, at, slot, over: None, hover: None, roams });
@@ -87,7 +87,7 @@ impl App {
     /// Follow a pane being dragged by its header: track the pointer, preview the drop, open
     /// a tab it is held over, and finish when the button is let go. `rects` is the shown
     /// tab's layout in `area`.
-    pub(super) fn track_pane_drag(&mut self, ctx: &egui::Context, area: Rect, rects: &[(PaneId, Rect)]) -> DragFrame {
+    pub(in crate::app) fn track_pane_drag(&mut self, ctx: &egui::Context, area: Rect, rects: &[(PaneId, Rect)]) -> DragFrame {
         let none = DragFrame::default();
         let Some((pane, home, roams)) = self.pane_drag.as_ref().map(|d| (d.pane, d.home, d.roams)) else { return none };
         let Some((shown, zoomed)) = self.cur_tab().map(|t| (t.uid, t.zoomed)) else { return none };

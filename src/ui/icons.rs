@@ -3,7 +3,7 @@
 use egui::epaint::{PathShape, Shadow};
 use egui::{Align2, Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
 
-use crate::app::layout::Axis;
+use crate::layout::Axis;
 
 use super::file_icons::paint_glyph;
 use super::paint::{bold, top_radius};

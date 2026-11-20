@@ -4,8 +4,8 @@ use egui::{Event, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, T
 
 use std::path::{Path, PathBuf};
 
-use super::App;
-use crate::app::layout::{Axis, PaneId};
+use crate::app::App;
+use crate::layout::{Axis, PaneId};
 
 struct Sim {
     ctx: egui::Context,
@@ -318,7 +318,7 @@ fn drag_header_onto_bottom_edge_stacks_them() {
     let (from, to) = (s.header(left), Pos2::new(r.center().x, r.bottom() - 15.0));
     s.mouse_drag(from, to);
     assert_eq!(s.order(), vec![right, left]);
-    let Some(crate::app::layout::Node::Split { axis, .. }) = s.app.cur_tab().map(|t| &t.root) else { panic!("not split") };
+    let Some(crate::layout::Node::Split { axis, .. }) = s.app.cur_tab().map(|t| &t.root) else { panic!("not split") };
     assert_eq!(*axis, Axis::Vertical);
     assert!(s.card(left).top() > s.card(right).bottom());
     assert_eq!(s.app.focused_pane(), Some(left));
@@ -384,7 +384,7 @@ fn holding_over_a_tab_opens_it_to_place_the_pane() {
     let (from, tab) = (s.header(left), s.tab_at(second));
     s.grab(from, tab);
     assert_eq!(s.shown_uid(), first, "opened before the delay");
-    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     assert_eq!(s.shown_uid(), second);
     s.settle();
     // Onto the left edge of the lone pane there.
@@ -403,7 +403,7 @@ fn escape_after_opening_another_tab_goes_back() {
     let (mut s, left, right, first, second, lone) = two_tabs();
     let (from, tab) = (s.header(left), s.tab_at(second));
     s.grab(from, tab);
-    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     assert_eq!(s.shown_uid(), second);
     s.escape();
     s.release(tab);
@@ -419,7 +419,7 @@ fn moving_a_tabs_last_pane_away_closes_the_tab_but_keeps_the_pane() {
     s.settle();
     let (from, tab) = (s.header(lone), s.tab_at(first));
     s.grab(from, tab);
-    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     assert_eq!(s.shown_uid(), first);
     s.settle();
     let r = s.card(right);
@@ -449,7 +449,7 @@ fn touch_drag_header_swaps() {
 fn keyboard_swap_with_neighbor() {
     let (mut s, left, right) = two_terminals();
     let c = s.ctx.clone();
-    s.app.apply(&c, super::actions::Action::Swap(crate::app::layout::Direction::Right));
+    s.app.apply(&c, crate::app::actions::Action::Swap(crate::layout::Direction::Right));
     s.settle();
     assert_eq!(s.order(), vec![right, left]);
     assert_eq!(s.app.focused_pane(), Some(left));
@@ -484,7 +484,7 @@ fn lone_pane_placed_in_a_lone_tab_merges_them() {
     let (mut s, first, a, second, b) = two_lone_tabs();
     let (from, tab) = (s.header(a), s.tab_at(second));
     s.grab(from, tab);
-    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     assert_eq!(s.shown_uid(), second);
     s.settle();
     let r = s.card(b);
@@ -501,7 +501,7 @@ fn lone_pane_dropped_mid_pane_in_a_lone_tab_merges_them() {
     let (mut s, first, a, second, b) = two_lone_tabs();
     let (from, tab) = (s.header(a), s.tab_at(second));
     s.grab(from, tab);
-    s.hold(super::pane_drag::SPRING_DELAY + 0.1);
+    s.hold(crate::app::workspace::pane_drag::SPRING_DELAY + 0.1);
     s.settle();
     let to = s.card(b).center();
     s.move_to(tab, to);

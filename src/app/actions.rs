@@ -1,15 +1,15 @@
 //! Everything the user can ask for (keyboard shortcuts, buttons), and carrying it out.
-//! Which keys ask for what is in `keymap.rs`.
+//! Which keys ask for what is in `input/keymap.rs`.
 
 use alacritty_terminal::grid::Scroll;
 use egui::ViewportCommand;
 
-use crate::app::layout::{self, Axis, Direction, PaneId};
+use crate::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
-use super::App;
-use super::follow::Place;
-use super::zoom::EXPLORER_ZOOM_STEP;
+use crate::app::App;
+use crate::app::ssh::follow::Place;
+use crate::app::input::zoom::EXPLORER_ZOOM_STEP;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Action {
@@ -59,7 +59,7 @@ pub(super) enum Action {
     ExploreHere,
     CloseExplorer,
     /// Share this machine's microphone with a pane's ssh host, or stop; `ToggleMic(0)` means
-    /// the focused pane (see `mic.rs`).
+    /// the focused pane (see `ssh/mic.rs`).
     ToggleMic(PaneId),
 }
 

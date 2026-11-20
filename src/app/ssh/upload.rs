@@ -9,17 +9,17 @@ use std::time::Duration;
 
 use egui::Id;
 
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::platform::ClipboardFiles;
 use crate::remote::{self, SshTarget, UploadError};
 use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
 use crate::ui::theme::Theme;
 use crate::ui::toast::Toast;
 
-use super::App;
+use crate::app::App;
 
 /// An upload on its way to a pane's remote host.
-pub(super) struct Upload {
+pub(in crate::app) struct Upload {
     pane: PaneId,
     host: String,
     /// What was sent, typed instead if the upload fails (none for a pasted image, whose
@@ -32,7 +32,7 @@ pub(super) struct Upload {
 
 impl App {
     /// The host pane `id` is connected to with `ssh`, if uploads are on and it is.
-    pub(super) fn ssh_target(&mut self, id: PaneId) -> Option<SshTarget> {
+    pub(in crate::app) fn ssh_target(&mut self, id: PaneId) -> Option<SshTarget> {
         if !self.cfg.ssh_upload {
             return None;
         }
@@ -41,7 +41,7 @@ impl App {
 
     /// Files dropped on a terminal: their paths typed, or, in an `ssh` session, copied to the
     /// remote host and the remote paths typed.
-    pub(super) fn insert_or_upload(&mut self, ctx: &egui::Context, id: PaneId, paths: Vec<PathBuf>) {
+    pub(in crate::app) fn insert_or_upload(&mut self, ctx: &egui::Context, id: PaneId, paths: Vec<PathBuf>) {
         match self.ssh_target(id) {
             Some(target) => self.start_upload(ctx, id, target, paths.clone(), paths, None),
             None => self.insert_paths(id, &paths),
@@ -49,7 +49,7 @@ impl App {
     }
 
     /// Files or an image pasted into an `ssh` session: copied to the remote host.
-    pub(super) fn upload_clipboard(&mut self, ctx: &egui::Context, id: PaneId, target: SshTarget, files: ClipboardFiles) {
+    pub(in crate::app) fn upload_clipboard(&mut self, ctx: &egui::Context, id: PaneId, target: SshTarget, files: ClipboardFiles) {
         match files {
             ClipboardFiles::Paths(paths) => self.start_upload(ctx, id, target, paths.clone(), paths, None),
             ClipboardFiles::Png(png) => match remote::save_png(&png) {
@@ -80,7 +80,7 @@ impl App {
     }
 
     /// Type the remote paths of finished uploads into their panes.
-    pub(super) fn poll_uploads(&mut self, ctx: &egui::Context) {
+    pub(in crate::app) fn poll_uploads(&mut self, ctx: &egui::Context) {
         if self.uploads.is_empty() {
             return;
         }
@@ -135,14 +135,14 @@ impl App {
     }
 
     /// A modal dialog is open over the terminals and takes the keyboard.
-    pub(super) fn upload_modal_open(&self) -> bool {
+    pub(in crate::app) fn upload_modal_open(&self) -> bool {
         self.sharing_prompt.is_some()
     }
 
     /// Offered when an upload needed a password: Turn On adds the sharing block to
     /// `~/.ssh/config`, then the alert stays up to say the session must be logged into again
     /// (a session already open can't start sharing). Not Now isn't asked again this run.
-    pub(super) fn sharing_dialog(&mut self, ctx: &egui::Context, theme: &Theme) {
+    pub(in crate::app) fn sharing_dialog(&mut self, ctx: &egui::Context, theme: &Theme) {
         let Some(prompt) = self.sharing_prompt.clone() else { return };
         let (icon, title, body, steps, primary, secondary) = match &prompt {
             SharingPrompt::Offer(host, _) => (
@@ -209,7 +209,7 @@ impl App {
 
 /// What the connection-sharing dialog is showing.
 #[derive(Clone)]
-pub(super) enum SharingPrompt {
+pub(in crate::app) enum SharingPrompt {
     /// An upload to this host (or sharing the microphone with it) needed a password: offer to
     /// turn sharing on. Then the last step of logging in again ("Drop the file again").
     Offer(String, &'static str),

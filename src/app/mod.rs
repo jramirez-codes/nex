@@ -1,30 +1,18 @@
 //! The application: window chrome (title bar + tabs), split panes, input handling.
-//! Each concern lives in its own submodule; this file holds the state and the frame loop.
+//! Each concern lives in its own submodule; this file holds the state and the frame loop:
+//! `input/` (keys, mouse, zoom), `chrome/` (title bar, sidebar, window), `workspace/` (tabs and
+//! panes), `animation/` (motion and tab switches), `ssh/` (remote hosts). `actions` is what
+//! the user can ask for, shared by input and chrome.
 
 mod actions;
-mod follow;
-mod keyboard;
-mod keymap;
-pub mod layout;
-mod metrics;
-mod motion;
-mod mouse;
-mod pane_drag;
-mod panes;
+mod animation;
+mod chrome;
+mod input;
 mod reload;
-mod sidebar;
-mod tab;
-mod tab_motion;
-mod tab_switch;
-mod titlebar;
-mod transition;
-mod mic;
-mod upload;
-mod window;
+mod ssh;
 mod workspace;
-mod zoom;
 #[cfg(test)]
-mod drop_test;
+mod tests;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
@@ -35,7 +23,7 @@ use crate::config::{self, Config};
 use crate::file_explorer::{self, FileExplorer};
 use crate::render::fonts;
 use crate::render::glyphs::GlyphCache;
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::render::CellMetrics;
 use crate::terminal::search::{Link, LinkFinder, Search};
 use crate::terminal::Terminal;
@@ -45,11 +33,11 @@ use crate::ui::toast::{self, Toast};
 use crate::ui::widgets::is_maximized;
 
 use actions::Action;
-use keymap::{Binding, keybindings};
-use mouse::MouseState;
-use tab::Tab;
-use tab_switch::TabSwitch;
-use tab_motion::{TabDrawn, TabGhost};
+use input::keymap::{Binding, keybindings};
+use input::mouse::MouseState;
+use workspace::tab::Tab;
+use animation::tab_switch::TabSwitch;
+use animation::tab_close::{TabDrawn, TabGhost};
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;
@@ -118,7 +106,7 @@ pub struct App {
     /// pane a tab of its own.
     strip_rect: Option<Rect>,
     /// A pane being dragged by its header, if any (it can be carried to another tab).
-    pane_drag: Option<pane_drag::PaneDrag>,
+    pane_drag: Option<workspace::pane_drag::PaneDrag>,
     /// The tab-switch transition (`tab-animation`): the old tab's panes giving way to the new.
     switch: TabSwitch,
     /// File-explorer panes (the Files tab). They share the pane id space and split tree with
@@ -147,15 +135,15 @@ pub struct App {
     /// The "Copied …" / "Pasted …" message currently on screen.
     toast: Option<Toast>,
     /// Files on their way to an `ssh` pane's remote host.
-    uploads: Vec<upload::Upload>,
+    uploads: Vec<ssh::upload::Upload>,
     /// The connection-sharing dialog, after an upload couldn't log in.
-    sharing_prompt: Option<upload::SharingPrompt>,
+    sharing_prompt: Option<ssh::upload::SharingPrompt>,
     /// Not Now was picked in that offer: don't ask again this run.
     sharing_declined: bool,
     /// A split or tab into an ssh session, waiting on the sharing alert (see `follow`).
-    pending_pane: Option<follow::PendingPane>,
-    /// Hosts this machine's microphone is shared with (see `mic.rs`).
-    mics: mic::Mics,
+    pending_pane: Option<ssh::follow::PendingPane>,
+    /// Hosts this machine's microphone is shared with (see `ssh/mic.rs`).
+    mics: ssh::mic::Mics,
 }
 
 impl App {
@@ -224,7 +212,7 @@ impl App {
             uploads: Vec::new(),
             sharing_prompt: None,
             sharing_declined: false,
-            mics: mic::Mics::default(),
+            mics: ssh::mic::Mics::default(),
             pending_pane: None,
         }
     }
@@ -315,7 +303,7 @@ impl App {
     fn update_content_area(&mut self, ctx: &egui::Context) {
         let full = ctx.content_rect();
         let min = if self.cfg.mobile {
-            Pos2::new(full.left() + sidebar::SIDEBAR_WIDTH, full.top() + PANE_GAP)
+            Pos2::new(full.left() + chrome::sidebar::SIDEBAR_WIDTH, full.top() + PANE_GAP)
         } else {
             Pos2::new(full.left() + PANE_GAP, full.top() + TITLEBAR_HEIGHT)
         };
@@ -404,7 +392,7 @@ impl App {
         }
         for (pane, request) in std::mem::take(&mut self.explorer_requests) {
             match request {
-                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, layout::Axis::Horizontal, Some(dir), None),
+                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, crate::layout::Axis::Horizontal, Some(dir), None),
             }
         }
     }
@@ -421,7 +409,7 @@ impl App {
         }
 
         if self.cfg.mobile {
-            let sidebar = Rect::from_min_size(full.min, Vec2::new(sidebar::SIDEBAR_WIDTH, full.height()));
+            let sidebar = Rect::from_min_size(full.min, Vec2::new(chrome::sidebar::SIDEBAR_WIDTH, full.height()));
             self.sidebar(ui, sidebar, &theme);
         } else {
             let titlebar = Rect::from_min_size(full.min, Vec2::new(full.width(), TITLEBAR_HEIGHT));
