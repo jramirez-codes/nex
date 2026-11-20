@@ -6,7 +6,7 @@ use std::ops::BitOr;
 
 use egui::{Event, Key, Modifiers};
 
-use crate::app::layout::{Axis, Direction};
+use crate::layout::{Axis, Direction};
 use crate::platform::{self, ShortcutStyle};
 
 use super::actions::Action;

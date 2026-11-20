@@ -3,7 +3,7 @@
 
 use egui::Pos2;
 
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 
 use super::App;
 

@@ -3,6 +3,7 @@ mod audio;
 mod cli;
 mod config;
 mod file_explorer;
+mod layout;
 mod platform;
 mod remote;
 mod render;

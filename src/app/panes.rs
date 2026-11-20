@@ -6,7 +6,7 @@ use egui::emath::TSTransform;
 use egui::epaint::Shadow;
 use egui::{Color32, CursorIcon, FontId, Id, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::app::layout::{Axis, Divider, PaneId};
+use crate::layout::{Axis, Divider, PaneId};
 use crate::render::{self, FrameKey, PaintOptions};
 use crate::terminal::search::Search;
 use crate::terminal::GridSize;

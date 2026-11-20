@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use egui::{Color32, CursorIcon, FontId, Id, LayerId, Order, Rect, ResizeDirection, Stroke, StrokeKind, Vec2, ViewportCommand};
 
 use crate::file_explorer;
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::ui::theme::{ACCENT, Theme};
 use crate::ui::widgets::is_maximized;
 

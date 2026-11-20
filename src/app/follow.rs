@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use super::App;
-use super::layout::{Axis, PaneId};
+use crate::layout::{Axis, PaneId};
 use super::upload::SharingPrompt;
 use crate::remote;
 

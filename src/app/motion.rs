@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use egui::{Pos2, Rect, Shape};
 
-use crate::app::layout::{Axis, PaneId};
+use crate::layout::{Axis, PaneId};
 use crate::ui::glide::{self, Glide, ease_out};
 
 /// Length of a split / close transition, in seconds.

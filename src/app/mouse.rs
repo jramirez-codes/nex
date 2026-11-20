@@ -7,7 +7,7 @@ use alacritty_terminal::term::TermMode;
 use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, Vec2};
 
 use crate::terminal::input::{self, MouseAction, MouseButton};
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::render;
 
 use super::App;

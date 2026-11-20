@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use egui::Id;
 
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::platform::ClipboardFiles;
 use crate::remote::{self, SshTarget, UploadError};
 use crate::ui::alert::{Alert, AlertChoice, AlertIcon};

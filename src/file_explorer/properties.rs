@@ -9,7 +9,7 @@ use std::time::SystemTime;
 
 use egui::{Color32, Id, Key, RichText, Sense, Vec2};
 
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::terminal::tilde;
 use crate::ui::theme::{ACCENT, Theme};
 

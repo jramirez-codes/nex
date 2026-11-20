@@ -5,7 +5,6 @@ mod actions;
 mod follow;
 mod keyboard;
 mod keymap;
-pub mod layout;
 mod metrics;
 mod motion;
 mod mouse;
@@ -35,7 +34,7 @@ use crate::config::{self, Config};
 use crate::file_explorer::{self, FileExplorer};
 use crate::render::fonts;
 use crate::render::glyphs::GlyphCache;
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::render::CellMetrics;
 use crate::terminal::search::{Link, LinkFinder, Search};
 use crate::terminal::Terminal;
@@ -404,7 +403,7 @@ impl App {
         }
         for (pane, request) in std::mem::take(&mut self.explorer_requests) {
             match request {
-                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, layout::Axis::Horizontal, Some(dir), None),
+                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, crate::layout::Axis::Horizontal, Some(dir), None),
             }
         }
     }

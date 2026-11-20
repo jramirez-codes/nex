@@ -1,6 +1,6 @@
 //! A tab: a split tree of panes plus its header's pane-icon deck.
 
-use crate::app::layout::{Node, PaneId};
+use crate::layout::{Node, PaneId};
 use crate::ui::glide::Glide;
 
 use super::motion::PaneMotion;

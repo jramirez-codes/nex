@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use egui::{Event, PointerButton, Pos2, Rect, Vec2};
 
-use crate::app::layout::{Direction, PaneId};
+use crate::layout::{Direction, PaneId};
 
 use super::actions::Action;
 use super::{App, PANE_GAP};

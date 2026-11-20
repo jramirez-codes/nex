@@ -5,7 +5,7 @@ use egui::{Event, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, T
 use std::path::{Path, PathBuf};
 
 use super::App;
-use crate::app::layout::{Axis, PaneId};
+use crate::layout::{Axis, PaneId};
 
 struct Sim {
     ctx: egui::Context,
@@ -318,7 +318,7 @@ fn drag_header_onto_bottom_edge_stacks_them() {
     let (from, to) = (s.header(left), Pos2::new(r.center().x, r.bottom() - 15.0));
     s.mouse_drag(from, to);
     assert_eq!(s.order(), vec![right, left]);
-    let Some(crate::app::layout::Node::Split { axis, .. }) = s.app.cur_tab().map(|t| &t.root) else { panic!("not split") };
+    let Some(crate::layout::Node::Split { axis, .. }) = s.app.cur_tab().map(|t| &t.root) else { panic!("not split") };
     assert_eq!(*axis, Axis::Vertical);
     assert!(s.card(left).top() > s.card(right).bottom());
     assert_eq!(s.app.focused_pane(), Some(left));
@@ -449,7 +449,7 @@ fn touch_drag_header_swaps() {
 fn keyboard_swap_with_neighbor() {
     let (mut s, left, right) = two_terminals();
     let c = s.ctx.clone();
-    s.app.apply(&c, super::actions::Action::Swap(crate::app::layout::Direction::Right));
+    s.app.apply(&c, super::actions::Action::Swap(crate::layout::Direction::Right));
     s.settle();
     assert_eq!(s.order(), vec![right, left]);
     assert_eq!(s.app.focused_pane(), Some(left));

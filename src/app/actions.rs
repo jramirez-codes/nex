@@ -4,7 +4,7 @@
 use alacritty_terminal::grid::Scroll;
 use egui::ViewportCommand;
 
-use crate::app::layout::{self, Axis, Direction, PaneId};
+use crate::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
 use super::App;

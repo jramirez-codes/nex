@@ -2,7 +2,7 @@
 
 use egui::{FontFamily, FontId, Pos2, Rect};
 
-use crate::app::layout::PaneId;
+use crate::layout::PaneId;
 use crate::render::{CellMetrics, FONT_REGULAR};
 use crate::terminal::GridSize;
 

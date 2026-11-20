@@ -61,7 +61,7 @@ impl App {
 
     /// If pane `id` runs `ssh` and the clipboard holds copied files or an image, upload them
     /// to the remote host (their remote paths are typed once there). Returns whether it did.
-    fn upload_pasted_files(&mut self, ctx: &egui::Context, id: crate::app::layout::PaneId) -> bool {
+    fn upload_pasted_files(&mut self, ctx: &egui::Context, id: crate::layout::PaneId) -> bool {
         let Some(target) = self.ssh_target(id) else { return false };
         let files = match &self.dnd {
             Some(dnd) => dnd.clipboard_files(),
