@@ -99,6 +99,11 @@ pub struct App {
     tab_ghosts: Vec<TabGhost>,
     /// Where the Files tab (the directory label, or the sidebar tile) was drawn this frame.
     files_rect: Option<Rect>,
+    /// Where the Files tab's dog is in its intro, as the time the intro would have started
+    /// (set at launch; moved so the blep plays each time Files is shown), and whether Files
+    /// was showing last frame.
+    dog_wake: Option<f64>,
+    dog_was_active: bool,
     /// Where each visible tab was drawn this frame (title bar or sidebar), by tab uid: where
     /// a dragged pane can be dropped into another tab.
     tab_hits: Vec<(u64, Rect)>,
@@ -193,6 +198,8 @@ impl App {
             tab_rects: HashMap::new(),
             tab_ghosts: Vec::new(),
             files_rect: None,
+            dog_wake: None,
+            dog_was_active: false,
             tab_hits: Vec::new(),
             strip_rect: None,
             pane_drag: None,

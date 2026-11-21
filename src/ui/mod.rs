@@ -3,6 +3,7 @@
 //! the window chrome, the panes and the file explorer.
 
 pub mod alert;
+pub mod dog;
 pub mod file_icons;
 pub mod glide;
 pub mod icons;

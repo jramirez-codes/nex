@@ -416,7 +416,7 @@ Mouse actions (use Cmd instead of Ctrl on macOS):
 - Drag the gap between two panes to resize them.
 - Drag a pane by its header onto another pane to swap the two (`Esc` cancels). With
   `pane-headers = false`, use the keyboard swap instead.
-- Click the directory label in the title bar to show the Files tab, click it again to go back,
+- Click the directory label in the title bar (the one with the nex dog) to show the Files tab, click it again to go back,
   and middle-click it to close it. Ctrl+Tab cycles through it too.
 
 ### File explorer
