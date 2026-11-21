@@ -27,7 +27,7 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     if args.file_manager_service {
-        if let Err(e) = platform::file_manager_service() {
+        if let Err(e) = platform::file_manager_service(&args.for_new_window()) {
             eprintln!("nex: {e}");
             std::process::exit(1);
         }

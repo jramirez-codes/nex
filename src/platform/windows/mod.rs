@@ -122,7 +122,7 @@ pub fn format_local_time(t: std::time::SystemTime) -> Option<String> {
 }
 
 /// Showing files for other apps over D-Bus is Linux-only (see `platform/linux/file_manager/`).
-pub fn file_manager_service() -> Result<(), String> {
+pub fn file_manager_service(_window_args: &[String]) -> Result<(), String> {
     Err("--file-manager-service is only available on Linux".into())
 }
 

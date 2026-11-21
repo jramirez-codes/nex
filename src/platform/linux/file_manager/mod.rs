@@ -4,7 +4,8 @@
 //!
 //! The bus starts this on the first call when nex's service file is installed
 //! (`assets/org.freedesktop.FileManager1.service`, see the README). It then stays on the bus
-//! and opens a nex window for each request:
+//! and opens a nex window for each request. `--config` and `--app-id` given to the service are
+//! passed on to those windows (`Exec=nex --config=… --file-manager-service`):
 //!
 //! | Method | nex opens |
 //! |---|---|
@@ -36,8 +37,10 @@ const INTROSPECTION: &str = r#"<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS 
 </node>
 "#;
 
-/// Own `org.freedesktop.FileManager1` and serve it until the bus goes away.
-pub fn file_manager_service() -> Result<(), String> {
+/// Own `org.freedesktop.FileManager1` and serve it until the bus goes away. Every window
+/// gets `flags` too (the service's own `--config` / `--app-id`), so it looks like the
+/// rest of the user's nex windows.
+pub fn file_manager_service(flags: &[String]) -> Result<(), String> {
     let mut bus = dbus::Connection::session().map_err(|e| format!("can't connect to the session bus: {e}"))?;
     match bus.request_name(NAME).map_err(|e| format!("can't request {NAME}: {e}"))? {
         dbus::PRIMARY_OWNER | dbus::ALREADY_OWNER => {}
@@ -54,7 +57,7 @@ pub fn file_manager_service() -> Result<(), String> {
             (NAME | "", member @ ("ShowFolders" | "ShowItems" | "ShowItemProperties")) => match msg.string_array() {
                 Ok(uris) => {
                     for args in window_args(member == "ShowFolders", &uris) {
-                        open_window(&nex, &args, &display);
+                        open_window(&nex, flags, &args, &display);
                     }
                     Ok(None)
                 }
@@ -118,8 +121,9 @@ fn local_path(uri: &str) -> Option<PathBuf> {
 }
 
 /// Start a nex window (a separate process, like Ctrl+Shift+N) and reap it in the background.
-fn open_window(nex: &Path, arg: &str, display: &[(&'static str, String)]) {
+fn open_window(nex: &Path, flags: &[String], arg: &str, display: &[(&'static str, String)]) {
     let child = std::process::Command::new(nex)
+        .args(flags)
         .arg(arg)
         .envs(display.iter().map(|(k, v)| (*k, v)))
         .current_dir(crate::platform::home_dir().unwrap_or_else(|| PathBuf::from("/")))

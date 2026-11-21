@@ -44,7 +44,7 @@ pub(super) const SANS_SERIF: &str = "Helvetica Neue";
 pub(super) const MONOSPACE: &str = "Menlo";
 
 /// Showing files for other apps over D-Bus is Linux-only (see `platform/linux/file_manager/`).
-pub fn file_manager_service() -> Result<(), String> {
+pub fn file_manager_service(_window_args: &[String]) -> Result<(), String> {
     Err("--file-manager-service is only available on Linux".into())
 }
 

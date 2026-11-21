@@ -513,7 +513,9 @@ Apps that *show a file* ("Show in Folder" in Firefox and Chromium, "Reveal in Fi
 in VS Code) ask the file manager over D-Bus instead. To have nex answer those too, opening the
 file's folder with the file selected, install with `NEX_FILE_MANAGER=1 ./install.sh`, or copy
 `assets/org.freedesktop.FileManager1.service` to `~/.local/share/dbus-1/services/` with `Exec=`
-set to nex's full path. The bus then starts `nex --file-manager-service` on the first request.
+set to nex's full path. The bus then starts `nex --file-manager-service` on the first request. To give those windows
+the same `--config` or `--app-id` as your other nex windows, add them to the `Exec=` line
+(`Exec=/usr/bin/nex --config=/path/to/config --file-manager-service`).
 If another file manager is already running and answering, it keeps the job until it quits.
 
 **How is nex related to Alacritty?**

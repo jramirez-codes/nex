@@ -192,7 +192,9 @@ mod tests {
 
     #[test]
     fn file_manager_service_flag() {
-        assert!(parse(&["--file-manager-service"]).unwrap().file_manager_service);
+        let a = parse(&["--config=/c", "--app-id=t", "--file-manager-service"]).unwrap();
+        assert!(a.file_manager_service);
+        assert_eq!(a.for_new_window(), vec!["--config=/c".to_string(), "--app-id=t".to_string()]);
     }
 
     #[test]
