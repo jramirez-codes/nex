@@ -259,6 +259,19 @@ impl FileExplorer {
         }
     }
 
+    /// Put the cursor on `item` (an entry of this folder) and scroll it into view, showing
+    /// hidden files first if it is one.
+    pub fn reveal_item(&mut self, item: &Path) {
+        if item.parent() != Some(self.dir.as_path()) {
+            return;
+        }
+        if !self.show_hidden && item.file_name().is_some_and(|n| n.as_encoded_bytes().starts_with(b".")) {
+            self.show_hidden = true;
+            self.refresh();
+        }
+        self.select_path(item);
+    }
+
     /// Go to the parent folder, selecting the folder we came from.
     pub fn up(&mut self) {
         if let Some(parent) = self.dir.parent().map(Path::to_path_buf) {

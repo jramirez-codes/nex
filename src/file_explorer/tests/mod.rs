@@ -42,6 +42,22 @@ fn hidden_files_toggle() {
 }
 
 #[test]
+fn reveal_item_selects_it_showing_hidden_files_if_needed() {
+    let dir = fixture("reveal");
+    let mut b = FileExplorer::new(dir.clone());
+    b.reveal_item(&dir.join("zeta.txt"));
+    assert_eq!(b.entries[b.selected].name, "zeta.txt");
+    assert!(!b.show_hidden);
+    b.reveal_item(&dir.join(".env"));
+    assert!(b.show_hidden);
+    assert_eq!(b.entries[b.selected].name, ".env");
+    // Items outside this folder are left alone.
+    b.reveal_item(&dir.join("beta/nothing"));
+    assert_eq!(b.entries[b.selected].name, ".env");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn up_selects_the_folder_we_came_from() {
     let dir = fixture("up");
     let mut b = FileExplorer::new(dir.join("beta"));

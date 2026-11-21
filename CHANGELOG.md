@@ -8,6 +8,11 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- nex can answer other apps' "Show in Folder" (Firefox, Chromium, VS Code and anything else that
+  calls D-Bus `org.freedesktop.FileManager1`). It opens the file's folder on the Files tab with
+  the file selected, showing hidden files if the file is one. Opt in with
+  `NEX_FILE_MANAGER=1 ./install.sh` (see the README's "Can nex be my file manager?").
+- `--select=PATH` opens the Files tab in PATH's folder with PATH selected.
 - A pulsing dot on the top-left corner of a tab's icon when a program in it rings the bell or sends a
   desktop notification (OSC 9, OSC 99 or OSC 777) and you aren't looking at it, such as Claude
   Code waiting for permission. It clears when you switch to that pane. When nex is in the
