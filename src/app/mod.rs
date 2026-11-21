@@ -130,6 +130,8 @@ pub struct App {
     new_window_args: Vec<String>,
     /// `--explorer` (or a folder argument): show the Files tab once the first shell opens.
     open_explorer: bool,
+    /// `--select`: the item to select in that Files tab.
+    select_at_start: Option<std::path::PathBuf>,
     /// `-e` command, run by the first pane only; later panes start the shell.
     first_command: Option<Vec<String>>,
     /// The first shell, started before the window existed (see `Terminal::spawn_early`);
@@ -211,6 +213,7 @@ impl App {
             last_pointer: None,
             new_window_args: args.for_new_window(),
             open_explorer: args.explorer,
+            select_at_start: args.select.clone(),
             // An early terminal already runs the `-e` command.
             first_command: if early_terminal.is_some() { None } else { args.command },
             early_terminal,
@@ -258,6 +261,9 @@ impl eframe::App for App {
             if self.open_explorer {
                 // Opened as a file manager: the Files tab, at the first shell's folder.
                 self.toggle_explorer();
+                if let Some(item) = self.select_at_start.take() {
+                    self.select_in_explorer(&item);
+                }
             }
         }
 

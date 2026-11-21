@@ -6,7 +6,7 @@ pub(super) mod metrics;
 pub(super) mod pane_drag;
 pub(super) mod tab;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use egui::{Pos2, Rect};
 
@@ -132,6 +132,14 @@ impl App {
             self.explorer_tab = Some(Tab::new(id, id));
         }
         self.explorer_active = true;
+    }
+
+    /// Select `item` in the Files tab (opened at `item`'s folder by `--select`).
+    pub(in crate::app) fn select_in_explorer(&mut self, item: &Path) {
+        let Some(id) = self.explorer_tab.as_ref().map(|t| t.focused) else { return };
+        if let Some(b) = self.explorers.get_mut(&id) {
+            b.reveal_item(item);
+        }
     }
 
     /// A file explorer at `dir`, in the configured layout (`explorer-view`).

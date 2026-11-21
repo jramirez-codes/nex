@@ -1,7 +1,8 @@
 //! Command-line flags, for launching nex from scripts and window-manager configs:
 //!
 //! ```text
-//! nex [--config=PATH] [--app-id=ID] [--working-directory=DIR] [--explorer] [FOLDER] [-e COMMAND [ARGS...]]
+//! nex [--config=PATH] [--app-id=ID] [--working-directory=DIR] [--explorer] [--select=PATH] [FOLDER] [-e COMMAND [ARGS...]]
+//! nex --file-manager-service
 //! ```
 //!
 //! Flags take their value as `--flag=value` or `--flag value`. Everything after `-e` is the
@@ -20,6 +21,8 @@ usage: nex [OPTIONS] [FOLDER] [-e COMMAND [ARGS...]]
   --app-id=ID               Wayland app_id / X11 class of the window (default: nex)
   --working-directory=DIR   start the first shell in DIR
   --explorer                open the Files tab at startup
+  --select=PATH             open the Files tab in PATH's folder, with PATH selected
+  --file-manager-service    show files for other apps (\"Show in Folder\"), over D-Bus
   -e COMMAND [ARGS...]      run COMMAND in the first pane instead of the shell
   -h, --help                show this help
   -V, --version             show the version
@@ -32,6 +35,10 @@ pub struct Args {
     pub working_directory: Option<PathBuf>,
     /// Open the Files tab at startup (`--explorer`, or a bare folder argument).
     pub explorer: bool,
+    /// Select this item in the Files tab at startup (`--select`).
+    pub select: Option<PathBuf>,
+    /// Serve `org.freedesktop.FileManager1` instead of opening a window.
+    pub file_manager_service: bool,
     /// Program and arguments for the first pane.
     pub command: Option<Vec<String>>,
     pub help: bool,
@@ -65,12 +72,20 @@ impl Args {
                     out.command = Some(cmd);
                 }
                 "--explorer" => out.explorer = true,
+                "--select" => out.select = Some(local_path(&value()?)),
+                "--file-manager-service" => out.file_manager_service = true,
                 "-h" | "--help" => out.help = true,
                 "-V" | "--version" => out.version = true,
                 _ if !arg.starts_with('-') && folder.is_none() => folder = Some(folder_arg(&arg)),
                 _ if !arg.starts_with('-') => return Err(format!("only one folder can be opened, got `{arg}` too")),
                 _ => return Err(format!("unknown argument `{arg}`")),
             }
+        }
+        if let Some(item) = &out.select {
+            if folder.is_some() {
+                return Err("--select already names the folder to open".into());
+            }
+            folder = Some(item.parent().map(PathBuf::from).unwrap_or_else(|| item.clone()));
         }
         if let Some(dir) = folder {
             out.working_directory = Some(dir);
@@ -95,13 +110,18 @@ impl Args {
 /// A folder argument as a path: `file://` URIs (with or without a `localhost` host) are
 /// decoded, and a file opens its parent folder.
 fn folder_arg(arg: &str) -> PathBuf {
-    let path = match arg.strip_prefix("file://") {
-        Some(rest) => PathBuf::from(crate::file_explorer::fs::ops::percent_decode(rest.strip_prefix("localhost").unwrap_or(rest))),
-        None => PathBuf::from(arg),
-    };
+    let path = local_path(arg);
     match path.parent() {
         Some(parent) if path.is_file() => parent.to_path_buf(),
         _ => path,
+    }
+}
+
+/// A path or `file://` URI (with or without a `localhost` host) as a path.
+fn local_path(arg: &str) -> PathBuf {
+    match arg.strip_prefix("file://") {
+        Some(rest) => PathBuf::from(crate::file_explorer::fs::ops::percent_decode(rest.strip_prefix("localhost").unwrap_or(rest))),
+        None => PathBuf::from(arg),
     }
 }
 
@@ -159,6 +179,22 @@ mod tests {
         std::fs::write(&file, "").unwrap();
         assert_eq!(parse(&[file.to_str().unwrap()]).unwrap().working_directory, Some(dir.clone()));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn select_opens_the_items_folder() {
+        let a = parse(&["--select=file:///tmp/a%20b.txt"]).unwrap();
+        assert!(a.explorer);
+        assert_eq!(a.working_directory, Some("/tmp".into()));
+        assert_eq!(a.select, Some("/tmp/a b.txt".into()));
+        assert!(parse(&["--select", "/tmp/x", "/etc"]).is_err());
+    }
+
+    #[test]
+    fn file_manager_service_flag() {
+        let a = parse(&["--config=/c", "--app-id=t", "--file-manager-service"]).unwrap();
+        assert!(a.file_manager_service);
+        assert_eq!(a.for_new_window(), vec!["--config=/c".to_string(), "--app-id=t".to_string()]);
     }
 
     #[test]
