@@ -1,0 +1,6 @@
+# Makes nex the file manager other apps call to show a file or folder (Firefox's
+# "Show in Folder" and the like). Copy to ~/.local/share/dbus-1/services/ to opt in;
+# install.sh writes it there with an absolute path when run with NEX_FILE_MANAGER=1.
+[D-BUS Service]
+Name=org.freedesktop.FileManager1
+Exec=nex --file-manager-service

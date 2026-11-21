@@ -14,6 +14,7 @@
 //!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
 //!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
 //!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland) · watch.rs (inotify)
+//!                 · file_manager/ (D-Bus FileManager1)
 //!                 · memory.rs (glibc arenas, malloc_trim)
 //!   macos/        mod.rs · proc.rs (libproc) · memory.rs (malloc pressure relief)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
@@ -32,6 +33,7 @@
 //! | `shell_env()` | variables the shell needs but may not inherit (`LANG` on macOS) |
 //! | `opened_from_desktop()` | started by Finder / a launcher rather than a shell |
 //! | `open_uri(uri)` | open a link or file with the desktop's default app |
+//! | `file_manager_service()` | `nex --file-manager-service`: show files for other apps (Linux: D-Bus `FileManager1`) |
 //! | `apps_for(path)` / `open_with(app, path)` | the explorer's "Open With" list ([`AppChoice`]) |
 //! | `mime_type(path)` | a file's MIME type, for Properties |
 //! | `file_mode(meta)` / `is_executable(meta)` / `owner_names(meta)` | permission bits and owner |

@@ -4,6 +4,7 @@
 mod apps;
 mod clipboard;
 mod dnd;
+mod file_manager;
 mod fonts;
 mod memory;
 mod proc;
@@ -16,6 +17,7 @@ pub use super::unix::{
 pub use apps::{apps_for, mime_type, open_with};
 pub use clipboard::clipboard_files;
 pub use dnd::Dnd;
+pub use file_manager::file_manager_service;
 pub use fonts::{FALLBACK_FAMILIES, find_font, nerd_mono_families};
 pub use memory::{trim_heap, tune_allocator};
 pub use proc::proc_info;

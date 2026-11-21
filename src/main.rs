@@ -26,6 +26,13 @@ fn main() -> eframe::Result {
         println!("nex {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    if args.file_manager_service {
+        if let Err(e) = platform::file_manager_service() {
+            eprintln!("nex: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     // Opened from Finder or the Dock (in `/`): the first shell starts at home, as in Terminal.
     if args.working_directory.is_none() && platform::opened_from_desktop()
         && let Some(home) = platform::home_dir() {

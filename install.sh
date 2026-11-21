@@ -28,6 +28,13 @@ if [ "$(uname -s)" = Linux ]; then
   done
   install -m644 assets/nex.svg "$PREFIX/share/icons/hicolor/scalable/apps/nex.svg"
   command -v update-desktop-database >/dev/null && update-desktop-database -q "$PREFIX/share/applications" || true
+  # Opt in to answering other apps' "Show in Folder" (D-Bus FileManager1) with nex.
+  if [ "${NEX_FILE_MANAGER:-0}" = 1 ]; then
+    SERVICES="${XDG_DATA_HOME:-$HOME/.local/share}/dbus-1/services"
+    install -d "$SERVICES"
+    sed "s|^Exec=nex|Exec=$PREFIX/bin/nex|" assets/org.freedesktop.FileManager1.service > "$SERVICES/org.freedesktop.FileManager1.service"
+    chmod 644 "$SERVICES/org.freedesktop.FileManager1.service"
+  fi
 elif [ "$(uname -s)" = Darwin ]; then
   if [ -z "${APP_DIR:-}" ]; then
     if [ -w /Applications ]; then APP_DIR=/Applications; else APP_DIR="$HOME/Applications"; fi

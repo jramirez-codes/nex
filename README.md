@@ -509,6 +509,13 @@ xdg-mime default nex-files.desktop inode/directory
 After that, `xdg-open ~/Downloads` and apps that open folders through xdg-open start nex on the
 Files tab. Add `explorer-view = grid` to your config to get the grid layout by default.
 
+Apps that *show a file* ("Show in Folder" in Firefox and Chromium, "Reveal in File Explorer"
+in VS Code) ask the file manager over D-Bus instead. To have nex answer those too, opening the
+file's folder with the file selected, install with `NEX_FILE_MANAGER=1 ./install.sh`, or copy
+`assets/org.freedesktop.FileManager1.service` to `~/.local/share/dbus-1/services/` with `Exec=`
+set to nex's full path. The bus then starts `nex --file-manager-service` on the first request.
+If another file manager is already running and answering, it keeps the job until it quits.
+
 **How is nex related to Alacritty?**
 nex uses `alacritty_terminal`, Alacritty's VT parser and grid, as its terminal engine. The
 renderer, tabs, splits, file explorer and window chrome are nex's own.

@@ -121,6 +121,11 @@ pub fn format_local_time(t: std::time::SystemTime) -> Option<String> {
     Some(format!("{year:04}-{month:02}-{day:02} {:02}:{:02} UTC", rem / 3600, rem % 3600 / 60))
 }
 
+/// Showing files for other apps over D-Bus is Linux-only (see `platform/linux/file_manager/`).
+pub fn file_manager_service() -> Result<(), String> {
+    Err("--file-manager-service is only available on Linux".into())
+}
+
 /// Open a URI with its default app.
 pub fn open_uri(uri: &std::ffi::OsStr) {
     let _ = std::process::Command::new("cmd")
