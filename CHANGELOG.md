@@ -27,6 +27,9 @@ All notable changes to nex are documented here. The format follows
 
 - Dropping a dragged pane header on the title bar now opens it in a new tab instead of
   cancelling the drag.
+- The Files tab's icon is now the nex dog instead of a monitor. It wakes up when nex starts,
+  sticks its tongue out with a head wiggle each time you switch to Files, and is dimmed
+  while another tab is showing. With `animations = false` it stays still.
 
 ## [0.11.0] - 2026-11-17
 

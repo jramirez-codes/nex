@@ -6,7 +6,7 @@ use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke,
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
-use crate::ui::{glide, icons, paint};
+use crate::ui::{dog, glide, icons, paint};
 
 use crate::app::App;
 use crate::app::actions::Action;
@@ -242,12 +242,34 @@ impl App {
             self.pending.push(Action::ToggleExplorer);
         }
 
-        let glyph_color = if active { theme.text_bright } else { theme.text_dim };
-        icons::workspace_glyph(painter, Rect::from_center_size(Pos2::new(x + 8.0, cy), Vec2::new(16.0, 13.0)), glyph_color);
+        self.files_dog(ui.ctx(), painter, Rect::from_center_size(Pos2::new(x + 9.0, cy), Vec2::splat(21.0)), theme);
         let x = x + 26.0;
         let project_color = if active { theme.text_bright } else { theme.text };
         paint::faded_text(painter, Pos2::new(x, cy - 7.0), &project, paint::bold(13.0), project_color, LABEL_WIDTH, 16.0);
         paint::faded_text(painter, Pos2::new(x, cy + 8.0), &self.hostname, FontId::proportional(11.0), theme.text_dim, LABEL_WIDTH, 16.0);
+    }
+
+    /// The nex dog marking the Files tab (title-bar label or sidebar tile). It wakes up at
+    /// launch, sticks its tongue out each time Files is shown, and rests dimmed while Files
+    /// is hidden.
+    pub(in crate::app) fn files_dog(&mut self, ctx: &egui::Context, painter: &egui::Painter, r: Rect, theme: &Theme) {
+        let now = ctx.input(|i| i.time);
+        let active = self.explorer_active;
+        match self.dog_wake {
+            None => self.dog_wake = Some(now),
+            // Switching to Files plays just the blep, unless the launch intro hasn't reached
+            // it yet (it's on its way).
+            Some(start) if active && !self.dog_was_active && now - start >= dog::BLEP_START as f64 => {
+                self.dog_wake = Some(now - dog::BLEP_START as f64);
+            }
+            Some(_) => {}
+        }
+        self.dog_was_active = active;
+        let t = if glide::animations(ctx) { (now - self.dog_wake.unwrap_or(now)) as f32 } else { dog::INTRO };
+        if t < dog::INTRO {
+            ctx.request_repaint();
+        }
+        dog::paint(painter, r, t, (theme.window, if active { 0.0 } else { 0.3 }));
     }
 
     /// Lays out the terminal tabs in a recessed segmented-control style track between `x`

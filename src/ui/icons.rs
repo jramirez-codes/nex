@@ -271,15 +271,6 @@ fn hexagon(p: &Painter, c: Pos2, radius: f32, stroke: Stroke, fill: Option<Color
     };
 }
 
-/// A small display/workspace glyph for the title bar label.
-pub fn workspace_glyph(p: &Painter, r: Rect, c: Color32) {
-    let s = Stroke::new(1.3_f32, c);
-    let screen = Rect::from_min_max(r.min, Pos2::new(r.right(), r.bottom() - 3.0));
-    p.rect_stroke(screen, 2, s, StrokeKind::Inside);
-    p.line_segment([Pos2::new(r.center().x - 3.0, r.bottom()), Pos2::new(r.center().x + 3.0, r.bottom())], s);
-    p.circle_filled(Pos2::new(screen.right() - 3.5, screen.center().y), 1.0, c);
-}
-
 /// Codicons (VS Code's icon set) from the embedded Nerd Font, so the window chrome matches the
 /// terminal font. Each glyph's ink fills its cell width; it's drawn at this share of the rect.
 const GLYPH_SHARE: f32 = 0.64;

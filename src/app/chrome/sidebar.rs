@@ -97,7 +97,7 @@ impl App {
         }
         let color = if active { theme.text_bright } else { theme.text_dim };
         let (icon, text) = sidebar_tile_parts(r);
-        icons::workspace_glyph(painter, Rect::from_center_size(icon.center(), Vec2::new(36.0, 29.0)), color);
+        self.files_dog(ui.ctx(), painter, Rect::from_center_size(icon.center(), Vec2::splat(36.0)), theme);
         paint::caption(painter, text, &project, FontId::proportional(12.0), color);
     }
 }
