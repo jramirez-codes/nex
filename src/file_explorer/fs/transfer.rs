@@ -9,10 +9,10 @@ use std::time::{Duration, Instant};
 
 use egui::Pos2;
 
-use crate::terminal::tilde;
 
-use crate::file_explorer::FileExplorer;
+use crate::file_explorer::{After, FileExplorer};
 use crate::file_explorer::fs::ops::{count, delete_paths, human_size, parse_paths, run_op};
+use crate::file_explorer::fs::remote;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
@@ -25,6 +25,8 @@ pub enum Op {
 pub struct Clip {
     pub paths: Vec<PathBuf>,
     pub cut: bool,
+    /// The machine they're on (see `FileExplorer::origin`; `None`: this one).
+    pub origin: Option<String>,
 }
 
 pub(in crate::file_explorer) static CLIPBOARD: Mutex<Option<Clip>> = Mutex::new(None);
@@ -87,8 +89,11 @@ impl Progress {
 }
 
 /// A copy, move or delete running on its own thread.
+/// A finished job's message, and what to select once the folder has been read again.
+pub(in crate::file_explorer) type Done = (String, Option<After>);
+
 pub(in crate::file_explorer) struct Job {
-    rx: Receiver<Result<String, String>>,
+    rx: Receiver<Result<Done, String>>,
     progress: Arc<Progress>,
     /// "Copying 3 items".
     label: String,
@@ -117,9 +122,25 @@ impl FileExplorer {
         }
         ctx.copy_text(paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n"));
         let verb = if cut { "Cut" } else { "Copied" };
-        self.set_status(format!("{verb} {} — paste in any folder", count(paths.len())), false);
-        set_clipboard(Some(Clip { paths, cut }));
+        let anywhere = match self.transport() {
+            Some(t) => format!("paste in any folder on {}", t.label()),
+            None => "paste in any folder".into(),
+        };
+        self.set_status(format!("{verb} {} — {anywhere}", count(paths.len())), false);
+        set_clipboard(Some(Clip { paths, cut, origin: self.origin() }));
         self.clear_selection();
+    }
+
+    /// Whether files from `origin` (see [`origin`](Self::origin)) can go into this
+    /// explorer's folders; says why not when they can't.
+    pub(in crate::file_explorer) fn accepts_from(&mut self, origin: &Option<String>) -> bool {
+        if *origin == self.origin() {
+            return true;
+        }
+        let here = self.transport().map_or_else(|| "this computer".to_string(), |t| t.label());
+        let there = if origin.is_some() { "another host" } else { "this computer" };
+        self.set_status(format!("Files can't be copied from {there} to {here} yet"), true);
+        false
     }
 
     /// Paste the file clipboard into `dest` (default: the current folder). Without a file
@@ -129,11 +150,16 @@ impl FileExplorer {
         let dest = dest.unwrap_or_else(|| self.dir.clone());
         match clipboard() {
             Some(clip) => {
+                if !self.accepts_from(&clip.origin) {
+                    return;
+                }
                 if clip.cut {
                     set_clipboard(None);
                 }
                 self.start_op(ctx, if clip.cut { Op::Move } else { Op::Copy }, clip.paths, dest);
             }
+            // Paths as text are this machine's.
+            None if self.remote.is_some() => {}
             None => {
                 let paths = text.map(parse_paths).unwrap_or_default();
                 if !paths.is_empty() {
@@ -146,6 +172,9 @@ impl FileExplorer {
     /// Files dropped from another window: move or copy them into the folder under `pos`
     /// (or the current folder).
     pub fn drop_external(&mut self, ctx: &egui::Context, op: Op, paths: Vec<PathBuf>, pos: Option<Pos2>) {
+        if !self.accepts_from(&None) {
+            return;
+        }
         let dest = pos.and_then(|p| self.folder_at(p, &paths)).unwrap_or_else(|| self.dir.clone());
         self.start_op(ctx, op, paths, dest);
     }
@@ -165,16 +194,23 @@ impl FileExplorer {
         }
         let (verb, past) = if op == Op::Copy { ("Copying", "copied") } else { ("Moving", "moved") };
         let label = format!("{verb} {}", count(paths.len()));
-        self.spawn_job(ctx, label, true, move |progress| {
+        let transport = self.transport().cloned();
+        let shown = self.shown_path(&dest);
+        // On a host, progress counts items (the copy runs there, out of sight).
+        self.spawn_job(ctx, label, transport.is_none(), move |progress| {
             let total = paths.len();
-            run_op(op, &paths, &dest, progress).map(|n| {
+            let result = match &transport {
+                Some(t) => remote::run_op(t, op, &paths, &dest, progress),
+                None => run_op(op, &paths, &dest, progress),
+            };
+            result.map(|n| {
                 if progress.cancelled() {
                     format!("Cancelled — {past} {n} of {}", count(total))
                 } else if n == 0 {
                     "Nothing to do — already here".to_string()
                 } else {
                     let verb = if op == Op::Copy { "Copied" } else { "Moved" };
-                    format!("{verb} {} to {}", count(n), tilde(&dest))
+                    format!("{verb} {} to {shown}", count(n))
                 }
             })
         });
@@ -187,6 +223,18 @@ impl FileExplorer {
         label: String,
         bytes: bool,
         work: impl FnOnce(&Progress) -> Result<String, String> + Send + 'static,
+    ) {
+        self.spawn_job_then(ctx, label, bytes, move |p| work(p).map(|msg| (msg, None)));
+    }
+
+    /// [`spawn_job`](Self::spawn_job) for work that also says what to select once the
+    /// folder has been read again (an item made or renamed on an ssh host).
+    pub(in crate::file_explorer) fn spawn_job_then(
+        &mut self,
+        ctx: &egui::Context,
+        label: String,
+        bytes: bool,
+        work: impl FnOnce(&Progress) -> Result<Done, String> + Send + 'static,
     ) {
         let progress = Arc::new(Progress::default());
         let (tx, rx) = mpsc::channel();
@@ -231,8 +279,13 @@ impl FileExplorer {
         }
         self.clear_selection();
         let label = format!("Deleting {}", count(paths.len()));
+        let transport = self.transport().cloned();
         self.spawn_job(ctx, label, false, move |progress| {
-            delete_paths(&paths, progress).map(|n| {
+            let result = match &transport {
+                Some(t) => remote::delete_paths(t, &paths, progress),
+                None => delete_paths(&paths, progress),
+            };
+            result.map(|n| {
                 if progress.cancelled() { format!("Cancelled — deleted {n} of {}", count(paths.len())) } else { format!("Deleted {}", count(n)) }
             })
         });
@@ -254,7 +307,12 @@ impl FileExplorer {
         });
         for r in finished {
             match r {
-                Ok(msg) => self.set_status(msg, false),
+                Ok((msg, after)) => {
+                    self.set_status(msg, false);
+                    if let Some(after) = after {
+                        self.after_listing(after);
+                    }
+                }
                 Err(msg) => self.set_status(msg, true),
             }
         }

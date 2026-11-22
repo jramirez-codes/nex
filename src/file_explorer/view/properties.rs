@@ -2,7 +2,7 @@
 //! size, dates, permissions and owner. A folder's contents are added up on a background
 //! thread, and the dialog shows the running total until that finishes.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -14,6 +14,8 @@ use crate::terminal::tilde;
 use crate::ui::theme::{ACCENT, Theme};
 
 use crate::file_explorer::fs::ops::{human_size, thousands, tree_summary};
+use crate::file_explorer::fs::remote;
+use crate::remote::exec::Transport;
 use crate::file_explorer::view::items::{paint_icon, sizes};
 use crate::file_explorer::{Entry, FileExplorer};
 
@@ -22,6 +24,8 @@ pub(in crate::file_explorer) struct Properties {
     /// The name field.
     name: String,
     entry: Entry,
+    /// The folder it's in, for people.
+    location: Option<String>,
     info: Info,
     slow: Arc<Mutex<Slow>>,
     /// Tells the folder-size thread to stop (the dialog closed).
@@ -34,7 +38,8 @@ impl Drop for Properties {
     }
 }
 
-/// What's read straight away.
+/// What's read straight away (here; on an ssh host it comes with the slow part).
+#[derive(Default)]
 struct Info {
     link_target: Option<PathBuf>,
     modified: Option<String>,
@@ -50,11 +55,18 @@ struct Slow {
     mime: Option<String>,
     /// `(bytes, items)` so far.
     contents: Option<(u64, usize)>,
+    /// The details, for a file on an ssh host.
+    info: Option<Info>,
     done: bool,
 }
 
 fn time(t: std::io::Result<SystemTime>) -> Option<String> {
     t.ok().and_then(crate::platform::format_local_time)
+}
+
+/// Seconds since 1970 as a local time.
+fn epoch_time(secs: Option<u64>) -> Option<String> {
+    secs.and_then(|s| crate::platform::format_local_time(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(s)))
 }
 
 /// `rwxr-xr-x (755)`.
@@ -108,6 +120,7 @@ impl Properties {
             mode: crate::platform::file_mode(&meta),
             owner: crate::platform::owner_names(&meta),
         };
+        let location = path.parent().map(tilde);
         let slow = Arc::new(Mutex::new(Slow::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let (s, st, p, ctx, is_dir) = (slow.clone(), stop.clone(), path.clone(), ctx.clone(), entry.is_dir);
@@ -134,7 +147,41 @@ impl Properties {
             }
             ctx.request_repaint();
         });
-        Some(Self { path, name, entry, info, slow, stop })
+        Some(Self { path, name, entry, location, info, slow, stop })
+    }
+
+    /// Properties of `entry`, on the host `t` reaches: everything comes from there, in the
+    /// background.
+    fn open_remote(ctx: &egui::Context, t: std::sync::Arc<Transport>, entry: Entry, location: Option<String>) -> Self {
+        let slow = Arc::new(Mutex::new(Slow::default()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (s, st, p, ctx, is_dir) = (slow.clone(), stop.clone(), entry.path.clone(), ctx.clone(), entry.is_dir);
+        std::thread::spawn(move || {
+            let details = remote::details(&t, &p).unwrap_or_default();
+            if let Ok(mut s) = s.lock() {
+                s.mime = details.mime.clone().filter(|_| !is_dir);
+                s.info = Some(Info {
+                    link_target: details.link_target,
+                    modified: epoch_time(details.modified),
+                    accessed: epoch_time(details.accessed),
+                    created: epoch_time(details.created),
+                    mode: details.mode,
+                    owner: details.owner,
+                });
+            }
+            ctx.request_repaint();
+            if is_dir && !st.load(Ordering::Relaxed) {
+                let contents = remote::tree_summary(&t, &p, &st);
+                if let Ok(mut s) = s.lock() {
+                    s.contents = contents;
+                }
+            }
+            if let Ok(mut s) = s.lock() {
+                s.done = true;
+            }
+            ctx.request_repaint();
+        });
+        Self { path: entry.path.clone(), name: entry.name.clone(), entry, location, info: Info::default(), slow, stop }
     }
 
     /// `(label, value)` rows for the dialog.
@@ -142,6 +189,7 @@ impl Properties {
         let slow = self.slow.lock();
         let slow = slow.as_deref().ok();
         let done = slow.is_some_and(|s| s.done);
+        let info = slow.and_then(|s| s.info.as_ref()).unwrap_or(&self.info);
         let e = &self.entry;
         let mut rows = Vec::new();
         let ext = e.path.extension().map(|x| x.to_string_lossy().into_owned());
@@ -152,11 +200,11 @@ impl Properties {
             (false, None) => "…".into(),
         };
         rows.push(("Kind", if e.is_symlink { format!("Link to {}", kind.to_lowercase()) } else { kind }));
-        if let Some(target) = &self.info.link_target {
+        if let Some(target) = &info.link_target {
             rows.push(("Link target", target.display().to_string()));
         }
-        if let Some(parent) = self.path.parent() {
-            rows.push(("Location", tilde(parent)));
+        if let Some(location) = &self.location {
+            rows.push(("Location", location.clone()));
         }
         if let Some(size) = e.size {
             rows.push(("Size", format!("{} ({} bytes)", human_size(size), thousands(size))));
@@ -167,19 +215,20 @@ impl Properties {
                     let items = if items == 1 { "1 item".into() } else { format!("{} items", thousands(items as u64)) };
                     format!("{items}, {}{}", human_size(bytes), if done { "" } else { " …" })
                 }
+                None if done => "Unknown".into(),
                 None => "Calculating…".into(),
             };
             rows.push(("Contents", text));
         }
-        for (label, t) in [("Modified", &self.info.modified), ("Accessed", &self.info.accessed), ("Created", &self.info.created)] {
+        for (label, t) in [("Modified", &info.modified), ("Accessed", &info.accessed), ("Created", &info.created)] {
             if let Some(t) = t {
                 rows.push((label, t.clone()));
             }
         }
-        if let Some(mode) = self.info.mode {
+        if let Some(mode) = info.mode {
             rows.push(("Permissions", permissions(mode)));
         }
-        if let Some((user, group)) = &self.info.owner {
+        if let Some((user, group)) = &info.owner {
             rows.push(("Owner", format!("{user}, group {group}")));
         }
         rows
@@ -187,6 +236,18 @@ impl Properties {
 }
 
 impl FileExplorer {
+    /// What the listing says about `path` (the folder being shown is a folder).
+    fn entry_for(&self, path: &Path) -> Entry {
+        self.entries.iter().find(|e| e.path == path).cloned().unwrap_or_else(|| Entry {
+            name: path.file_name().map_or_else(|| self.shown_path(path), |n| n.to_string_lossy().into_owned()),
+            path: path.to_path_buf(),
+            is_dir: true,
+            size: None,
+            is_symlink: false,
+            executable: false,
+        })
+    }
+
     /// Open Properties for the single target, or for the folder being shown (`folder`, or
     /// when several items are selected).
     pub fn show_properties(&mut self, folder: bool) {
@@ -204,7 +265,13 @@ impl FileExplorer {
         // The key that opened the dialog (Alt+Enter) mustn't also close it.
         let just_opened = self.pending_properties.is_some();
         if let Some(path) = self.pending_properties.take() {
-            self.properties = Properties::open(ctx, path);
+            self.properties = match self.transport().cloned() {
+                Some(t) => {
+                    let location = path.parent().map(|p| self.shown_path(p));
+                    Some(Properties::open_remote(ctx, t, self.entry_for(&path), location))
+                }
+                None => Properties::open(ctx, path),
+            };
         }
         let Some(mut props) = self.properties.take() else { return };
         let s = sizes(self.touch, 1.0);

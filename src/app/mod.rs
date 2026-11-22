@@ -165,6 +165,9 @@ pub struct App {
     adopt: Vec<String>,
     /// The agent session the next remote pane attaches to (picked in the Agents pane).
     attach_next: Option<String>,
+    /// The folder on the host the next pane opened there starts in, when it isn't the
+    /// focused pane's (a Files pane's "Open Terminal Here").
+    next_remote_cwd: Option<String>,
 }
 
 impl App {
@@ -274,6 +277,7 @@ impl App {
             connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
             adopt: Vec::new(),
             attach_next: None,
+            next_remote_cwd: None,
         }
     }
 }
@@ -547,11 +551,13 @@ impl App {
         for t in self.panes.values_mut() {
             t.refresh_process_info();
         }
-        for b in self.explorers.values_mut() {
-            b.refresh_if_stale();
-        }
-        // Only Changes panes on screen keep running git.
+        // Only Changes panes (and Files panes on ssh hosts) on screen keep asking.
         let shown = self.cur_tab().map(|t| t.root.panes()).unwrap_or_default();
+        for (id, b) in self.explorers.iter_mut() {
+            if b.transport().is_none() || shown.contains(id) {
+                b.refresh_if_stale();
+            }
+        }
         for id in shown {
             if let Some(d) = self.diffs.get_mut(&id) {
                 d.refresh_if_stale();
@@ -567,12 +573,14 @@ impl App {
         }
         for (pane, request) in std::mem::take(&mut self.explorer_requests) {
             match request {
-                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, crate::layout::Axis::Horizontal, Some(dir), None),
+                file_explorer::Request::OpenTerminal(dir) => self.open_terminal_in(ctx, pane, dir),
+                file_explorer::Request::NeedsLogin(host) => self.remote_pane_login_failed(ctx, &host),
             }
         }
         for (pane, request) in std::mem::take(&mut self.diff_requests) {
             match request {
                 git_diff::Request::Reveal(path) => self.reveal_from_diff(ctx, pane, &path),
+                git_diff::Request::NeedsLogin(host) => self.remote_pane_login_failed(ctx, &host),
             }
         }
         for (_, request) in std::mem::take(&mut self.agent_requests) {

@@ -9,12 +9,14 @@ pub(super) mod sticky;
 pub(super) mod tab;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use egui::{Pos2, Rect};
 
 use crate::file_explorer::FileExplorer;
 use crate::git_diff::GitDiff;
 use crate::layout::{Axis, Direction, Node, PaneId, PaneKind};
+use crate::remote::exec::Transport;
 use crate::terminal::Terminal;
 use crate::ui::icons;
 
@@ -23,6 +25,13 @@ use crate::app::workspace::metrics::cell_px;
 use crate::app::workspace::tab::Tab;
 use crate::app::animation::tab_close::{TabDrawn, TabGhost};
 use crate::app::{App, PANE_GAP};
+
+/// Where a pane works: a folder here, or one on an ssh host.
+pub(in crate::app) enum Location {
+    Local(PathBuf),
+    /// A folder on the host `Transport` reaches: absolute, or starting with `~`.
+    Remote(Arc<Transport>, PathBuf),
+}
 
 impl App {
     /// A fresh id for a new pane (terminal or file explorer).
@@ -100,7 +109,7 @@ impl App {
     #[cfg(unix)]
     fn spawn_remote_pane(&mut self, ctx: &egui::Context, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
         let host = self.connect.host.clone()?;
-        let cwd = self.focused_pane().and_then(|id| self.panes.get(&id)).and_then(|t| t.remote_cwd());
+        let cwd = self.next_remote_cwd.take().or_else(|| self.focused_pane().and_then(|id| self.panes.get(&id)).and_then(|t| t.remote_cwd()));
         // An agent picked in the Agents pane stays running when its pane closes; a shell
         // doesn't.
         let (session, keep) = match self.attach_next.clone() {
@@ -165,14 +174,61 @@ impl App {
         self.focused_pane().and_then(|id| self.pane_cwd(id))
     }
 
-    /// Working directory of a pane: the shell's cwd, or the folder a explorer is showing.
+    /// Working directory of a pane on this machine: the shell's cwd, or the folder a explorer
+    /// is showing (`None` for one showing a folder on an ssh host).
     pub(in crate::app) fn pane_cwd(&self, id: PaneId) -> Option<PathBuf> {
         match self.pane_kind(id)? {
             PaneKind::Terminal => self.panes[&id].cwd.clone(),
-            PaneKind::Explorer => Some(self.explorers[&id].dir.clone()),
-            PaneKind::Diff => Some(self.diffs[&id].dir.clone()),
+            PaneKind::Explorer => Some(&self.explorers[&id]).filter(|b| b.transport().is_none()).map(|b| b.dir.clone()),
+            PaneKind::Diff => Some(&self.diffs[&id]).filter(|d| d.remote.is_none()).map(|d| d.dir.clone()),
             PaneKind::Agents => None,
         }
+    }
+
+    /// Where a pane works, ssh hosts included: a terminal in an `ssh` session (or on the
+    /// host the window is connected to) is in its folder there. `fresh` asks the OS what
+    /// the terminal runs now, rather than taking the last poll's answer (cheap enough for
+    /// every frame).
+    pub(in crate::app) fn pane_location(&mut self, id: PaneId, fresh: bool) -> Option<Location> {
+        match self.pane_kind(id)? {
+            PaneKind::Terminal => {
+                let t = self.panes.get_mut(&id)?;
+                // Panes elsewhere need a Unix shell to run their scripts (see `remote::exec`).
+                if cfg!(unix) {
+                    let transport = match &t.remote {
+                        Some(r) => Some(Transport::Nex(r.host.clone())),
+                        None => if fresh { t.ssh_target() } else { t.last_ssh_target() }.map(Transport::Ssh),
+                    };
+                    if let Some(transport) = transport {
+                        // Where the remote shell didn't say, its home.
+                        let dir = t.remote_cwd().unwrap_or_else(|| "~".into());
+                        return Some(Location::Remote(Arc::new(transport), PathBuf::from(dir)));
+                    }
+                }
+                t.cwd.clone().map(Location::Local)
+            }
+            PaneKind::Explorer => {
+                let b = &self.explorers[&id];
+                Some(match b.transport() {
+                    Some(t) => Location::Remote(t.clone(), b.dir.clone()),
+                    None => Location::Local(b.dir.clone()),
+                })
+            }
+            PaneKind::Diff => {
+                let d = &self.diffs[&id];
+                Some(match &d.remote {
+                    Some(t) => Location::Remote(t.clone(), d.dir.clone()),
+                    None => Location::Local(d.dir.clone()),
+                })
+            }
+            PaneKind::Agents => None,
+        }
+    }
+
+    /// [`pane_location`](Self::pane_location), else this machine's home folder.
+    fn pane_location_or_home(&mut self, id: PaneId) -> Location {
+        self.pane_location(id, true)
+            .unwrap_or_else(|| Location::Local(crate::platform::home_dir().unwrap_or_else(|| PathBuf::from("/"))))
     }
 
     /// `(title, process)` for a pane's tab and header.
@@ -240,6 +296,18 @@ impl App {
         b
     }
 
+    /// [`new_explorer`](Self::new_explorer) at `at`, which may be on an ssh host.
+    fn explorer_at(&self, ctx: &egui::Context, at: Location) -> FileExplorer {
+        match at {
+            Location::Local(dir) => self.new_explorer(dir),
+            Location::Remote(t, dir) => {
+                let mut b = FileExplorer::new_remote(ctx, t, dir);
+                b.view = self.cfg.explorer_view;
+                b
+            }
+        }
+    }
+
     pub(in crate::app) fn close_explorer(&mut self) {
         let sticky = self.sticky;
         if let Some(tab) = self.home_tab.take() {
@@ -274,14 +342,13 @@ impl App {
         }
     }
 
-    /// Split a file explorer off `target`, showing `target`'s directory, in the same tab.
+    /// Split a file explorer off `target`, showing `target`'s directory (on its ssh host, for
+    /// a terminal in an `ssh` session), in the same tab.
     pub(in crate::app) fn split_explorer(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
-        let dir = self
-            .pane_cwd(target)
-            .or_else(crate::platform::home_dir)
-            .unwrap_or_else(|| PathBuf::from("/"));
+        let at = self.pane_location_or_home(target);
         let new = self.alloc_pane_id();
-        self.explorers.insert(new, self.new_explorer(dir));
+        let b = self.explorer_at(ctx, at);
+        self.explorers.insert(new, b);
         self.attach_split(ctx, target, axis, new);
     }
 
@@ -303,14 +370,15 @@ impl App {
         self.split_diff(ctx, from, Axis::Horizontal);
     }
 
-    /// Split a Changes pane off `target`, showing the repository of `target`'s directory.
+    /// Split a Changes pane off `target`, showing the repository of `target`'s directory (on
+    /// its ssh host, for a terminal in an `ssh` session).
     pub(in crate::app) fn split_diff(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
-        let dir = self
-            .pane_cwd(target)
-            .or_else(crate::platform::home_dir)
-            .unwrap_or_else(|| PathBuf::from("/"));
+        let (remote, dir) = match self.pane_location_or_home(target) {
+            Location::Local(dir) => (None, dir),
+            Location::Remote(t, dir) => (Some(t), dir),
+        };
         let new = self.alloc_pane_id();
-        let mut d = GitDiff::new(ctx, dir);
+        let mut d = GitDiff::new_at(ctx, remote, dir);
         d.origin = Some(target);
         self.diffs.insert(new, d);
         // The diff starts at the zoom level of the pane it was opened from.
@@ -339,10 +407,14 @@ impl App {
             if self.diffs.contains_key(&focused) {
                 continue;
             }
-            let Some(dir) = self.pane_cwd(focused) else { continue };
+            let (remote, dir) = match self.pane_location(focused, false) {
+                Some(Location::Local(dir)) => (None, dir),
+                Some(Location::Remote(t, dir)) => (Some(t), dir),
+                None => continue,
+            };
             for id in panes {
                 if let Some(d) = self.diffs.get_mut(&id) {
-                    d.follow(dir.clone());
+                    d.follow(remote.clone(), dir.clone());
                     d.origin = Some(focused);
                 }
             }
@@ -352,8 +424,13 @@ impl App {
     /// Show `path` (picked in Changes pane `pane`) in a Files pane split off it.
     pub(in crate::app) fn reveal_from_diff(&mut self, ctx: &egui::Context, pane: PaneId, path: &Path) {
         let Some(dir) = path.parent().map(Path::to_path_buf) else { return };
+        let remote = self.diffs.get(&pane).and_then(|d| d.remote.clone());
         let new = self.alloc_pane_id();
-        let mut b = self.new_explorer(dir);
+        let at = match remote {
+            Some(t) => Location::Remote(t, dir),
+            None => Location::Local(dir),
+        };
+        let mut b = self.explorer_at(ctx, at);
         b.reveal_item(path);
         self.explorers.insert(new, b);
         self.attach_split(ctx, pane, Axis::Vertical, new);

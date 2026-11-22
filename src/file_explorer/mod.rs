@@ -16,6 +16,10 @@
 //! while selecting, dragging a selected item) moves the selection. Delete (the key, the
 //! right-click menu or the action bar) asks for confirmation, then permanently deletes the
 //! selection.
+//!
+//! An explorer opened from a terminal in an `ssh` session shows that session's folder on the
+//! host (see `fs/remote.rs`): listings load in the background, and file operations run there.
+//! Files can't be copied between the host and this machine, or opened with a local app.
 
 pub mod fs;
 mod input;
@@ -26,13 +30,16 @@ mod view;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use egui::{Pos2, Rect};
 
+use crate::remote::exec::{ExecError, Transport};
 use crate::terminal::tilde;
 
 use fs::ops::read_entries;
+use fs::remote::Listing;
 use input::edit::{Find, OpenWith, Rename};
 use input::Press;
 use view::items::Layout;
@@ -47,14 +54,44 @@ pub use fs::transfer::{Op, files_changed};
 /// How often an idle listing is re-read so files created elsewhere show up (where the
 /// folder can't be watched; see `platform::DirWatch`).
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+/// The same for a folder on an ssh host (each read is a trip there).
+const REMOTE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 /// How many folders Back remembers.
 const HISTORY: usize = 100;
 
 /// Something an explorer asks the app to do (the app owns the other panes).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
-    /// Split a terminal off this pane, starting in the folder.
+    /// Split a terminal off this pane, starting in the folder (on the explorer's host, for
+    /// one on an ssh host).
     OpenTerminal(PathBuf),
+    /// The ssh host wants a password nex's own connections can't type (its name).
+    NeedsLogin(String),
+}
+
+/// What an explorer on an ssh host keeps: how to reach it, and the listing on its way.
+struct Remote {
+    transport: Arc<Transport>,
+    /// The home folder there, once a listing has said.
+    home: Option<PathBuf>,
+    ctx: egui::Context,
+    /// The listing being read, and which request it answers.
+    job: Option<mpsc::Receiver<(u64, Result<Listing, ExecError>)>>,
+    generation: u64,
+    /// What to select once the next listing arrives.
+    after: Option<After>,
+    /// A login failure was reported to the app (once until a listing works again).
+    told_login: bool,
+}
+
+/// What to do with a listing still on its way, once it's there.
+#[derive(Clone, Debug, PartialEq)]
+pub(in crate::file_explorer) enum After {
+    /// Select the item leading back to this folder (see `select_towards`).
+    Towards(PathBuf),
+    Select(PathBuf),
+    /// Select it and start renaming it, the whole name selected (a new item).
+    Rename(PathBuf),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -136,10 +173,23 @@ pub struct FileExplorer {
     shown_progress: f32,
     /// Requests for the app, taken after each paint.
     pub requests: Vec<Request>,
+    /// The ssh host the folder is on (`None`: this machine).
+    remote: Option<Remote>,
 }
 
 impl FileExplorer {
     pub fn new(dir: PathBuf) -> Self {
+        Self::make(dir, None)
+    }
+
+    /// An explorer showing `dir` on the host `transport` reaches. `dir` may start with `~`
+    /// (it's read as the host's home folder).
+    pub fn new_remote(ctx: &egui::Context, transport: Arc<Transport>, dir: PathBuf) -> Self {
+        let remote = Remote { transport, home: None, ctx: ctx.clone(), job: None, generation: 0, after: None, told_login: false };
+        Self::make(dir, Some(remote))
+    }
+
+    fn make(dir: PathBuf, remote: Option<Remote>) -> Self {
         let mut b = Self {
             dir,
             entries: Vec::new(),
@@ -178,30 +228,152 @@ impl FileExplorer {
             menu_on_item: false,
             shown_progress: 0.0,
             requests: Vec::new(),
+            remote,
         };
         b.refresh();
         b
     }
 
     pub fn title(&self) -> String {
-        tilde(&self.dir)
+        match &self.remote {
+            Some(r) => format!("{}: {}", r.transport.label(), self.shown_path(&self.dir)),
+            None => tilde(&self.dir),
+        }
+    }
+
+    /// The host this explorer's folder is on, if it isn't this machine.
+    pub fn transport(&self) -> Option<&Arc<Transport>> {
+        self.remote.as_ref().map(|r| &r.transport)
+    }
+
+    /// Which machine the paths are on (see `Transport::key`; `None`: this one). Files only
+    /// move between explorers on the same one.
+    pub fn origin(&self) -> Option<String> {
+        self.transport().map(|t| t.key())
+    }
+
+    /// The home folder, on the machine the folder is on.
+    pub fn home(&self) -> Option<PathBuf> {
+        match &self.remote {
+            Some(r) => r.home.clone(),
+            None => crate::platform::home_dir(),
+        }
+    }
+
+    /// `path` for people: under the home folder as `~/…`.
+    pub(in crate::file_explorer) fn shown_path(&self, path: &Path) -> String {
+        if self.remote.is_none() {
+            return tilde(path);
+        }
+        match self.home().and_then(|h| path.strip_prefix(h).ok().map(Path::to_path_buf)) {
+            Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+            Some(rest) => format!("~/{}", rest.display()),
+            None => path.display().to_string(),
+        }
+    }
+
+    /// The context background jobs on an ssh host repaint (one made locally has its own).
+    pub(in crate::file_explorer) fn ctx_for_jobs(&self) -> egui::Context {
+        self.remote.as_ref().map(|r| r.ctx.clone()).unwrap_or_default()
+    }
+
+    /// The folder is still being read (on an ssh host).
+    pub fn loading(&self) -> bool {
+        self.remote.as_ref().is_some_and(|r| r.job.is_some())
     }
 
     /// Re-read the directory, keeping the same entry selected if it still exists.
     pub fn refresh(&mut self) {
-        let keep = self.entries.get(self.selected).map(|e| e.name.clone());
         self.last_refresh = Instant::now();
+        if self.remote.is_some() {
+            self.start_listing();
+            return;
+        }
         if self.watch.as_ref().is_none_or(|(d, _)| *d != self.dir) {
             self.watch = crate::platform::DirWatch::new(&self.dir).map(|w| (self.dir.clone(), w));
         }
-        match read_entries(&self.dir, self.show_hidden) {
+        let entries = read_entries(&self.dir, self.show_hidden).map_err(|e| e.to_string());
+        self.set_entries(entries);
+    }
+
+    /// Read the folder on the host in the background; [`poll_listing`](Self::poll_listing)
+    /// takes the answer. A listing already on its way is forgotten.
+    fn start_listing(&mut self) {
+        let Some(r) = self.remote.as_mut() else { return };
+        r.generation += 1;
+        let (generation, transport, ctx, dir) = (r.generation, r.transport.clone(), r.ctx.clone(), self.dir.clone());
+        let (tx, rx) = mpsc::channel();
+        r.job = Some(rx);
+        std::thread::spawn(move || {
+            let listing = fs::remote::list(&transport, &dir);
+            let _ = tx.send((generation, listing));
+            ctx.request_repaint();
+        });
+    }
+
+    /// Show a listing from the host once it's there.
+    pub(in crate::file_explorer) fn poll_listing(&mut self) {
+        let Some(r) = self.remote.as_mut() else { return };
+        let Some(rx) = &r.job else { return };
+        let (generation, listing) = match rx.try_recv() {
+            Ok(answer) => answer,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                r.job = None;
+                return;
+            }
+        };
+        if generation != r.generation {
+            return;
+        }
+        r.job = None;
+        let after = r.after.take();
+        let entries = match listing {
+            Ok(l) => {
+                r.home = Some(l.home);
+                r.told_login = false;
+                // What was asked for may have been `~/…`: the host says where that is.
+                self.dir = l.dir;
+                let hidden = self.show_hidden;
+                Ok(l.entries.into_iter().filter(|e| hidden || !e.name.starts_with('.')).collect())
+            }
+            Err(ExecError::NeedsLogin) => {
+                let host = r.transport.label();
+                if !std::mem::replace(&mut r.told_login, true) {
+                    self.requests.push(Request::NeedsLogin(host.clone()));
+                }
+                Err(format!("nex can't log in to {host} without a password"))
+            }
+            Err(e) => Err(e.to_string()),
+        };
+        self.set_entries(entries);
+        match after {
+            Some(After::Towards(from)) => self.select_towards(&from),
+            Some(After::Select(path)) => self.select_path(&path),
+            Some(After::Rename(path)) => self.select_and_name(&path),
+            None => {}
+        }
+    }
+
+    /// What to do once the listing on its way (or the next one) arrives.
+    pub(in crate::file_explorer) fn after_listing(&mut self, after: After) {
+        if let Some(r) = self.remote.as_mut() {
+            r.after = Some(after);
+        }
+    }
+
+    /// Show `entries` (or why the folder couldn't be read), keeping the same entry selected
+    /// if it's still there.
+    fn set_entries(&mut self, entries: Result<Vec<Entry>, String>) {
+        let keep = self.entries.get(self.selected).map(|e| e.name.clone());
+        match entries {
             Ok(entries) => {
                 self.entries = entries;
                 self.error = None;
             }
             Err(e) => {
                 self.entries.clear();
-                self.error = Some(e.to_string());
+                self.error = Some(e);
             }
         }
         match keep.and_then(|name| self.entries.iter().position(|e| e.name == name)) {
@@ -215,7 +387,10 @@ impl FileExplorer {
     /// Refresh if the listing hasn't been read for a while, or a file operation finished.
     pub fn refresh_if_stale(&mut self) {
         let generation = FS_GENERATION.load(Ordering::Relaxed);
-        if generation != self.seen_generation || self.last_refresh.elapsed() >= REFRESH_INTERVAL {
+        let interval = if self.remote.is_some() { REMOTE_REFRESH_INTERVAL } else { REFRESH_INTERVAL };
+        // A slow host: one read at a time, unless files changed meanwhile.
+        let due = self.last_refresh.elapsed() >= interval && !self.loading();
+        if generation != self.seen_generation || due {
             self.seen_generation = generation;
             self.refresh();
         }
@@ -246,7 +421,11 @@ impl FileExplorer {
         self.find = None;
         self.refresh();
         self.reveal = true;
-        self.select_towards(&from);
+        if self.remote.is_some() {
+            self.after_listing(After::Towards(from));
+        } else {
+            self.select_towards(&from);
+        }
     }
 
     /// When `from` is inside the folder now shown, select the item that leads back to it
@@ -269,7 +448,11 @@ impl FileExplorer {
             self.show_hidden = true;
             self.refresh();
         }
-        self.select_path(item);
+        if self.loading() {
+            self.after_listing(After::Select(item.to_path_buf()));
+        } else {
+            self.select_path(item);
+        }
     }
 
     /// Go to the parent folder, selecting the folder we came from.
@@ -349,6 +532,9 @@ impl FileExplorer {
         if entry.is_dir {
             let path = entry.path.clone();
             self.navigate(path);
+        } else if let Some(r) = &self.remote {
+            let msg = format!("Files on {} can't be opened here: open a terminal in this folder instead", r.transport.label());
+            self.set_status(msg, true);
         } else {
             crate::platform::open_uri(entry.path.as_os_str());
         }

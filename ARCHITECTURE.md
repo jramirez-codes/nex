@@ -49,13 +49,14 @@ src/
 │   └── fonts.rs          font setup + embedded Nerd Font
 ├── file_explorer/    the explorer pane
 │   ├── mod.rs            state, navigation, selection
-│   ├── fs/               listing, copying, moving, path quoting; file clipboard and jobs
+│   ├── fs/               listing, copying, moving, path quoting; file clipboard and jobs;
+│   │                     remote.rs: the same on an ssh host, as shell scripts run there
 │   ├── input/            clicks, touch gestures, drags, keys; renaming, location bar, zoom
 │   ├── view/             path bar, listing rows and tiles, action bar, Properties dialog
 │   └── tests/            the folder fixture, unit tests and egui-driven UI tests
 ├── git_diff/         the Changes pane (Ctrl+G): read-only git diff viewer
 │   ├── mod.rs            state, background loading, keys
-│   ├── git.rs            running git, parsing status and diffs
+│   ├── git.rs            running git (here, or on an ssh host), parsing status and diffs
 │   ├── syntax.rs         syntax colors (syntect with bat's grammars)
 │   └── view/             drawing and the mouse: the layout, toolbar, file list and diff
 ├── agents/           the Agents pane: every Claude Code / Codex agent at a glance
@@ -65,7 +66,9 @@ src/
 │   └── view.rs           drawing and the mouse
 ├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture),
 │                     installing and watching nex-host; ssh/ is nex's own ssh client (russh):
-│                     host keys, the one-time password and device key, reconnecting
+│                     host keys, the one-time password and device key, reconnecting;
+│                     exec.rs runs shell scripts on a pane's host (for Files and Changes
+│                     panes opened from an ssh pane), over `ssh` or nex's own connection
 ├── ui/               shared UI kit: theme, glide/ink animation, painting, icons, widgets, toasts
 └── platform/         everything OS-specific, behind one API (see platform/mod.rs)
     ├── mod.rs            the shared types and the per-OS switch
