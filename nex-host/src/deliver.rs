@@ -17,7 +17,7 @@
 //! - `kind` says what's expected: a `task` to do and report on, an `ask` to answer, or a
 //!   `reply`, `done` or `note` that needs no answer.
 //! - `<re>` quotes what it answers, so it stands on its own.
-//! - `verdict` and `<files>` are fields, not conventions in the text.
+//! - `verdict`, `pr` and `<files>` are fields, not conventions in the text.
 //! - Long texts are cut short, the whole of it left in a file (`<more>`) to open if needed.
 //! - `task` and `ask` end with the exact command to answer with.
 //! - It comes from another agent, not the user, and says so: an agent shouldn't take a
@@ -107,6 +107,9 @@ pub fn render(m: &Message) -> String {
     if let Some(r) = &m.reply_to {
         head.push_str(&format!(" reply-to=\"{}\"", attr(r)));
     }
+    if let Some(pr) = &m.pr {
+        head.push_str(&format!(" pr=\"{}\"", attr(pr)));
+    }
     head.push('>');
     let mut out = vec![head];
     if let (Some(r), Some(re)) = (&m.reply_to, &m.re) {
@@ -162,6 +165,7 @@ mod tests {
             re: None,
             verdict: None,
             files: vec![],
+            pr: None,
             more: None,
             more_lines: None,
             sent: 0,
@@ -175,9 +179,10 @@ mod tests {
         m.reply_to = Some("m9".into());
         m.re = Some("Review the diff".into());
         m.files = vec!["src/cli.rs".into()];
+        m.pr = Some("42".into());
         assert_eq!(
             render(&m),
-            "<nex-message from=\"reviewer (b7c1d2e3)\" id=\"m12\" kind=\"done\" verdict=\"changes\" reply-to=\"m9\">\n\
+            "<nex-message from=\"reviewer (b7c1d2e3)\" id=\"m12\" kind=\"done\" verdict=\"changes\" reply-to=\"m9\" pr=\"42\">\n\
              <re>m9 (you → reviewer): Review the diff</re>\n\
              Two issues.\n\
              <files>src/cli.rs</files>\n\

@@ -5,6 +5,7 @@
 //! ```toml
 //! # .nex/pipelines/feature.toml
 //! worktree = true                       # one git worktree for the run, shared by the stages
+//!                                       # (or `worktree = true` on a stage: one of its own)
 //! [[stage]]
 //! name = "plan"
 //! task = "Plan this: {task}. Write PLAN.md."
@@ -23,7 +24,7 @@
 //! ```
 //!
 //! In a task, `{task}` is what the pipeline was run with, `{<stage>}` that stage's report,
-//! `{<stage>.verdict}` and `{<stage>.files}` its fields. When `retry` sends the run back,
+//! `{<stage>.verdict}`, `{<stage>.files}` and `{<stage>.pr}` its fields. When `retry` sends the run back,
 //! the stages from there on get their task again with the report that sent it back, and
 //! a stage whose agent is still running gets it as a new message, so it keeps what it
 //! learned the first time.
@@ -71,6 +72,10 @@ pub struct Stage {
     /// Runs at the same time as the stage before it.
     #[serde(default)]
     pub parallel: bool,
+    /// Works in a git worktree (and branch) of its own, so stages running at the same time
+    /// don't edit one checkout. Made from the run's folder, and kept across retries.
+    #[serde(default)]
+    pub worktree: bool,
     #[serde(default)]
     pub retry: Option<Retry>,
 }
@@ -100,6 +105,7 @@ pub struct Outcome {
     pub body: String,
     pub verdict: Option<Verdict>,
     pub files: Vec<String>,
+    pub pr: Option<String>,
 }
 
 impl Pipeline {
@@ -162,7 +168,8 @@ impl Pipeline {
     }
 }
 
-/// `template` with `{task}`, `{stage}`, `{stage.verdict}` and `{stage.files}` filled in.
+/// `template` with `{task}`, `{stage}`, `{stage.verdict}`, `{stage.files}` and `{stage.pr}`
+/// filled in.
 /// Anything else in braces stays as it is (code has braces too).
 pub fn fill(template: &str, task: &str, results: &HashMap<String, Outcome>) -> String {
     let mut out = String::with_capacity(template.len());
@@ -182,6 +189,7 @@ pub fn fill(template: &str, task: &str, results: &HashMap<String, Outcome>) -> S
                 "" => Some(o.body.trim().to_string()),
                 "verdict" => Some(o.verdict.map_or("none", Verdict::label).to_string()),
                 "files" => Some(o.files.join(", ")),
+                "pr" => Some(o.pr.clone().unwrap_or_else(|| "none".into())),
                 _ => None,
             }),
         };
@@ -297,8 +305,8 @@ pub fn run(file: &Path, task: &str) -> io::Result<i32> {
     let p = Pipeline::parse(&text).map_err(|e| io::Error::other(format!("{}: {e}", file.display())))?;
     let me = std::env::var("NEX_AGENT_ID").ok().filter(|s| !s.is_empty());
     let mut cwd = std::env::current_dir()?;
+    let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "pipeline".into());
     if p.worktree {
-        let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "pipeline".into());
         cwd = crate::agentcli::worktree(&cwd, &stem)?;
         println!("worktree: {}", nex_host::paths::tilde(&cwd));
     }
@@ -308,6 +316,7 @@ pub fn run(file: &Path, task: &str) -> io::Result<i32> {
     let mut agents: HashMap<String, String> = HashMap::new();
     let mut results: HashMap<String, Outcome> = HashMap::new();
     let mut loops: HashMap<String, u32> = HashMap::new();
+    let mut trees: HashMap<String, PathBuf> = HashMap::new();
     let mut step = Next::Run(0, None);
     loop {
         let (g, sent_back_by) = match step {
@@ -333,18 +342,28 @@ pub fn run(file: &Path, task: &str) -> io::Result<i32> {
             let id = match agents.get(&s.name) {
                 Some(id) if alive(id) => {
                     client::request(
-                        &Request::Send { from: me.clone(), to: id.clone(), kind: MessageKind::Task, body, reply_to: None, verdict: None, files: vec![], force: false },
+                        &Request::Send { from: me.clone(), to: id.clone(), kind: MessageKind::Task, body, reply_to: None, verdict: None, files: vec![], pr: None, force: false },
                         true,
                     )?;
                     id.clone()
                 }
                 _ => {
+                    let dir = match (s.worktree, trees.get(&s.name)) {
+                        (false, _) => cwd.clone(),
+                        (true, Some(t)) => t.clone(),
+                        (true, None) => {
+                            let t = crate::agentcli::worktree(&cwd, &format!("{stem}-{}", s.name))?;
+                            println!("worktree ({}): {}", s.name, nex_host::paths::tilde(&t));
+                            trees.insert(s.name.clone(), t.clone());
+                            t
+                        }
+                    };
                     let r = client::request(
                         &Request::Spawn {
                             name: s.name.clone(),
                             kind: kind.clone(),
                             argv: vec![],
-                            cwd: Some(cwd.to_string_lossy().into_owned()),
+                            cwd: Some(dir.to_string_lossy().into_owned()),
                             env: Some(env.clone()),
                             parent: me.clone(),
                             role: Some(s.role.clone().unwrap_or_else(|| s.name.clone())),
@@ -367,7 +386,8 @@ pub fn run(file: &Path, task: &str) -> io::Result<i32> {
                 _ => "✓",
             };
             let verdict = o.verdict.map(|v| format!(" [{}]", v.label())).unwrap_or_default();
-            println!("{mark} {name}{verdict}: {}", crate::deliver::first_line(&o.body));
+            let pr = o.pr.as_ref().map(|p| format!(" (PR {p})")).unwrap_or_default();
+            println!("{mark} {name}{verdict}{pr}: {}", crate::deliver::first_line(&o.body));
             results.insert(name, o);
         }
         step = after(&p, g, &results, &mut loops);
@@ -394,7 +414,7 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
-            return Ok(Outcome { body: format!("{id} didn't report in time"), verdict: Some(Verdict::Failed), files: vec![] });
+            return Ok(Outcome { body: format!("{id} didn't report in time"), verdict: Some(Verdict::Failed), files: vec![], pr: None });
         }
         let r = client::request(
             &Request::Recv { me: me.map(Into::into), from: Some(id.into()), reply_to: None, kind: Some(MessageKind::Done), timeout_ms: Some(left.as_millis() as u64) },
@@ -407,7 +427,7 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
                         Some(path) => std::fs::read_to_string(nex_host::paths::expand_home(path)).unwrap_or(m.body),
                         None => m.body,
                     };
-                    return Ok(Outcome { body, verdict: m.verdict, files: m.files });
+                    return Ok(Outcome { body, verdict: m.verdict, files: m.files, pr: m.pr });
                 }
             }
             Err(e) if e.to_string().starts_with("timed out") => {}
@@ -420,7 +440,7 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
 fn report(me: Option<&str>, body: &str, verdict: Option<Verdict>) {
     if me.is_some() {
         let _ = client::request(
-            &Request::Send { from: me.map(Into::into), to: "@task".into(), kind: MessageKind::Done, body: body.into(), reply_to: None, verdict, files: vec![], force: false },
+            &Request::Send { from: me.map(Into::into), to: "@task".into(), kind: MessageKind::Done, body: body.into(), reply_to: None, verdict, files: vec![], pr: None, force: false },
             true,
         );
     }
@@ -450,7 +470,7 @@ mod tests {
     "#;
 
     fn done(body: &str, verdict: Option<Verdict>) -> Outcome {
-        Outcome { body: body.into(), verdict, files: vec![] }
+        Outcome { body: body.into(), verdict, files: vec![], pr: None }
     }
 
     #[test]
@@ -458,6 +478,13 @@ mod tests {
         let p = Pipeline::parse(FEATURE).unwrap();
         assert_eq!(p.groups(), vec![vec![0], vec![1, 2], vec![3]]);
         assert_eq!(p.stages[3].retry.as_ref().map(|r| (r.unless.as_str(), r.max)), Some(("approved", 2)));
+    }
+
+    #[test]
+    fn a_stage_can_have_a_worktree_of_its_own() {
+        let p = Pipeline::parse("[[stage]]\nname='a'\ntask='x'\nworktree=true\n[[stage]]\nname='b'\ntask='y'\nparallel=true").unwrap();
+        assert!(!p.worktree);
+        assert_eq!(p.stages.iter().map(|s| s.worktree).collect::<Vec<_>>(), [true, false]);
     }
 
     #[test]
@@ -475,8 +502,10 @@ mod tests {
     #[test]
     fn tasks_are_filled_from_reports() {
         let mut r = HashMap::new();
-        r.insert("plan".to_string(), Outcome { body: " the plan \n".into(), verdict: Some(Verdict::Approved), files: vec!["a.rs".into(), "b.rs".into()] });
-        assert_eq!(fill("Do {task}. Plan: {plan} ({plan.verdict}; {plan.files})", "X", &r), "Do X. Plan: the plan (approved; a.rs, b.rs)");
+        r.insert("plan".to_string(), Outcome { body: " the plan \n".into(), verdict: Some(Verdict::Approved), files: vec!["a.rs".into(), "b.rs".into()], pr: Some("42".into()) });
+        r.insert("docs".to_string(), done("d", None));
+        assert_eq!(fill("Do {task}. Plan: {plan} ({plan.verdict}; {plan.files}; PR {plan.pr})", "X", &r), "Do X. Plan: the plan (approved; a.rs, b.rs; PR 42)");
+        assert_eq!(fill("{docs.pr}", "X", &r), "none");
         assert_eq!(fill("fn f() { {review} } {plan.bogus} {", "X", &r), "fn f() { {review} } {plan.bogus} {", "anything else is left alone");
     }
 

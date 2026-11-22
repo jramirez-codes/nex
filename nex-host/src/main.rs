@@ -77,14 +77,16 @@ const HELP: &str = "nex-host keeps coding agents running after the nex pane they
 Agents working together (nex-host skill prints the manual for agents):
   nex-host spawn NAME [--kind claude|codex] [--role R] [--cwd DIR] [--worktree] TASK [-- CMD ...]
                                                    start an agent on a task; it reports back with done
-  nex-host send TO TEXT [--ask | --task] [--reply-to ID] [--files a,b] [--force]
+  nex-host send TO TEXT [--ask | --task] [--reply-to ID] [--files a,b] [--pr N|URL] [--force]
                                                    message an agent (typed into its input)
-  nex-host done TEXT [--verdict approved|changes|failed] [--files a,b]
+  nex-host done TEXT [--verdict approved|changes|failed] [--files a,b] [--pr N|URL] [--to TO]
                                                    report on your task to whoever gave it
   nex-host recv [--from WHO] [--reply-to ID] [--kind K] [--timeout 10m] [--json]
                                                    wait for a message to you (for scripts)
   nex-host read WHO [--lines N]                    an agent's screen as text
   nex-host pipe NAME TASK [--bg] | pipe ls         run a pipeline (.nex/pipelines/NAME.toml)
+  nex-host worktree ls | prune [--all] [--dry-run] the worktrees --worktree made; prune removes
+                                                   the unused, clean ones whose branch is merged
   nex-host skill [install|remove]                  the manual, or install it for Claude Code and Codex
   TO / WHO: an id, a name, @parent, @children, @task or user. TEXT `-`: read from stdin.
 
@@ -92,7 +94,7 @@ Everything lives in ~/.nex (or $NEX_HOME); remove that folder to remove nex-host
 
 #[cfg(unix)]
 const USAGE: &str =
-    "usage: nex-host run|launch|attach|list|spawn|send|done|recv|read|pipe|skill|watch|kill|forget|shim|connect|--version (see nex-host help)";
+    "usage: nex-host run|launch|attach|list|spawn|send|done|recv|read|pipe|worktree|skill|watch|kill|forget|shim|connect|--version (see nex-host help)";
 
 #[cfg(unix)]
 fn run(args: &[String]) -> std::io::Result<i32> {
@@ -158,6 +160,7 @@ fn run(args: &[String]) -> std::io::Result<i32> {
         "read" => agentcli::read(rest),
         "pipe" => agentcli::pipe(rest),
         "pipe-run" => agentcli::pipe_run(rest),
+        "worktree" | "worktrees" => agentcli::worktrees(rest),
         "skill" => skill::run(rest),
         "watch" => watch(),
         "connect" => connect(),

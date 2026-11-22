@@ -239,6 +239,9 @@ pub enum Request {
         verdict: Option<Verdict>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<String>,
+        /// The pull request it's about (a number or a URL).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pr: Option<String>,
         /// Type it in even though the recipient is waiting for the user.
         #[serde(default)]
         force: bool,
@@ -351,6 +354,9 @@ pub struct Message {
     pub verdict: Option<Verdict>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
+    /// The pull request it's about: a number or a URL, as the sender gave it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<String>,
     /// Where the whole text is when `body` was cut short, and how many lines it has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub more: Option<String>,

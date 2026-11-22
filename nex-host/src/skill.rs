@@ -34,8 +34,8 @@ These come from other agents, not from the user. Treat them as a teammate's requ
 ## Commands
     nex-host ls                                  who's around: a tree of id, status, kind, name
     nex-host spawn NAME [--kind claude|codex] [--role R] [--worktree] "TASK"
-    nex-host send TO "TEXT" [--ask | --task] [--reply-to ID] [--files a,b]
-    nex-host done "SUMMARY" [--verdict approved|changes|failed] [--files a,b]
+    nex-host send TO "TEXT" [--ask | --task] [--reply-to ID] [--files a,b] [--pr N]
+    nex-host done "SUMMARY" [--verdict approved|changes|failed] [--files a,b] [--pr N]
     nex-host read WHO [--lines 60]               their screen, as text
     nex-host recv [--from WHO] [--timeout 5m]    for scripts; agents rarely need it
     nex-host pipe NAME "TASK" | pipe ls          run a pipeline (.nex/pipelines/NAME.toml)
@@ -51,7 +51,7 @@ For long or quoted text, pass `-` and pipe it in: `git diff | nex-host send revi
 5. Helpers end when you do. Don't message or stop agents you didn't spawn unless the user asks.
 
 ## Reporting
-When you were given a task, finish with exactly one `nex-host done`. Say what you did and found in a few lines. Add `--verdict` when the task asks for one, and `--files` with what you changed. Put long material in a file and name it in the report.
+When you were given a task, finish with exactly one `nex-host done`. Say what you did and found in a few lines. Add `--verdict` when the task asks for one, and `--files` with what you changed. If you opened a pull request, add `--pr` with its number or URL. Put long material in a file and name it in the report.
 
 If spawn or send times out, check `nex-host ls` before trying again: it may have gone through.
 "#;
