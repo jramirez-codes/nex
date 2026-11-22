@@ -76,7 +76,7 @@ fn setup() -> (Sim, TempDir) {
     }
     let ctx = egui::Context::default();
     let cc = eframe::CreationContext::_new_kittest(ctx.clone());
-    let app = App::new(&cc, crate::config::Config::default(), Default::default(), None);
+    let app = App::new(&cc, crate::config::Config::default(), crate::cli::Args { no_restore: true, ..Default::default() }, None, None, None);
     let mut s = Sim { ctx, app, t: 0.0, mouse: None };
     s.frame(vec![]);
     (s, TempDir(dir))

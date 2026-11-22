@@ -41,6 +41,8 @@ pub struct Args {
     pub file_manager_service: bool,
     /// Program and arguments for the first pane.
     pub command: Option<Vec<String>>,
+    /// Don't bring back the last session (`--no-restore`, hidden: new windows pass it).
+    pub no_restore: bool,
     pub help: bool,
     pub version: bool,
 }
@@ -74,6 +76,7 @@ impl Args {
                 "--explorer" => out.explorer = true,
                 "--select" => out.select = Some(local_path(&value()?)),
                 "--file-manager-service" => out.file_manager_service = true,
+                "--no-restore" => out.no_restore = true,
                 "-h" | "--help" => out.help = true,
                 "-V" | "--version" => out.version = true,
                 _ if !arg.starts_with('-') && folder.is_none() => folder = Some(folder_arg(&arg)),
@@ -94,7 +97,19 @@ impl Args {
         Ok(out)
     }
 
-    /// Flags a new window (Ctrl+Shift+N) inherits: same config and app id, not the command.
+    /// Whether this launch brings back the last session: a plain `nex`, with no command,
+    /// folder or Files tab asked for, and not a second window.
+    pub fn restores_session(&self) -> bool {
+        !self.no_restore
+            && self.command.is_none()
+            && self.working_directory.is_none()
+            && !self.explorer
+            && self.select.is_none()
+            && !self.file_manager_service
+    }
+
+    /// Flags a new window (Ctrl+Shift+N) inherits: same config and app id, not the command,
+    /// and never the last session (that is the first window's).
     pub fn for_new_window(&self) -> Vec<String> {
         let mut v = Vec::new();
         if let Some(c) = &self.config {
@@ -103,6 +118,7 @@ impl Args {
         if let Some(id) = &self.app_id {
             v.push(format!("--app-id={id}"));
         }
+        v.push("--no-restore".into());
         v
     }
 }
@@ -194,7 +210,7 @@ mod tests {
     fn file_manager_service_flag() {
         let a = parse(&["--config=/c", "--app-id=t", "--file-manager-service"]).unwrap();
         assert!(a.file_manager_service);
-        assert_eq!(a.for_new_window(), vec!["--config=/c".to_string(), "--app-id=t".to_string()]);
+        assert_eq!(a.for_new_window(), vec!["--config=/c".to_string(), "--app-id=t".to_string(), "--no-restore".to_string()]);
     }
 
     #[test]
@@ -215,6 +231,21 @@ mod tests {
     #[test]
     fn new_window_keeps_config_and_app_id() {
         let a = parse(&["--config=/c", "--app-id=t", "-e", "top"]).unwrap();
-        assert_eq!(a.for_new_window(), vec!["--config=/c".to_string(), "--app-id=t".to_string()]);
+        assert_eq!(a.for_new_window(), vec!["--config=/c".to_string(), "--app-id=t".to_string(), "--no-restore".to_string()]);
+    }
+
+    #[test]
+    fn only_a_plain_launch_restores_the_session() {
+        assert!(parse(&[]).unwrap().restores_session());
+        assert!(parse(&["--config=/c", "--app-id=t"]).unwrap().restores_session());
+        let a = parse(&["--no-restore"]).unwrap();
+        assert!(a.no_restore);
+        assert!(!a.restores_session());
+        for args in [&["-e", "top"][..], &["--working-directory=/tmp"], &["/tmp"], &["--explorer"], &["--select=/tmp/x"], &["--file-manager-service"]] {
+            assert!(!parse(args).unwrap().restores_session(), "{args:?}");
+        }
+        // A new window's flags parse back to a window that doesn't restore.
+        let flags = parse(&["--config=/c"]).unwrap().for_new_window();
+        assert!(!Args::parse(flags.into_iter().map(OsString::from)).unwrap().restores_session());
     }
 }

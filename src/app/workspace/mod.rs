@@ -23,7 +23,7 @@ use crate::app::{App, PANE_GAP};
 
 impl App {
     /// A fresh id for a new pane (terminal or file explorer).
-    fn alloc_pane_id(&mut self) -> PaneId {
+    pub(in crate::app) fn alloc_pane_id(&mut self) -> PaneId {
         let id = self.next_id;
         self.next_id += 1;
         id
@@ -143,7 +143,7 @@ impl App {
     }
 
     /// A file explorer at `dir`, in the configured layout (`explorer-view`).
-    fn new_explorer(&self, dir: PathBuf) -> FileExplorer {
+    pub(in crate::app) fn new_explorer(&self, dir: PathBuf) -> FileExplorer {
         let mut b = FileExplorer::new(dir);
         b.view = self.cfg.explorer_view;
         b

@@ -9,6 +9,7 @@ mod animation;
 mod chrome;
 mod input;
 mod reload;
+pub mod session;
 mod ssh;
 mod workspace;
 #[cfg(test)]
@@ -151,10 +152,30 @@ pub struct App {
     pending_pane: Option<ssh::follow::PendingPane>,
     /// Hosts this machine's microphone is shared with (see `ssh/mic.rs`).
     mics: ssh::mic::Mics,
+    /// The last session, to bring back on the first frame (see `session.rs`).
+    restore_at_start: Option<crate::session::Session>,
+    /// This window keeps the session file: a plain launch holding the session lock (not a
+    /// second window, `-e`, or another nex already running).
+    save_session: bool,
+    /// The session lock, held for the window's lifetime (see `session::try_lock`).
+    _session_lock: Option<crate::session::Lock>,
+    /// A tab was open at some point (a window that never opened one leaves the file alone).
+    had_tabs: bool,
+    /// The last close was the user's: a close action, or a shell exiting right after the user
+    /// typed into it (`exit`, Ctrl+D).
+    closed_by_user: bool,
+    /// A shell exited without the user (logout's SIGHUP, a killed shell, a program ending):
+    /// the session file is left as it was (no autosave, save on exit or clear) until the
+    /// user next types, clicks or closes something.
+    session_suspended: bool,
+    /// When the user last pressed a key, clicked or typed into the window.
+    last_user_input: Option<Instant>,
+    /// The session as last written, so unchanged polls don't touch the disk.
+    saved_session: Option<String>,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config, args: crate::cli::Args, early_terminal: Option<Terminal>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config, args: crate::cli::Args, early_terminal: Option<Terminal>, session: Option<crate::session::Session>, session_lock: Option<crate::session::Lock>) -> Self {
         let ctx = &cc.egui_ctx;
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_visuals(egui::Visuals::dark());
@@ -212,6 +233,12 @@ impl App {
             explorer_active: false,
             last_pointer: None,
             new_window_args: args.for_new_window(),
+            save_session: args.restores_session() && session_lock.is_some(),
+            _session_lock: session_lock,
+            had_tabs: false,
+            closed_by_user: false,
+            last_user_input: None,
+            session_suspended: false,
             open_explorer: args.explorer,
             select_at_start: args.select.clone(),
             // An early terminal already runs the `-e` command.
@@ -224,6 +251,8 @@ impl App {
             sharing_declined: false,
             mics: ssh::mic::Mics::default(),
             pending_pane: None,
+            restore_at_start: session,
+            saved_session: None,
         }
     }
 }
@@ -232,6 +261,7 @@ impl eframe::App for App {
     /// Stop sharing the microphone, so hosts get their own `~/.asoundrc` back.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.stop_mics();
+        self.save_session_on_exit();
     }
 
     /// Files dragged in from another window, reported as winit does on X11.
@@ -256,8 +286,11 @@ impl eframe::App for App {
         if !self.started {
             // The first shell is spawned on the first frame, once the window size is known.
             self.started = true;
-            let cwd = std::env::current_dir().ok();
-            self.new_tab(ctx, cwd, None);
+            let restored = self.restore_at_start.take().is_some_and(|s| self.restore_session(ctx, s));
+            if !restored {
+                let cwd = std::env::current_dir().ok();
+                self.new_tab(ctx, cwd, None);
+            }
             if self.open_explorer {
                 // Opened as a file manager: the Files tab, at the first shell's folder.
                 self.toggle_explorer();
@@ -267,6 +300,10 @@ impl eframe::App for App {
             }
         }
 
+        if ctx.input(|i| i.events.iter().any(is_user_input)) {
+            self.last_user_input = Some(Instant::now());
+            self.session_suspended = false;
+        }
         self.poll_ptys(ctx);
         self.poll_uploads(ctx);
         self.poll_mics(ctx);
@@ -344,6 +381,14 @@ impl App {
         if alerted && !ctx.input(|i| i.focused) {
             ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
         }
+        for id in &exited {
+            if self.exit_by_user(*id) {
+                self.closed_by_user = true;
+            } else {
+                self.closed_by_user = false;
+                self.session_suspended = true;
+            }
+        }
         for id in exited {
             self.close_pane(ctx, id);
         }
@@ -364,9 +409,13 @@ impl App {
     /// Returns `true` if the window is closing.
     fn close_if_empty(&mut self, ctx: &egui::Context) -> bool {
         if self.tabs.is_empty() && self.explorer_tab.is_none() {
+            if self.forgets_session_when_empty() {
+                self.forget_session();
+            }
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return true;
         }
+        self.had_tabs = true;
         if self.tabs.is_empty() {
             self.explorer_active = true;
         }
@@ -397,6 +446,7 @@ impl App {
         for b in self.explorers.values_mut() {
             b.refresh_if_stale();
         }
+        self.autosave_session();
     }
 
     fn drain_pending(&mut self, ctx: &egui::Context) {
@@ -456,4 +506,17 @@ impl App {
             self.window_title = title;
         }
     }
+}
+
+/// A key press, click, touch or typed text: the user is at the window.
+fn is_user_input(e: &egui::Event) -> bool {
+    use egui::Event;
+    matches!(
+        e,
+        Event::Key { pressed: true, .. }
+            | Event::PointerButton { pressed: true, .. }
+            | Event::Touch { phase: egui::TouchPhase::Start, .. }
+            | Event::Text(_)
+            | Event::Paste(_)
+    )
 }
