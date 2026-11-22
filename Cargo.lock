@@ -2012,6 +2012,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nex-android"
+version = "0.11.0"
+dependencies = [
+ "nex",
+ "winit",
+]
+
+[[package]]
 name = "nex-host"
 version = "0.11.0"
 dependencies = [

@@ -7,6 +7,7 @@
 mod actions;
 mod animation;
 mod chrome;
+mod connect;
 mod input;
 mod reload;
 pub mod restore;
@@ -150,6 +151,8 @@ pub struct App {
     session: restore::SessionState,
     /// Where the tabs were drawn and how they are animating (see `chrome/titlebar.rs`).
     strip: chrome::titlebar::TabStrip,
+    /// The connect screen, shown where there are no local shells and no pane is open yet.
+    connect: connect::ConnectForm,
 }
 
 impl App {
@@ -250,6 +253,7 @@ impl App {
                 tab_hits: Vec::new(),
                 strip_rect: None,
             },
+            connect: connect::ConnectForm::default(),
         }
     }
 }
@@ -280,7 +284,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.update_metrics(ctx);
         self.update_content_area(ctx);
-        if !self.started {
+        if !self.started && crate::platform::LOCAL_SHELLS {
             // The first shell is spawned on the first frame, once the window size is known.
             self.started = true;
             let restored = self.session.restore_at_start.take().is_some_and(|s| self.restore_session(ctx, s));
@@ -295,6 +299,12 @@ impl eframe::App for App {
                     self.select_in_explorer(&item);
                 }
             }
+        }
+
+        // No local shells (Android) and nothing open yet: ask where to connect.
+        if !crate::platform::LOCAL_SHELLS && self.tabs.is_empty() {
+            self.connect_screen(ctx);
+            return;
         }
 
         if ctx.input(|i| i.events.iter().any(is_user_input)) {
@@ -353,6 +363,15 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// Draw the connect screen and act on its Connect button.
+    fn connect_screen(&mut self, ctx: &egui::Context) {
+        let theme = Theme::from_config(&self.cfg);
+        if let Some(t) = self.connect.show(ctx, &theme) {
+            // The in-process ssh client comes with the next step of the Android port.
+            self.connect.set_message(format!("Can't connect to {}@{}:{} yet: ssh isn't built into this version.", t.user, t.host, t.port));
+        }
+    }
+
     /// The area below the title bar (or right of the sidebar) where panes go.
     fn update_content_area(&mut self, ctx: &egui::Context) {
         let full = ctx.content_rect();

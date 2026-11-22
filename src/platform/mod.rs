@@ -8,8 +8,8 @@
 //! ```text
 //! platform/
 //!   mod.rs        this file: the shared types and the backend switch
-//!   unix.rs       POSIX pieces shared by Linux and macOS (paths, symlinks, shell quoting)
-//!   fontdb.rs     font lookup by scanning font folders (macOS, Windows)
+//!   unix.rs       POSIX pieces shared by Linux, macOS and Android (paths, symlinks, shell quoting)
+//!   fontdb.rs     font lookup by scanning font folders (macOS, Windows, Android)
 //!   no_dnd.rs     drag-and-drop stub for OSes where winit already handles it
 //!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
 //!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
@@ -20,6 +20,7 @@
 //!                 · apps.rs (Open With) · clipboard.rs · launch.rs (started from nex.app)
 //!                 · menu.rs (app menu) · window.rs (traffic lights, title)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
+//!   android/      mod.rs (app folders, no local shells: a thin client to ssh hosts)
 //! ```
 //!
 //! Every backend's `mod.rs` provides:
@@ -28,6 +29,7 @@
 //! |---|---|
 //! | `SHORTCUTS` | which [`ShortcutStyle`] the keymap uses |
 //! | `WINDOW` | the [`WindowDefaults`] for the window and its title bar |
+//! | `LOCAL_SHELLS` | whether panes can run shells on this machine (not on Android: every pane works on an ssh host) |
 //! | `FALLBACK_FAMILIES` | system fonts tried for glyphs the grid font lacks |
 //! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |
 //! | `process_start(pid)` | when a process started, as Claude Code's session file records it |
@@ -89,7 +91,12 @@ mod windows;
 #[cfg(target_os = "windows")]
 use windows as backend;
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(target_os = "android")]
+use android as backend;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android")))]
 compile_error!("nex has no platform backend for this OS yet: add one under src/platform/");
 
 pub use backend::*;
@@ -121,8 +128,8 @@ pub struct ProcInfo {
 }
 
 /// What the clipboard holds that isn't text: copied files, or an image (as PNG).
-/// Windows has no backend that reads these yet, so nothing constructs them there.
-#[cfg_attr(windows, allow(dead_code))]
+/// Windows and Android have no backend that reads these yet, so nothing constructs them there.
+#[cfg_attr(any(windows, target_os = "android"), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClipboardFiles {
     Paths(Vec<PathBuf>),
@@ -232,6 +239,12 @@ pub struct WindowDefaults {
     /// With decorations on, the OS draws its buttons over nex's title bar (macOS traffic
     /// lights), and the tabs start this far from the left edge to clear them.
     pub titlebar_inset: f32,
+    /// The smallest the window may be made, in points.
+    pub min_size: [f32; 2],
+    /// Ask for a window with an alpha channel (for `background-opacity`).
+    pub transparent: bool,
+    /// Tabs go in the touch-sized sidebar unless the config says `tab-bar = top` (phones).
+    pub sidebar_tabs: bool,
 }
 
 impl WindowDefaults {

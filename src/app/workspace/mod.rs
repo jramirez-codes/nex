@@ -57,10 +57,15 @@ impl App {
         self.agents.remove(&id);
     }
 
-    /// Spawn a shell sized for `card`, so its first output is already laid out correctly.
+    /// Spawn a shell sized for `card`, so its first output is already laid out correctly
+    /// (never where there are no local shells).
     /// `font_size` is the new pane's own zoom level (`None` = config default). `command` runs
     /// instead of the shell.
     pub(in crate::app) fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
+        if !crate::platform::LOCAL_SHELLS {
+            // Nothing runs on this machine (Android): panes open on an ssh host instead.
+            return None;
+        }
         let id = self.alloc_pane_id();
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);

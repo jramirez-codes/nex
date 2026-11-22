@@ -1,7 +1,8 @@
 # Architecture
 
-nex is a single Rust binary (`src/`) plus `nex-host` (`nex-host/`), a small helper nex installs on
-ssh hosts. The terminal engine is [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal);
+nex is a single Rust crate (`src/`, a library with the `nex` program on top) plus `nex-host`
+(`nex-host/`), a small helper nex installs on ssh hosts, and `nex-android/`, which wraps the same
+library as the Android app. The terminal engine is [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal);
 everything on screen is drawn with [egui](https://github.com/emilk/egui) on eframe, which nex
 runs on its own winit event loop (`src/platform/winit_app.rs`).
 
@@ -12,7 +13,8 @@ Read those first; this page is the map.
 
 ```
 src/
-├── main.rs           window setup (eframe / winit)
+├── main.rs           the `nex` program: hands over to lib.rs
+├── lib.rs            command line, window setup (eframe / winit), the Android entry point
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
 ├── layout.rs         binary split tree + directional focus (PaneId, Axis)
@@ -23,6 +25,7 @@ src/
 │   ├── actions.rs        the actions and carrying them out
 │   ├── reload.rs         live config reload
 │   ├── restore.rs        saving the window into a session and restoring one at launch
+│   ├── connect.rs        the connect screen, where panes can't run local shells (Android)
 │   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
 │   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
 │   ├── workspace/        tabs, splits, opening and closing panes, drawing panes, pane drag,
@@ -72,8 +75,12 @@ src/
     │                     clipboard, Open With, the FileManager1 D-Bus service
     ├── macos/            libproc process info, traffic lights, app menu, clipboard,
     │                     Open With, starting from nex.app
-    └── windows/          compiles, not supported yet
+    ├── windows/          compiles, not supported yet
+    └── android/          app folders, stdout/stderr to logcat, no local shells (a thin
+                          client: every pane works on an ssh host)
 
+nex-android/          the Android app: nex's library as NativeActivity's shared library
+                      (see nex-android/README.md)
 nex-host/             the helper on ssh hosts (see nex-host/README.md); nex itself links only
                       its protocol (`proto`, `claude`, `paths`), built without the `daemon` feature
 ```

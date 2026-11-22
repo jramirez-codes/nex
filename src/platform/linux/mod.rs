@@ -25,10 +25,13 @@ pub use watch::{DirWatch, on_dir_change};
 
 use super::{ShortcutStyle, WindowDefaults};
 
+/// Panes run shells on this machine.
+pub const LOCAL_SHELLS: bool = true;
+
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
 /// nex draws its own title bar and window buttons.
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0 };
+pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true, sidebar_tabs: false };
 
 /// Desktop launchers start nex in the home folder already, so there is nothing to detect.
 /// The window keeps eframe's default icon (on macOS, the bundle's own icon wins).

@@ -25,10 +25,13 @@ pub use window::{align_window_buttons, set_window_title};
 
 use super::{ShortcutStyle, WindowDefaults};
 
+/// Panes run shells on this machine.
+pub const LOCAL_SHELLS: bool = true;
+
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Cmd;
 
 /// The system's own traffic lights, drawn over nex's title bar (see `main.rs`).
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: true, controls: false, titlebar_inset: 72.0 };
+pub const WINDOW: WindowDefaults = WindowDefaults { decorations: true, controls: false, titlebar_inset: 72.0, min_size: [420.0, 260.0], transparent: true, sidebar_tabs: false };
 
 /// An empty icon: eframe then leaves the Dock icon alone, so nex.app keeps its own `nex.icns`
 /// (with no icon set, eframe swaps in the egui logo once the app is running).
@@ -41,6 +44,8 @@ pub const FALLBACK_FAMILIES: &[&str] = &["Menlo", "Apple Symbols", "STIX Two Mat
 
 /// Families the font index treats as `Family::SansSerif` / `Family::Monospace`.
 pub(super) const SANS_SERIF: &str = "Helvetica Neue";
+/// fontdb already scans the system's font folders.
+pub(super) const FONT_DIRS: &[&str] = &[];
 pub(super) const MONOSPACE: &str = "Menlo";
 
 /// Showing files for other apps over D-Bus is Linux-only (see `platform/linux/file_manager/`).

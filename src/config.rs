@@ -165,7 +165,7 @@ impl Default for Config {
             animations: true,
             tab_animation: TabAnimation::Glide,
             explorer_view: crate::file_explorer::View::List,
-            tab_bar: TabBar::Top,
+            tab_bar: if crate::platform::WINDOW.sidebar_tabs { TabBar::Sidebar } else { TabBar::Top },
 
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
