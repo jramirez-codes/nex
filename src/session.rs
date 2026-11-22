@@ -62,6 +62,9 @@ pub struct PaneState {
     /// What a terminal was running in its shell (`npm run dev`), run again on restore.
     /// `None` when it was at its prompt, and always for explorers.
     pub command: Option<Vec<String>>,
+    /// The window's sticky pane, which every tab's tree lists (with its own place in each).
+    /// All sticky leaves are one pane: it is opened once.
+    pub sticky: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +154,9 @@ fn node_to_value(n: &PaneNode) -> Value {
             if let Some(cmd) = p.command.as_ref().filter(|_| p.kind == PaneKind::Terminal) {
                 m.insert("command".into(), json!(cmd));
             }
+            if p.sticky {
+                m.insert("sticky".into(), true.into());
+            }
             Value::Object(m)
         }
         PaneNode::Split { axis, ratio, a, b } => {
@@ -203,7 +209,8 @@ fn node_from_value(v: &Value, depth: usize) -> Option<PaneNode> {
             }
         };
         let command = obj.get("command").filter(|_| kind == PaneKind::Terminal).and_then(command_from_value);
-        return Some(PaneNode::Leaf(PaneState { kind, cwd, font_size, command }));
+        let sticky = obj.get("sticky").and_then(Value::as_bool).unwrap_or(false);
+        return Some(PaneNode::Leaf(PaneState { kind, cwd, font_size, command, sticky }));
     }
     let axis = match obj.get("axis")?.as_str()? {
         "horizontal" => Axis::Horizontal,
@@ -363,7 +370,7 @@ mod tests {
     use super::*;
 
     fn term(cwd: &str) -> PaneNode {
-        PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some(cwd.into()), font_size: None, command: None })
+        PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some(cwd.into()), font_size: None, command: None, sticky: false })
     }
 
     fn split(axis: Axis, ratio: f32, a: PaneNode, b: PaneNode) -> PaneNode {
@@ -379,12 +386,22 @@ mod tests {
     }
 
     #[test]
+    fn sticky_round_trips_and_defaults_off() {
+        let pinned = PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some("/s".into()), font_size: None, command: None, sticky: true });
+        let split = |x| PaneNode::Split { axis: Axis::Horizontal, ratio: 0.6, a: Box::new(x), b: Box::new(pinned.clone()) };
+        let s = Session { tabs: vec![tab(split(term("/a"))), tab(split(term("/b")))], active: 0, explorer: None, explorer_active: false };
+        let json = s.to_json();
+        assert_eq!(json.matches("\"sticky\"").count(), 2, "only sticky leaves say so");
+        assert_eq!(Session::from_json(&json).unwrap(), s);
+    }
+
+    #[test]
     fn round_trip() {
         let s = Session {
             tabs: vec![
                 tab(term("/a")),
                 TabState {
-                    root: PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(18.5), command: None }),
+                    root: PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(18.5), command: None, sticky: false }),
                     focused: 0,
                     zoomed: true,
                 },
@@ -400,7 +417,7 @@ mod tests {
     #[test]
     fn commands_round_trip() {
         let cmd = |c: &[&str]| Some(c.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-        let leaf = |command| PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some("/a".into()), font_size: None, command });
+        let leaf = |command| PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some("/a".into()), font_size: None, command, sticky: false });
         let s = Session {
             tabs: vec![tab(split(Axis::Horizontal, 0.5, leaf(cmd(&["npm", "run", "dev"])), leaf(cmd(&["echo", "a b", "it's"]))))],
             active: 0,
@@ -448,7 +465,7 @@ mod tests {
 
     #[test]
     fn explorer_tab_round_trip() {
-        let ex = |d: &str| PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: Some(d.into()), font_size: None, command: None });
+        let ex = |d: &str| PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: Some(d.into()), font_size: None, command: None, sticky: false });
         let s = Session {
             tabs: vec![tab(term("/a"))],
             active: 0,
@@ -565,7 +582,7 @@ mod tests {
                 root: split(
                     Axis::Vertical,
                     0.6,
-                    PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(13.3), command: None }),
+                    PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(13.3), command: None, sticky: false }),
                     term("/b"),
                 ),
                 focused: 0,

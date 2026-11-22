@@ -483,7 +483,8 @@ impl App {
 
     /// Whether a pane in tab `i` rang the bell or sent a notification the user hasn't seen.
     fn tab_needs_attention(&self, i: usize) -> bool {
-        self.tabs[i].root.panes().iter().any(|id| self.panes.get(id).is_some_and(|t| t.attention))
+        // Not the sticky pane, which every tab has.
+        self.tabs[i].root.panes().iter().filter(|&&id| !self.is_sticky(id)).any(|id| self.panes.get(id).is_some_and(|t| t.attention))
     }
 
     fn new_tab_button(&mut self, ui: &Ui, rect: Rect, cy: f32, theme: &Theme) {

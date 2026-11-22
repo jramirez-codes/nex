@@ -4,6 +4,7 @@
 pub(super) mod draw;
 pub(super) mod metrics;
 pub(super) mod pane_drag;
+pub(super) mod sticky;
 pub(super) mod tab;
 
 use std::path::{Path, PathBuf};
@@ -83,9 +84,14 @@ impl App {
         if self.explorer_active { self.explorer_tab.as_mut() } else { self.tabs.get_mut(self.active) }
     }
 
-    /// The tab (Files or terminal) containing `pane`.
+    /// The tab (Files or terminal) containing `pane`: the shown one if it does (the sticky
+    /// pane is in every tab).
     pub(in crate::app) fn tab_with(&mut self, pane: PaneId) -> Option<&mut Tab> {
-        self.explorer_tab.iter_mut().chain(self.tabs.iter_mut()).find(|t| t.contains(pane))
+        let shown = self.cur_tab().filter(|t| t.contains(pane)).map(|t| t.uid);
+        self.explorer_tab
+            .iter_mut()
+            .chain(self.tabs.iter_mut())
+            .find(|t| shown.map_or_else(|| t.contains(pane), |uid| t.uid == uid))
     }
 
     pub(in crate::app) fn show_tab(&mut self, index: usize) {
@@ -129,7 +135,7 @@ impl App {
                 .unwrap_or_else(|| PathBuf::from("/"));
             let id = self.alloc_pane_id();
             self.explorers.insert(id, self.new_explorer(dir));
-            self.explorer_tab = Some(Tab::new(id, id));
+            self.explorer_tab = Some(self.with_sticky(Tab::new(id, id)));
         }
         self.explorer_active = true;
     }
@@ -150,17 +156,20 @@ impl App {
     }
 
     pub(in crate::app) fn close_explorer(&mut self) {
+        let sticky = self.sticky;
         if let Some(tab) = self.explorer_tab.take() {
-            for id in tab.root.panes() {
+            for id in tab.root.panes().into_iter().filter(|&id| Some(id) != sticky) {
                 self.forget_pane(id);
             }
         }
         self.explorer_active = false;
+        self.forget_sticky_if_alone();
     }
 
     pub(in crate::app) fn new_tab(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>) {
         if let Some(id) = self.spawn_pane(ctx, cwd, command, self.content_area, None) {
-            self.tabs.push(Tab::new(id, id));
+            let tab = self.with_sticky(Tab::new(id, id));
+            self.tabs.push(tab);
             self.show_tab(self.tabs.len() - 1);
         }
     }
@@ -237,6 +246,10 @@ impl App {
             }
             return;
         }
+        // The sticky pane is in every tab already.
+        if self.is_sticky(pane) {
+            return;
+        }
         let (Some(src), Some(dst)) = (self.tab_index_with(pane), self.tab_index_with(target)) else { return };
         self.transfer(ctx, pane, src, dst, |root| root.insert(target, dir, pane));
     }
@@ -245,7 +258,7 @@ impl App {
     /// pane, below a tall one.
     pub(in crate::app) fn pane_to_tab(&mut self, ctx: &egui::Context, pane: PaneId, uid: u64) {
         let (Some(src), Some(dst)) = (self.tab_index_with(pane), self.tabs.iter().position(|t| t.uid == uid)) else { return };
-        if src == dst {
+        if src == dst || self.is_sticky(pane) {
             return;
         }
         let tab = &self.tabs[dst];
@@ -259,6 +272,9 @@ impl App {
 
     /// Give `pane` a tab of its own, just after the one it leaves (which keeps its others).
     pub(in crate::app) fn pane_to_new_tab(&mut self, ctx: &egui::Context, pane: PaneId) {
+        if self.is_sticky(pane) {
+            return;
+        }
         let Some(src) = self.tab_index_with(pane) else { return };
         let tab = &mut self.tabs[src];
         if !tab.remove_pane(pane) {
@@ -267,8 +283,10 @@ impl App {
         tab.motion.kick_reflow(ctx);
         // A fresh uid: the old tab's uid may be this pane's id.
         let uid = self.alloc_pane_id();
-        self.tabs.insert(src + 1, Tab::new(uid, pane));
+        let tab = self.with_sticky(Tab::new(uid, pane));
+        self.tabs.insert(src + 1, tab);
         self.show_tab(src + 1);
+        self.prune_sticky_tabs();
     }
 
     /// Move `pane` from tab `src` into tab `dst`, where `place` puts it in the split tree.
@@ -290,6 +308,7 @@ impl App {
             self.take_tab(src);
         }
         self.show_tab_uid(uid);
+        self.prune_sticky_tabs();
     }
 
     /// Index of the terminal tab holding `pane` (not the Files tab).
@@ -319,6 +338,15 @@ impl App {
     /// Close one pane; closing a tab's last pane closes the tab. A pane closed out of a
     /// split collapses and fades out (its last frame is kept for that).
     pub(in crate::app) fn close_pane(&mut self, ctx: &egui::Context, id: PaneId) {
+        if self.is_sticky(id) {
+            self.close_sticky(ctx, id);
+            return;
+        }
+        self.close_unpinned(ctx, id);
+        self.prune_sticky_tabs();
+    }
+
+    fn close_unpinned(&mut self, ctx: &egui::Context, id: PaneId) {
         let (title, process) = self.pane_label(id);
         let shapes = self.panes.get_mut(&id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
@@ -361,9 +389,11 @@ impl App {
             let drawn = TabDrawn { active: drawn.active && !self.explorer_active, ..drawn };
             self.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
         }
-        for id in tab.root.panes() {
+        let sticky = self.sticky;
+        for id in tab.root.panes().into_iter().filter(|&id| Some(id) != sticky) {
             self.forget_pane(id);
         }
+        self.forget_sticky_if_alone();
     }
 
     /// Take tab `index` out of the strip, keeping its panes alive (the caller closes or
