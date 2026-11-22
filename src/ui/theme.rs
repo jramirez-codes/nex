@@ -34,6 +34,9 @@ pub struct Theme {
     pub red: Color32,
     pub yellow: Color32,
     pub blue: Color32,
+    /// The palette's magenta and cyan, softened the same way (the diff's syntax colors).
+    pub magenta: Color32,
+    pub cyan: Color32,
 }
 
 impl Theme {
@@ -50,6 +53,8 @@ impl Theme {
             red: soften(cfg.palette[1]),
             yellow: soften(cfg.palette[3]),
             blue: soften(cfg.palette[4]),
+            magenta: soften(cfg.palette[5]),
+            cyan: soften(cfg.palette[6]),
         }
     }
 }
