@@ -63,6 +63,9 @@ pub(super) enum Action {
     /// Share this machine's microphone with a pane's ssh host, or stop; `ToggleMic(0)` means
     /// the focused pane (see `ssh/mic.rs`).
     ToggleMic(PaneId),
+    /// Make a pane the sticky one, which follows the user to every tab, or unpin it
+    /// (Shift + the header's ×).
+    ToggleSticky(PaneId),
 }
 
 impl App {
@@ -144,6 +147,7 @@ impl App {
                 }
             }
             Action::ToggleMic(id) => self.toggle_mic(ctx, id),
+            Action::ToggleSticky(id) => self.toggle_sticky(ctx, id),
             Action::ExploreHere => {
                 if let Some(id) = focused {
                     self.split_explorer(ctx, id, Axis::Horizontal)

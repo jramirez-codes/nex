@@ -130,6 +130,11 @@ pub struct App {
     explorer_tab: Option<Tab>,
     /// Whether the Files tab is showing (`active` keeps the last terminal tab).
     explorer_active: bool,
+    /// The sticky pane: it follows the user from tab to tab, a leaf in every tab's split
+    /// tree (each tab keeps its own place and size for it). See `workspace/sticky.rs`.
+    sticky: Option<PaneId>,
+    /// Its card gliding from where the last tab had it to where this one does.
+    sticky_glide: animation::sticky_glide::StickyGlide,
     /// Last known pointer position (touch releases report the pointer as gone).
     last_pointer: Option<Pos2>,
     /// Flags passed on to the nex started by Ctrl+Shift+N (`--config`, `--app-id`).
@@ -238,6 +243,8 @@ impl App {
             diff_requests: Vec::new(),
             explorer_tab: None,
             explorer_active: false,
+            sticky: None,
+            sticky_glide: Default::default(),
             last_pointer: None,
             new_window_args: args.for_new_window(),
             save_session: args.restores_session() && session_lock.is_some(),

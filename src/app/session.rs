@@ -100,6 +100,7 @@ impl App {
                 cwd: self.pane_cwd(*id),
                 font_size: self.pane_fonts.get(id).copied(),
                 command: self.panes.get(id).and_then(|t| t.running_command()),
+                sticky: self.sticky == Some(*id),
             }),
             Node::Split { axis, ratio, a, b } => PaneNode::Split {
                 axis: *axis,
@@ -130,6 +131,7 @@ impl App {
         }
         self.active = active.unwrap_or(0);
         self.explorer_active = self.explorer_tab.is_some() && (s.explorer_active || self.tabs.is_empty());
+        self.prune_sticky_tabs();
         true
     }
 
@@ -149,7 +151,15 @@ impl App {
                     Some(&(_, r)) if !(zoomed && i == t.focused) => r,
                     _ => area,
                 };
-                self.restore_pane(ctx, p, card)
+                // Every tab lists the sticky pane: the first one opens it, the rest share it.
+                if p.sticky && let Some(id) = self.sticky {
+                    return Some(id);
+                }
+                let id = self.restore_pane(ctx, p, card);
+                if p.sticky {
+                    self.sticky = id;
+                }
+                id
             })
             .collect();
         let root = build(&t.root, &ids, &mut 0)?;
@@ -273,7 +283,7 @@ mod tests {
     #[test]
     fn a_failed_leaf_hands_its_split_to_its_sibling() {
         use crate::layout::Axis;
-        let leaf = || PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: None, font_size: None, command: None });
+        let leaf = || PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: None, font_size: None, command: None, sticky: false });
         let split = |a, b| PaneNode::Split { axis: Axis::Horizontal, ratio: 0.3, a: Box::new(a), b: Box::new(b) };
         let tree = split(leaf(), split(leaf(), leaf()));
         assert_eq!(build(&tree, &[Some(7), None, Some(9)], &mut 0).unwrap().panes(), vec![7, 9]);

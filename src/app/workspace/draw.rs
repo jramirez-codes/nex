@@ -85,6 +85,7 @@ impl App {
         }
         // Carried over from another tab: drawn over this one's panes, not laid out with them.
         let visitor = held.filter(|(id, _)| !rects.iter().any(|(r, _)| r == id));
+        let sticky = self.sticky;
         let Some(tab) = self.cur_tab_mut() else { return };
         let focused = tab.focused;
         let multi = rects.len() > 1;
@@ -108,6 +109,13 @@ impl App {
         // The dragged card goes over the others (and a pane shrinking out of a zoom over
         // the panes fading back in).
         views.sort_by_key(|v| (v.lifted, v.on_top));
+        // Drawn after the tab's sheet, so a tab switch doesn't carry them off with the old
+        // tab: the sticky pane (it glides to its place in the new tab), then the dragged card.
+        let pinned = sticky.and_then(|s| views.iter().position(|v| v.id == s)).map(|i| views.remove(i));
+        let lifted: Vec<PaneView> = match views.iter().position(|v| v.lifted) {
+            Some(i) => views.drain(i..).collect(),
+            None => Vec::new(),
+        };
         // Closed panes fade out underneath the panes growing into their space.
         let now = ctx.input(|i| i.time);
         for g in tab.motion.ghosts() {
@@ -123,19 +131,22 @@ impl App {
             let ms = ui.input(|i| i.time * 1000.0) as u128;
             (ms / BLINK_INTERVAL.as_millis()).is_multiple_of(2)
         };
-        for pane in views {
-            if self.diffs.contains_key(&pane.id) {
-                self.diff_pane(ui, &pane, theme);
-            } else if self.explorers.contains_key(&pane.id) {
-                self.explorer_pane(ui, &pane, theme);
-            } else if self.panes.contains_key(&pane.id) {
-                self.terminal_pane(ui, &pane, theme, blink_on);
-            } else {
-                continue;
-            }
-            self.card_rects.push((pane.id, pane.target));
+        for pane in &views {
+            self.draw_pane(ui, pane, theme, blink_on);
         }
         self.switch.end(ui, sheet);
+        match pinned {
+            Some(mut pane) => {
+                let (card, gliding) = self.sticky_glide.frame(&ctx, tab_uid, pane.card);
+                pane.card = card;
+                pane.scale_content |= gliding;
+                self.draw_pane(ui, &pane, theme, blink_on);
+            }
+            None => self.sticky_glide.hidden(),
+        }
+        for pane in &lifted {
+            self.draw_pane(ui, pane, theme, blink_on);
+        }
         if let Some((id, card)) = visitor {
             self.visiting_pane(ui, id, card, mini, theme, blink_on);
         }
@@ -144,6 +155,20 @@ impl App {
         let ms = ui.input(|i| i.time * 1000.0);
         let next = BLINK_INTERVAL.as_millis() as f64 - ms % BLINK_INTERVAL.as_millis() as f64;
         ui.ctx().request_repaint_after(Duration::from_millis(next as u64 + 1));
+    }
+
+    /// One pane of the shown tab: a terminal, a file explorer or a Changes pane.
+    fn draw_pane(&mut self, ui: &mut Ui, pane: &PaneView, theme: &Theme, blink_on: bool) {
+        if self.diffs.contains_key(&pane.id) {
+            self.diff_pane(ui, pane, theme);
+        } else if self.explorers.contains_key(&pane.id) {
+            self.explorer_pane(ui, pane, theme);
+        } else if self.panes.contains_key(&pane.id) {
+            self.terminal_pane(ui, pane, theme, blink_on);
+        } else {
+            return;
+        }
+        self.card_rects.push((pane.id, pane.target));
     }
 
     /// A pane dragged here from another tab, held at `card`. Its terminal keeps the size of
@@ -399,15 +424,27 @@ impl App {
         // glyphs so the header stays quiet. Mobile mode makes them finger-sized.
         let (size, step, inset) = if self.cfg.mobile { (36.0, 38.0, 7.0) } else { (28.0, 30.0, 4.5) };
         let mut bx = header.right() - if self.cfg.mobile { 26.0 } else { 22.0 };
-        if show_buttons {
+        let pinned = self.is_sticky(id);
+        // Holding Shift turns the × into a pin: the pane follows the user to every tab. On
+        // the pinned pane that slot is the pin (click to unpin, back to the ×), and Shift
+        // brings the × back to close it.
+        let shift = ui.input(|i| i.modifiers.shift);
+        // The pinned pane's pin shows even when its other buttons are hidden.
+        let shown = if show_buttons { 4 } else if pinned { 1 } else { 0 };
+        if shown > 0 {
+            let close: (&str, Action, Action, &IconFn<'_>) = match (pinned, shift) {
+                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(id), Action::ToggleSticky(id), &|p, r, c| icons::icon_pin(p, r, c)),
+                (false, true) => ("Pin to every tab", Action::ToggleSticky(id), Action::ToggleSticky(id), &|p, r, c| icons::icon_pin(p, r, c)),
+                _ => ("Close  (Shift: pin to every tab)", Action::ClosePane(0), Action::ClosePane(id), &icons::icon_close),
+            };
             // (label, the shortcut's action for the focused pane, this button's action, icon)
             let buttons: [(&str, Action, Action, &IconFn<'_>); 4] = [
-                ("Close", Action::ClosePane(0), Action::ClosePane(id), &icons::icon_close),
+                close,
                 ("Zoom", Action::ToggleZoom, Action::ToggleZoomPane(id), &|p, r, c| icons::icon_zoom(p, r, c, zoomed)),
                 ("Split down", Action::Split(Axis::Vertical), Action::SplitPane(id, Axis::Vertical), &|p, r, c| icons::icon_split(p, r, c, Axis::Vertical)),
                 ("Split right", Action::Split(Axis::Horizontal), Action::SplitPane(id, Axis::Horizontal), &|p, r, c| icons::icon_split(p, r, c, Axis::Horizontal)),
             ];
-            for (label, shortcut, action, draw) in buttons {
+            for (i, (label, shortcut, action, draw)) in buttons.into_iter().enumerate().take(shown) {
                 let tip = match keymap::shortcut_label(&self.bindings, shortcut) {
                     Some(keys) => format!("{label}  ({keys})"),
                     None => label.to_string(),
@@ -415,7 +452,10 @@ impl App {
                 let tip = tip.as_str();
                 let r = Rect::from_center_size(Pos2::new(bx, cy), Vec2::splat(size));
                 bx -= step;
-                if IconButton::new(r, Id::new(("pane-btn", id, tip)), theme.text_dim, theme.text_bright)
+                // Keyed by slot, so the × turning into a pin keeps its hover.
+                // The pin stands out a little: it's a state, not just a button.
+                let normal = if i == 0 && pinned && !shift { theme.text_bright.gamma_multiply(0.85) } else { theme.text_dim };
+                if IconButton::new(r, Id::new(("pane-btn", id, i)), normal, theme.text_bright)
                     .icon_rect(r.shrink(inset))
                     .hover(HoverShape::Rounded(8), HOVER)
                     .tooltip(tip)

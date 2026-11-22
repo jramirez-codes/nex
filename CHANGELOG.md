@@ -14,6 +14,11 @@ All notable changes to nex are documented here. The format follows
   the selected file's diff shows as rounded hunk cards with line numbers, the enclosing
   function and word-level highlights. It follows the focused pane's repository, refreshes
   while on screen, keeps its zoom, and comes back with the session.
+- A sticky pane that follows you to every tab, the Files tab included. Hold Shift over a pane
+  header and its × turns into a pin; click it to pin the pane. Each tab keeps its own place and
+  size for it (it starts on the side it was pinned from), and on a tab switch it glides to its
+  new spot instead of leaving with the old tab. On the pinned pane the × slot is the pin: click
+  it to unpin, or hold Shift to get the × back and close it. It stays pinned across restarts.
 - nex brings back the last window when it starts: every tab, its splits and their sizes, each
   pane's folder and zoom, which pane and tab were focused, and the Files tab. Terminals start a
   fresh shell in their folder (ssh panes come back as local shells; a folder that is gone opens

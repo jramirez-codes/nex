@@ -286,6 +286,10 @@ const COD_ADD: char = '\u{ea60}';
 const COD_CLOSE: char = '\u{ea76}';
 const COD_MIC: char = '\u{eb51}';
 const COD_MIC_FILLED: char = '\u{ec1c}';
+/// An upright pin (the sticky pane). Codicons' plain `pin` (U+EB2B) is tilted.
+const COD_PINNED: char = '\u{eba0}';
+/// The pin's glyph runs larger than the other header glyphs: drawn this much smaller.
+const PIN_SCALE: f32 = 0.8;
 const COD_SCREEN_FULL: char = '\u{eb4c}';
 const COD_SCREEN_NORMAL: char = '\u{eb4d}';
 /// Two panes side by side (a vertical divider).
@@ -304,6 +308,12 @@ pub fn icon_close(p: &Painter, r: Rect, c: Color32) {
 /// A microphone: filled while it's recording.
 pub fn icon_mic(p: &Painter, r: Rect, c: Color32, filled: bool) {
     codicon(p, r, c, if filled { COD_MIC_FILLED } else { COD_MIC });
+}
+
+/// A pin, upright and a little smaller than the other header glyphs. Pinned or not, it's
+/// the same pin: the button's colour tells them apart.
+pub fn icon_pin(p: &Painter, r: Rect, c: Color32) {
+    paint_glyph(p, r.center(), r.width() * GLYPH_SHARE * PIN_SCALE, COD_PINNED, c);
 }
 
 pub fn icon_split(p: &Painter, r: Rect, c: Color32, axis: Axis) {

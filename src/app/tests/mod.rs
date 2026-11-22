@@ -4,3 +4,4 @@ mod drop;
 mod explorer_view;
 mod git_diff;
 mod session;
+mod sticky;
