@@ -9,11 +9,23 @@ use std::time::Instant;
 use crate::agents::AgentsPane;
 use crate::agents::model::{AgentKind, Probe, Source, Status, is_remote_key, remote_key};
 use crate::layout::{Axis, PaneId};
+use crate::remote::SshTarget;
 use crate::session::claude;
 use crate::ui::icons;
 
 use crate::app::App;
 use crate::app::workspace::tab::Tab;
+
+/// What [`App::scan_panes`] found in this machine's panes.
+#[derive(Default)]
+struct LocalScan {
+    /// The agents running in panes here.
+    probes: Vec<Probe>,
+    /// The hosts ssh panes connect to.
+    hosts: HashSet<SshTarget>,
+    /// The `nex-host` session each ssh pane shows: the pane, its tab, and whether it rang.
+    showing: HashMap<String, (PaneId, Option<usize>, bool)>,
+}
 
 impl App {
     /// Re-read what every agent is doing: those running in panes here, and those `nex-host`
@@ -24,12 +36,21 @@ impl App {
             return;
         }
         let now = Instant::now();
-        // Each pane once, in tab order (the sticky pane is in every tab: its first one).
+        let LocalScan { mut probes, hosts, showing } = self.scan_panes();
+        self.ssh.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
+        self.offer_shim(&hosts);
+        self.offer_sharing(&hosts);
+        self.ssh.agent_notes = self.host_notes();
+        probes.extend(self.remote_probes(&showing, now));
+        self.agent_tracker.update(probes, now);
+    }
+
+    /// Every pane once, in tab order (the sticky pane is in every tab: its first one): the
+    /// agents running in them, the hosts ssh panes connect to, and which remote agent each
+    /// of those shows.
+    fn scan_panes(&self) -> LocalScan {
         let mut seen = HashSet::new();
-        let mut probes = Vec::new();
-        // The hosts ssh panes connect to, and which remote agent each pane shows.
-        let mut hosts = HashSet::new();
-        let mut showing: HashMap<String, (PaneId, Option<usize>, bool)> = HashMap::new();
+        let mut scan = LocalScan::default();
         let tabs = self.tabs.iter().enumerate().map(|(i, t)| (Some(i), t)).chain(self.home_tab.iter().map(|t| (None, t)));
         for (index, tab) in tabs {
             for id in tab.root.panes() {
@@ -38,9 +59,9 @@ impl App {
                 }
                 let Some(t) = self.panes.get(&id) else { continue };
                 if let Some(target) = t.last_ssh_target() {
-                    hosts.insert(target.normalized());
+                    scan.hosts.insert(target.normalized());
                     if let Some(session) = t.remote_agent() {
-                        showing.entry(session).or_insert((id, index, t.attention));
+                        scan.showing.entry(session).or_insert((id, index, t.attention));
                     }
                     continue;
                 }
@@ -49,7 +70,7 @@ impl App {
                 let session = (kind == AgentKind::Claude).then(|| claude::session_info(pid)).flatten().unwrap_or_default();
                 let title = t.title();
                 let (mark, rest) = icons::title_mark(&t.process, &title);
-                probes.push(Probe {
+                scan.probes.push(Probe {
                     pane: id,
                     tab: index,
                     kind,
@@ -66,12 +87,13 @@ impl App {
                 });
             }
         }
+        scan
+    }
 
-        self.ssh.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
-        self.offer_shim(&hosts);
-        self.offer_sharing(&hosts);
-        self.ssh.agent_notes = self.host_notes();
-        // Two panes may reach one host under different names: list each agent once.
+    /// The agents `nex-host` reports on the watched hosts, each once (two panes may reach
+    /// one host under different names), with the pane showing it, if one is (`showing`).
+    fn remote_probes(&self, showing: &HashMap<String, (PaneId, Option<usize>, bool)>, now: Instant) -> Vec<Probe> {
+        let mut probes = Vec::new();
         let mut listed = HashSet::new();
         for (target, snap) in self.ssh.remote_hosts.snapshots() {
             let host = target.host().to_string();
@@ -102,7 +124,7 @@ impl App {
                 });
             }
         }
-        self.agent_tracker.update(probes, now);
+        probes
     }
 
     /// Whether the title bar (or sidebar) label is the Agents one this frame: it is unless
