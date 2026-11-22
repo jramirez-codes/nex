@@ -11,8 +11,8 @@ mod proc;
 mod watch;
 
 pub use super::unix::{
-    config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, owner_names, pty_options, pty_pid, shell_quote,
-    symlink,
+    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options,
+    pty_pid, shell_quote, symlink,
 };
 pub use apps::{apps_for, mime_type, open_with};
 pub use clipboard::clipboard_files;

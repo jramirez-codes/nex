@@ -3,6 +3,7 @@
 
 use egui::Pos2;
 
+use crate::config::{FONT_MAX, FONT_MIN};
 use crate::layout::PaneId;
 
 use crate::app::App;
@@ -30,7 +31,7 @@ impl App {
             ctx.request_repaint();
         } else if self.diffs.contains_key(&id) {
             // Smooth, like the explorer: the diff is laid out every frame anyway.
-            let size = (self.pane_font(id) * delta).clamp(6.0, 72.0);
+            let size = (self.pane_font(id) * delta).clamp(FONT_MIN, FONT_MAX);
             self.pane_fonts.insert(id, size);
             ctx.request_repaint();
         } else if self.panes.contains_key(&id) {

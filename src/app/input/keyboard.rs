@@ -16,7 +16,7 @@ impl App {
         let paste_key = platform::take_paste_key();
         // Explorer dialogs (delete confirmation, Properties) read the keyboard themselves; no
         // key may reach a shell or run a shortcut behind them.
-        if self.explorers.values().any(|b| b.modal_open()) || self.upload_modal_open() {
+        if self.explorers.values().any(|b| b.modal_open()) || self.ssh_modal_open() {
             return;
         }
         let (events, mods) = ctx.input(|i| (i.events.clone(), i.modifiers));

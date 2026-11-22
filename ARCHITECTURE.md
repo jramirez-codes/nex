@@ -16,19 +16,20 @@ src/
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
 ├── layout.rs         binary split tree + directional focus (PaneId, Axis)
-├── session.rs        the saved window layout (session.json): format, saving, the single-writer lock
-├── session/
+├── session/          the saved window layout (session.json)
+│   ├── mod.rs            its format, saving and loading, the single-writer lock
 │   └── claude.rs         restored Claude Code panes resume their conversation
 ├── app/              the application: state and frame loop (mod.rs), plus
 │   ├── actions.rs        the actions and carrying them out
 │   ├── reload.rs         live config reload
-│   ├── session.rs        saving the window into a session and restoring one at launch
+│   ├── restore.rs        saving the window into a session and restoring one at launch
 │   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
 │   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
 │   ├── workspace/        tabs, splits, opening and closing panes, drawing panes, pane drag,
 │   │                     the sticky pane, and keeping Agents panes up to date
 │   ├── animation/        pane motion, tab close, tab-switch transitions, sticky glide
-│   ├── ssh/              following ssh sessions, uploads, mic button, remote agent hosts
+│   ├── ssh/              following ssh sessions (follow), uploads, the mic button, the hosts
+│   │                     whose agents the Agents pane shows (hosts), connection sharing (sharing)
 │   └── tests/            whole-App tests driven through egui
 ├── terminal/         one terminal per pane
 │   ├── mod.rs            PTY + VT state, title and cwd
@@ -94,8 +95,8 @@ Outside the Rust code:
 - **Panes live in the split tree** (`layout.rs`), keyed by `PaneId`. A pane is a terminal, a file
   explorer, a Changes pane or an Agents pane; `App` keeps each kind in its own map, and
   `app/workspace/draw.rs` (`draw_pane`) picks the one to draw.
-- **`ui/` is stateless and shared.** Colors belong in `ui/theme.rs`, easing and fades in
-  `ui/glide.rs` / `ui/ink.rs`.
+- **`ui/` is stateless and shared.** Colors shared across the chrome belong in `ui/theme.rs`;
+  easing curves, `smoothstep` and `Lerp` in `ui/glide.rs`; font size limits in `config.rs`.
 - **Background work never blocks a frame.** Git, file copies, ssh jobs and process polls run on
   threads and hand results back; the frame loop picks them up (`App::poll_background`).
 
@@ -105,7 +106,7 @@ Outside the Rust code:
 - **A new pane kind:** follow how the Changes pane (`git_diff/`) is wired in: its map on `App`
   (`app/mod.rs`), opening it (`app/workspace/`), drawing it (`app/workspace/draw.rs`), forgetting
   it (`forget_pane`), its zoom (`app/input/zoom.rs`, `app/actions.rs`) and saving it
-  (`session.rs` `PaneKind`, `app/session.rs`).
+  (`session/mod.rs` `PaneKind`, `app/restore.rs`).
 - **Something on an ssh host:** the work goes in `remote/` (no UI), the buttons, dialogs and
   toasts in `app/ssh/`.
 - **A config option:** `config.rs`, then document it in `config.example` and the README.

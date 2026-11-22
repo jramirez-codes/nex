@@ -17,7 +17,7 @@ use crate::app::workspace::tab::Tab;
 
 impl App {
     /// Re-read what every agent is doing: those running in panes here, and those `nex-host`
-    /// keeps on the ssh hosts panes connect to (see `ssh/agents.rs`). Run with the process
+    /// keeps on the ssh hosts panes connect to (see `ssh/hosts.rs`). Run with the process
     /// poll, and only while something shows it (an Agents pane, or the title bar's label).
     pub(in crate::app) fn track_agents(&mut self) {
         if self.agents.is_empty() && !self.shows_agents_label() {

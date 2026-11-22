@@ -16,7 +16,7 @@ use crate::remote::{self, SshTarget};
 use crate::ui::toast::Toast;
 
 use crate::app::App;
-use crate::app::ssh::upload::LoginHelp;
+use crate::app::ssh::sharing::LoginHelp;
 
 /// How often panes are checked for hosts to share with or stop sharing with.
 const CHECK_INTERVAL: Duration = Duration::from_millis(750);

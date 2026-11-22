@@ -9,7 +9,7 @@ mod animation;
 mod chrome;
 mod input;
 mod reload;
-pub mod session;
+pub mod restore;
 mod ssh;
 mod workspace;
 #[cfg(test)]
@@ -163,22 +163,22 @@ pub struct App {
     /// Files on their way to an `ssh` pane's remote host.
     uploads: Vec<ssh::upload::Upload>,
     /// The connection-sharing dialog, after an upload couldn't log in.
-    sharing_prompt: Option<ssh::upload::SharingPrompt>,
+    sharing_prompt: Option<ssh::sharing::SharingPrompt>,
     /// Not Now was picked in that offer: don't ask again this run.
     sharing_declined: bool,
     /// A split or tab into an ssh session, waiting on the sharing alert (see `follow`).
     pending_pane: Option<ssh::follow::PendingPane>,
     /// Hosts this machine's microphone is shared with (see `ssh/mic.rs`).
     mics: ssh::mic::Mics,
-    /// The ssh hosts whose agents the Agents pane shows (see `ssh/agents.rs`).
-    remote_hosts: ssh::agents::Hosts,
+    /// The ssh hosts whose agents the Agents pane shows (see `ssh/hosts.rs`).
+    remote_hosts: ssh::hosts::Hosts,
     /// A toast to show on the next frame, from code without the egui context.
     notice: Option<String>,
-    /// An alert about agents on a host: the shim offer, stopping one (see `ssh/agents.rs`).
-    agent_prompt: Option<ssh::agents::AgentPrompt>,
+    /// An alert about agents on a host: the shim offer, stopping one (see `ssh/hosts.rs`).
+    agent_prompt: Option<ssh::hosts::AgentPrompt>,
     /// Hosts the Agents pane can't watch, one line each, for the top of the pane.
     agent_notes: Vec<String>,
-    /// The last session, to bring back on the first frame (see `session.rs`).
+    /// The last session, to bring back on the first frame (see `crate::session`).
     restore_at_start: Option<crate::session::Session>,
     /// This window keeps the session file: a plain launch holding the session lock (not a
     /// second window, `-e`, or another nex already running).
@@ -283,7 +283,7 @@ impl App {
             sharing_prompt: None,
             sharing_declined: false,
             mics: ssh::mic::Mics::default(),
-            remote_hosts: ssh::agents::Hosts::default(),
+            remote_hosts: ssh::hosts::Hosts::default(),
             notice: None,
             agent_prompt: None,
             agent_notes: Vec::new(),

@@ -61,6 +61,13 @@ pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
+/// No file locking here yet: every lock is granted, without touching the file.
+pub struct FileLock;
+
+pub fn lock_file(_path: &Path) -> Result<FileLock, super::LockFailed> {
+    Ok(FileLock)
+}
+
 pub fn hostname() -> String {
     std::env::var("COMPUTERNAME").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| "localhost".into())
 }

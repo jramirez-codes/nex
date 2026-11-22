@@ -10,6 +10,11 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::SystemTime;
 
+/// The smallest and largest font size, in points: for the config, zooming a pane and a
+/// saved session alike.
+pub const FONT_MIN: f32 = 6.0;
+pub const FONT_MAX: f32 = 72.0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CursorStyle {
     Block,
@@ -226,7 +231,7 @@ impl Config {
         };
         match key {
             "font-family" => self.font_family = value.to_string(),
-            "font-size" => self.font_size = float(value)?.clamp(6.0, 72.0),
+            "font-size" => self.font_size = float(value)?.clamp(FONT_MIN, FONT_MAX),
             "adjust-cell-height" => {
                 // Accept "10%" or a fraction like "0.1".
                 let v = value.trim_end_matches('%');

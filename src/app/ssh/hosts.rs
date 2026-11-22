@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use egui::Id;
 use serde_json::{Value, json};
 
-use crate::app::ssh::upload::SharingPrompt;
+use crate::app::ssh::sharing::SharingPrompt;
 use crate::config::AgentShim;
 use crate::remote::{self, SshTarget};
 use crate::remote::host::{self, HostError, Snapshot, State, Watch};
@@ -165,7 +165,7 @@ impl Hosts {
         });
     }
 
-    fn install_shim(&mut self, target: SshTarget) {
+    fn start_shim_install(&mut self, target: SshTarget) {
         self.offered.insert(target.clone());
         self.spawn(move || {
             let r = host::install_shim(&target);
@@ -183,7 +183,7 @@ impl App {
         }
         let Some(target) = self.remote_hosts.shim_candidate(panes) else { return };
         match self.cfg.ssh_agent_shim {
-            AgentShim::On => self.remote_hosts.install_shim(target),
+            AgentShim::On => self.remote_hosts.start_shim_install(target),
             _ => {
                 self.remote_hosts.offered.insert(target.clone());
                 self.agent_prompt = Some(AgentPrompt::Shim(target));
@@ -261,7 +261,7 @@ impl App {
         let Some(choice) = alert.show(ctx, theme) else { return };
         self.agent_prompt = None;
         match (prompt, choice) {
-            (AgentPrompt::Shim(target), AlertChoice::Primary) => self.remote_hosts.install_shim(target),
+            (AgentPrompt::Shim(target), AlertChoice::Primary) => self.remote_hosts.start_shim_install(target),
             (AgentPrompt::Shim(target), AlertChoice::Secondary) => self.remote_hosts.decline(target),
             (AgentPrompt::Stop { target, session, .. }, AlertChoice::Primary) => {
                 let host = target.host().to_string();

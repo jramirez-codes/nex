@@ -4,6 +4,7 @@
 use alacritty_terminal::grid::Scroll;
 use egui::ViewportCommand;
 
+use crate::config::{FONT_MAX, FONT_MIN};
 use crate::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
@@ -270,8 +271,8 @@ impl App {
         if self.diffs.contains_key(&id) {
             let size = self.pane_font(id);
             match action {
-                Action::FontBigger => self.pane_fonts.insert(id, (size + 1.0).min(72.0)),
-                Action::FontSmaller => self.pane_fonts.insert(id, (size - 1.0).max(6.0)),
+                Action::FontBigger => self.pane_fonts.insert(id, (size + 1.0).min(FONT_MAX)),
+                Action::FontSmaller => self.pane_fonts.insert(id, (size - 1.0).max(FONT_MIN)),
                 _ => self.pane_fonts.remove(&id),
             };
             return;

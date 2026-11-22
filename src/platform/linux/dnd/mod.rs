@@ -902,7 +902,7 @@ impl Dispatch<WlDataSource, SourceData> for State {
 }
 
 /// `path` as a `file://` URI, percent-encoding everything but unreserved characters and `/`.
-pub fn file_uri(path: &std::path::Path) -> String {
+fn file_uri(path: &std::path::Path) -> String {
     use std::os::unix::ffi::OsStrExt;
     let mut out = String::from("file://");
     for &b in path.as_os_str().as_bytes() {

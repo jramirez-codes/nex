@@ -1,7 +1,8 @@
-//! A value that animates toward its target with an ease-out curve, and the global switch
+//! The animation basics every animation shares: easing curves, blending ([`Lerp`]), a value
+//! that animates toward its target with an ease-out curve ([`Glide`]), and the global switch
 //! (`animations` in the config) that turns every animation off.
 
-use egui::Id;
+use egui::{Color32, Id, Rect};
 
 /// Ease-out cubic: fast start, gentle landing. Shared by every animation so they feel alike.
 pub fn ease_out(t: f32) -> f32 {
@@ -12,6 +13,37 @@ pub fn ease_out(t: f32) -> f32 {
 pub fn ease_in_out(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
+}
+
+/// Smoothstep: eases in and out, flat at both ends. For cross-fades.
+pub fn smoothstep(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// A value an animation can blend between two ends (`t` from 0 to 1).
+pub trait Lerp: Copy + PartialEq {
+    fn lerp(a: Self, b: Self, t: f32) -> Self;
+}
+
+impl Lerp for f32 {
+    fn lerp(a: f32, b: f32, t: f32) -> f32 {
+        a + (b - a) * t
+    }
+}
+
+impl Lerp for Rect {
+    fn lerp(a: Rect, b: Rect, t: f32) -> Rect {
+        Rect::from_min_max(a.min.lerp(b.min, t), a.max.lerp(b.max, t))
+    }
+}
+
+impl Lerp for Color32 {
+    /// Channel by channel on the premultiplied values, which is how colors blend.
+    fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
+        let ch = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+        Color32::from_rgba_premultiplied(ch(a.r(), b.r()), ch(a.g(), b.g()), ch(a.b(), b.b()), ch(a.a(), b.a()))
+    }
 }
 
 fn switch_id() -> Id {
