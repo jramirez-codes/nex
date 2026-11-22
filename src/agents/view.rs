@@ -177,9 +177,9 @@ impl AgentsPane {
             p.multiply_opacity(sec.opacity.get(now));
             section_header(&p, sec.rect.get(now).translate(origin), *status, sec.count, f.c);
         }
-        // Cards on the move are drawn last, over the ones they pass.
+        // Cards changing sections are drawn last, over the ones they pass.
         let mut ids: Vec<PaneId> = motion.cards.keys().copied().collect();
-        ids.sort_by_key(|id| (motion.cards[id].rect.moving(now), *id));
+        ids.sort_by_key(|id| (motion.cards[id].lift(now) > 0.0, *id));
         let mut breathing = false;
         for id in ids {
             let Some(card) = motion.cards.get_mut(&id) else { continue };
@@ -208,7 +208,7 @@ impl AgentsPane {
             let (border, border_width) = border_for(card.agent.status, selected, f.focused, hovered, f.c);
             card.set_colors(now, border, border_width, status_color(card.agent.status, f.c), f.animate);
             // A card changing sections lifts off the grid on its way.
-            let lift = if card.rect.moving(now) { (card.rect.t(now) * std::f32::consts::PI).sin() } else { 0.0 };
+            let lift = card.lift(now);
             let r = Rect::from_center_size(r.center(), r.size() * (1.0 + 0.025 * lift));
             breathing |= card.agent.status == Status::Working;
             let look = Look { hover, lift, border: card.border.get(now), border_width: card.border_width.get(now), tint: card.tint.get(now) };

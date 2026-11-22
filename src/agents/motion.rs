@@ -108,6 +108,9 @@ pub struct CardMotion {
     pub leaving: bool,
     /// Just created: its border and tint start out in their colors instead of fading in.
     pub new_colors: bool,
+    /// Its current move is into another section (not just making room for one that is):
+    /// only such a card lifts off the grid on its way.
+    pub section_change: bool,
 }
 
 impl CardMotion {
@@ -121,6 +124,7 @@ impl CardMotion {
             opacity: Tween::new(0.0, FADE, ease_out),
             leaving: false,
             new_colors: true,
+            section_change: false,
         }
     }
 
@@ -130,6 +134,12 @@ impl CardMotion {
         self.border.set(now, border, animate);
         self.border_width.set(now, border_width, animate);
         self.tint.set(now, tint, animate);
+    }
+
+    /// How far it is raised off the grid, 0 to 1: up and back down over a move into another
+    /// section, flat otherwise.
+    pub fn lift(&self, now: f64) -> f32 {
+        if self.section_change && self.rect.moving(now) { (self.rect.t(now) * std::f32::consts::PI).sin() } else { 0.0 }
     }
 
     /// Whether anything about it is still changing.
@@ -197,6 +207,15 @@ impl Motion {
 
         for &(agent, r) in cards {
             let c = self.cards.entry(agent.pane).or_insert_with(|| CardMotion::new(agent.clone(), r));
+            // A new status means a new section; a settled card that is only pushed along
+            // by the others moves flat.
+            if !slide {
+                c.section_change = false;
+            } else if c.agent.status != agent.status {
+                c.section_change = true;
+            } else if !c.rect.moving(now) {
+                c.section_change = false;
+            }
             c.agent = agent.clone();
             c.leaving = false;
             c.rect.set(now, r, slide);
@@ -274,6 +293,17 @@ mod tests {
         assert!(m.cards[&2].leaving && m.cards[&2].rect.get(2.1) == at(30.0));
         m.forget_gone(2.0 + FADE);
         assert!(!m.cards.contains_key(&2));
+
+        // Only the card that changed sections lifts; the ones making room slide flat.
+        let mut m = Motion::new();
+        let pushed = agent(2, Status::Idle);
+        m.update(0.0, true, &[sec(Status::Working, 0.0), sec(Status::Idle, 100.0)], &[(&working, at(30.0)), (&pushed, at(130.0))], 300.0);
+        m.update(1.0, true, &[sec(Status::Idle, 0.0)], &[(&pushed, at(30.0)), (&now_idle, at(110.0))], 300.0);
+        let mid = 1.0 + MOVE / 2.0;
+        assert!(m.cards[&1].rect.moving(mid) && m.cards[&2].rect.moving(mid));
+        assert!(m.cards[&1].lift(mid) > 0.9);
+        assert_eq!(m.cards[&2].lift(mid), 0.0);
+        assert_eq!(m.cards[&1].lift(1.0 + MOVE), 0.0);
 
         // A resize puts cards in place instead of sliding them.
         m.update(3.0, true, &[sec(Status::Idle, 0.0)], &[(&now_idle, at(500.0))], 900.0);
