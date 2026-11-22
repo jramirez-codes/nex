@@ -8,6 +8,12 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- A **Done** section in the Agents pane: an agent that finishes while you're not looking at
+  its pane moves there, in blue, instead of going straight to Idle. It becomes Idle once you
+  look at its pane. The title bar shows "1 done" too.
+- Agents light their tab's attention dot when they finish or start needing input, without
+  ringing the bell. This works for agents over ssh with no Claude Code setup on the server.
+  While nex is in the background, the dock or taskbar is flagged too.
 - Syntax colors in the Changes pane: diffs are highlighted for their language (Rust, TOML,
   Python, TypeScript, shell, Markdown and the rest of bat's grammars), in colors taken from
   your terminal palette. Changed words keep their tint on top. Coloring runs in the

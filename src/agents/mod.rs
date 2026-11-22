@@ -1,5 +1,5 @@
 //! The Agents pane: every coding agent running in nex at a glance. One card per Claude Code
-//! or Codex pane, grouped by what it's doing (needs you, working, idle), with how long it
+//! or Codex pane, grouped by what it's doing (needs you, done, working, idle), with how long it
 //! has been at it. Clicking a card (or Enter) jumps to the agent's pane.
 //!
 //! `model` (which panes are agents and what they're doing), `view` (drawing and the mouse),

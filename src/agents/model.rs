@@ -5,7 +5,7 @@
 //! turns those into [`Agent`]s sorted for display, and remembers since when each has been
 //! in its current state.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -67,16 +67,19 @@ impl AgentKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Status {
     NeedsYou,
+    /// It stopped working and you haven't looked at its pane since (see [`Tracker`]).
+    Done,
     Working,
     Idle,
 }
 
 impl Status {
-    pub const ALL: [Status; 3] = [Status::NeedsYou, Status::Working, Status::Idle];
+    pub const ALL: [Status; 4] = [Status::NeedsYou, Status::Done, Status::Working, Status::Idle];
 
     pub fn label(self) -> &'static str {
         match self {
             Status::NeedsYou => "Needs you",
+            Status::Done => "Done",
             Status::Working => "Working",
             Status::Idle => "Idle",
         }
@@ -183,6 +186,12 @@ impl Probe {
         if recent(self.last_output) && !recent(self.last_input) { Status::Working } else { Status::Idle }
     }
 
+    /// The pane it's on, if one shows it: its own, or for an agent on an ssh host, the pane
+    /// attached to it.
+    fn shown_pane(&self) -> Option<PaneId> {
+        shown_pane(self.pane, &self.source)
+    }
+
     /// What to call it: the task in its title, else its session's name, else its folder.
     fn name(&self) -> String {
         let title = self.title.trim();
@@ -203,6 +212,13 @@ impl Probe {
     }
 }
 
+fn shown_pane(key: PaneId, source: &Source) -> Option<PaneId> {
+    match source {
+        Source::Local => Some(key),
+        Source::Remote { pane, .. } => *pane,
+    }
+}
+
 /// An agent as the Agents pane shows it.
 #[derive(Clone, Debug)]
 pub struct Agent {
@@ -218,17 +234,25 @@ pub struct Agent {
     pub source: Source,
 }
 
+impl Agent {
+    /// The pane it's on, if one shows it (see [`Probe`]'s).
+    pub fn shown_pane(&self) -> Option<PaneId> {
+        shown_pane(self.pane, &self.source)
+    }
+}
+
 /// How many agents are in each state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
     pub needs_you: usize,
+    pub done: usize,
     pub working: usize,
     pub idle: usize,
 }
 
 impl Counts {
     pub fn total(&self) -> usize {
-        self.needs_you + self.working + self.idle
+        self.needs_you + self.done + self.working + self.idle
     }
 
     /// Each non-empty state as a phrase, most urgent first: "1 needs you", "2 working".
@@ -238,11 +262,13 @@ impl Counts {
             .filter_map(|s| {
                 let n = match s {
                     Status::NeedsYou => self.needs_you,
+                    Status::Done => self.done,
                     Status::Working => self.working,
                     Status::Idle => self.idle,
                 };
                 let text = match s {
                     Status::NeedsYou => format!("{n} need{} you", if n == 1 { "s" } else { "" }),
+                    Status::Done => format!("{n} done"),
                     Status::Working => format!("{n} working"),
                     Status::Idle => format!("{n} idle"),
                 };
@@ -266,21 +292,43 @@ impl Counts {
 }
 
 /// The agents seen at the last poll, and since when each has been doing what it does.
+///
+/// It also works out what the probes alone can't: an agent that stopped working while
+/// nobody was looking at its pane is [`Status::Done`] (not idle) until someone does, and one
+/// that became done or started needing you unseen lights its pane's tab (see
+/// [`Tracker::wants_you`]), whether or not the program rang the bell.
 #[derive(Default)]
 pub struct Tracker {
     agents: Vec<Agent>,
     since: HashMap<PaneId, (Status, Instant)>,
+    /// The pane being looked at (the shown tab's focused pane, window focused).
+    seen: Option<PaneId>,
+    /// Agents that became done or started needing you since their pane was last looked at.
+    unseen: HashSet<PaneId>,
+    /// An agent joined `unseen` since [`Tracker::take_alerted`] was last called.
+    alerted: bool,
 }
 
 impl Tracker {
-    /// Replace the list with what `probes` say at `now`, sorted: needs you, working, idle,
-    /// then by tab and pane.
+    /// Replace the list with what `probes` say at `now`, sorted: needs you, done, working,
+    /// idle, then by tab and pane.
     pub fn update(&mut self, probes: Vec<Probe>, now: Instant) {
         let mut since = HashMap::with_capacity(probes.len());
+        let mut unseen = HashSet::new();
         let mut agents: Vec<Agent> = probes
             .into_iter()
             .map(|p| {
-                let status = p.status(now);
+                let looked_at = self.seen.is_some() && p.shown_pane() == self.seen;
+                let was = self.since.get(&p.pane).map(|&(s, _)| s);
+                let mut status = p.status(now);
+                if status == Status::Idle && matches!(was, Some(Status::Working | Status::Done)) && !looked_at {
+                    status = Status::Done;
+                }
+                let changed_into = was.is_some() && was != Some(status) && matches!(status, Status::Done | Status::NeedsYou);
+                if !looked_at && (changed_into || self.unseen.contains(&p.pane)) {
+                    self.alerted |= !self.unseen.contains(&p.pane);
+                    unseen.insert(p.pane);
+                }
                 let at = match self.since.get(&p.pane) {
                     Some(&(was, at)) if was == status => at,
                     _ => now,
@@ -299,9 +347,45 @@ impl Tracker {
                 }
             })
             .collect();
-        agents.sort_by_key(|a| (a.status, a.tab.unwrap_or(usize::MAX), a.pane));
+        Self::sort(&mut agents);
         self.agents = agents;
         self.since = since;
+        self.unseen = unseen;
+    }
+
+    fn sort(agents: &mut [Agent]) {
+        agents.sort_by_key(|a| (a.status, a.tab.unwrap_or(usize::MAX), a.pane));
+    }
+
+    /// Someone is looking at `pane` (or at no pane: `None`), as of `now`. An agent on it that
+    /// was done is idle now, and its tab stops asking for you. Cheap enough for every frame.
+    pub fn mark_seen(&mut self, pane: Option<PaneId>, now: Instant) {
+        self.seen = pane;
+        let Some(pane) = pane else { return };
+        let mut changed = false;
+        for a in self.agents.iter_mut().filter(|a| a.shown_pane() == Some(pane)) {
+            self.unseen.remove(&a.pane);
+            if a.status == Status::Done {
+                a.status = Status::Idle;
+                a.since = now;
+                self.since.insert(a.pane, (Status::Idle, now));
+                changed = true;
+            }
+        }
+        if changed {
+            Self::sort(&mut self.agents);
+        }
+    }
+
+    /// Whether an agent shown in `pane` became done or started needing you since the pane
+    /// was last looked at: its tab gets the attention dot.
+    pub fn wants_you(&self, pane: PaneId) -> bool {
+        !self.unseen.is_empty() && self.agents.iter().any(|a| self.unseen.contains(&a.pane) && a.shown_pane() == Some(pane))
+    }
+
+    /// Whether an agent started wanting you since the last call (to flag the window).
+    pub fn take_alerted(&mut self) -> bool {
+        std::mem::take(&mut self.alerted)
     }
 
     pub fn agents(&self) -> &[Agent] {
@@ -313,6 +397,7 @@ impl Tracker {
         for a in &self.agents {
             match a.status {
                 Status::NeedsYou => c.needs_you += 1,
+                Status::Done => c.done += 1,
                 Status::Working => c.working += 1,
                 Status::Idle => c.idle += 1,
             }

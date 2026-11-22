@@ -116,7 +116,7 @@ fn sorts_by_need_then_tab_and_keeps_time_in_state() {
     t.update(vec![idle.clone(), working.clone(), waiting.clone(), also_idle.clone()], start);
     let order: Vec<u64> = t.agents().iter().map(|a| a.pane).collect();
     assert_eq!(order, vec![9, 3, 2, 5]);
-    assert_eq!(t.counts(), Counts { needs_you: 1, working: 1, idle: 2 });
+    assert_eq!(t.counts(), Counts { needs_you: 1, done: 0, working: 1, idle: 2 });
     assert_eq!(t.counts().summary(), "1 needs you · 1 working · 2 idle");
 
     // Still idle a minute later: its clock keeps running. Working → idle restarts it.
@@ -126,14 +126,15 @@ fn sorts_by_need_then_tab_and_keeps_time_in_state() {
     let since = |pane| t.agents().iter().find(|a| a.pane == pane).unwrap().since;
     assert_eq!(since(5), start);
     assert_eq!(since(3), later);
-    assert_eq!(t.counts().summary(), "3 idle");
+    assert_eq!(t.counts().summary(), "1 done · 2 idle", "it stopped working while nobody looked");
 }
 
 #[test]
 fn summaries_and_elapsed_times() {
     assert_eq!(Counts::default().summary(), "No agents running");
-    assert_eq!(Counts { needs_you: 2, working: 1, idle: 0 }.summary(), "2 need you · 1 working");
-    assert_eq!(Counts { needs_you: 0, working: 3, idle: 1 }.headline(), "3 working");
+    assert_eq!(Counts { needs_you: 2, working: 1, ..Counts::default() }.summary(), "2 need you · 1 working");
+    assert_eq!(Counts { working: 3, idle: 1, ..Counts::default() }.headline(), "3 working");
+    assert_eq!(Counts { done: 1, working: 3, ..Counts::default() }.headline(), "1 done");
     assert_eq!(Counts::default().headline(), "None running");
     assert_eq!(elapsed(Duration::from_secs(2)), "now");
     assert_eq!(elapsed(Duration::from_secs(42)), "42s");
@@ -194,4 +195,110 @@ fn what_nex_host_reports_is_the_status_and_exited_agents_are_not_listed() {
     use nex_host::proto::Status as Host;
     assert_eq!(Status::from_host(Host::Working), Some(Status::Working));
     assert_eq!(Status::from_host(Host::Exited), None);
+}
+
+fn claude(pane: u64, status: &str, at: Instant) -> Probe {
+    Probe { session_status: Some(status.into()), ..probe(pane, 0, AgentKind::Claude, at) }
+}
+
+fn status_of(t: &Tracker, pane: u64) -> Status {
+    t.agents().iter().find(|a| a.pane == pane).unwrap().status
+}
+
+#[test]
+fn an_agent_that_stops_working_unseen_is_done_until_its_pane_is_looked_at() {
+    let at = Instant::now();
+    let mut t = Tracker::default();
+    // Idle from the start: nothing was finished.
+    t.update(vec![claude(1, "idle", at)], at);
+    assert_eq!(status_of(&t, 1), Status::Idle);
+    assert!(!t.wants_you(1));
+
+    t.update(vec![claude(1, "busy", at)], at);
+    t.update(vec![claude(1, "idle", at)], at);
+    assert_eq!(status_of(&t, 1), Status::Done);
+    assert!(t.wants_you(1), "its tab gets the dot");
+    assert!(t.take_alerted() && !t.take_alerted(), "the window is flagged once");
+    // Still done on the next poll, and the dot doesn't flag the window again.
+    t.update(vec![claude(1, "idle", at)], at);
+    assert_eq!(status_of(&t, 1), Status::Done);
+    assert!(!t.take_alerted());
+
+    // Looking at another pane changes nothing; looking at its pane makes it idle.
+    t.mark_seen(Some(2), at);
+    assert_eq!(status_of(&t, 1), Status::Done);
+    let later = at + Duration::from_secs(5);
+    t.mark_seen(Some(1), later);
+    assert_eq!(status_of(&t, 1), Status::Idle);
+    assert_eq!(t.agents()[0].since, later);
+    assert!(!t.wants_you(1));
+    t.mark_seen(None, later);
+    t.update(vec![claude(1, "idle", at)], later);
+    assert_eq!(status_of(&t, 1), Status::Idle, "and stays idle");
+
+    // Working again, then done again.
+    t.update(vec![claude(1, "busy", at)], later);
+    assert_eq!(status_of(&t, 1), Status::Working);
+    t.update(vec![claude(1, "idle", at)], later);
+    assert_eq!(status_of(&t, 1), Status::Done);
+}
+
+#[test]
+fn an_agent_that_finishes_while_watched_goes_straight_to_idle() {
+    let at = Instant::now();
+    let mut t = Tracker::default();
+    t.update(vec![claude(1, "busy", at)], at);
+    t.mark_seen(Some(1), at);
+    t.update(vec![claude(1, "idle", at)], at);
+    assert_eq!(status_of(&t, 1), Status::Idle);
+    assert!(!t.wants_you(1) && !t.take_alerted());
+}
+
+#[test]
+fn sorts_done_between_needs_you_and_working() {
+    let at = Instant::now();
+    let mut t = Tracker::default();
+    t.update(vec![claude(1, "busy", at), claude(2, "busy", at), claude(3, "busy", at)], at);
+    t.update(vec![claude(1, "busy", at), claude(2, "idle", at), claude(3, "waiting_for_permission", at)], at);
+    let order: Vec<(u64, Status)> = t.agents().iter().map(|a| (a.pane, a.status)).collect();
+    assert_eq!(order, vec![(3, Status::NeedsYou), (2, Status::Done), (1, Status::Working)]);
+    assert_eq!(t.counts().summary(), "1 needs you · 1 done · 1 working");
+}
+
+#[test]
+fn an_agent_over_ssh_lights_the_tab_of_the_pane_showing_it() {
+    let at = Instant::now();
+    let shown = |status| {
+        let mut p = remote("devbox", "a", status, at);
+        if let Source::Remote { pane, .. } = &mut p.source {
+            *pane = Some(7);
+        }
+        p
+    };
+    let key = remote_key("devbox", "a");
+    let mut t = Tracker::default();
+    t.update(vec![shown(Status::Working)], at);
+    assert!(!t.wants_you(7));
+    // nex-host says it wants input; no bell reached the pane.
+    t.update(vec![shown(Status::NeedsYou)], at);
+    assert!(t.wants_you(7));
+    assert!(!t.wants_you(key), "the dot goes on the pane, not the card's key");
+    t.mark_seen(Some(7), at);
+    assert!(!t.wants_you(7));
+    t.mark_seen(None, at);
+    assert_eq!(status_of(&t, key), Status::NeedsYou, "it still needs you; only the dot is answered");
+
+    // Done while nobody looks, then the pane showing it is looked at.
+    t.update(vec![shown(Status::Working)], at);
+    t.update(vec![shown(Status::Idle)], at);
+    assert_eq!(status_of(&t, key), Status::Done);
+    assert!(t.wants_you(7));
+    t.mark_seen(Some(7), at);
+    assert_eq!(status_of(&t, key), Status::Idle);
+
+    // An agent no pane shows lights no tab, but stays done until it's opened.
+    let mut t = Tracker::default();
+    t.update(vec![remote("devbox", "b", Status::Working, at)], at);
+    t.update(vec![remote("devbox", "b", Status::Idle, at)], at);
+    assert_eq!(status_of(&t, remote_key("devbox", "b")), Status::Done);
 }
