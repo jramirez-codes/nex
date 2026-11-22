@@ -151,6 +151,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Agents pane: clicking a team's or pipeline's dropdown arrow opens and closes its list of
+  agents (it used to jump to the lead instead, and an open list couldn't be closed with the
+  mouse). A card lifted off the grid also takes clicks where it's drawn.
 - Agent teams: a pipeline stage with `worktree = true` no longer quits on start. Claude Code
   asks whether to trust each new worktree, and nex-host typed the stage's task (or its
   reminder to report) into that question, answering "No, exit". An agent showing one of
