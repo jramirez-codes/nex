@@ -2,8 +2,9 @@
 //! commits in one go (a paste from its clipboard history, a suggestion, an emoji) arrives as a
 //! key event whose characters the NDK can't read, and is lost. nex adds a view of its own that
 //! the keyboard types into (`java/NexInput.java`, compiled to a dex by `build.rs` and loaded
-//! here): what the keyboard commits comes back through [`typed_text`]. Plain keys still arrive
-//! as key events through winit.
+//! here): what the keyboard types (glide typing included) or commits comes back through
+//! [`typed_text`]. Enter, and Backspace with nothing composing, still arrive as key events
+//! through winit.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -13,6 +14,7 @@ use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, NativeMethod};
 
 use super::clipboard::with_context;
+use crate::platform::{Haptic, Typed};
 
 /// The activity (ndk-context's context is the Application, which can't host a view).
 fn activity() -> Option<JObject<'static>> {
@@ -28,8 +30,8 @@ const CLASS: &str = "io.github.jramirez_codes.nex.NexInput";
 
 /// `NexInput`, once loaded (a class from our own loader can't be found by name later).
 static INPUT_CLASS: OnceLock<GlobalRef> = OnceLock::new();
-/// Text committed since nex last asked.
-static COMMITTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Text typed or committed since nex last asked, in order.
+static COMMITTED: Mutex<Vec<Typed>> = Mutex::new(Vec::new());
 /// Woken when text arrives, so a frame reads it.
 static CTX: OnceLock<egui::Context> = OnceLock::new();
 /// Whether nex last asked for the keyboard to be shown.
@@ -54,16 +56,26 @@ pub fn soft_keyboard_visible() -> Option<bool> {
     }
 }
 
-/// `NexInput.commit`: the keyboard committed `text`. Called on Android's UI thread.
-extern "system" fn commit(mut env: JNIEnv, _class: JClass, text: JString) {
-    let Ok(text) = env.get_string(&text) else { return };
-    let text: String = text.into();
+fn push(typed: Typed) {
     if let Ok(mut q) = COMMITTED.lock() {
-        q.push(text);
+        q.push(typed);
     }
     if let Some(ctx) = CTX.get() {
         ctx.request_repaint();
     }
+}
+
+/// `NexInput.commit`: the keyboard pasted `text`. Called on Android's UI thread.
+extern "system" fn commit(mut env: JNIEnv, _class: JClass, text: JString) {
+    let Ok(text) = env.get_string(&text) else { return };
+    push(Typed::Paste(text.into()));
+}
+
+/// `NexInput.type`: the keyboard took back `delete` characters and typed `text`. Called on
+/// Android's UI thread.
+extern "system" fn type_text(mut env: JNIEnv, _class: JClass, delete: jni::sys::jint, text: JString) {
+    let Ok(text) = env.get_string(&text) else { return };
+    push(Typed::Text { delete: delete.max(0) as usize, text: text.into() });
 }
 
 /// Load `NexInput` from the built-in dex, hook up its native method and add its view to the
@@ -91,6 +103,7 @@ pub fn install() {
             &class,
             &[
                 NativeMethod { name: "commit".into(), sig: "(Ljava/lang/String;)V".into(), fn_ptr: commit as *mut c_void },
+                NativeMethod { name: "type".into(), sig: "(ILjava/lang/String;)V".into(), fn_ptr: type_text as *mut c_void },
                 NativeMethod { name: "imeVisible".into(), sig: "(Z)V".into(), fn_ptr: ime_visible as *mut c_void },
             ],
         )?;
@@ -106,8 +119,8 @@ pub fn install() {
     }
 }
 
-/// Text the on-screen keyboard committed since the last call, oldest first.
-pub fn typed_text() -> Vec<String> {
+/// Text the on-screen keyboard typed or pasted since the last call, oldest first.
+pub fn typed_text() -> Vec<Typed> {
     COMMITTED.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default()
 }
 
@@ -124,6 +137,24 @@ pub fn sync_soft_keyboard(ctx: &egui::Context) {
     with_context(|env, _app| {
         let class: &JClass = class.as_obj().into();
         env.call_static_method(class, "showKeyboard", "(Landroid/app/Activity;Z)V", &[JValue::Object(activity), JValue::Bool(want.into())])?;
+        Ok(())
+    });
+}
+
+/// Play a haptic tick through the input view (`View.performHapticFeedback`).
+pub fn haptic(kind: Haptic) {
+    // HapticFeedbackConstants.
+    let constant = match kind {
+        Haptic::Tap => 3,      // KEYBOARD_TAP
+        Haptic::Tick => 4,     // CLOCK_TICK
+        Haptic::Confirm => 16, // CONFIRM (LONG_PRESS before Android 11, in NexInput)
+        Haptic::Release => 1,  // VIRTUAL_KEY
+    };
+    let (Some(class), Some(activity)) = (INPUT_CLASS.get(), activity()) else { return };
+    let activity = &activity;
+    with_context(|env, _app| {
+        let class: &JClass = class.as_obj().into();
+        env.call_static_method(class, "haptic", "(Landroid/app/Activity;I)V", &[JValue::Object(activity), JValue::Int(constant)])?;
         Ok(())
     });
 }

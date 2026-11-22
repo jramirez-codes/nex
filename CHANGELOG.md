@@ -24,9 +24,17 @@ All notable changes to nex are documented here. The format follows
 - Android: the title-bar tabs keep one width, two and a half to the screen, and the strip
   swipes sideways (with a fling) instead of squeezing every tab in. Long-press a tab, then
   drag, to reorder it; a new or newly shown tab scrolls into view.
-- Android: a round glass keyboard button in the bottom-right corner while the on-screen
-  keyboard is down. Tap it to bring the keyboard back. Putting the keyboard away (the back
-  gesture or its hide key) now keeps it down, so you can read and scroll a full screen.
+- Android: a round glass keyboard button in the bottom-right corner of terminals and the
+  Agents tab, above the on-screen keyboard while it's up. Tap it to put the keyboard away or
+  bring it back. Putting the keyboard away (the button, the back gesture or its hide key)
+  keeps it down, so you can read and scroll a full screen.
+  - Drag the button as a joystick for the arrow keys. They repeat while you hold, faster
+    the further you push. On the Agents tab it moves the selection.
+  - Double-tap it to arm Ctrl for the next key (double-tap, then `c`, is `^C`). It turns
+    blue with a ⌃ until the key is pressed; double-tap again to cancel.
+  - Taps, arrows and Ctrl give a light haptic tick.
+- Android: swipe (glide) typing on the on-screen keyboard types into the terminal. Words go
+  in as you swipe, and the keyboard's corrections replace them.
 - Files and Changes panes on ssh hosts. Ctrl+E or Ctrl+G in a terminal that's ssh'd into a
   host opens the explorer or the Changes pane in the session's folder **on that host**. This
   works for panes running `ssh` and for panes on a host the window is connected to itself

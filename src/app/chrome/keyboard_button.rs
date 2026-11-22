@@ -1,24 +1,51 @@
-//! The floating keyboard button (Android): a round glass button in the bottom-right corner,
-//! shown while the on-screen keyboard is down, that brings it back up. The keyboard goes away
-//! the usual Android ways (the back gesture, the keyboard's own hide key), and nex leaves it
-//! down until the button is tapped.
+//! The floating keyboard button (Android): a round glass button in the bottom-right corner of
+//! a terminal or the Agents tab, above the on-screen keyboard when it's up.
+//!
+//! - A tap puts the keyboard away or brings it back (it also goes away the usual Android
+//!   ways, and nex leaves it down until the button brings it back).
+//! - A drag makes it a joystick: the button opens into a track, a knob follows the finger,
+//!   and the arrow key it points to repeats, faster the further it is pushed.
+//! - A double-tap arms Ctrl for the next key (`^C` is double-tap, then `c`); a second double
+//!   tap disarms it.
+//!
+//! Telling a tap from a double-tap means a tap acts a moment after it lifts.
 
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 
 use egui::epaint::{PathShape, PathStroke, Shadow};
-use egui::{Color32, Id, LayerId, Order, Painter, Pos2, Rect, Shape, Stroke, Vec2};
+use egui::{Color32, Id, Key, LayerId, Modifiers, Order, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 use crate::app::App;
-use crate::ui::glide::animations;
-use crate::ui::icons::icon_keyboard;
+use crate::layout::{PaneId, PaneKind};
+use crate::platform::{self, Haptic};
+use crate::ui::glide::{Lerp, animations, ease_out};
+use crate::ui::icons::{icon_control, icon_keyboard, icon_keyboard_hide};
 use crate::ui::theme::Theme;
 
 /// Apple's minimum tap target.
 pub(in crate::app) const SIZE: f32 = 44.0;
 /// From the right and bottom edges of the content area.
 const MARGIN: f32 = 12.0;
-/// How long the button takes to fade in once the keyboard is down.
+/// How long the button takes to fade in.
 const FADE_TIME: f32 = 0.15;
+/// How far a finger moves before a press becomes the joystick.
+const DEAD_ZONE: f32 = 10.0;
+/// The longest gap between the taps of a double-tap (and so how long a tap waits).
+pub(in crate::app) const DOUBLE_TAP: f64 = 0.3;
+/// Holding the joystick: the first repeat comes after this long...
+const FIRST_REPEAT: f64 = 0.35;
+/// ...then every this often, from just past the dead zone to pushed all the way.
+const REPEAT_SLOW: f64 = 0.12;
+const REPEAT_FAST: f64 = 0.04;
+/// How far from the center the repeats are at their fastest.
+const FULL_PUSH: f32 = 60.0;
+/// The joystick's track, as wide as the button opens to.
+const TRACK: f32 = 76.0;
+/// The knob follows the finger this far, then gives way less and less, up to `MAX_TRAVEL`.
+const FREE_TRAVEL: f32 = 24.0;
+const MAX_TRAVEL: f32 = 34.0;
+/// How long the knob takes to spring back once let go.
+const SPRING_TIME: f64 = 0.45;
 
 /// Where the button goes in `area` (the content area).
 pub(in crate::app) fn button_rect(area: Rect) -> Rect {
@@ -26,49 +53,170 @@ pub(in crate::app) fn button_rect(area: Rect) -> Rect {
     Rect::from_min_size(min, Vec2::splat(SIZE))
 }
 
+/// What the button's keys go to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum Target {
+    Terminal,
+    Agents,
+}
+
 /// The keyboard button's state, kept across frames.
 #[derive(Default)]
 pub(in crate::app) struct KeyboardButton {
-    /// The keyboard is down and nex keeps it down until the button is tapped.
+    /// The keyboard is down over terminals, and nex keeps it down until the button is tapped.
     pub hidden: bool,
-    /// Where the button was drawn this frame, for taps (`None` while it isn't shown).
+    /// The keyboard is up over an Agents pane (it starts down there: the pane is mostly
+    /// looked at, and the joystick moves through it).
+    pub agents_keyboard: bool,
+    /// Where the button was this frame, for taps (`None` while it isn't shown).
     pub rect: Option<Rect>,
-    /// A press started on the button and hasn't lifted yet.
-    pressed: bool,
+    /// Ctrl is armed (double-tap): the next key goes to the program with Ctrl held.
+    pub ctrl_armed: bool,
+    /// A finger on the button.
+    press: Option<Press>,
+    /// When the last tap lifted, while it's still waiting to see if it's a double-tap.
+    pending_tap: Option<f64>,
     /// What the system last said about the keyboard, to notice it coming up or going away.
     last_visible: Option<bool>,
+    /// The pane focused last frame: Ctrl armed for one pane isn't kept for another.
+    last_focus: Option<PaneId>,
+    /// The knob let go: where it was and when, as it springs back to the center.
+    spring: Option<(Vec2, f64)>,
+    /// When Ctrl was last armed, for the button's pulse.
+    armed_at: f64,
+    /// When the joystick last sent an arrow, for its chevron's tick.
+    tick_at: f64,
+}
+
+/// A finger on the button.
+struct Press {
+    origin: Pos2,
+    /// From where it went down to where it is.
+    offset: Vec2,
+    /// It moved past the dead zone: the press is the joystick.
+    stick: Option<Stick>,
+}
+
+struct Stick {
+    /// The arrow being sent, `None` while the finger is back inside the dead zone.
+    dir: Option<Key>,
+    /// When the arrow repeats next.
+    next: f64,
+}
+
+/// The arrow `offset` points to, along its longer axis.
+fn direction(offset: Vec2) -> Key {
+    if offset.x.abs() >= offset.y.abs() {
+        if offset.x > 0.0 { Key::ArrowRight } else { Key::ArrowLeft }
+    } else if offset.y > 0.0 {
+        Key::ArrowDown
+    } else {
+        Key::ArrowUp
+    }
+}
+
+fn unit(dir: Key) -> Vec2 {
+    match dir {
+        Key::ArrowRight => Vec2::X,
+        Key::ArrowLeft => -Vec2::X,
+        Key::ArrowDown => Vec2::Y,
+        _ => -Vec2::Y,
+    }
+}
+
+/// How often the arrow repeats with the finger `distance` from the center.
+fn repeat_interval(distance: f32) -> f64 {
+    let t = ((distance - DEAD_ZONE) / (FULL_PUSH - DEAD_ZONE)).clamp(0.0, 1.0) as f64;
+    REPEAT_SLOW + (REPEAT_FAST - REPEAT_SLOW) * t
+}
+
+/// Where the knob sits for a finger `offset` from where it went down: with it at first, then
+/// rubber-banding (as iOS lists do past their ends), never past `MAX_TRAVEL`.
+fn knob_travel(offset: Vec2) -> Vec2 {
+    let d = offset.length();
+    if d <= FREE_TRAVEL {
+        return offset;
+    }
+    let give = MAX_TRAVEL - FREE_TRAVEL;
+    let extra = give * (1.0 - (-(d - FREE_TRAVEL) / (give * 2.5)).exp());
+    offset * ((FREE_TRAVEL + extra) / d)
+}
+
+/// A damped spring from 1 to 0 over `SPRING_TIME`, overshooting a little.
+fn spring(t: f64) -> f32 {
+    let t = t as f32;
+    (-9.0 * t).exp() * (14.0 * t).cos()
+}
+
+impl KeyboardButton {
+    /// Whether the keyboard is (to be) down for `target`.
+    pub(in crate::app) fn down(&self, target: Target) -> bool {
+        match target {
+            Target::Terminal => self.hidden,
+            Target::Agents => !self.agents_keyboard,
+        }
+    }
+
+    fn set_down(&mut self, target: Target, down: bool) {
+        match target {
+            Target::Terminal => self.hidden = down,
+            Target::Agents => self.agents_keyboard = !down,
+        }
+    }
+
+    /// Whether the button is being used as a joystick.
+    fn stick_active(&self) -> bool {
+        self.press.as_ref().is_some_and(|p| p.stick.is_some())
+    }
+
+    /// The knob's offset from the center at time `now`.
+    fn knob(&self, now: f64) -> Vec2 {
+        match (&self.press, self.spring) {
+            (Some(p), _) if p.stick.is_some() => knob_travel(p.offset),
+            (_, Some((from, at))) if now - at < SPRING_TIME => from * spring(now - at),
+            _ => Vec2::ZERO,
+        }
+    }
 }
 
 impl App {
-    /// Whether a terminal has focus with nothing in the way (a drag, a dialog, a pinch), so
-    /// the keyboard is the terminal's.
-    fn terminal_wants_keyboard(&self, ctx: &egui::Context) -> bool {
-        self.soft_keyboard
-            && self.focused_pane().is_some_and(|id| self.panes.contains_key(&id))
-            && self.pane_drag.is_none()
-            && !self.mouse.pinching()
-            && ctx.memory(|m| m.top_modal_layer()).is_none()
+    /// What the keyboard and the button are for this frame: a focused terminal or Agents
+    /// pane with nothing in the way (a drag, a dialog, a pinch).
+    pub(in crate::app) fn keyboard_target(&self, ctx: &egui::Context) -> Option<Target> {
+        if !self.soft_keyboard || self.pane_drag.is_some() || self.mouse.pinching() || ctx.memory(|m| m.top_modal_layer()).is_some() {
+            return None;
+        }
+        match self.pane_kind(self.focused_pane()?)? {
+            PaneKind::Terminal => Some(Target::Terminal),
+            PaneKind::Agents => Some(Target::Agents),
+            _ => None,
+        }
     }
 
     /// Follow the keyboard when the system moves it: put away with the back gesture, nex
     /// keeps it down; brought back by Android (returning to the app), nex keeps it up.
-    fn follow_system_keyboard(&mut self, terminal: bool) {
+    fn follow_system_keyboard(&mut self, target: Option<Target>) {
         let kb = &mut self.keyboard_button;
-        let visible = crate::platform::soft_keyboard_visible();
+        let visible = platform::soft_keyboard_visible();
         if visible != kb.last_visible {
             kb.last_visible = visible;
-            if let (true, Some(visible)) = (terminal, visible) {
-                kb.hidden = !visible;
+            if let (Some(target), Some(visible)) = (target, visible) {
+                kb.set_down(target, !visible);
             }
         }
     }
 
-    /// Draw the button while the keyboard is down and bring it up on a tap. Runs before
-    /// `handle_mouse`, which leaves presses on the button alone.
+    /// Draw the button and read its taps, double-taps and drags. Runs before `handle_mouse`,
+    /// which leaves presses on the button alone.
     pub(in crate::app) fn keyboard_button(&mut self, ctx: &egui::Context) {
-        let terminal = self.terminal_wants_keyboard(ctx);
-        self.follow_system_keyboard(terminal);
-        let shown = terminal && self.keyboard_button.hidden;
+        let target = self.keyboard_target(ctx);
+        self.follow_system_keyboard(target);
+        let focus = self.focused_pane();
+        if focus != self.keyboard_button.last_focus {
+            self.keyboard_button.last_focus = focus;
+            self.keyboard_button.ctrl_armed = false;
+        }
+        let shown = target.is_some();
         let fade = if animations(ctx) {
             ctx.animate_bool_with_time(Id::new("keyboard-button"), shown, FADE_TIME)
         } else if shown {
@@ -76,61 +224,239 @@ impl App {
         } else {
             0.0
         };
-        if !shown {
-            self.keyboard_button.rect = None;
-            self.keyboard_button.pressed = false;
+        let Some(target) = target else {
+            let kb = &mut self.keyboard_button;
+            kb.rect = None;
+            kb.press = None;
+            kb.pending_tap = None;
             return;
-        }
+        };
         let rect = button_rect(self.content_area);
         self.keyboard_button.rect = Some(rect);
+        let now = ctx.input(|i| i.time);
 
         let events = ctx.input(|i| i.events.clone());
         for event in events {
-            if let egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, .. } = event {
-                if pressed {
-                    self.keyboard_button.pressed = rect.contains(pos);
-                } else if std::mem::take(&mut self.keyboard_button.pressed) && rect.expand(8.0).contains(pos) {
-                    self.keyboard_button.hidden = false;
-                    ctx.request_repaint();
-                    return;
+            match event {
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } => {
+                    if rect.contains(pos) {
+                        self.keyboard_button.press = Some(Press { origin: pos, offset: Vec2::ZERO, stick: None });
+                        self.keyboard_button.spring = None;
+                    }
                 }
+                egui::Event::PointerMoved(pos) => self.joystick_move(pos, now, target),
+                egui::Event::PointerButton { button: egui::PointerButton::Primary, pressed: false, .. } => self.release(now, target),
+                // A touch that ends without a release (the system took it): no tap.
+                egui::Event::PointerGone => self.cancel_button_press(now),
+                _ => {}
             }
         }
-        if self.keyboard_button.pressed && !ctx.input(|i| i.pointer.any_down()) {
-            self.keyboard_button.pressed = false;
+        if self.keyboard_button.press.is_some() && !ctx.input(|i| i.pointer.any_down()) {
+            self.cancel_button_press(now);
         }
-        self.paint_keyboard_button(ctx, rect, fade);
+        self.repeat_arrow(ctx, now, target);
+        // A tap with no second one after it: it was a tap.
+        if let Some(at) = self.keyboard_button.pending_tap {
+            if now - at >= DOUBLE_TAP {
+                self.keyboard_button.pending_tap = None;
+                let down = self.keyboard_button.down(target);
+                self.keyboard_button.set_down(target, !down);
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(DOUBLE_TAP - (now - at)));
+            }
+        }
+        self.paint_keyboard_button(ctx, rect, fade, target, now);
     }
 
-    fn paint_keyboard_button(&self, ctx: &egui::Context, rect: Rect, fade: f32) {
-        let theme = Theme::from_config(&self.cfg);
-        let pressed = self.keyboard_button.pressed;
-        let press = if animations(ctx) {
-            ctx.animate_bool_with_time(Id::new("keyboard-button-pressed"), pressed, 0.08)
-        } else if pressed {
-            1.0
-        } else {
-            0.0
+    /// The finger moved: past the dead zone the press is the joystick, sending the arrow it
+    /// points to as soon as it points somewhere new.
+    fn joystick_move(&mut self, pos: Pos2, now: f64, target: Target) {
+        let Some(press) = self.keyboard_button.press.as_mut() else { return };
+        press.offset = pos - press.origin;
+        let distance = press.offset.length();
+        let dir = (distance > DEAD_ZONE).then(|| direction(press.offset));
+        let changed = match &mut press.stick {
+            None if dir.is_some() => {
+                press.stick = Some(Stick { dir, next: now + FIRST_REPEAT });
+                true
+            }
+            Some(stick) if stick.dir != dir => {
+                stick.dir = dir;
+                stick.next = now + FIRST_REPEAT;
+                dir.is_some()
+            }
+            _ => false,
         };
+        if changed && let Some(dir) = dir {
+            self.send_arrow(dir, now, target);
+        }
+    }
+
+    /// Repeat the joystick's arrow while it's held there.
+    fn repeat_arrow(&mut self, ctx: &egui::Context, now: f64, target: Target) {
+        let Some(press) = self.keyboard_button.press.as_mut() else { return };
+        let distance = press.offset.length();
+        let Some(stick) = press.stick.as_mut() else { return };
+        let Some(dir) = stick.dir else { return };
+        if now >= stick.next {
+            stick.next = now + repeat_interval(distance);
+            self.send_arrow(dir, now, target);
+        }
+        let next = self.keyboard_button.press.as_ref().and_then(|p| p.stick.as_ref()).map_or(now, |s| s.next);
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64((next - now).max(0.0)));
+    }
+
+    /// One arrow from the joystick, with Ctrl if it's armed (in a terminal).
+    fn send_arrow(&mut self, dir: Key, now: f64, target: Target) {
+        let mut mods = Modifiers::NONE;
+        if target == Target::Terminal && std::mem::take(&mut self.keyboard_button.ctrl_armed) {
+            mods = Modifiers::CTRL;
+        }
+        self.key_to_pane(dir, mods);
+        self.keyboard_button.tick_at = now;
+        platform::haptic(Haptic::Tick);
+    }
+
+    /// The finger lifted: a tap (or the second of a double-tap), or the end of a drag.
+    fn release(&mut self, now: f64, target: Target) {
+        let kb = &mut self.keyboard_button;
+        let Some(press) = kb.press.take() else { return };
+        if press.stick.is_some() {
+            kb.spring = Some((knob_travel(press.offset), now));
+            return;
+        }
+        if kb.pending_tap.take().is_some_and(|at| now - at < DOUBLE_TAP) {
+            kb.ctrl_armed = !kb.ctrl_armed;
+            if kb.ctrl_armed {
+                kb.armed_at = now;
+                // Ctrl needs a key to go with it.
+                kb.set_down(target, false);
+                platform::haptic(Haptic::Confirm);
+            } else {
+                platform::haptic(Haptic::Release);
+            }
+            return;
+        }
+        kb.pending_tap = Some(now);
+        platform::haptic(Haptic::Tap);
+    }
+
+    fn cancel_button_press(&mut self, now: f64) {
+        let kb = &mut self.keyboard_button;
+        if let Some(press) = kb.press.take()
+            && press.stick.is_some()
+        {
+            kb.spring = Some((knob_travel(press.offset), now));
+        }
+    }
+
+    fn paint_keyboard_button(&self, ctx: &egui::Context, rect: Rect, fade: f32, target: Target, now: f64) {
+        let theme = Theme::from_config(&self.cfg);
+        let kb = &self.keyboard_button;
+        let anim = animations(ctx);
+        let ease = |id: &str, on: bool, time: f32| {
+            if anim {
+                ctx.animate_bool_with_time(Id::new(("keyboard-button", id)), on, time)
+            } else if on {
+                1.0
+            } else {
+                0.0
+            }
+        };
+        let pressing = kb.press.as_ref().is_some_and(|p| p.stick.is_none());
+        let press = ease("pressed", pressing, 0.08);
+        let track = ease_out(ease("track", kb.stick_active(), 0.18));
+        let armed = ease("armed", kb.ctrl_armed, 0.2);
+        let up = ease("up", !kb.down(target), 0.15);
+        // The button glides up and down with the keyboard rather than jumping.
+        let cy = if anim { ctx.animate_value_with_time(Id::new(("keyboard-button", "y")), rect.center().y, 0.25) } else { rect.center().y };
+        let center = Pos2::new(rect.center().x, cy);
+        // Without animations the knob doesn't spring back: it is centered once let go.
+        let knob = if anim || kb.stick_active() { kb.knob(now) } else { Vec2::ZERO };
+        if anim && (kb.spring.is_some_and(|(_, at)| now - at < SPRING_TIME) || kb.ctrl_armed) {
+            ctx.request_repaint();
+        }
+
         let mut p = ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("keyboard-button")));
         p.multiply_opacity(fade);
-        let r = Rect::from_center_size(rect.center(), rect.size() * (1.0 - 0.08 * press));
-        glass_circle(&p, r, press);
-        let glyph = Rect::from_center_size(r.center(), Vec2::splat(r.width() * 0.5));
-        icon_keyboard(&p, glyph, theme.text_bright.gamma_multiply(0.88));
+
+        // The joystick's track, opening out from under the button.
+        if track > 0.0 {
+            let radius = SIZE / 2.0 + (TRACK - SIZE) / 2.0 * track;
+            glass(&p, center, radius, Glass { fill: fill_color(0.0).gamma_multiply(0.55), rim: Color32::from_white_alpha(26), shadow: 0.5 }, track);
+            let active = kb.press.as_ref().and_then(|p| p.stick.as_ref()).and_then(|s| s.dir);
+            let tick = if anim { (1.0 - (now - kb.tick_at) as f32 / 0.12).clamp(0.0, 1.0) } else { 0.0 };
+            for dir in [Key::ArrowUp, Key::ArrowRight, Key::ArrowDown, Key::ArrowLeft] {
+                let on = active == Some(dir);
+                let nudge = if on { 2.0 * tick } else { 0.0 };
+                let at = center + unit(dir) * (radius - 9.0 + nudge);
+                let color = theme.text_bright.gamma_multiply(if on { 0.95 } else { 0.32 } * track);
+                chevron(&p, at, unit(dir), 4.0, color);
+            }
+            if tick > 0.0 {
+                ctx.request_repaint();
+            }
+        }
+
+        // The button itself (the knob, while it's a joystick).
+        let pulse = if kb.ctrl_armed && anim && now - kb.armed_at < 0.3 { 1.0 + 0.08 * (PI * ((now - kb.armed_at) / 0.3) as f32).sin() } else { 1.0 };
+        let radius = SIZE / 2.0 * (1.0 - 0.08 * press) * pulse;
+        let c = center + knob;
+        let tint = theme.blue.gamma_multiply(0.5);
+        let fill = Color32::lerp(fill_color(press), tint, armed);
+        let rim = Color32::lerp(Color32::from_white_alpha(34), theme.blue.gamma_multiply(0.85), armed);
+        glass(&p, c, radius, Glass { fill, rim, shadow: 1.0 }, 1.0);
+
+        // Armed: a hairline ring that breathes while it waits for the key.
+        if armed > 0.0 {
+            let breath = if anim { 0.4 + 0.4 * (0.5 + 0.5 * (TAU * (now / 1.6) as f32).sin()) } else { 0.8 };
+            p.circle_stroke(c, radius + 3.5, Stroke::new(1.0_f32, theme.blue.gamma_multiply(breath * armed)));
+        }
+
+        // The glyph: the keyboard (with a down chevron while it's up, to put it away), turning
+        // into ⌃ while Ctrl is armed; gone while the button is a joystick.
+        let glyph_alpha = 1.0 - track;
+        if glyph_alpha > 0.0 {
+            let color = theme.text_bright.gamma_multiply(0.88 * glyph_alpha);
+            let side = radius * 2.0 * 0.5;
+            let kb_scale = 1.0 - 0.4 * armed;
+            let kb_rect = Rect::from_center_size(c, Vec2::splat(side * kb_scale));
+            if up < 1.0 {
+                icon_keyboard(&p, kb_rect, color.gamma_multiply((1.0 - up) * (1.0 - armed)));
+            }
+            if up > 0.0 {
+                icon_keyboard_hide(&p, kb_rect, color.gamma_multiply(up * (1.0 - armed)));
+            }
+            if armed > 0.0 {
+                let ctrl = Rect::from_center_size(c, Vec2::splat(side * (0.6 + 0.4 * armed)));
+                icon_control(&p, ctrl, theme.text_bright.gamma_multiply(armed * glyph_alpha));
+            }
+        }
     }
 }
 
-/// A round glass button, like [`glass_pill`](crate::ui::paint::glass_pill) for a circle: soft
-/// shadow, translucent fill, hairline rim and a bright arc along the top edge. `press` (0 to 1)
-/// lightens the fill.
-fn glass_circle(p: &Painter, r: Rect, press: f32) {
-    let (c, radius) = (r.center(), r.width() / 2.0);
-    let shadow = Shadow { offset: [0, 2], blur: 10, spread: 0, color: Color32::from_black_alpha(120) };
-    p.add(shadow.as_shape(r, radius as u8));
+/// The button's glass fill, lightened by `press` (0 to 1).
+fn fill_color(press: f32) -> Color32 {
     let lift = (22.0 * press) as u8;
-    p.circle_filled(c, radius, Color32::from_rgba_unmultiplied(0x5a + lift, 0x55 + lift, 0x5e + lift, 165));
-    p.circle_stroke(c, radius - 0.5, Stroke::new(1.0_f32, Color32::from_white_alpha(34)));
+    Color32::from_rgba_unmultiplied(0x5a + lift, 0x55 + lift, 0x5e + lift, 165)
+}
+
+struct Glass {
+    fill: Color32,
+    rim: Color32,
+    /// How much of the drop shadow to draw (0 to 1).
+    shadow: f32,
+}
+
+/// A round glass shape, like [`glass_pill`](crate::ui::paint::glass_pill) for a circle: soft
+/// shadow, translucent fill, hairline rim and a bright arc along the top edge, all faded by
+/// `alpha`.
+fn glass(p: &Painter, c: Pos2, radius: f32, g: Glass, alpha: f32) {
+    let r = Rect::from_center_size(c, Vec2::splat(radius * 2.0));
+    let shadow = Shadow { offset: [0, 2], blur: 10, spread: 0, color: Color32::from_black_alpha((120.0 * g.shadow * alpha) as u8) };
+    p.add(shadow.as_shape(r, radius.min(255.0) as u8));
+    p.circle_filled(c, radius, g.fill.gamma_multiply(alpha));
+    p.circle_stroke(c, radius - 0.5, Stroke::new(1.0_f32, g.rim.gamma_multiply(alpha)));
     // The top highlight: an arc over the upper third, just inside the rim.
     let arc: Vec<Pos2> = (0..=24)
         .map(|i| {
@@ -138,5 +464,13 @@ fn glass_circle(p: &Painter, r: Rect, press: f32) {
             c + Vec2::angled(a) * (radius - 1.5)
         })
         .collect();
-    p.add(Shape::Path(PathShape::line(arc, PathStroke::new(1.0, Color32::from_white_alpha(50)))));
+    p.add(Shape::Path(PathShape::line(arc, PathStroke::new(1.0, Color32::from_white_alpha((50.0 * alpha) as u8)))));
+}
+
+/// A small chevron at `at` pointing along `dir`, `k` long on each arm.
+fn chevron(p: &Painter, at: Pos2, dir: Vec2, k: f32, c: Color32) {
+    let side = dir.rot90();
+    let tip = at + dir * (k * 0.5);
+    let back = tip - dir * k;
+    p.add(Shape::line(vec![back + side * k, tip, back - side * k], Stroke::new(1.5_f32, c)));
 }

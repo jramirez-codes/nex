@@ -17,16 +17,26 @@ import android.view.inputmethod.InputMethodManager;
  * The view the on-screen keyboard types into. NativeActivity's own view gives the keyboard no
  * InputConnection, so text a keyboard commits in one go (a paste from its clipboard history, a
  * suggestion, an emoji) reaches native code as a key event whose characters the NDK can't read.
- * This view's connection hands committed text to nex instead (`commit`). Keys the keyboard
- * sends as key events (letters, Enter, Backspace) still go to nex's input queue as before,
+ * This view's connection hands text to nex instead (`type`, `commit`). Keys the keyboard sends
+ * as key events (Enter, Backspace on an empty field) still go to nex's input queue as before,
  * since NativeActivity owns the window's input.
+ *
+ * The view says it is a text field, which is what keyboards want before they offer glide
+ * (swipe) typing. A glided word arrives as composing text that the keyboard keeps revising
+ * until it settles; nex types it into the terminal as it goes, taking back with Backspace what
+ * a revision changed (`sent` is what is on the terminal so far). The field itself is always
+ * left empty, so the keyboard never tries to edit text that is already in the terminal, and
+ * Backspace with nothing composing arrives as a plain key event.
  *
  * Loaded at run time from the dex built into nex (see `platform/android/keyboard.rs`).
  */
 public final class NexInput extends View {
     private static NexInput view;
 
-    /** Text the keyboard committed, for nex to type into whatever has focus. */
+    /** Take back `delete` characters, then type `text` (typing, glide, a suggestion). */
+    static native void type(int delete, String text);
+
+    /** Text the keyboard committed in one go that isn't typing: a paste from its clipboard. */
     static native void commit(String text);
 
     /** The on-screen keyboard came up or went away (including by the back gesture). */
@@ -34,6 +44,9 @@ public final class NexInput extends View {
 
     /** What nex was last told about the keyboard, so it hears only of changes. */
     private static Boolean lastVisible;
+
+    /** The composing text already typed into the terminal. */
+    private static String sent = "";
 
     private NexInput(Context context) {
         super(context);
@@ -48,27 +61,132 @@ public final class NexInput extends View {
 
     @Override
     public InputConnection onCreateInputConnection(EditorInfo out) {
-        // TYPE_NULL: no autocorrect or composing; keyboards send plain keys as key events.
-        out.inputType = InputType.TYPE_NULL;
-        out.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI;
+        // A text field, so keyboards offer glide typing; no suggestions (and, by leaving out
+        // AUTO_CORRECT, no autocorrect), which only get in the way of typing commands.
+        out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+        out.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                | EditorInfo.IME_ACTION_NONE;
+        out.initialSelStart = 0;
+        out.initialSelEnd = 0;
+        sent = "";
         return new BaseInputConnection(this, false) {
             @Override
-            public boolean commitText(CharSequence text, int newCursorPosition) {
-                if (text != null && text.length() > 0) {
-                    commit(text.toString());
-                }
+            public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                retype(text == null ? "" : text.toString());
                 return true;
             }
 
             @Override
-            public boolean deleteSurroundingText(int before, int after) {
-                for (int i = 0; i < before; i++) {
-                    sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
-                    sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL));
+            public boolean commitText(CharSequence text, int newCursorPosition) {
+                String t = text == null ? "" : text.toString();
+                if (sent.isEmpty() && isPaste(t)) {
+                    commit(t);
+                } else {
+                    retype(t);
                 }
+                sent = "";
+                return true;
+            }
+
+            @Override
+            public boolean finishComposingText() {
+                sent = "";
+                return true;
+            }
+
+            @Override
+            public boolean setComposingRegion(int start, int end) {
+                // The field is empty, so there is no earlier text to pick up again.
+                sent = "";
+                return true;
+            }
+
+            @Override
+            public CharSequence getTextBeforeCursor(int n, int flags) {
+                return "";
+            }
+
+            @Override
+            public CharSequence getTextAfterCursor(int n, int flags) {
+                return "";
+            }
+
+            @Override
+            public boolean deleteSurroundingText(int before, int after) {
+                deleteBack(before);
+                return true;
+            }
+
+            @Override
+            public boolean deleteSurroundingTextInCodePoints(int before, int after) {
+                deleteBack(before);
+                return true;
+            }
+
+            @Override
+            public boolean performEditorAction(int action) {
+                sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
+                sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER));
                 return true;
             }
         };
+    }
+
+    /** Make the terminal show `text` where it shows `sent`: Backspace over what differs, then
+     *  type the rest. */
+    private static void retype(String text) {
+        int common = 0;
+        int max = Math.min(sent.length(), text.length());
+        while (common < max && sent.charAt(common) == text.charAt(common)) {
+            common++;
+        }
+        // Don't split a surrogate pair.
+        if (common > 0 && Character.isHighSurrogate(sent.charAt(common - 1))) {
+            common--;
+        }
+        int delete = sent.codePointCount(common, sent.length());
+        String add = text.substring(common);
+        if (delete > 0 || !add.isEmpty()) {
+            type(delete, add);
+        }
+        sent = text;
+    }
+
+    /** Backspace `count` characters, from what is composing first. */
+    private static void deleteBack(int count) {
+        if (count <= 0) {
+            return;
+        }
+        int composed = sent.codePointCount(0, sent.length());
+        int fromSent = Math.min(count, composed);
+        if (fromSent > 0) {
+            sent = sent.substring(0, sent.offsetByCodePoints(0, composed - fromSent));
+        }
+        type(count, "");
+    }
+
+    /** Whether committed text is a paste rather than typing: more than one character that
+     *  isn't a single word (a glided word or a suggestion, maybe with a space after it). */
+    private static boolean isPaste(String t) {
+        if (t.codePointCount(0, t.length()) <= 1) {
+            return false;
+        }
+        return !t.matches("[\\p{L}\\p{N}'\u2019-]+ ?");
+    }
+
+    /** Haptic feedback (`HapticFeedbackConstants`), as Android's own keys and controls give. */
+    public static void haptic(final Activity activity, final int kind) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (view == null) {
+                    return;
+                }
+                // CONFIRM (16) is new in Android 11; a long press's buzz stands in before it.
+                int k = kind == 16 && android.os.Build.VERSION.SDK_INT < 30 ? 0 : kind;
+                view.performHapticFeedback(k);
+            }
+        });
     }
 
     /** Add the (invisible, 1 px) view to the activity and give it focus. */

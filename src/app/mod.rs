@@ -306,11 +306,23 @@ impl eframe::App for App {
                 raw_input.screen_rect = Some(free);
             }
         }
-        // The connect screen's text fields take what the on-screen keyboard committed (a paste
-        // from its clipboard history) as typed text; terminals take it in `handle_keyboard`.
+        // The connect screen's text fields take what the on-screen keyboard typed or pasted (its
+        // takebacks as Backspace); terminals take it in `handle_keyboard`.
         if self.connect.active && self.tabs.is_empty() {
-            for text in crate::platform::typed_text() {
-                raw_input.events.push(egui::Event::Text(text));
+            for typed in crate::platform::typed_text() {
+                let text = match typed {
+                    crate::platform::Typed::Paste(text) => text,
+                    crate::platform::Typed::Text { delete, text } => {
+                        for pressed in std::iter::repeat_n([true, false], delete).flatten() {
+                            let modifiers = egui::Modifiers::NONE;
+                            raw_input.events.push(egui::Event::Key { key: egui::Key::Backspace, physical_key: None, pressed, repeat: false, modifiers });
+                        }
+                        text
+                    }
+                };
+                if !text.is_empty() {
+                    raw_input.events.push(egui::Event::Text(text));
+                }
             }
         }
     }
@@ -433,15 +445,21 @@ impl App {
         crate::platform::sync_soft_keyboard(ctx);
     }
 
-    /// Keep the on-screen keyboard up while a terminal has focus: egui shows it for as long as
-    /// a frame says where text goes (here, the terminal's last line).
+    /// Keep the on-screen keyboard up while a terminal (or an Agents pane, once the keyboard
+    /// button brought it up there) has focus: egui shows it for as long as a frame says where
+    /// text goes (here, the pane's last line).
     fn ask_for_keyboard(&self, ctx: &egui::Context) {
+        let Some(target) = self.keyboard_target(ctx) else { return };
         // Put away with the keyboard button: it stays down until the button brings it back.
-        if self.keyboard_button.hidden {
+        if self.keyboard_button.down(target) {
             return;
         }
-        let Some(id) = self.focused_pane().filter(|id| self.panes.contains_key(id)) else { return };
-        let Some(&(_, rect)) = self.term_rects.iter().find(|(p, _)| *p == id) else { return };
+        let Some(id) = self.focused_pane() else { return };
+        let rects = match target {
+            chrome::keyboard_button::Target::Terminal => &self.term_rects,
+            chrome::keyboard_button::Target::Agents => &self.card_rects,
+        };
+        let Some(&(_, rect)) = rects.iter().find(|(p, _)| *p == id) else { return };
         let cursor_rect = Rect::from_min_size(rect.left_bottom() - Vec2::new(0.0, 2.0), Vec2::new(1.0, 2.0));
         ctx.output_mut(|o| o.ime = Some(egui::output::IMEOutput { rect, cursor_rect }));
     }

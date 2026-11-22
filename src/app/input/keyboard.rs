@@ -27,10 +27,21 @@ impl App {
         let mut shortcut_ran = false;
         for event in events {
             match event {
+                // Ctrl armed by double-tapping the keyboard button: this key is Ctrl+key, for
+                // the program (not a nex shortcut), and its text is dropped.
+                Event::Key { key, pressed: true, modifiers, .. } if self.take_armed_ctrl() => {
+                    self.key_to_pane(key, modifiers | Modifiers::CTRL);
+                    shortcut_ran = true;
+                }
                 Event::Key { key, pressed: true, modifiers, .. } => shortcut_ran = self.on_key(key, modifiers),
                 Event::Text(_) if shortcut_ran => shortcut_ran = false,
-                Event::Text(text) => self.on_text(&text, mods),
+                Event::Text(text) => {
+                    if let Some(rest) = self.armed_ctrl_text(&text) {
+                        self.on_text(&rest, mods);
+                    }
+                }
                 Event::Ime(egui::ImeEvent::Commit(text)) => {
+                    let Some(text) = self.armed_ctrl_text(&text) else { continue };
                     if let Some(t) = self.focused_terminal() {
                         t.input(text.into_bytes());
                     }
@@ -44,14 +55,67 @@ impl App {
         }
         // Text the on-screen keyboard committed: a paste from its clipboard history goes in as
         // a paste, a single character as typing.
-        for text in platform::typed_text() {
-            let Some(t) = self.focused_terminal() else { continue };
-            if text.chars().count() > 1 {
-                t.paste(&text);
-            } else {
-                t.input(text.into_bytes());
+        for typed in platform::typed_text() {
+            match typed {
+                platform::Typed::Paste(text) => {
+                    if let Some(t) = self.focused_terminal() {
+                        t.paste(&text);
+                    }
+                }
+                platform::Typed::Text { delete, text } => {
+                    for _ in 0..delete {
+                        self.key_to_pane(Key::Backspace, Modifiers::NONE);
+                    }
+                    let Some(text) = self.armed_ctrl_text(&text) else { continue };
+                    self.type_text(&text);
+                }
             }
         }
+    }
+
+    /// Text the on-screen keyboard typed (outside of key events): as typed text for a
+    /// terminal, file explorer or the search field, as keys for an Agents pane (`j`, `k`...).
+    fn type_text(&mut self, text: &str) {
+        if self.focused_pane().is_some_and(|id| self.pane_kind(id) == Some(PaneKind::Agents)) {
+            for c in text.chars() {
+                let key = if c == ' ' { Some(Key::Space) } else { Key::from_name(&c.to_ascii_uppercase().to_string()) };
+                if let Some(key) = key {
+                    self.key_to_pane(key, Modifiers::NONE);
+                }
+            }
+            return;
+        }
+        self.on_text(text, Modifiers::NONE);
+    }
+
+    /// Use up a Ctrl armed with the keyboard button, if one is. Returns whether one was.
+    fn take_armed_ctrl(&mut self) -> bool {
+        if !std::mem::take(&mut self.keyboard_button.ctrl_armed) {
+            return false;
+        }
+        platform::haptic(platform::Haptic::Release);
+        true
+    }
+
+    /// Typed `text` with an armed Ctrl applied to its first character: that character goes to
+    /// the terminal as its control code and the rest is returned to type as usual (`None`
+    /// when nothing is left). Without an armed Ctrl, `text` is returned as it is.
+    fn armed_ctrl_text(&mut self, text: &str) -> Option<String> {
+        if !self.keyboard_button.ctrl_armed {
+            return (!text.is_empty()).then(|| text.to_owned());
+        }
+        let mut chars = text.chars();
+        let first = chars.next()?;
+        self.take_armed_ctrl();
+        let rest = chars.as_str().to_owned();
+        let bytes = match input::ctrl_char(first) {
+            Some(b) => vec![b],
+            None => first.to_string().into_bytes(),
+        };
+        if let Some(t) = self.focused_terminal() {
+            t.input(bytes);
+        }
+        (!rest.is_empty()).then_some(rest)
     }
 
     /// A paste key egui made no `Paste` event for: the clipboard holds no text (an image, say).
@@ -102,6 +166,13 @@ impl App {
             self.pending.push(action);
             return true;
         }
+        self.key_to_pane(key, modifiers);
+        false
+    }
+
+    /// A key for the focused pane (no shortcut lookup): its own keys for an Agents, Changes or
+    /// file explorer pane, the search field while it's open, else the shell.
+    pub(in crate::app) fn key_to_pane(&mut self, key: Key, modifiers: Modifiers) {
         let focused = self.focused_pane();
         match focused.and_then(|id| self.pane_kind(id).map(|kind| (id, kind))) {
             Some((id, PaneKind::Agents)) => {
@@ -123,7 +194,6 @@ impl App {
                 }
             }
         }
-        false
     }
 
     /// Keys while the search field is open.

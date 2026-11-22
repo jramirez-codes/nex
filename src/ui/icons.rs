@@ -493,6 +493,25 @@ pub fn icon_keyboard(p: &Painter, r: Rect, c: Color32) {
     p.rect_filled(space, 1, c);
 }
 
+/// A keyboard with a small down chevron under it: put the keyboard away (as iOS's dismiss key).
+pub fn icon_keyboard_hide(p: &Painter, r: Rect, c: Color32) {
+    let w = r.width();
+    let kb = Rect::from_center_size(r.center() - Vec2::new(0.0, w * 0.12), Vec2::splat(w * 0.92));
+    icon_keyboard(p, kb, c);
+    let k = w * 0.11;
+    let tip = Pos2::new(r.center().x, r.center().y + w * 0.44);
+    p.add(Shape::line(vec![tip + Vec2::new(-k * 1.3, -k), tip, tip + Vec2::new(k * 1.3, -k)], Stroke::new(1.5_f32, c)));
+}
+
+/// The Control key's mark (⌃): a wide, shallow caret.
+pub fn icon_control(p: &Painter, r: Rect, c: Color32) {
+    let w = r.width();
+    let ctr = r.center() + Vec2::new(0.0, w * 0.06);
+    let (dx, dy) = (w * 0.34, w * 0.26);
+    let s = Stroke::new(1.8_f32, c);
+    p.add(Shape::line(vec![ctr + Vec2::new(-dx, dy / 2.0), ctr + Vec2::new(0.0, -dy / 2.0), ctr + Vec2::new(dx, dy / 2.0)], s));
+}
+
 #[cfg(test)]
 mod tests {
     use super::title_mark;

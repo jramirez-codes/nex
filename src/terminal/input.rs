@@ -87,6 +87,24 @@ pub fn encode_key(key: Key, m: Modifiers, mode: TermMode) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+/// The control character Ctrl plus the typed character `c` makes (`c` → 0x03, `[` → ESC,
+/// space → NUL, `?` → DEL), for text that arrives without a key event (an on-screen keyboard's
+/// committed text). `None` for characters with no control form.
+pub fn ctrl_char(c: char) -> Option<u8> {
+    Some(match c {
+        'a'..='z' | 'A'..='Z' => c.to_ascii_uppercase() as u8 - b'A' + 1,
+        '@' | '[' | '\\' | ']' | '^' | '_' => c as u8 ^ 0x40,
+        ' ' | '2' => 0x00,
+        '?' | '8' => 0x7f,
+        '/' | '7' => 0x1f,
+        '3' => 0x1b,
+        '4' => 0x1c,
+        '5' => 0x1d,
+        '6' => 0x1e,
+        _ => return None,
+    })
+}
+
 fn ctrl_byte(key: Key) -> Option<u8> {
     let name = key.name();
     if name.len() == 1 {
@@ -168,6 +186,18 @@ mod tests {
         assert_eq!(encode_key(Key::C, ctrl, TermMode::empty()), Some(vec![3]));
         assert_eq!(encode_key(Key::A, ctrl, TermMode::empty()), Some(vec![1]));
         assert_eq!(encode_key(Key::Z, ctrl, TermMode::empty()), Some(vec![26]));
+    }
+
+    #[test]
+    fn ctrl_typed_characters() {
+        assert_eq!(ctrl_char('c'), Some(3));
+        assert_eq!(ctrl_char('C'), Some(3));
+        assert_eq!(ctrl_char('['), Some(0x1b));
+        assert_eq!(ctrl_char('\\'), Some(0x1c));
+        assert_eq!(ctrl_char(' '), Some(0));
+        assert_eq!(ctrl_char('?'), Some(0x7f));
+        assert_eq!(ctrl_char('é'), None);
+        assert_eq!(ctrl_char('.'), None);
     }
 
     #[test]

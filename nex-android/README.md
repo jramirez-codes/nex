@@ -90,9 +90,14 @@ cargo apk run -p nex-android --release
    - On the server, `~/.ssh/authorized_keys` ends with an `expiry-time="…" ssh-ed25519 … nex-device-…`
      line. Hosts with OpenSSH older than 8.7 get the line without `expiry-time`.
 2. **Typing.** Tapping the terminal brings up the keyboard, and what you type reaches the
-   shell. The keyboard covers the bottom of the screen for now, and there's no Ctrl or Esc key
-   yet (milestone 3, on hold). Put the keyboard away (back gesture or its hide key) and it
-   stays down, with a round keyboard button in the bottom-right corner that brings it back.
+   shell, swipe (glide) typing included. A round keyboard button sits in the bottom-right
+   corner, above the keyboard when it's up, on terminals and on the Agents tab:
+   - Tap it to put the keyboard away or bring it back. Put away (by the button, the back
+     gesture or the keyboard's hide key), the keyboard stays down.
+   - Drag it as a joystick to send arrow keys. They repeat while you hold, faster the further
+     you push.
+   - Double-tap it to arm Ctrl for the next key. Double-tap, then `c`, sends `^C`.
+   There's no Esc key yet (milestone 3, on hold).
 3. **Next launch.** Close the app from the recents screen and open it again. It connects
    without asking for anything, and the shell you left open comes back as it was.
 4. **Switching away.** Leave the app for a few minutes, or turn Wi-Fi off and on, then go back.

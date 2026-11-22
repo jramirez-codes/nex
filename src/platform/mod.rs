@@ -35,7 +35,7 @@
 //! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |
 //! | `process_start(pid)` | when a process started, as Claude Code's session file records it |
 //! | `content_rect_px()` | the part of the window system bars leave free (Android: the window covers the whole screen) |
-//! | `typed_text()` / `sync_soft_keyboard(ctx)` / `soft_keyboard_visible()` | text the on-screen keyboard committed (a paste, a suggestion), showing or hiding it, and whether it's up |
+//! | `typed_text()` / `sync_soft_keyboard(ctx)` / `soft_keyboard_visible()` / `haptic(kind)` | text the on-screen keyboard typed or pasted, showing or hiding it, whether it's up, and haptic feedback |
 //! | `clipboard_text()` / `mirror_copies(ctx)` | the system clipboard where egui has none (Android): pasting into text fields, and copies mirrored to it |
 //! | `clipboard_files()` | an image or copied files on the clipboard ([`ClipboardFiles`]), where `Dnd` can't read it |
 //! | `pty_options(..)` / `pty_pid(..)` | build the PTY options, read the child's pid |
@@ -111,11 +111,40 @@ pub fn content_rect_px() -> Option<[f32; 4]> {
     None
 }
 
+/// Text the on-screen keyboard sent outside of key events.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub enum Typed {
+    /// Typed (a key, a glided word, a suggestion): first `delete` characters are taken back
+    /// with Backspace (the keyboard changed its mind about a word it's still composing), then
+    /// `text` goes in as if typed.
+    Text { delete: usize, text: String },
+    /// Several characters committed at once from the keyboard's clipboard: a paste.
+    Paste(String),
+}
+
+/// A touch of haptic feedback, for controls that should feel physical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Haptic {
+    /// A tap on a button.
+    Tap,
+    /// One step of a continuous control (each arrow the joystick sends).
+    Tick,
+    /// A mode switched on (Ctrl armed).
+    Confirm,
+    /// A mode used up or switched off.
+    Release,
+}
+
 /// Only Android has an on-screen keyboard that commits text outside of key events.
 #[cfg(not(target_os = "android"))]
-pub fn typed_text() -> Vec<String> {
+pub fn typed_text() -> Vec<Typed> {
     Vec::new()
 }
+
+/// Desktops have no haptics to play.
+#[cfg(not(target_os = "android"))]
+pub fn haptic(_kind: Haptic) {}
 
 #[cfg(not(target_os = "android"))]
 pub fn sync_soft_keyboard(_ctx: &egui::Context) {}
