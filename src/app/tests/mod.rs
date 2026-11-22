@@ -10,6 +10,7 @@ mod agents;
 mod drop;
 mod explorer_view;
 mod git_diff;
+mod keyboard_button;
 mod session;
 mod sticky;
 
