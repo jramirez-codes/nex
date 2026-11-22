@@ -362,6 +362,7 @@ animations = false                           # turn off pane and tab animations
 tab-animation = ink                          # switching tabs: glide (default) | ink | none
 explorer-view = grid                         # file explorers open as a grid (default: list)
 tab-bar = sidebar                            # tabs in a left sidebar, for touch screens (default: top)
+agents-tab = icon                            # the Agents tab as just the dog, with a count bubble (default: full; icon on Android)
 restore-session = false                      # start with one fresh shell instead of the last window
 command = fish                               # defaults to your login shell
 ```
