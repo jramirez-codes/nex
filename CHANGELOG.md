@@ -8,6 +8,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Android: the title-bar tabs keep one width, two and a half to the screen, and the strip
+  swipes sideways (with a fling) instead of squeezing every tab in. Long-press a tab, then
+  drag, to reorder it; a new or newly shown tab scrolls into view.
 - Android: a round glass keyboard button in the bottom-right corner while the on-screen
   keyboard is down. Tap it to bring the keyboard back. Putting the keyboard away (the back
   gesture or its hide key) now keeps it down, so you can read and scroll a full screen.

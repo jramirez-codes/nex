@@ -264,6 +264,7 @@ impl App {
                 dog_was_active: false,
                 tab_hits: Vec::new(),
                 strip_rect: None,
+                scroll: chrome::titlebar::TabScroll::new(crate::platform::WINDOW.scroll_tabs),
             },
             connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
             adopt: Vec::new(),

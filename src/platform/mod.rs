@@ -268,6 +268,9 @@ pub struct WindowDefaults {
     pub min_size: [f32; 2],
     /// Ask for a window with an alpha channel (for `background-opacity`).
     pub transparent: bool,
+    /// Title-bar tabs keep one width (two and a half to a screen) and the strip swipes sideways,
+    /// rather than shrinking to fit (phones).
+    pub scroll_tabs: bool,
 }
 
 impl WindowDefaults {
