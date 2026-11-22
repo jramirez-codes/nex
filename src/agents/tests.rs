@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use egui::{Key, Modifiers};
 
 use super::AgentsPane;
-use super::model::{AgentKind, Counts, Probe, Source, Status, Tracker, elapsed, is_remote_key, remote_key};
+use super::model::{AgentKind, Counts, Probe, Source, Status, Team, Tracker, elapsed, is_remote_key, remote_key};
 
 fn v(s: &[&str]) -> Vec<String> {
     s.iter().map(|s| s.to_string()).collect()
@@ -27,6 +27,7 @@ fn probe(pane: u64, tab: usize, kind: AgentKind, at: Instant) -> Probe {
         last_input: at - Duration::from_secs(60),
         source: Source::Local,
         reported: None,
+        team: Team::default(),
     }
 }
 
@@ -143,18 +144,30 @@ fn summaries_and_elapsed_times() {
     assert_eq!(elapsed(Duration::from_secs(200_000)), "2d");
 }
 
+fn at(x: f32, y: f32, w: f32, h: f32) -> egui::Rect {
+    egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h))
+}
+
 #[test]
 fn keys_move_through_cards_and_jump() {
     let mut a = AgentsPane::new();
-    a.order = vec![10, 11, 12, 13, 14];
-    a.columns = 2;
+    // Two to a row: 10 11 / 12 13 / 14.
+    a.targets = vec![
+        (10, at(0.0, 0.0, 300.0, 74.0)),
+        (11, at(310.0, 0.0, 300.0, 74.0)),
+        (12, at(0.0, 84.0, 300.0, 74.0)),
+        (13, at(310.0, 84.0, 300.0, 74.0)),
+        (14, at(0.0, 168.0, 300.0, 74.0)),
+    ];
     a.selected = Some(10);
     assert!(a.key(Key::ArrowDown, Modifiers::NONE));
     assert_eq!(a.selected, Some(12));
     assert!(a.key(Key::L, Modifiers::NONE));
     assert_eq!(a.selected, Some(13));
     assert!(a.key(Key::ArrowDown, Modifiers::NONE));
-    assert_eq!(a.selected, Some(14), "clamped at the last card");
+    assert_eq!(a.selected, Some(14), "the nearest one in the row below");
+    assert!(a.key(Key::ArrowDown, Modifiers::NONE));
+    assert_eq!(a.selected, Some(14), "nothing below the last");
     assert!(a.key(Key::Home, Modifiers::NONE));
     assert_eq!(a.selected, Some(10));
     assert!(a.key(Key::Enter, Modifiers::NONE));
@@ -162,6 +175,35 @@ fn keys_move_through_cards_and_jump() {
     // Shortcuts with modifiers aren't the pane's.
     assert!(!a.key(Key::J, Modifiers::CTRL));
     assert!(!a.key(Key::Q, Modifiers::NONE));
+}
+
+#[test]
+fn space_opens_and_closes_a_team_and_keys_go_through_its_helpers() {
+    let mut a = AgentsPane::new();
+    // A team (lead 1, helpers 2 and 3) across the row, with a card under it.
+    a.team_of = std::collections::HashMap::from([(1, 1), (2, 1), (3, 1)]);
+    a.targets = vec![(1, at(0.0, 0.0, 620.0, 74.0)), (9, at(0.0, 200.0, 300.0, 74.0))];
+    a.selected = Some(1);
+    assert!(a.key(Key::Space, Modifiers::NONE));
+    assert_eq!(a.expanded.get(&1), Some(&false), "open");
+    assert!(a.requests.is_empty(), "Space on a team opens it rather than jumping");
+    // Drawn open: its rows are targets after it.
+    a.targets = vec![(1, at(0.0, 0.0, 620.0, 74.0)), (2, at(12.0, 76.0, 596.0, 46.0)), (3, at(12.0, 122.0, 596.0, 46.0)), (9, at(0.0, 200.0, 300.0, 74.0))];
+    assert!(a.key(Key::ArrowDown, Modifiers::NONE));
+    assert_eq!(a.selected, Some(2));
+    assert!(a.key(Key::ArrowDown, Modifiers::NONE));
+    assert_eq!(a.selected, Some(3));
+    assert!(a.key(Key::Enter, Modifiers::NONE));
+    assert_eq!(a.requests, vec![super::Request::Focus(3)], "Enter jumps to the helper");
+    // Closing it from a helper takes the highlight back up to the team.
+    assert!(a.key(Key::Space, Modifiers::NONE));
+    assert!(a.expanded.is_empty());
+    assert_eq!(a.selected, Some(1));
+    // Space on a card that isn't a team jumps to it, as before.
+    a.selected = Some(9);
+    a.requests.clear();
+    assert!(a.key(Key::Space, Modifiers::NONE));
+    assert_eq!(a.requests, vec![super::Request::Focus(9)]);
 }
 
 fn remote(host: &str, session: &str, status: Status, at: Instant) -> Probe {

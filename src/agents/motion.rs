@@ -264,7 +264,18 @@ mod tests {
 
     fn agent(pane: PaneId, status: Status) -> Agent {
         use crate::agents::model::{AgentKind, Source};
-        Agent { pane, tab: Some(0), kind: AgentKind::Claude, name: "a".into(), mark: None, cwd: None, status, since: std::time::Instant::now(), source: Source::Local }
+        Agent {
+            pane,
+            tab: Some(0),
+            kind: AgentKind::Claude,
+            name: "a".into(),
+            mark: None,
+            cwd: None,
+            status,
+            since: std::time::Instant::now(),
+            source: Source::Local,
+            team: Default::default(),
+        }
     }
 
     fn at(y: f32) -> Rect {

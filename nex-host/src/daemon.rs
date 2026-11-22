@@ -394,6 +394,9 @@ fn spawn(
         task.trim_end()
     );
     let message = letter(state, &from, &from_name, &id, &name, MessageKind::Task, &body, None, None, vec![]);
+    // What it's for, as a team shows it: the name it was spawned with when no role was given
+    // (Claude Code renames its session after its task).
+    let role = role.or_else(|| Some(name.clone()));
     let on_command_line = matches!(kind.as_str(), "claude" | "codex") && agent::detect_kind(&argv) == Some(kind.as_str());
     if on_command_line {
         argv.push(deliver::render(&message));

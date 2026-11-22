@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::agents::AgentsPane;
-use crate::agents::model::{AgentKind, Probe, Source, Status, is_remote_key, remote_key};
+use crate::agents::model::{AgentKind, Probe, Source, Status, Team, is_remote_key, remote_key};
 use crate::layout::{Axis, PaneId};
 use crate::remote::SshTarget;
 use crate::session::claude;
@@ -84,6 +84,7 @@ impl App {
                     last_input: t.last_input,
                     source: Source::Local,
                     reported: None,
+                    team: Team::default(),
                 });
             }
         }
@@ -121,6 +122,7 @@ impl App {
                     last_input: now,
                     source: Source::Remote { host: host.clone(), target: target.clone(), session: s.id.clone(), pane: shown.map(|(p, _, _)| p) },
                     reported: Some(status),
+                    team: Team { parent: s.parent.as_deref().map(|p| remote_key(&host, p)), role: s.role.clone(), started: s.started },
                 });
             }
         }
