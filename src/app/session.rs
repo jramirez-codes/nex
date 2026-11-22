@@ -1,6 +1,7 @@
 //! Bringing the last session back (`restore-session`): the window's tabs, split trees and
 //! folders are snapshotted to `crate::session` while nex runs and on exit, and rebuilt on
-//! the first frame of the next plain launch. Restored terminals start a fresh shell.
+//! the first frame of the next plain launch. Restored terminals start a fresh shell and type
+//! in what was running in it (Claude Code resumes its conversation).
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -92,6 +93,7 @@ impl App {
                 kind: if self.explorers.contains_key(id) { PaneKind::Explorer } else { PaneKind::Terminal },
                 cwd: self.pane_cwd(*id),
                 font_size: self.pane_fonts.get(id).copied(),
+                command: self.panes.get(id).and_then(|t| t.running_command()),
             }),
             Node::Split { axis, ratio, a, b } => PaneNode::Split {
                 axis: *axis,
@@ -155,7 +157,13 @@ impl App {
     fn restore_pane(&mut self, ctx: &egui::Context, p: &PaneState, card: egui::Rect) -> Option<PaneId> {
         let dir = restore_dir(p.cwd.as_ref());
         match p.kind {
-            PaneKind::Terminal => self.spawn_pane(ctx, Some(dir), None, card, p.font_size),
+            PaneKind::Terminal => {
+                let id = self.spawn_pane(ctx, Some(dir), None, card, p.font_size)?;
+                if let (Some(cmd), Some(t)) = (&p.command, self.panes.get_mut(&id)) {
+                    t.queue_command(cmd);
+                }
+                Some(id)
+            }
             PaneKind::Explorer => {
                 let id = self.alloc_pane_id();
                 self.explorers.insert(id, self.new_explorer(dir));
@@ -217,6 +225,10 @@ impl App {
         if !self.keeps_session() {
             return;
         }
+        // Catch a program started since the last poll.
+        for t in self.panes.values_mut() {
+            t.refresh_process_info();
+        }
         if let Some(s) = self.snapshot_session()
             && let Err(e) = session::save(&s)
         {
@@ -247,7 +259,7 @@ mod tests {
     #[test]
     fn a_failed_leaf_hands_its_split_to_its_sibling() {
         use crate::layout::Axis;
-        let leaf = || PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: None, font_size: None });
+        let leaf = || PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: None, font_size: None, command: None });
         let split = |a, b| PaneNode::Split { axis: Axis::Horizontal, ratio: 0.3, a: Box::new(a), b: Box::new(b) };
         let tree = split(leaf(), split(leaf(), leaf()));
         assert_eq!(build(&tree, &[Some(7), None, Some(9)], &mut 0).unwrap().panes(), vec![7, 9]);

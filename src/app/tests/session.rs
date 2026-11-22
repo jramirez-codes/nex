@@ -28,7 +28,7 @@ fn restored(s: Session) -> (egui::Context, App) {
 }
 
 fn leaf(kind: PaneKind, cwd: &std::path::Path, font_size: Option<f32>) -> PaneNode {
-    PaneNode::Leaf(PaneState { kind, cwd: Some(cwd.to_path_buf()), font_size })
+    PaneNode::Leaf(PaneState { kind, cwd: Some(cwd.to_path_buf()), font_size, command: None })
 }
 
 #[test]
@@ -199,4 +199,52 @@ fn only_close_actions_count_as_the_user_closing() {
     frames(&ctx, &mut app, 1);
     assert!(app.tabs.is_empty());
     assert_eq!(file_policy(&mut app), (true, true));
+}
+
+/// Run frames until `done` holds (the shell and its programs run in real time), or panic.
+fn frames_until(ctx: &egui::Context, app: &mut App, what: &str, mut done: impl FnMut(&mut App) -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while !done(app) {
+        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        frames(ctx, app, 1);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_running_command_is_saved_and_run_again() {
+    let dir = std::env::temp_dir().join(format!("nex-session-cmd-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let marker = dir.join("ran");
+    let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // Leaves a mark, then keeps running as the shell's foreground job.
+    let cmd = argv(&["sh", "-c", &format!("echo it\\'s > '{}' && exec sleep 30", marker.display())]);
+    let mut s = one_shell(&dir);
+    let PaneNode::Leaf(p) = &mut s.tabs[0].root else { unreachable!() };
+    p.command = Some(cmd);
+
+    let (ctx, mut app) = restored(s);
+    let id = terminals(&app)[0];
+    frames_until(&ctx, &mut app, "the restored command to run", |_| marker.exists());
+    assert_eq!(std::fs::read_to_string(&marker).unwrap().trim(), "it's");
+
+    // What the shell is running now is what the next session saves.
+    frames_until(&ctx, &mut app, "sleep in the foreground", |app| {
+        let t = app.panes.get_mut(&id).unwrap();
+        t.refresh_process_info();
+        t.running_command().is_some_and(|c| c == argv(&["sleep", "30"]))
+    });
+    let snap = app.snapshot_session().unwrap();
+    assert_eq!(snap.tabs[0].root.leaves()[0].command, Some(argv(&["sleep", "30"])));
+
+    // Interrupted, the pane is back at its prompt and saves no command.
+    app.panes[&id].write(&b"\x03"[..]);
+    frames_until(&ctx, &mut app, "the prompt", |app| {
+        let t = app.panes.get_mut(&id).unwrap();
+        t.refresh_process_info();
+        t.running_command().is_none()
+    });
+    assert_eq!(app.snapshot_session().unwrap().tabs[0].root.leaves()[0].command, None);
+    std::fs::remove_dir_all(dir).unwrap();
 }

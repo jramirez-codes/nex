@@ -375,7 +375,10 @@ when the program exits. A new window (`Ctrl+Shift+N`, `Cmd+N` on macOS) keeps `-
 `--app-id`.
 
 A plain `nex` brings back the last window: every tab and split, each pane's folder and zoom,
-and the Files tab. Terminals start a fresh shell in their folder (no scrollback). Closing every
+and the Files tab. Terminals start a fresh shell in their folder (no scrollback), and a pane
+that was running something (`npm run dev`, `ssh host`) runs it again there; Claude Code picks up
+the same conversation (`claude --resume`). Programs are started again, not reattached, so what
+was only in their memory is gone. Closing every
 tab makes the next launch start fresh; `-e`, a folder, `--working-directory`, `--explorer` and
 new windows never restore, nor does a second `nex` while one is already running. Turn it off with `restore-session = false`.
 

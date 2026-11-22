@@ -1,13 +1,15 @@
 //! The window layout saved on quit and brought back on the next plain launch: every tab's
-//! split tree, each pane's working directory and zoom, focus, and the Files tab. Stored as
-//! JSON in `$XDG_STATE_HOME/nex/session.json` (`~/.local/state/nex/session.json`), or
-//! `~/Library/Application Support/nex/session.json` on macOS.
+//! split tree, each pane's working directory, zoom and running command, focus, and the Files
+//! tab. Stored as JSON in `$XDG_STATE_HOME/nex/session.json` (`~/.local/state/nex/session.json`),
+//! or `~/Library/Application Support/nex/session.json` on macOS.
 
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
 use crate::layout::Axis;
+
+pub mod claude;
 
 /// Format version written to and required in the file.
 pub const VERSION: u32 = 1;
@@ -16,6 +18,9 @@ const RATIO_MIN: f32 = 0.05;
 const RATIO_MAX: f32 = 0.95;
 const FONT_MIN: f32 = 6.0;
 const FONT_MAX: f32 = 72.0;
+/// Most arguments, and bytes in all, a saved command may have; a real one is far smaller.
+const COMMAND_MAX_ARGS: usize = 256;
+const COMMAND_MAX_BYTES: usize = 16 * 1024;
 
 /// Everything restored on launch.
 #[derive(Clone, Debug, PartialEq)]
@@ -54,6 +59,9 @@ pub struct PaneState {
     pub cwd: Option<PathBuf>,
     /// Per-pane zoom override; `None` = the config's size.
     pub font_size: Option<f32>,
+    /// What a terminal was running in its shell (`npm run dev`), run again on restore.
+    /// `None` when it was at its prompt, and always for explorers.
+    pub command: Option<Vec<String>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +148,9 @@ fn node_to_value(n: &PaneNode) -> Value {
             if let Some(size) = p.font_size {
                 m.insert("font_size".into(), short_f32(size));
             }
+            if let Some(cmd) = p.command.as_ref().filter(|_| p.kind == PaneKind::Terminal) {
+                m.insert("command".into(), json!(cmd));
+            }
             Value::Object(m)
         }
         PaneNode::Split { axis, ratio, a, b } => {
@@ -191,7 +202,8 @@ fn node_from_value(v: &Value, depth: usize) -> Option<PaneNode> {
                 f.is_finite().then(|| f.clamp(FONT_MIN, FONT_MAX))
             }
         };
-        return Some(PaneNode::Leaf(PaneState { kind, cwd, font_size }));
+        let command = obj.get("command").filter(|_| kind == PaneKind::Terminal).and_then(command_from_value);
+        return Some(PaneNode::Leaf(PaneState { kind, cwd, font_size, command }));
     }
     let axis = match obj.get("axis")?.as_str()? {
         "horizontal" => Axis::Horizontal,
@@ -205,6 +217,15 @@ fn node_from_value(v: &Value, depth: usize) -> Option<PaneNode> {
     let a = node_from_value(obj.get("a")?, depth + 1)?;
     let b = node_from_value(obj.get("b")?, depth + 1)?;
     Some(PaneNode::Split { axis, ratio: ratio.clamp(RATIO_MIN, RATIO_MAX), a: Box::new(a), b: Box::new(b) })
+}
+
+/// A saved command: a non-empty array of strings within the size caps; anything else is
+/// dropped (the pane still comes back, at its prompt).
+fn command_from_value(v: &Value) -> Option<Vec<String>> {
+    let arr = v.as_array().filter(|a| !a.is_empty() && a.len() <= COMMAND_MAX_ARGS)?;
+    let argv: Vec<String> = arr.iter().map(|a| a.as_str().map(str::to_string)).collect::<Option<_>>()?;
+    let bytes: usize = argv.iter().map(String::len).sum();
+    (bytes <= COMMAND_MAX_BYTES && !argv[0].is_empty()).then_some(argv)
 }
 
 /// Where the session file lives, or `None` with no home directory.
@@ -342,7 +363,7 @@ mod tests {
     use super::*;
 
     fn term(cwd: &str) -> PaneNode {
-        PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some(cwd.into()), font_size: None })
+        PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some(cwd.into()), font_size: None, command: None })
     }
 
     fn split(axis: Axis, ratio: f32, a: PaneNode, b: PaneNode) -> PaneNode {
@@ -363,7 +384,7 @@ mod tests {
             tabs: vec![
                 tab(term("/a")),
                 TabState {
-                    root: PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(18.5) }),
+                    root: PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(18.5), command: None }),
                     focused: 0,
                     zoomed: true,
                 },
@@ -374,6 +395,40 @@ mod tests {
         };
         assert_eq!(Session::from_json(&s.to_json()).unwrap(), s);
         assert!(s.to_json().contains("\"version\": 1"));
+    }
+
+    #[test]
+    fn commands_round_trip() {
+        let cmd = |c: &[&str]| Some(c.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let leaf = |command| PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some("/a".into()), font_size: None, command });
+        let s = Session {
+            tabs: vec![tab(split(Axis::Horizontal, 0.5, leaf(cmd(&["npm", "run", "dev"])), leaf(cmd(&["echo", "a b", "it's"]))))],
+            active: 0,
+            explorer: None,
+            explorer_active: false,
+        };
+        assert_eq!(Session::from_json(&s.to_json()).unwrap(), s);
+        // A pane at its prompt saves no command at all.
+        assert!(!Session { tabs: vec![tab(term("/a"))], ..s.clone() }.to_json().contains("command"));
+    }
+
+    #[test]
+    fn bad_commands_are_dropped() {
+        let command = |c: Value| {
+            let s = Session::from_json(&one_tab(json!({ "kind": "terminal", "command": c }))).unwrap();
+            s.tabs[0].root.leaves()[0].command.clone()
+        };
+        assert_eq!(command(json!(["ls", "-l"])), Some(vec!["ls".to_string(), "-l".to_string()]));
+        assert_eq!(command(json!([])), None);
+        assert_eq!(command(json!([""])), None);
+        assert_eq!(command(json!("npm run dev")), None);
+        assert_eq!(command(json!(["ls", 3])), None);
+        assert_eq!(command(json!(vec!["x"; COMMAND_MAX_ARGS + 1])), None);
+        assert_eq!(command(json!(["x".repeat(COMMAND_MAX_BYTES + 1)])), None);
+        assert_eq!(command(Value::Null), None);
+        // Explorers never run anything.
+        let j = one_tab(json!({ "kind": "explorer", "cwd": "/x", "command": ["rm", "-rf", "/"] }));
+        assert_eq!(Session::from_json(&j).unwrap().tabs[0].root.leaves()[0].command, None);
     }
 
     #[test]
@@ -393,7 +448,7 @@ mod tests {
 
     #[test]
     fn explorer_tab_round_trip() {
-        let ex = |d: &str| PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: Some(d.into()), font_size: None });
+        let ex = |d: &str| PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: Some(d.into()), font_size: None, command: None });
         let s = Session {
             tabs: vec![tab(term("/a"))],
             active: 0,
@@ -510,7 +565,7 @@ mod tests {
                 root: split(
                     Axis::Vertical,
                     0.6,
-                    PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(13.3) }),
+                    PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(13.3), command: None }),
                     term("/b"),
                 ),
                 focused: 0,

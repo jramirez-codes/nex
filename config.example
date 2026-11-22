@@ -56,8 +56,8 @@ ssh-follow = true
 ssh-mic = manual
 scrollback-limit = 10000
 # Bring back the last window at launch: its tabs, splits, each pane's folder and zoom, and the
-# Files tab. Terminals start a fresh shell there (ssh panes come back as local shells). Only a
-# plain `nex` restores; closing every tab starts the next launch fresh. Saved to
+# Files tab. Terminals start a fresh shell there and run again what was running in it (a dev
+# server, ssh; Claude Code resumes its conversation). Only a plain `nex` restores; closing every tab starts the next launch fresh. Saved to
 # $XDG_STATE_HOME/nex/session.json (~/.local/state/nex/session.json), or
 # ~/Library/Application Support/nex/session.json on macOS.
 restore-session = true
