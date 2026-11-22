@@ -191,7 +191,7 @@ impl GitDiff {
             let list = Rect::from_min_size(body.min, Vec2::new(w, body.height()));
             let diff = Rect::from_min_max(Pos2::new(list.right(), body.top()), body.max);
             self.list(&f, painter, list, snap, corner, 0);
-            painter.line_segment([list.right_top(), list.right_bottom()], Stroke::new(1.0, HAIRLINE));
+            painter.line_segment([list.right_top(), list.right_bottom()], Stroke::new(1.0_f32, HAIRLINE));
             self.diff_column(&f, painter, diff, snap, false);
         }
     }
@@ -200,7 +200,7 @@ impl GitDiff {
     fn toolbar(&mut self, f: &Frame, p: &Painter, bar: Rect) {
         let c = f.c;
         let ctx = f.ui.ctx();
-        p.line_segment([bar.left_bottom(), bar.right_bottom()], Stroke::new(1.0, HAIRLINE));
+        p.line_segment([bar.left_bottom(), bar.right_bottom()], Stroke::new(1.0_f32, HAIRLINE));
         let cy = bar.center().y;
 
         // Refresh, at the far right; it spins while git runs.
@@ -233,7 +233,7 @@ impl GitDiff {
             let track = Rect::from_min_size(Pos2::new(right - total, cy - 13.0), Vec2::new(total, 26.0));
             right = track.left() - 10.0;
             p.rect_filled(track, 8, SEGMENT_TRACK);
-            p.rect_stroke(track, 8, Stroke::new(1.0, white_alpha(8)), StrokeKind::Inside);
+            p.rect_stroke(track, 8, Stroke::new(1.0_f32, white_alpha(8)), StrokeKind::Inside);
             let mut x = track.left() + 2.0;
             let mut slots = Vec::new();
             for w in &widths {
@@ -250,7 +250,7 @@ impl GitDiff {
             let shadow = Shadow { offset: [0, 1], blur: 4, spread: 0, color: Color32::from_black_alpha(70) };
             p.add(shadow.as_shape(pill, 6));
             p.rect_filled(pill, 6, SEGMENT_ON);
-            p.rect_stroke(pill, 6, Stroke::new(1.0, white_alpha(16)), StrokeKind::Inside);
+            p.rect_stroke(pill, 6, Stroke::new(1.0_f32, white_alpha(16)), StrokeKind::Inside);
             for (k, ((filter, label), slot)) in labels.iter().zip(&slots).enumerate() {
                 let resp = f.interact(*slot, ("segment", k));
                 let hovered = resp.as_ref().is_some_and(|r| r.hovered());
@@ -450,10 +450,10 @@ impl GitDiff {
             for k in 0..6 {
                 let y = header.bottom() + k as f32;
                 let a = (28.0 * scrolled * (1.0 - k as f32 / 6.0)) as u8;
-                p.line_segment([Pos2::new(header.left(), y), Pos2::new(header.right(), y)], Stroke::new(1.0, Color32::from_black_alpha(a)));
+                p.line_segment([Pos2::new(header.left(), y), Pos2::new(header.right(), y)], Stroke::new(1.0_f32, Color32::from_black_alpha(a)));
             }
         }
-        p.line_segment([header.left_bottom(), header.right_bottom()], Stroke::new(1.0, HAIRLINE));
+        p.line_segment([header.left_bottom(), header.right_bottom()], Stroke::new(1.0_f32, HAIRLINE));
         let mut x = header.left() + SIDE;
         let cy = header.center().y;
         if back {
@@ -689,7 +689,7 @@ fn section_header(p: &Painter, r: Rect, label: &str, count: usize, collapsed: bo
 
 /// A small triangle-ish chevron: pointing down when open, right when collapsed.
 fn disclosure(p: &Painter, r: Rect, color: Color32, collapsed: bool) {
-    let s = Stroke::new(1.4, color);
+    let s = Stroke::new(1.4_f32, color);
     let k = r.width() * 0.42;
     let m = r.center();
     let pts = if collapsed {
@@ -734,7 +734,7 @@ fn file_row(p: &Painter, r: Rect, file: &FileChange, selected: bool, c: &Theme) 
     paint::faded_text(p, Pos2::new(x, cy), file.name(), font, if struck { name_color.gamma_multiply(0.7) } else { name_color }, room, 18.0);
     if struck {
         let w = name_w.min(room);
-        p.line_segment([Pos2::new(x, cy + 0.5), Pos2::new(x + w, cy + 0.5)], Stroke::new(1.0, name_color.gamma_multiply(0.5)));
+        p.line_segment([Pos2::new(x, cy + 0.5), Pos2::new(x + w, cy + 0.5)], Stroke::new(1.0_f32, name_color.gamma_multiply(0.5)));
     }
     let folder = file.folder();
     if !folder.is_empty() && room - name_w > 28.0 {
@@ -779,17 +779,17 @@ fn share_bar(p: &Painter, r: Rect, added: u32, removed: u32, c: &Theme) {
     }
     // Keep a hairline gap between the two, like a segmented gauge.
     if added > 0 && removed > 0 {
-        clip.line_segment([Pos2::new(split, r.top()), Pos2::new(split, r.bottom())], Stroke::new(1.5, opaque(c.card)));
+        clip.line_segment([Pos2::new(split, r.top()), Pos2::new(split, r.bottom())], Stroke::new(1.5_f32, opaque(c.card)));
     }
 }
 
 /// A hunk's rounded card and its caption: the enclosing function, and the line ranges.
 fn hunk_card(p: &Painter, card: Rect, h: &Hunk, c: &Theme) {
     p.rect_filled(card, HUNK_RADIUS, white_alpha(5));
-    p.rect_stroke(card, HUNK_RADIUS, Stroke::new(1.0, white_alpha(13)), StrokeKind::Inside);
+    p.rect_stroke(card, HUNK_RADIUS, Stroke::new(1.0_f32, white_alpha(13)), StrokeKind::Inside);
     let cap = Rect::from_min_size(card.min, Vec2::new(card.width(), HUNK_CAPTION_H));
     p.rect_filled(cap, CornerRadius { nw: HUNK_RADIUS, ne: HUNK_RADIUS, sw: 0, se: 0 }, white_alpha(4));
-    p.line_segment([cap.left_bottom() + Vec2::new(1.0, 0.0), cap.right_bottom() - Vec2::new(1.0, 0.0)], Stroke::new(1.0, white_alpha(10)));
+    p.line_segment([cap.left_bottom() + Vec2::new(1.0, 0.0), cap.right_bottom() - Vec2::new(1.0, 0.0)], Stroke::new(1.0_f32, white_alpha(10)));
     let cy = cap.center().y;
     let ranges = format!("−{},{}  +{},{}", h.old_start, h.old_len, h.new_start, h.new_len);
     let rg = p.layout_no_wrap(ranges, mono(10.5), c.text_dim.gamma_multiply(0.7));
@@ -891,7 +891,7 @@ fn message(p: &Painter, area: Rect, c: &Theme, glyph: Glyph, title: &str, detail
         }
         Glyph::Check => {
             p.circle_filled(g.center(), 22.0, c.green.gamma_multiply(0.16));
-            let s = Stroke::new(2.4, c.green);
+            let s = Stroke::new(2.4_f32, c.green);
             let m = g.center();
             p.add(Shape::line(vec![m + Vec2::new(-8.0, 0.5), m + Vec2::new(-2.5, 6.0), m + Vec2::new(8.5, -6.0)], s));
         }
@@ -922,7 +922,7 @@ fn refresh_icon(p: &Painter, r: Rect, color: Color32, turn: f32, spinning: bool)
         m + Vec2::new(a.cos(), a.sin()) * radius
     }).collect();
     let end = *pts.last().unwrap_or(&m);
-    p.add(Shape::line(pts, Stroke::new(1.6, color)));
+    p.add(Shape::line(pts, Stroke::new(1.6_f32, color)));
     if !spinning {
         // The arrowhead, at the end of the arc, pointing along it.
         let a = start + sweep;

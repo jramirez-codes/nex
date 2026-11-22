@@ -67,7 +67,7 @@ pub fn paint(p: &Painter, r: Rect, t: f32, dim: (Color32, f32)) {
     let blaze_screen: Vec<Pos2> = blaze.iter().map(|&q| head.apply(q)).collect();
     fill(&head_p, &blaze_screen, &triangulate(&blaze), Fill::Solid(BLAZE), shade);
     // A hairline of the same white antialiases the mesh's edge.
-    head_p.add(PathShape::closed_line(blaze_screen, PathStroke::new(0.8, shade.solid(BLAZE))));
+    head_p.add(PathShape::closed_line(blaze_screen, PathStroke::new(0.8_f32, shade.solid(BLAZE))));
 
     // Eyes.
     let eyes = head.then(&Affine::about(Pos2::new(64.0, 67.0), Vec2::new(pose.eyes_x, 0.0), 0.0, Vec2::new(1.0, pose.eyes_sy)));

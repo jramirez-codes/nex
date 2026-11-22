@@ -287,7 +287,7 @@ fn agent_card(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: Look) {
     let inset = CARD_RADIUS as f32 + 2.0;
     p.line_segment(
         [Pos2::new(r.left() + inset, r.top() + 1.0), Pos2::new(r.right() - inset, r.top() + 1.0)],
-        Stroke::new(1.0, white_alpha(14)),
+        Stroke::new(1.0_f32, white_alpha(14)),
     );
     p.rect_stroke(r, CARD_RADIUS, Stroke::new(border_width, border), StrokeKind::Inside);
 
@@ -343,7 +343,7 @@ fn status_dot(f: &Frame, p: &Painter, at: Pos2, status: Status, color: Color32) 
         return;
     }
     let t = (f.time * 1.1).fract() as f32;
-    p.circle_stroke(at, 3.5 + 5.0 * t, Stroke::new(1.2, color.gamma_multiply(0.55 * (1.0 - t) * (1.0 - t))));
+    p.circle_stroke(at, 3.5 + 5.0 * t, Stroke::new(1.2_f32, color.gamma_multiply(0.55 * (1.0 - t) * (1.0 - t))));
     let breathe = 0.5 + 0.5 * (f.time as f32 * std::f32::consts::TAU * 0.55).sin();
     p.circle_filled(at, 3.2 + 0.6 * breathe, color.gamma_multiply(0.75 + 0.25 * breathe));
 }
