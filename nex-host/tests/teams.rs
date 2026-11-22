@@ -147,3 +147,53 @@ fn prune_removes_only_worktrees_that_cant_lose_work() {
     h.run(&["worktree", "prune", "--all"]);
     assert!(!ahead_dir.exists() && dirty_dir.exists());
 }
+
+#[test]
+fn an_each_stage_takes_reports_first_come_first_served() {
+    let h = Host::new();
+    let pipes = h.home.join(".config/nex/pipelines");
+    std::fs::create_dir_all(&pipes).unwrap();
+    // Builders report in the order b, c, a. b's first try gets sent back (a "conflict"),
+    // so it reports again, and is merged last. Each merger is a fresh agent that approves
+    // anything but a first try.
+    std::fs::write(
+        pipes.join("prs.toml"),
+        r#"
+        kind = "sh"
+        [[stage]]
+        name = "build-a"
+        task = "build a"
+        command = ["sh", "-c", "sleep 3; nex-host done 'built a' --pr 101; sleep 60"]
+        [[stage]]
+        name = "build-b"
+        parallel = true
+        task = "build b"
+        command = ["sh", "-c", "sleep 1; nex-host done 'first try' --pr 102; read -r x; read -r t; nex-host done 'rebased' --pr 102; sleep 60"]
+        [[stage]]
+        name = "build-c"
+        parallel = true
+        task = "build c"
+        command = ["sh", "-c", "sleep 2; nex-host done 'built c' --pr '#103'; sleep 60"]
+        [[stage]]
+        name = "merge"
+        each = true
+        task = "Merge PR {pr} from {from} ({report}). Merged before it: {merged}."
+        command = ["sh", "-c", "read -r t; case \"$t\" in *'first try'*) nex-host done 'conflicts with main' --verdict changes;; *) nex-host done \"merged\" --verdict approved;; esac; sleep 60"]
+        "#,
+    )
+    .unwrap();
+    let id = h.run(&["pipe", "prs", "go", "--bg"]).trim().to_string();
+
+    let screen = || h.run(&["read", &id, "--lines", "40"]);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !screen().contains("finished.") {
+        assert!(std::time::Instant::now() < deadline, "the run never finished:\n{}", screen());
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    let out = screen();
+    assert!(out.contains("↺ build-b (PR 102) sent back (1/3): conflicts with main"), "{out}");
+    assert!(out.contains("merge approved 3: build-c (PR 103), build-a (PR 101), build-b (PR 102)"), "{out}");
+    // A fresh merger per report, each gone when it's done.
+    assert!(out.contains("merge-4"), "{out}");
+    assert!(!h.sessions().iter().any(|s| s.name.starts_with("merge-") && s.exit.is_none()));
+}

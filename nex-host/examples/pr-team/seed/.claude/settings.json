@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(git:*)",
+      "Bash(gh pr:*)",
+      "Bash(python3 -m unittest:*)",
+      "Bash(python3 -m app.cli:*)",
+      "Bash(nex-host:*)"
+    ]
+  }
+}
