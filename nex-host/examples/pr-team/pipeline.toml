@@ -1,0 +1,66 @@
+# Three builders, each a feature in a worktree of its own, each opening a PR. One merger
+# per PR, in the order the builders finish: first done, first merged.
+#
+# Copy to .nex/pipelines/pr-team.toml in the demo repository (see README.md).
+
+timeout = "45m"
+
+[[stage]]
+name = "build-stats"
+worktree = true
+task = """
+Add a `stats` command to this todo app: it prints how many todos there are, how many are
+done, and the percentage done. Put it in app/commands/stats.py (see app/commands/add.py for
+the shape a command takes) and its tests in tests/test_stats.py. Don't edit other files.
+
+When `python3 -m unittest` passes: commit, `git push -u origin HEAD`, open a PR with
+`gh pr create --fill --base main`, and finish with
+nex-host done "<what you added, in a line or two>" --pr <the PR's number>
+"""
+
+[[stage]]
+name = "build-search"
+parallel = true
+worktree = true
+task = """
+Add a `search TEXT` command to this todo app: it lists the todos whose text contains TEXT,
+ignoring case. Put it in app/commands/search.py (see app/commands/add.py for the shape a
+command takes) and its tests in tests/test_search.py. Don't edit other files.
+
+When `python3 -m unittest` passes: commit, `git push -u origin HEAD`, open a PR with
+`gh pr create --fill --base main`, and finish with
+nex-host done "<what you added, in a line or two>" --pr <the PR's number>
+"""
+
+[[stage]]
+name = "build-export"
+parallel = true
+worktree = true
+task = """
+Add an `export` command to this todo app: it prints the todos as CSV (columns id,text,done)
+to stdout. Put it in app/commands/export.py (see app/commands/add.py for the shape a
+command takes) and its tests in tests/test_export.py. Don't edit other files.
+
+When `python3 -m unittest` passes: commit, `git push -u origin HEAD`, open a PR with
+`gh pr create --fill --base main`, and finish with
+nex-host done "<what you added, in a line or two>" --pr <the PR's number>
+"""
+
+[[stage]]
+name = "merge"
+each = true
+task = """
+You review and merge pull request {pr}, opened by {from}. What it said about it:
+{report}
+
+Merged before it in this run: {merged}.
+
+1. Read it: `gh pr view {pr}` and `gh pr diff {pr}`. Check it does what it says, stays in
+   its own files, and has tests.
+2. Check it still merges: `gh pr view {pr} --json mergeable -q .mergeable`.
+3. If it's good and MERGEABLE: `gh pr merge {pr} --squash --delete-branch`, then
+   nex-host done "merged PR {pr}: <one line>" --verdict approved --pr {pr}
+4. Otherwise don't merge. Finish with
+   nex-host done "<exactly what to fix, or that it conflicts with main>" --verdict changes --pr {pr}
+   Its builder gets that, fixes it and it comes back to the line.
+"""

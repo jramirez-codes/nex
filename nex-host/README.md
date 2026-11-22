@@ -103,7 +103,7 @@ Two issues: …
 ```
 
 - Its `kind` says what's expected.
-- `verdict` and `files` are fields, not wording conventions.
+- `verdict`, `files` and `pr` (`--pr 42` or a URL) are fields, not wording conventions.
 - Long text is cut short. The whole of it goes in a file named in `<more path=…/>`.
 - `task` and `ask` messages end with the exact command to answer with.
 - It says it comes from an agent, so it's never mistaken for the user's say-so.
@@ -154,6 +154,42 @@ retry = { stage = "build", unless = "approved", max = 3 }
 - The runner uses the same `spawn`, `send` and `recv` as any agent.
 - When `retry` sends the run back, agents still running get the new task as a message, so
   they keep their context.
+- `worktree = true` on a stage gives it a git worktree and branch of its own, so stages
+  running in parallel don't edit one checkout.
+- `command = ["prog", "arg"]` runs that program instead of `kind`'s; the task is typed in.
+
+#### Many builders, one merger, first come first served
+
+A last stage with `each = true` runs once per report from the stages before it, in the
+order they arrive, one at a time, with a fresh agent each time. Builders open PRs and
+report them with `done --pr N`; the first one done is the first one reviewed and merged:
+
+```toml
+[[stage]]
+name = "build-a"
+worktree = true
+task = "Add --json to ls. Commit, push, open a PR, then: nex-host done \"<summary>\" --pr <number>"
+[[stage]]
+name = "build-b"
+parallel = true
+worktree = true
+task = "…"
+[[stage]]
+name = "merge"
+each = true
+task = "Review PR {pr} from {from}: {report}. Merged before it: {merged}. Merge it and report approved, or report changes saying what to fix."
+```
+
+- An `each` stage's task can use `{from}`, `{report}`, `{pr}`, `{files}` and `{merged}`.
+- When it reports `changes` (a conflict, a failing check), that goes back to the builder
+  as a new task. The builder is still running, so it keeps its context. Its next report
+  joins the back of the line. After three send-backs it counts as not merged.
+- `examples/pr-team/` is a full run of this with real Claude agents and GitHub PRs.
+
+`nex-host worktree ls` lists the worktrees `--worktree` made. `nex-host worktree prune`
+removes the ones no agent is working in, with nothing uncommitted, whose branch is merged
+(or deleted upstream, as `gh pr merge --delete-branch` leaves it), and their branches.
+`--all` skips the merged check; `--dry-run` only says what would go.
 
 ## Building
 

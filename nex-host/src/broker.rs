@@ -309,6 +309,7 @@ mod tests {
             re: None,
             verdict: None,
             files: vec![],
+            pr: None,
             more: None,
             more_lines: None,
             sent: 0,
