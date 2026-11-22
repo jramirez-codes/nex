@@ -111,6 +111,8 @@ pub struct CardMotion {
     /// Its current move is into another section (not just making room for one that is):
     /// only such a card lifts off the grid on its way.
     pub section_change: bool,
+    /// When it last bubbled for its tab being switched to.
+    pub pulse_start: f64,
 }
 
 impl CardMotion {
@@ -125,6 +127,7 @@ impl CardMotion {
             leaving: false,
             new_colors: true,
             section_change: false,
+            pulse_start: f64::NEG_INFINITY,
         }
     }
 
@@ -136,15 +139,32 @@ impl CardMotion {
         self.tint.set(now, tint, animate);
     }
 
-    /// How far it is raised off the grid, 0 to 1: up and back down over a move into another
-    /// section, flat otherwise.
-    pub fn lift(&self, now: f64) -> f32 {
-        if self.section_change && self.rect.moving(now) { (self.rect.t(now) * std::f32::consts::PI).sin() } else { 0.0 }
+    /// Bubble once: its tab was just switched to.
+    pub fn pulse(&mut self, now: f64) {
+        self.pulse_start = now;
+    }
+
+    /// How far into its bubble it is, 0 to 1, while one plays.
+    fn pulse_t(&self, now: f64) -> Option<f32> {
+        let p = (now - self.pulse_start) / MOVE;
+        (0.0..1.0).contains(&p).then_some(p as f32)
+    }
+
+    /// How far it is raised off the grid, 0 to 1. Only an agent on the shown tab ever lifts:
+    /// up and back down when that tab is switched to, or over its own move into another
+    /// section. The rest stay flat.
+    pub fn lift(&self, now: f64, shown_tab: Option<usize>) -> f32 {
+        if self.agent.tab.is_none() || self.agent.tab != shown_tab {
+            return 0.0;
+        }
+        let arc = |t: f32| (t * std::f32::consts::PI).sin();
+        let moving = if self.section_change && self.rect.moving(now) { arc(self.rect.t(now)) } else { 0.0 };
+        moving.max(self.pulse_t(now).map_or(0.0, arc))
     }
 
     /// Whether anything about it is still changing.
     pub fn busy(&self, now: f64) -> bool {
-        self.rect.moving(now) || self.border.moving(now) || self.border_width.moving(now) || self.tint.moving(now) || self.opacity.moving(now)
+        self.pulse_t(now).is_some() || self.rect.moving(now) || self.border.moving(now) || self.border_width.moving(now) || self.tint.moving(now) || self.opacity.moving(now)
     }
 }
 
@@ -230,6 +250,13 @@ impl Motion {
         self.forget_gone(now);
     }
 
+    /// Bubble the cards of the agents on tab `tab` (it was just switched to).
+    pub fn pulse_tab(&mut self, now: f64, tab: usize) {
+        for c in self.cards.values_mut().filter(|c| !c.leaving && c.agent.tab == Some(tab)) {
+            c.pulse(now);
+        }
+    }
+
     /// Drop the cards and headers that have finished fading out.
     pub fn forget_gone(&mut self, now: f64) {
         self.cards.retain(|_, c| !c.leaving || c.opacity.moving(now));
@@ -301,13 +328,35 @@ mod tests {
         m.update(1.0, true, &[sec(Status::Idle, 0.0)], &[(&pushed, at(30.0)), (&now_idle, at(110.0))], 300.0);
         let mid = 1.0 + MOVE / 2.0;
         assert!(m.cards[&1].rect.moving(mid) && m.cards[&2].rect.moving(mid));
-        assert!(m.cards[&1].lift(mid) > 0.9);
-        assert_eq!(m.cards[&2].lift(mid), 0.0);
-        assert_eq!(m.cards[&1].lift(1.0 + MOVE), 0.0);
+        assert!(m.cards[&1].lift(mid, Some(0)) > 0.9);
+        assert_eq!(m.cards[&2].lift(mid, Some(0)), 0.0);
+        assert_eq!(m.cards[&1].lift(1.0 + MOVE, Some(0)), 0.0);
+        // ...and only while its tab is the one shown.
+        assert_eq!(m.cards[&1].lift(mid, Some(1)), 0.0);
+        assert_eq!(m.cards[&1].lift(mid, None), 0.0);
 
         // A resize puts cards in place instead of sliding them.
         m.update(3.0, true, &[sec(Status::Idle, 0.0)], &[(&now_idle, at(500.0))], 900.0);
         assert!(!m.cards[&1].rect.moving(3.0));
+    }
+
+    #[test]
+    fn switching_to_a_tab_bubbles_only_its_agents() {
+        let mut m = Motion::new();
+        let here = agent(1, Status::Idle);
+        let elsewhere = Agent { tab: Some(1), ..agent(2, Status::Idle) };
+        m.update(0.0, true, &[(Status::Idle, 2, at(0.0))], &[(&here, at(30.0)), (&elsewhere, at(110.0))], 300.0);
+        m.pulse_tab(1.0, 0);
+        let mid = 1.0 + MOVE / 2.0;
+        // Nothing moves, but tab 0's card bubbles up and back down.
+        assert!(!m.cards[&1].rect.moving(mid));
+        assert!(m.cards[&1].lift(mid, Some(0)) > 0.9 && m.cards[&1].busy(mid));
+        let after = 1.0 + MOVE + 0.01;
+        assert_eq!(m.cards[&1].lift(after, Some(0)), 0.0);
+        assert!(!m.cards[&1].busy(after));
+        // The agent on another tab stays flat.
+        assert_eq!(m.cards[&2].lift(mid, Some(0)), 0.0);
+        assert_eq!(m.cards[&2].lift(mid, Some(1)), 0.0);
     }
 
     #[test]

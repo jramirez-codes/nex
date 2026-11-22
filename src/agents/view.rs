@@ -34,11 +34,14 @@ pub(super) struct ViewState {
     scroll_active: f64,
     /// Where each card and section header is on its way to.
     motion: Motion,
+    /// The terminal tab shown when it was last drawn (`None` inside: the Agents / Files
+    /// tab); `None` before the first frame.
+    shown_tab: Option<Option<usize>>,
 }
 
 impl ViewState {
     pub(super) fn new() -> ViewState {
-        ViewState { reveal_selection: false, scroll_active: -10.0, motion: Motion::new() }
+        ViewState { reveal_selection: false, scroll_active: -10.0, motion: Motion::new(), shown_tab: None }
     }
 }
 
@@ -84,9 +87,10 @@ fn status_color(s: Status, c: &Theme) -> Color32 {
 impl AgentsPane {
     /// Draw the pane into `rect` (below the pane header, edge to edge of the card), showing
     /// `agents` (all of them, sorted), under `notes` (one line per ssh host that can't be
-    /// watched).
+    /// watched). `shown_tab` is the terminal tab on screen (`None` for the Agents / Files
+    /// tab): switching to one bubbles the cards of the agents on it.
     #[allow(clippy::too_many_arguments)]
-    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: u64, focused: bool, c: &Theme, agents: &[Agent], notes: &[String]) {
+    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: u64, focused: bool, c: &Theme, agents: &[Agent], notes: &[String], shown_tab: Option<usize>) {
         let ctx = ui.ctx().clone();
         let f = Frame {
             ui,
@@ -138,6 +142,12 @@ impl AgentsPane {
         }
         let mut motion = std::mem::take(&mut self.view.motion);
         motion.update(f.time, f.animate, &sections, &cards, width);
+        let switched = self.view.shown_tab.replace(shown_tab).is_some_and(|was| was != shown_tab);
+        if switched && f.animate
+            && let Some(tab) = shown_tab
+        {
+            motion.pulse_tab(f.time, tab);
+        }
         // Empty once the last card has faded away.
         if motion.cards.is_empty() {
             self.view.motion = motion;
@@ -177,9 +187,9 @@ impl AgentsPane {
             p.multiply_opacity(sec.opacity.get(now));
             section_header(&p, sec.rect.get(now).translate(origin), *status, sec.count, f.c);
         }
-        // Cards changing sections are drawn last, over the ones they pass.
+        // Lifted cards are drawn last, over the ones they pass.
         let mut ids: Vec<PaneId> = motion.cards.keys().copied().collect();
-        ids.sort_by_key(|id| (motion.cards[id].lift(now) > 0.0, *id));
+        ids.sort_by_key(|id| (motion.cards[id].lift(now, shown_tab) > 0.0, *id));
         let mut breathing = false;
         for id in ids {
             let Some(card) = motion.cards.get_mut(&id) else { continue };
@@ -207,8 +217,9 @@ impl AgentsPane {
             let selected = !card.leaving && self.selected == Some(id);
             let (border, border_width) = border_for(card.agent.status, selected, f.focused, hovered, f.c);
             card.set_colors(now, border, border_width, status_color(card.agent.status, f.c), f.animate);
-            // A card changing sections lifts off the grid on its way.
-            let lift = card.lift(now);
+            // An agent on the shown tab lifts off the grid when you switch to it or it
+            // changes sections.
+            let lift = card.lift(now, shown_tab);
             let r = Rect::from_center_size(r.center(), r.size() * (1.0 + 0.025 * lift));
             breathing |= card.agent.status == Status::Working;
             let look = Look { hover, lift, border: card.border.get(now), border_width: card.border_width.get(now), tint: card.tint.get(now) };
