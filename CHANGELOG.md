@@ -8,6 +8,10 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Android: the Agents pane lists the agents on the server the app is connected to, watched
+  over the app's own connection. Opening one attaches a pane to it, and closing that pane
+  only detaches (the agent keeps running); stopping one goes over the same connection. A
+  server with a `nex-host` from before `connect` gets this one installed.
 - Android: the title-bar tabs keep one width, two and a half to the screen, and the strip
   swipes sideways (with a fling) instead of squeezing every tab in. Long-press a tab, then
   drag, to reorder it; a new or newly shown tab scrolls into view.

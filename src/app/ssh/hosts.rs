@@ -18,6 +18,7 @@ use crate::app::ssh::sharing::SharingPrompt;
 use crate::config::AgentShim;
 use crate::remote::{self, SshTarget};
 use crate::remote::host::{self, HostError, Snapshot, State, Watch};
+use crate::remote::ssh::host::RemoteHost;
 use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
 use crate::ui::theme::Theme;
 use crate::ui::toast::Toast;
@@ -55,6 +56,9 @@ pub(in crate::app) struct Hosts {
     loaded: bool,
     /// Finished background jobs, taken each frame.
     done: Arc<Mutex<Vec<Done>>>,
+    /// The host the window is connected to itself (Android, `--remote`): the only one
+    /// watched, over that connection.
+    direct: Option<(SshTarget, Arc<RemoteHost>)>,
     /// Repaints the window when a watch hears something.
     ctx: Option<egui::Context>,
 }
@@ -74,10 +78,15 @@ impl Hosts {
     }
 
     /// Watch the hosts `panes` are connected to, and the remembered ones; stop watching hosts
-    /// with neither a pane nor an agent. With `enabled` off, watch nothing.
-    pub(in crate::app) fn sync(&mut self, panes: &HashSet<SshTarget>, enabled: bool) {
+    /// with neither a pane nor an agent. With `enabled` off, watch nothing. With `direct` (the
+    /// host the window is connected to itself), watch only that one.
+    pub(in crate::app) fn sync(&mut self, panes: &HashSet<SshTarget>, direct: Option<&Arc<RemoteHost>>, enabled: bool) {
         if !enabled {
             self.watches.clear();
+            return;
+        }
+        if let Some(host) = direct {
+            self.sync_direct(host);
             return;
         }
         self.load_once();
@@ -113,6 +122,28 @@ impl Hosts {
                 self.watches.insert(target.clone(), watch);
             }
         }
+    }
+
+    fn sync_direct(&mut self, host: &Arc<RemoteHost>) {
+        let target = direct_target(host);
+        if self.direct.as_ref().is_none_or(|(t, h)| *t != target || !Arc::ptr_eq(h, host)) {
+            self.watches.clear();
+            self.direct = Some((target.clone(), host.clone()));
+        }
+        if !self.watches.contains_key(&target) && !cfg!(test) {
+            let ctx = self.ctx.clone();
+            let watch = Watch::start_direct(host.clone(), move || {
+                if let Some(c) = &ctx {
+                    c.request_repaint();
+                }
+            });
+            self.watches.insert(target, watch);
+        }
+    }
+
+    /// The host the window is connected to itself, if `target` is it.
+    pub(in crate::app) fn direct_host(&self, target: &SshTarget) -> Option<Arc<RemoteHost>> {
+        self.direct.as_ref().filter(|(t, _)| t == target).map(|(_, h)| h.clone())
     }
 
     /// Every watched host and what's known about it.
@@ -265,7 +296,14 @@ impl App {
             (AgentPrompt::Shim(target), AlertChoice::Secondary) => self.ssh.remote_hosts.decline(target),
             (AgentPrompt::Stop { target, session, .. }, AlertChoice::Primary) => {
                 let host = target.host().to_string();
-                self.ssh.remote_hosts.spawn(move || Done::Stop(host, host::kill(&target, &session)));
+                let direct = self.ssh.remote_hosts.direct_host(&target);
+                self.ssh.remote_hosts.spawn(move || {
+                    let result = match direct {
+                        Some(h) => kill_direct(&h, &session),
+                        None => host::kill(&target, &session),
+                    };
+                    Done::Stop(host, result)
+                });
             }
             _ => {}
         }
@@ -337,6 +375,20 @@ fn targets_from_json(v: Option<&Value>) -> Vec<SshTarget> {
             (!destination.starts_with('-') && opts.iter().all(|o| !o.contains('\n'))).then_some(SshTarget { opts, destination })
         })
         .collect()
+}
+
+/// The host the window is connected to itself, as an [`SshTarget`]: how the Agents pane names
+/// hosts.
+pub(in crate::app) fn direct_target(host: &RemoteHost) -> SshTarget {
+    let s = &host.server;
+    let opts = if s.port == 22 { Vec::new() } else { vec!["-p".into(), s.port.to_string()] };
+    SshTarget { opts, destination: format!("{}@{}", s.user, s.host) }
+}
+
+/// Stop session `id` over the window's own connection.
+fn kill_direct(host: &RemoteHost, id: &str) -> Result<(), HostError> {
+    let (r, _) = host.ask(&nex_host::proto::Request::Kill { id: id.into() }).map_err(|e| HostError::Other(e.to_string()))?;
+    if r.ok { Ok(()) } else { Err(HostError::Other(r.error.unwrap_or_else(|| "nex-host said no".into()))) }
 }
 
 fn from_json(text: &str) -> (Vec<SshTarget>, Vec<SshTarget>) {

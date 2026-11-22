@@ -159,6 +159,8 @@ pub struct RemotePane {
     pub host: Arc<crate::remote::ssh::host::RemoteHost>,
     /// The session's id, once the host has started it.
     pub session: Arc<std::sync::Mutex<Option<String>>>,
+    /// Closing the pane only detaches from the session (an agent), instead of ending it.
+    pub keep: bool,
 }
 
 impl Terminal {
@@ -247,7 +249,7 @@ impl Terminal {
         ctx: &egui::Context,
     ) -> std::io::Result<Self> {
         let scan = Scan::default();
-        let start = remote::Start { host: remote.host.clone(), session: remote.session.clone(), cwd, cols: size.cols as u16, rows: size.lines as u16 };
+        let start = remote::Start { host: remote.host.clone(), session: remote.session.clone(), keep: remote.keep, cwd, cols: size.cols as u16, rows: size.lines as u16 };
         let pty = remote::open(start, scan.osc7.clone(), scan.alert.clone(), scan.agent_tag.clone())?;
         let mut t = Self::start(cfg, pty, scan, 0, size, cell_px, None, Some(remote))?;
         t.process = "shell".into();
