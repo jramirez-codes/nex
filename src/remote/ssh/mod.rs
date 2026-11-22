@@ -8,6 +8,10 @@
 //!   host.rs      one host and its connection, reconnected when it drops
 //! ```
 //!
+//! A phone that sleeps loses its connections without being told: [`woke`] (called when the
+//! app comes back) checks each one and ends those that don't answer, so their panes
+//! reconnect at once instead of waiting a minute for keepalives to give up.
+//!
 //! `russh` does the protocol, on a small tokio runtime of its own. Everything here blocks, so
 //! it runs on background threads, never in a frame. A command's input and output are plain
 //! `Read` / `Write` ([`Exec`]): tasks on the runtime move them to and from the channel.
@@ -22,11 +26,14 @@ pub mod host;
 #[cfg(all(test, target_os = "linux"))]
 mod sshd_tests;
 
+use std::collections::HashMap;
 use std::io::{self, Read, Write};
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::time::{Duration, Instant};
 
 use russh::ChannelMsg;
 use russh::client::{self, Handle};
@@ -34,10 +41,17 @@ use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKey};
 
 /// Give up on a host that doesn't answer (or finish logging in) within this long.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
+/// Give up on a TCP connection that doesn't open within this long (a network that isn't
+/// back yet after the phone woke), so the next try comes soon.
+const TCP_TIMEOUT: Duration = Duration::from_secs(5);
 /// Ping a quiet connection this often, and drop it after this many pings go unanswered:
-/// a phone that changed networks finds out within a minute.
-const KEEPALIVE: Duration = Duration::from_secs(15);
-const KEEPALIVE_MAX: usize = 3;
+/// a phone that changed networks finds out within half a minute.
+const KEEPALIVE: Duration = Duration::from_secs(10);
+const KEEPALIVE_MAX: usize = 2;
+/// How long a connection has to answer the check [`woke`] makes.
+const WAKE_PING: Duration = Duration::from_secs(3);
+/// [`woke`] checks the connections at most this often (resume and focus both call it).
+const WAKE_DEBOUNCE: Duration = Duration::from_secs(2);
 
 /// The host to connect to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -98,6 +112,112 @@ fn runtime() -> &'static tokio::runtime::Runtime {
             .build()
             .expect("starting the ssh runtime")
     })
+}
+
+/// The connections that are up, for [`woke`] to check.
+fn live() -> &'static Mutex<Vec<Weak<Live>>> {
+    static LIVE: OnceLock<Mutex<Vec<Weak<Live>>>> = OnceLock::new();
+    LIVE.get_or_init(Mutex::default)
+}
+
+/// How many wakes there have been, and when the last one was.
+type Wakes = (Mutex<(u64, Option<Instant>)>, Condvar);
+
+/// Counts wakes, for [`wait_for_wake`]; and when the last one was.
+fn wakes() -> &'static Wakes {
+    static WAKES: OnceLock<Wakes> = OnceLock::new();
+    WAKES.get_or_init(Default::default)
+}
+
+/// The app came back (the phone woke, the window got focus): check every connection with a
+/// ping, end the ones that don't answer (their panes then reconnect), and cut short any
+/// wait between tries to reach a host ([`wait_for_wake`]). Returns at once.
+pub fn woke() {
+    let (lock, cv) = wakes();
+    {
+        let mut w = lock.lock().unwrap_or_else(|e| e.into_inner());
+        if w.1.is_some_and(|t| t.elapsed() < WAKE_DEBOUNCE) {
+            return;
+        }
+        *w = (w.0.wrapping_add(1), Some(Instant::now()));
+        cv.notify_all();
+    }
+    let clients: Vec<Arc<Live>> = {
+        let mut live = live().lock().unwrap_or_else(|e| e.into_inner());
+        live.retain(|c| c.strong_count() > 0);
+        live.iter().filter_map(Weak::upgrade).collect()
+    };
+    // No connections, no runtime to start (a desktop window that never connected itself).
+    for c in clients {
+        runtime().spawn(async move {
+            let answered = tokio::time::timeout(WAKE_PING, c.handle.send_ping()).await;
+            // A ping also "returns" when the session ended under it: check that too.
+            if !matches!(answered, Ok(Ok(()))) || c.handle.is_closed() {
+                eprintln!("nex: a connection didn't survive the sleep; reconnecting");
+                c.kill();
+            }
+        });
+    }
+}
+
+/// The current wake count, to pass to [`wait_for_wake`].
+// Remote panes (their only user) open on unix only.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub fn wake_count() -> u64 {
+    wakes().0.lock().unwrap_or_else(|e| e.into_inner()).0
+}
+
+/// The app woke (see [`woke`]) within `within`.
+// Remote panes (their only user) open on unix only.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub fn woke_within(within: Duration) -> bool {
+    wakes().0.lock().unwrap_or_else(|e| e.into_inner()).1.is_some_and(|t| t.elapsed() < within)
+}
+
+/// Sleep for `d`, or until the app wakes after `seen` (a [`wake_count`]). True if it woke.
+// Remote panes (their only user) open on unix only.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub fn wait_for_wake(seen: u64, d: Duration) -> bool {
+    let (lock, cv) = wakes();
+    let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let (guard, _) = cv.wait_timeout_while(guard, d, |w| w.0 == seen).unwrap_or_else(|e| e.into_inner());
+    guard.0 != seen
+}
+
+/// The addresses each host last resolved to: on a phone just out of sleep, the DNS (a VPN's,
+/// such as Tailscale's) can be the last thing to come back, while the host's address works.
+type Addrs = Mutex<HashMap<(String, u16), Vec<SocketAddr>>>;
+
+fn known_addrs() -> &'static Addrs {
+    static ADDRS: OnceLock<Addrs> = OnceLock::new();
+    ADDRS.get_or_init(Mutex::default)
+}
+
+/// Resolve `host`, falling back to the addresses it last had when the lookup fails.
+async fn resolve(host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+    let key = (host.to_string(), port);
+    match tokio::net::lookup_host((host, port)).await {
+        Ok(addrs) => {
+            let addrs: Vec<SocketAddr> = addrs.collect();
+            if !addrs.is_empty() {
+                known_addrs().lock().unwrap_or_else(|e| e.into_inner()).insert(key, addrs.clone());
+            }
+            Ok(addrs)
+        }
+        Err(e) => match known_addrs().lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+            Some(addrs) => Ok(addrs.clone()),
+            None => Err(e),
+        },
+    }
+}
+
+/// Open a TCP connection to `server`, giving up after [`TCP_TIMEOUT`].
+async fn open_tcp(server: &Server) -> io::Result<tokio::net::TcpStream> {
+    let addrs = resolve(&server.host, server.port).await?;
+    let opened = tokio::time::timeout(TCP_TIMEOUT, tokio::net::TcpStream::connect(&addrs[..])).await;
+    let socket = opened.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "the network didn't answer"))??;
+    let _ = socket.set_nodelay(true);
+    Ok(socket)
 }
 
 /// `known_hosts` in nex's config folder (kept apart from `~/.ssh`, which on a desktop
@@ -167,7 +287,22 @@ fn check_key(server: &Server, key: &PublicKey, trust: Option<&str>) -> KeyCheck 
 /// A logged-in connection to a host. Commands on it run in channels of their own, any
 /// number at once.
 pub struct Client {
+    live: Arc<Live>,
+}
+
+/// A connection, as [`woke`] sees it.
+struct Live {
     handle: Handle<Checker>,
+    /// Found dead by [`woke`]: treated as closed, and its commands are ended.
+    dead: AtomicBool,
+    killed: tokio::sync::watch::Sender<bool>,
+}
+
+impl Live {
+    fn kill(&self) {
+        self.dead.store(true, Ordering::Relaxed);
+        self.killed.send_replace(true);
+    }
 }
 
 impl Client {
@@ -182,11 +317,11 @@ impl Client {
             nodelay: true,
             ..Default::default()
         });
-        let addr = (server.host.clone(), server.port);
         let user = server.user.clone();
         let result = runtime().block_on(async move {
             let connecting = async {
-                let mut handle = client::connect(config, addr, checker).await?;
+                let socket = open_tcp(server).await.map_err(russh::Error::from)?;
+                let mut handle = client::connect_stream(config, socket, checker).await?;
                 let auth = match login {
                     Login::Key(key) => {
                         let hash = handle.best_supported_rsa_hash().await?.flatten();
@@ -206,27 +341,34 @@ impl Client {
             (Err(_), _) => Err(ConnectError::Unreachable("it didn't answer in time".into())),
             (Ok(Err(e)), _) => Err(ConnectError::Unreachable(e.to_string())),
             (Ok(Ok((_, false))), _) => Err(ConnectError::Denied),
-            (Ok(Ok((handle, true))), _) => Ok(Client { handle }),
+            (Ok(Ok((handle, true))), _) => {
+                let conn = Arc::new(Live { handle, dead: AtomicBool::new(false), killed: tokio::sync::watch::Sender::new(false) });
+                let mut all = live().lock().unwrap_or_else(|e| e.into_inner());
+                all.retain(|c| c.strong_count() > 0);
+                all.push(Arc::downgrade(&conn));
+                Ok(Client { live: conn })
+            }
         }
     }
 
-    /// The connection has ended (the host hung up, or stopped answering keepalives).
+    /// The connection has ended (the host hung up, stopped answering keepalives, or didn't
+    /// answer the check after a wake).
     pub fn is_closed(&self) -> bool {
-        self.handle.is_closed()
+        self.live.dead.load(Ordering::Relaxed) || self.live.handle.is_closed()
     }
 
     /// Run `command` (through the user's shell on the host), with its stdin and stdout as
     /// plain `Write` and `Read`. Blocks until the host has started it.
     pub fn exec(&self, command: &str) -> io::Result<Exec> {
         let command = command.to_string();
-        let handle = &self.handle;
+        let handle = &self.live.handle;
         let channel = runtime().block_on(async {
             let channel = handle.channel_open_session().await?;
             channel.exec(true, command).await?;
             Ok::<_, russh::Error>(channel)
         });
         let channel = channel.map_err(|e| io::Error::new(io::ErrorKind::ConnectionAborted, e.to_string()))?;
-        Ok(Exec::start(channel))
+        Ok(Exec::start(channel, self.live.killed.subscribe()))
     }
 
     /// Run `command`, feeding it `stdin`, and wait for it to end: its exit status and what it
@@ -242,10 +384,18 @@ impl Client {
     }
 }
 
-impl Drop for Client {
+impl Drop for Live {
     fn drop(&mut self) {
+        // Nobody is listening at the other end of a dead one: saying goodbye would only wait.
+        // And blocking on the runtime from one of its own tasks (a wake check that held the
+        // last reference) would panic: the connection just closes without a goodbye then.
+        if self.dead.load(Ordering::Relaxed) || tokio::runtime::Handle::try_current().is_ok() {
+            return;
+        }
         let handle = &self.handle;
-        let _ = runtime().block_on(async { handle.disconnect(russh::Disconnect::ByApplication, "", "en").await });
+        let _ = runtime().block_on(async {
+            tokio::time::timeout(WAKE_PING, handle.disconnect(russh::Disconnect::ByApplication, "", "en")).await
+        });
     }
 }
 
@@ -258,8 +408,9 @@ pub struct Exec {
 }
 
 impl Exec {
-    /// Start the task that moves the channel's data to `reader` and `writer`'s data to it.
-    fn start(channel: russh::Channel<client::Msg>) -> Exec {
+    /// Start the task that moves the channel's data to `reader` and `writer`'s data to it,
+    /// until the channel closes or `killed` says the connection is dead.
+    fn start(channel: russh::Channel<client::Msg>, mut killed: tokio::sync::watch::Receiver<bool>) -> Exec {
         let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
         let (in_tx, mut in_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
         let status = Arc::new(Mutex::new(None));
@@ -267,8 +418,16 @@ impl Exec {
         let (mut read, write) = channel.split();
         runtime().spawn(async move {
             let mut input_open = true;
+            // Ends only when the connection is found dead (not when the client is dropped).
+            let dead = async move {
+                if killed.wait_for(|dead| *dead).await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+            };
+            tokio::pin!(dead);
             loop {
                 tokio::select! {
+                    () = &mut dead => break,
                     msg = read.wait() => match msg {
                         Some(ChannelMsg::Data { data }) => {
                             // Once the reader is gone, output is just dropped until the end.

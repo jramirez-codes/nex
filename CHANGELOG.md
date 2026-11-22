@@ -145,6 +145,12 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Android: panes come back within seconds after the phone sleeps. Waking checks the app's
+  connections and reconnects the ones the sleep killed, instead of waiting up to a minute
+  for keepalives to give up. Retries right after a wake come every second instead of backing
+  off to ten. A server whose name doesn't resolve yet (a VPN's DNS, such as Tailscale's,
+  comes back last) is reached at the address it last had. A pane no longer closes when its
+  connection drops at the wrong moment.
 - Restoring the session reattaches panes that showed an agent on an ssh host. A tab opened
   from the Agents pane came back as an empty local shell, and an ssh pane running `claude`
   through the shim came back logged in but with the agent left detached.

@@ -60,6 +60,12 @@ impl Sshd {
         let _ = Command::new("pkill").args(["-P", &self.child.id().to_string()]).status();
     }
 
+    /// Freeze every connection to it: they stay open but nothing answers, as with a
+    /// connection the phone lost while it slept. New connections still work.
+    fn freeze_connections(&self) {
+        let _ = Command::new("pkill").args(["-STOP", "-P", &self.child.id().to_string()]).status();
+    }
+
     fn authorize(&self, line: &str) {
         let home = self.dir.join("home");
         std::fs::create_dir_all(&home).unwrap();
@@ -71,6 +77,8 @@ impl Sshd {
 
 impl Drop for Sshd {
     fn drop(&mut self) {
+        // Frozen connections too (a stopped process ignores everything but KILL).
+        let _ = Command::new("pkill").args(["-KILL", "-P", &self.child.id().to_string()]).status();
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -148,6 +156,14 @@ fn logs_in_with_the_device_key_and_keeps_a_shell_through_a_dropped_connection() 
     sshd.drop_connections();
     wait_for(&mut io, &mut seen, "reconnecting", Duration::from_secs(60));
     type_and_wait(&mut io, &mut seen, "echo back-$((40+2))\r", "back-42");
+    assert_eq!(session.lock().unwrap().as_deref(), Some(id.as_str()), "the same session");
+
+    // The connection goes quiet without closing (the phone slept): waking finds it dead at
+    // once, well before keepalives would give up on it, and the pane attaches again.
+    sshd.freeze_connections();
+    super::woke();
+    wait_for(&mut io, &mut seen, "reconnecting", Duration::from_secs(8));
+    type_and_wait(&mut io, &mut seen, "echo awake-$((40+2))\r", "awake-42");
     assert_eq!(session.lock().unwrap().as_deref(), Some(id.as_str()), "the same session");
 
     // Closing the pane ends its shell on the host.

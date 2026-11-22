@@ -26,7 +26,7 @@ use nex_host::proto::{self, Request, Response};
 use polling::{Event, PollMode, Poller};
 
 use super::osc7::{AgentSlot, Alert, ScanReader, Slot};
-use crate::remote::ssh::ExecWriter;
+use crate::remote::ssh::{self, ExecWriter};
 use crate::remote::ssh::host::RemoteHost;
 
 /// alacritty's poll key for a PTY's child events (`tty::unix`, not exported); the data key
@@ -34,6 +34,11 @@ use crate::remote::ssh::host::RemoteHost;
 const CHILD_KEY: usize = 1;
 /// How long to wait between tries to reach a host that dropped, at most.
 const RETRY_MAX: Duration = Duration::from_secs(10);
+/// Right after the phone wakes the network comes back within seconds (a VPN's DNS last):
+/// keep trying at least this often for [`WAKE_WINDOW`].
+const RETRY_AFTER_WAKE: Duration = Duration::from_secs(1);
+const WAKE_WINDOW: Duration = Duration::from_secs(30);
+const RETRY_FIRST: Duration = Duration::from_millis(500);
 
 /// The session a remote pane shows, once the host has started it: the pane keeps it to
 /// attach again, and the session file keeps it to restore the pane.
@@ -169,11 +174,15 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
     let say = |out: &mut UnixStream, line: &str| {
         let _ = out.write_all(format!("\r\n\x1b[2m[{line}]\x1b[0m\r\n").as_bytes());
     };
-    let mut wait = Duration::from_millis(500);
+    let mut wait = RETRY_FIRST;
+    // What the pane last said about a host it can't reach, so retries don't repeat it.
+    let mut said: Option<String> = None;
     loop {
         if pane_closed.load(Ordering::Relaxed) {
             break;
         }
+        // Taken before trying, so a wake during the try still cuts the wait after it short.
+        let wakes = ssh::wake_count();
         let (cols, rows) = *size.lock().unwrap_or_else(|e| e.into_inner());
         let id = session.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let attached = match id {
@@ -191,13 +200,19 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
             }
             Err(Attach::Unreachable(why)) => {
                 // Try again until the host is back (or the pane is closed).
-                say(&mut out, &format!("can't reach {}: {why}; trying again", host.server));
-                std::thread::sleep(wait);
-                wait = (wait * 2).min(RETRY_MAX);
+                let line = format!("can't reach {}: {why}; trying again", host.server);
+                if said.as_deref() != Some(line.as_str()) {
+                    say(&mut out, &line);
+                    said = Some(line);
+                }
+                wait = retry_wait(wait, ssh::wait_for_wake(wakes, wait), ssh::woke_within(WAKE_WINDOW));
                 continue;
             }
         };
-        wait = Duration::from_millis(500);
+        if said.take().is_some() {
+            eprintln!("nex: back on {}", host.server);
+        }
+        wait = RETRY_FIRST;
         *to_host.lock().unwrap_or_else(|e| e.into_inner()) = Some(exec.writer.clone());
         drop(exec.writer);
         // The session's output, until the connection ends.
@@ -206,11 +221,12 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
         if pane_closed.load(Ordering::Relaxed) {
             break;
         }
-        if host.connected() {
-            // The connection is fine, so the daemon let go: the shell ended, or another
+        if daemon_let_go(*exec.status.lock().unwrap_or_else(|e| e.into_inner())) {
+            // `nex-host connect` exited, so the daemon let go: the shell ended, or another
             // pane took the session. Either way this pane is done.
             break;
         }
+        eprintln!("nex: lost the connection to {}; reconnecting", host.server);
         say(&mut out, &format!("lost the connection to {}; reconnecting", host.server));
     }
     if !pane_closed.load(Ordering::Relaxed) {
@@ -224,6 +240,24 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
         let _ = request(&host, &Request::Kill { id });
     }
     let _ = keys;
+}
+
+/// Did the attached stream end because the daemon let go, rather than the connection
+/// dropping? Only `nex-host connect` exiting reports a status; a connection that dropped (or
+/// was found dead after a sleep) ends without one, even before the client notices it's
+/// closed.
+fn daemon_let_go(status: Option<u32>) -> bool {
+    status.is_some()
+}
+
+/// The wait before the next try to reach the host: back to the start after a wake,
+/// otherwise doubling, to [`RETRY_AFTER_WAKE`] at most just after a wake and [`RETRY_MAX`]
+/// otherwise.
+fn retry_wait(wait: Duration, woke_during: bool, recently_woke: bool) -> Duration {
+    if woke_during {
+        return RETRY_FIRST;
+    }
+    (wait * 2).min(if recently_woke { RETRY_AFTER_WAKE } else { RETRY_MAX })
 }
 
 enum Attach {
@@ -263,4 +297,29 @@ const OLD_DAEMON_SHELL: &[&str] = &["sh", "-c", "exec \"${SHELL:-/bin/sh}\" -i"]
 fn attach(host: &RemoteHost, id: &str, cols: u16, rows: u16) -> Result<crate::remote::ssh::Exec, Attach> {
     let (r, exec) = request(host, &Request::Attach { id: id.into(), cols, rows })?;
     if r.ok { Ok(exec) } else { Err(Attach::Gone(r.error.unwrap_or_else(|| "the session ended".into()))) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_exit_status_means_the_daemon_let_go() {
+        assert!(daemon_let_go(Some(0)));
+        assert!(daemon_let_go(Some(1)));
+        // The connection dropped (or a sleep killed it): attach again.
+        assert!(!daemon_let_go(None));
+    }
+
+    #[test]
+    fn retries_back_off_but_stay_quick_after_a_wake() {
+        let mut w = RETRY_FIRST;
+        for _ in 0..10 {
+            w = retry_wait(w, false, false);
+        }
+        assert_eq!(w, RETRY_MAX);
+        assert_eq!(retry_wait(w, true, false), RETRY_FIRST);
+        assert_eq!(retry_wait(Duration::from_secs(4), false, true), RETRY_AFTER_WAKE);
+        assert_eq!(retry_wait(RETRY_FIRST, false, true), RETRY_AFTER_WAKE);
+    }
 }
