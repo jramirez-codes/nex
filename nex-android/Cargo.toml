@@ -29,6 +29,8 @@ workspace = true
 package = "io.github.jramirez_codes.nex"
 apk_name = "nex"
 build_targets = ["aarch64-linux-android"]
+# The launcher icon, rendered from assets/nex.svg by make-icon.sh.
+resources = "res"
 # Bundled with the app: nex-host for the ssh host (see README.md, "nex-host").
 # assets = "assets"
 
@@ -41,6 +43,7 @@ name = "android.permission.INTERNET"
 
 [package.metadata.android.application]
 label = "nex"
+icon = "@mipmap/ic_launcher"
 # No action bar: NativeActivity's default theme reserves room for one (invisible, under nex's
 # surface), which would push nex's content area 56dp below the status bar.
 theme = "@android:style/Theme.DeviceDefault.NoActionBar"
