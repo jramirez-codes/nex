@@ -23,6 +23,7 @@ use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 use nex_host::proto::{self, Session, Status};
 
 use crate::redraw;
+use crate::locked::Locked;
 
 /// Lines of scrollback kept for a pane that attaches later.
 const HISTORY: usize = 10_000;
@@ -65,9 +66,9 @@ struct Listener {
 impl EventListener for Listener {
     fn send_event(&self, event: Event) {
         match event {
-            Event::Title(t) => self.meta.lock().unwrap().title = Some(t),
-            Event::ResetTitle => self.meta.lock().unwrap().title = None,
-            Event::Bell if !self.attached.load(Ordering::Relaxed) => self.meta.lock().unwrap().bell = true,
+            Event::Title(t) => self.meta.locked().title = Some(t),
+            Event::ResetTitle => self.meta.locked().title = None,
+            Event::Bell if !self.attached.load(Ordering::Relaxed) => self.meta.locked().bell = true,
             Event::PtyWrite(s) if !self.attached.load(Ordering::Relaxed) => {
                 let _ = (&*self.pty).write_all(s.as_bytes());
             }
@@ -184,7 +185,7 @@ impl Agent {
     }
 
     fn output(&self, bytes: &[u8]) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.locked();
         let Inner { screen, client, .. } = &mut *inner;
         screen.parser.advance(&mut screen.term, bytes);
         if let Some(c) = client
@@ -198,7 +199,7 @@ impl Agent {
 
     /// Its output has ended: wait for the program, and tell the attached pane.
     fn end(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.locked();
         let code = inner.child.take().and_then(|mut c| c.wait().ok()).map(|s| s.code().unwrap_or_else(|| 128 + s.signal().unwrap_or(0)));
         let code = code.unwrap_or(-1);
         inner.exit = Some(code);
@@ -210,14 +211,14 @@ impl Agent {
     }
 
     pub fn exited(&self) -> bool {
-        self.inner.lock().unwrap().exit.is_some()
+        self.inner.locked().exit.is_some()
     }
 
     /// Show this agent on a pane's connection, `cols` by `rows`: the pane it was on (if any)
     /// is let go, the screen is resized to fit and sent, then output flows. Returns the
     /// token that identifies this attachment, or `None` if the agent has ended.
     pub fn attach(&self, tx: Sender<Out>, token: u64, cols: u16, rows: u16) -> Option<u64> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.locked();
         if inner.exit.is_some() {
             return None;
         }
@@ -225,17 +226,17 @@ impl Agent {
             let _ = old.tx.send(Out::Close("[attached in another pane]".into()));
         }
         self.resize_locked(&mut inner, cols, rows);
-        let title = self.meta.lock().unwrap().title.clone();
+        let title = self.meta.locked().title.clone();
         let _ = tx.send(Out::Bytes(redraw::screen(&inner.screen.term, title.as_deref())));
         inner.client = Some(Client { token, tx });
         self.attached.store(true, Ordering::Relaxed);
-        self.meta.lock().unwrap().bell = false;
+        self.meta.locked().bell = false;
         Some(token)
     }
 
     /// Let go of the pane attached with `token`, if it still is.
     pub fn detach(&self, token: u64) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.locked();
         if inner.client.as_ref().is_some_and(|c| c.token == token) {
             inner.client = None;
             self.attached.store(false, Ordering::Relaxed);
@@ -252,14 +253,14 @@ impl Agent {
     }
 
     pub fn resize(&self, token: u64, cols: u16, rows: u16) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.locked();
         if inner.client.as_ref().is_some_and(|c| c.token == token) {
             self.resize_locked(&mut inner, cols, rows);
         }
     }
 
     fn is_current(&self, token: u64) -> bool {
-        self.inner.lock().unwrap().client.as_ref().is_some_and(|c| c.token == token)
+        self.inner.locked().client.as_ref().is_some_and(|c| c.token == token)
     }
 
     fn resize_locked(&self, inner: &mut Inner, cols: u16, rows: u16) {
@@ -290,9 +291,9 @@ impl Agent {
 
     /// The session as `list` and `watch` report it.
     pub fn session(&self, now: u64) -> Session {
-        let exit = self.inner.lock().unwrap().exit;
+        let exit = self.inner.locked().exit;
         let (title, bell) = {
-            let m = self.meta.lock().unwrap();
+            let m = self.meta.locked();
             (m.title.clone(), m.bell)
         };
         let claude = (self.kind == "claude" && exit.is_none()).then(|| nex_host::claude::read(self.pid)).flatten();

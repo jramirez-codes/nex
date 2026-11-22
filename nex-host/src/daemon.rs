@@ -16,6 +16,7 @@ use nex_host::paths;
 use nex_host::proto::{self, Request, Response};
 
 use crate::agent::{self, Agent, Spec};
+use crate::locked::Locked;
 
 /// How long the daemon stays up with nothing to do.
 const IDLE_EXIT: Duration = Duration::from_secs(30);
@@ -33,13 +34,13 @@ struct State {
 impl State {
     fn sessions(&self) -> Vec<proto::Session> {
         let now = agent::now_ms();
-        let mut list: Vec<_> = self.agents.lock().unwrap().values().map(|a| a.session(now)).collect();
+        let mut list: Vec<_> = self.agents.locked().values().map(|a| a.session(now)).collect();
         list.sort_by_key(|s| s.started);
         list
     }
 
     fn get(&self, id: &str) -> Option<Arc<Agent>> {
-        self.agents.lock().unwrap().get(id).cloned()
+        self.agents.locked().get(id).cloned()
     }
 }
 
@@ -69,7 +70,7 @@ pub fn run() -> io::Result<()> {
         loop {
             std::thread::sleep(Duration::from_secs(2));
             expire(&idle);
-            let busy = !idle.agents.lock().unwrap().is_empty() || idle.clients.load(Ordering::Relaxed) > 0;
+            let busy = !idle.agents.locked().is_empty() || idle.clients.load(Ordering::Relaxed) > 0;
             if busy {
                 idle_since = None;
             } else if idle_since.get_or_insert_with(Instant::now).elapsed() >= idle_exit() {
@@ -101,7 +102,7 @@ fn idle_exit() -> Duration {
 /// Drop agents that exited long ago.
 fn expire(state: &State) {
     let now = agent::now_ms();
-    state.agents.lock().unwrap().retain(|_, a| {
+    state.agents.locked().retain(|_, a| {
         let ended = a.ended_at.load(Ordering::Relaxed);
         ended == 0 || now.saturating_sub(ended) < EXITED_KEEP.as_millis() as u64
     });
@@ -139,12 +140,12 @@ fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
                 if a.killed.load(Ordering::Relaxed)
                     && let Some(s) = on_end_state.upgrade()
                 {
-                    s.agents.lock().unwrap().remove(&a.id);
+                    s.agents.locked().remove(&a.id);
                 }
             };
             match Agent::spawn(id.clone(), spec, ended) {
                 Ok(a) => {
-                    state.agents.lock().unwrap().insert(id.clone(), a);
+                    state.agents.locked().insert(id.clone(), a);
                     send(&mut stream, &Response { ok: true, id: Some(id), ..Response::default() })
                 }
                 Err(e) => send(&mut stream, &Response::error(format!("couldn't start it: {e}"))),
@@ -154,7 +155,7 @@ fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
         Request::Watch => watch(state, &mut stream),
         Request::Kill { id } => match state.get(&id) {
             Some(a) if a.exited() => {
-                state.agents.lock().unwrap().remove(&id);
+                state.agents.locked().remove(&id);
                 send(&mut stream, &Response::ok())
             }
             Some(a) => {
@@ -165,7 +166,7 @@ fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
         },
         Request::Forget { id } => match state.get(&id) {
             Some(a) if a.exited() => {
-                state.agents.lock().unwrap().remove(&id);
+                state.agents.locked().remove(&id);
                 send(&mut stream, &Response::ok())
             }
             Some(_) => send(&mut stream, &Response::error("it's still running: kill it first")),
@@ -243,7 +244,7 @@ fn new_id(state: &State) -> String {
             bytes = (n as u32).to_be_bytes();
         }
         let id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        if !state.agents.lock().unwrap().contains_key(&id) {
+        if !state.agents.locked().contains_key(&id) {
             return id;
         }
     }

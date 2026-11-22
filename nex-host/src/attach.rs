@@ -9,6 +9,7 @@ use std::time::Duration;
 use nex_host::proto::{self, Request};
 
 use crate::{client, redraw};
+use crate::locked::Locked;
 
 /// How often the terminal's size is checked (sshd passes the pane's resizes on to it).
 const SIZE_POLL: Duration = Duration::from_millis(200);
@@ -55,7 +56,7 @@ pub fn run(id: &str) -> io::Result<i32> {
             std::thread::sleep(SIZE_POLL);
             if let Some(now) = size().filter(|&s| s != last) {
                 last = now;
-                if resize.lock().unwrap().write_all(&proto::resize_frame(now.0, now.1)).is_err() {
+                if resize.locked().write_all(&proto::resize_frame(now.0, now.1)).is_err() {
                     break;
                 }
             }
@@ -69,7 +70,7 @@ pub fn run(id: &str) -> io::Result<i32> {
         match stdin.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                if to.lock().unwrap().write_all(&proto::frame(proto::FRAME_INPUT, &buf[..n])).is_err() {
+                if to.locked().write_all(&proto::frame(proto::FRAME_INPUT, &buf[..n])).is_err() {
                     break;
                 }
             }
