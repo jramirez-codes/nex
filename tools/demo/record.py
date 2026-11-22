@@ -7,9 +7,9 @@ and are piped into ffmpeg at a steady frame rate. The scenes themselves live in 
 each one leaves a marker in the timeline so make_gifs.sh can cut the take into clips.
 
 Needs Hyprland, grim, ffmpeg, plus the programs the scenes run (git, btop, nvim, tree).
-Usage: docs/demo/record.py [OUT_DIR]   (default: target/demo)
-       DEMO_SCENES=search,explorer docs/demo/record.py   records only those scenes
-Then:  docs/demo/make_gifs.sh
+Usage: tools/demo/record.py [OUT_DIR]   (default: target/demo)
+       DEMO_SCENES=search,explorer tools/demo/record.py   records only those scenes
+Then:  tools/demo/make_gifs.sh
 """
 
 import json

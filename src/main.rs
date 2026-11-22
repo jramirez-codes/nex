@@ -1,3 +1,7 @@
+//! nex: a GPU-accelerated terminal emulator with tabs, split panes, a file explorer and ssh
+//! that follows you. This file parses the command line, builds the window and hands the frame
+//! loop to [`app::App`]. See ARCHITECTURE.md for the map of the modules below.
+
 mod agents;
 mod app;
 mod cli;

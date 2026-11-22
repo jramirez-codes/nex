@@ -10,7 +10,10 @@ homepage = "https://jramirez-codes.github.io/nex/"
 readme = "README.md"
 keywords = ["terminal-emulator", "terminal", "gpu", "linux", "macos"]
 categories = ["command-line-utilities", "gui"]
-exclude = ["docs/", "site/", "bench/"]
+exclude = ["tools/", "site/", "bench/"]
+
+[lints]
+workspace = true
 
 [dependencies]
 alacritty_terminal = "0.26.0"
@@ -89,3 +92,12 @@ assets = [
     # nex-host for each kind of ssh host (built by the release workflow into target/host).
     ["target/host/nex-host-*", "usr/share/nex/host/", "755"],
 ]
+
+# Lints for nex and nex-host, on top of clippy's defaults (CI denies all warnings).
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"

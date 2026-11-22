@@ -6,11 +6,11 @@ to fit DURATION. The backdrop doesn't move, so the GIF only stores the window's 
 
 Writes promo.mp4 and promo.gif (both 1920x1080) to OUT_DIR; with --no-captions, hero.mp4 and
 hero.gif instead (the README's top GIF): no caption, and the window centered.
-Usage: DEMO_SCENES=promo docs/demo/record.py [TAKE_DIR]
-       docs/demo/promo.py [TAKE_DIR] [OUT_DIR] [--background IMAGE] [--no-captions]
+Usage: DEMO_SCENES=promo tools/demo/record.py [TAKE_DIR]
+       tools/demo/promo.py [TAKE_DIR] [OUT_DIR] [--background IMAGE] [--no-captions]
        (defaults: target/demo, site/public/demo; IMAGE replaces the generated landscape and is
        cropped to fill the frame)
-       docs/demo/promo.py --still OUT.png [--background IMAGE]   just the backdrop, to preview
+       tools/demo/promo.py --still OUT.png [--background IMAGE]   just the backdrop, to preview
 Needs ffmpeg and Pillow.
 """
 
