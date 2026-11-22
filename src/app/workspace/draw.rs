@@ -406,7 +406,8 @@ impl App {
         }
         if let Some(a) = self.agents.get_mut(&pane.id) {
             let painter = pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0));
-            a.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, theme, self.agent_tracker.agents(), &self.agent_notes);
+            let shown_tab = (!self.explorer_active).then_some(self.active);
+            a.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, theme, self.agent_tracker.agents(), &self.agent_notes, shown_tab);
             let requests: Vec<_> = a.requests.drain(..).map(|r| (pane.id, r)).collect();
             self.agent_requests.extend(requests);
         }
