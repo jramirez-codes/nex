@@ -155,9 +155,14 @@ fn expire(state: &State) {
 }
 
 fn send(stream: &mut UnixStream, r: &Response) -> io::Result<()> {
+    stream.write_all(&response_line(r)?)
+}
+
+/// `r` as the line it goes over the socket as.
+fn response_line(r: &Response) -> io::Result<Vec<u8>> {
     let mut line = serde_json::to_string(r).map_err(io::Error::other)?;
     line.push('\n');
-    stream.write_all(line.as_bytes())
+    Ok(line.into_bytes())
 }
 
 fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
@@ -248,12 +253,14 @@ fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
             if agent.exited() {
                 return send(&mut stream, &Response::error("it has exited"));
             }
-            send(&mut stream, &Response::ok())?;
             let token = state.next_token.fetch_add(1, Ordering::Relaxed);
             let tx = agent::spawn_writer(stream.try_clone()?);
-            if agent.attach(tx, token, cols, rows).is_none() {
+            // The reply goes out through the writer, as the agent takes the pane over.
+            if agent.attach(&tx, response_line(&Response::ok())?, token, cols, rows).is_none() {
+                let _ = tx.send(agent::Out::Bytes(response_line(&Response::error("it has exited"))?));
                 return Ok(());
             }
+            drop(tx);
             // Read through the buffer: a client may send keys right behind its request.
             let result = pump(&agent, token, &mut reader);
             agent.detach(token);

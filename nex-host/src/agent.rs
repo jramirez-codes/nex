@@ -257,9 +257,13 @@ impl Agent {
     }
 
     /// Show this agent on a pane's connection, `cols` by `rows`: the pane it was on (if any)
-    /// is let go, the screen is resized to fit and sent, then output flows. Returns the
-    /// token that identifies this attachment, or `None` if the agent has ended.
-    pub fn attach(&self, tx: Sender<Out>, token: u64, cols: u16, rows: u16) -> Option<u64> {
+    /// is let go, `ack` (the reply to the pane's request) is sent, the screen is resized to
+    /// fit and sent, then output flows. Returns the token that identifies this attachment,
+    /// or `None` (with nothing sent) if the agent has ended.
+    ///
+    /// `ack` goes out under the same lock as the takeover, so once a pane has its reply it
+    /// is the one attached: a pane attaching after it takes over from it, never the reverse.
+    pub fn attach(&self, tx: &Sender<Out>, ack: Vec<u8>, token: u64, cols: u16, rows: u16) -> Option<u64> {
         let mut inner = self.inner.locked();
         if inner.exit.is_some() {
             return None;
@@ -267,10 +271,11 @@ impl Agent {
         if let Some(old) = inner.client.take() {
             let _ = old.tx.send(Out::Close("[attached in another pane]".into()));
         }
+        let _ = tx.send(Out::Bytes(ack));
         self.resize_locked(&mut inner, cols, rows);
         let title = self.meta.locked().title.clone();
         let _ = tx.send(Out::Bytes(redraw::screen(&inner.screen.term, title.as_deref())));
-        inner.client = Some(Client { token, tx });
+        inner.client = Some(Client { token, tx: tx.clone() });
         self.attached.store(true, Ordering::Relaxed);
         self.meta.locked().bell = false;
         Some(token)
