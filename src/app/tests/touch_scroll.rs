@@ -207,7 +207,36 @@ fn second_finger_turns_a_swipe_into_a_pinch() {
     assert!(!s.selected(id));
 }
 
+/// A throwaway folder for the Files pane to show, removed when dropped. Files must never
+/// show the working directory in these tests: a long press and drag there moves real files
+/// (it once moved the repository's `build.rs` into `site/`).
+struct TempDir(std::path::PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 impl Sim {
+    /// Open the Files tab on a throwaway folder of a few files and a subfolder.
+    fn open_files(&mut self) -> TempDir {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("nex-touch-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(dir.join("inner")).unwrap();
+        for f in ["alpha.txt", "beta.txt", "gamma.txt"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        self.app.toggle_explorer();
+        for ex in self.app.explorers.values_mut() {
+            ex.navigate(dir.clone());
+        }
+        self.settle();
+        assert!(self.app.home_active, "the Files tab didn't open");
+        TempDir(dir)
+    }
+
     /// The body of the first pane shown that isn't a terminal.
     fn other_pane_body(&self) -> Rect {
         let r = self.app.card_rects.iter().find(|(id, _)| !self.app.panes.contains_key(id)).expect("no other pane shown").1;
@@ -218,9 +247,7 @@ impl Sim {
 #[test]
 fn sideways_swipes_on_files_reach_the_home_tab_and_back() {
     let mut s = Sim::new(2);
-    s.app.toggle_explorer();
-    s.settle();
-    assert!(s.app.home_active, "the Files tab didn't open");
+    let _dir = s.open_files();
     let c = s.other_pane_body().center();
     // Left from the home tab: the first terminal tab.
     s.swipe(c, c - Vec2::new(200.0, 0.0), 10);
@@ -241,8 +268,7 @@ fn sideways_swipes_on_files_reach_the_home_tab_and_back() {
 #[test]
 fn long_press_on_files_then_sideways_drag_keeps_the_tab() {
     let mut s = Sim::new(2);
-    s.app.toggle_explorer();
-    s.settle();
+    let _dir = s.open_files();
     let c = s.other_pane_body().center();
     s.touch(0, TouchPhase::Start, c);
     for _ in 0..35 {
