@@ -93,8 +93,8 @@ fn a_window_that_never_opened_a_tab_keeps_the_session() {
     let mut app = App::new(&cc, cfg, args, None, Some(one_shell(&std::env::temp_dir())), None);
     frames(&ctx, &mut app, 3);
     assert!(app.tabs.is_empty(), "the shell was expected to fail to spawn");
-    app.save_session = true;
-    app.closed_by_user = true;
+    app.session.save_session = true;
+    app.session.closed_by_user = true;
     assert!(app.keeps_session());
     assert!(!app.forgets_session_when_empty());
 }
@@ -102,15 +102,15 @@ fn a_window_that_never_opened_a_tab_keeps_the_session() {
 #[test]
 fn closing_the_last_tab_forgets_the_session_unless_restore_is_off() {
     let (_ctx, mut app) = restored(one_shell(&std::env::temp_dir()));
-    assert!(app.had_tabs);
-    app.save_session = true;
-    app.closed_by_user = true;
+    assert!(app.session.had_tabs);
+    app.session.save_session = true;
+    app.session.closed_by_user = true;
     assert!(app.forgets_session_when_empty());
     // Shells dying on their own (a logout) don't count as the user closing them.
-    app.closed_by_user = false;
+    app.session.closed_by_user = false;
     assert!(!app.forgets_session_when_empty());
     // restore-session = false: the file is neither written nor removed.
-    app.closed_by_user = true;
+    app.session.closed_by_user = true;
     app.cfg.restore_session = false;
     assert!(!app.keeps_session());
     assert!(!app.forgets_session_when_empty());
@@ -127,7 +127,7 @@ fn shell_exits(ctx: &egui::Context, app: &mut App, id: crate::layout::PaneId, ty
     let long_ago = std::time::Instant::now() - std::time::Duration::from_secs(60);
     let t = app.panes.get_mut(&id).unwrap();
     t.last_input = if typed { std::time::Instant::now() } else { long_ago };
-    app.last_user_input = Some(if typed { std::time::Instant::now() } else { long_ago });
+    app.session.last_user_input = Some(if typed { std::time::Instant::now() } else { long_ago });
     t.exited = true;
     frames(ctx, app, 1);
 }
@@ -136,9 +136,9 @@ fn shell_exits(ctx: &egui::Context, app: &mut App, id: crate::layout::PaneId, ty
 /// `(keeps writing it, removes it on emptying)`. `save_session` is only on while asking, so
 /// no frame ever touches the real file.
 fn file_policy(app: &mut App) -> (bool, bool) {
-    app.save_session = true;
+    app.session.save_session = true;
     let policy = (app.keeps_session(), app.forgets_session_when_empty());
-    app.save_session = false;
+    app.session.save_session = false;
     policy
 }
 
@@ -191,10 +191,10 @@ fn exit_typed_in_the_last_shell_starts_fresh() {
 #[test]
 fn only_close_actions_count_as_the_user_closing() {
     let (ctx, mut app) = restored(one_shell(&std::env::temp_dir()));
-    app.session_suspended = true;
+    app.session.session_suspended = true;
     app.pending.push(crate::app::actions::Action::ReloadConfig);
     frames(&ctx, &mut app, 1);
-    assert!(!app.closed_by_user && app.session_suspended);
+    assert!(!app.session.closed_by_user && app.session.session_suspended);
     app.pending.push(crate::app::actions::Action::CloseTab(0));
     frames(&ctx, &mut app, 1);
     assert!(app.tabs.is_empty());

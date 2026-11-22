@@ -162,28 +162,10 @@ pub struct App {
     toast: Option<Toast>,
     /// A toast to show on the next frame, from code without the egui context.
     notice: Option<String>,
-    /// The last session, to bring back on the first frame (see `crate::session`).
-    restore_at_start: Option<crate::session::Session>,
-    /// This window keeps the session file: a plain launch holding the session lock (not a
-    /// second window, `-e`, or another nex already running).
-    save_session: bool,
-    /// The session lock, held for the window's lifetime (see `session::try_lock`).
-    _session_lock: Option<crate::session::Lock>,
-    /// A tab was open at some point (a window that never opened one leaves the file alone).
-    had_tabs: bool,
-    /// The last close was the user's: a close action, or a shell exiting right after the user
-    /// typed into it (`exit`, Ctrl+D).
-    closed_by_user: bool,
-    /// A shell exited without the user (logout's SIGHUP, a killed shell, a program ending):
-    /// the session file is left as it was (no autosave, save on exit or clear) until the
-    /// user next types, clicks or closes something.
-    session_suspended: bool,
-    /// When the user last pressed a key, clicked or typed into the window.
-    last_user_input: Option<Instant>,
-    /// The session as last written, so unchanged polls don't touch the disk.
-    saved_session: Option<String>,
     /// Uploads, the shared mic, watched agents and their dialogs (see `ssh/`).
     ssh: ssh::SshState,
+    /// Restoring the last session and keeping the session file (see `restore.rs`).
+    session: restore::SessionState,
 }
 
 impl App {
@@ -203,6 +185,8 @@ impl App {
 
         let hostname = crate::platform::hostname();
 
+        // Read before the literal moves `args.command` out.
+        let save_session = args.restores_session() && session_lock.is_some();
         Self {
             cfg,
             config_mtime: config::modified(),
@@ -252,12 +236,6 @@ impl App {
             sticky_glide: Default::default(),
             last_pointer: None,
             new_window_args: args.for_new_window(),
-            save_session: args.restores_session() && session_lock.is_some(),
-            _session_lock: session_lock,
-            had_tabs: false,
-            closed_by_user: false,
-            last_user_input: None,
-            session_suspended: false,
             open_explorer: args.explorer,
             select_at_start: args.select.clone(),
             // An early terminal already runs the `-e` command.
@@ -266,8 +244,6 @@ impl App {
             dnd: crate::platform::Dnd::new(cc),
             toast: None,
             notice: None,
-            restore_at_start: session,
-            saved_session: None,
             ssh: ssh::SshState {
                 uploads: Vec::new(),
                 sharing_prompt: None,
@@ -277,6 +253,16 @@ impl App {
                 remote_hosts: ssh::hosts::Hosts::default(),
                 agent_prompt: None,
                 agent_notes: Vec::new(),
+            },
+            session: restore::SessionState {
+                restore_at_start: session,
+                save_session,
+                _session_lock: session_lock,
+                had_tabs: false,
+                closed_by_user: false,
+                session_suspended: false,
+                last_user_input: None,
+                saved_session: None,
             },
         }
     }
@@ -311,7 +297,7 @@ impl eframe::App for App {
         if !self.started {
             // The first shell is spawned on the first frame, once the window size is known.
             self.started = true;
-            let restored = self.restore_at_start.take().is_some_and(|s| self.restore_session(ctx, s));
+            let restored = self.session.restore_at_start.take().is_some_and(|s| self.restore_session(ctx, s));
             if !restored {
                 let cwd = std::env::current_dir().ok();
                 self.new_tab(ctx, cwd, None);
@@ -326,8 +312,8 @@ impl eframe::App for App {
         }
 
         if ctx.input(|i| i.events.iter().any(is_user_input)) {
-            self.last_user_input = Some(Instant::now());
-            self.session_suspended = false;
+            self.session.last_user_input = Some(Instant::now());
+            self.session.session_suspended = false;
         }
         self.poll_ptys(ctx);
         self.poll_uploads(ctx);
@@ -418,10 +404,10 @@ impl App {
         }
         for id in &exited {
             if self.exit_by_user(*id) {
-                self.closed_by_user = true;
+                self.session.closed_by_user = true;
             } else {
-                self.closed_by_user = false;
-                self.session_suspended = true;
+                self.session.closed_by_user = false;
+                self.session.session_suspended = true;
             }
         }
         for id in exited {
@@ -451,7 +437,7 @@ impl App {
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return true;
         }
-        self.had_tabs = true;
+        self.session.had_tabs = true;
         if self.tabs.is_empty() {
             self.explorer_active = true;
         }
