@@ -10,6 +10,7 @@
 //! nex-host kill ID                                   end one
 //! nex-host forget ID                                 drop an exited one from the list
 //! nex-host shim install|remove|status                the `claude` / `codex` shim (see `shim.rs`)
+//! nex-host connect                                   one connection to the daemon, over stdin/stdout
 //! nex-host --version
 //! ```
 
@@ -59,11 +60,13 @@ const HELP: &str = "nex-host keeps coding agents running after the nex pane they
   nex-host forget ID                               drop an exited one from the list
   nex-host shim install|remove|status              make `claude` and `codex` typed in nex's ssh
                                                    panes start through nex-host
+  nex-host connect                                 pass one connection to the daemon through
+                                                   stdin and stdout (nex's own ssh client uses it)
 
 Everything lives in ~/.nex (or $NEX_HOME); remove that folder to remove nex-host.";
 
 #[cfg(unix)]
-const USAGE: &str = "usage: nex-host run|launch|attach|list|watch|kill|forget|shim|--version (see nex-host help)";
+const USAGE: &str = "usage: nex-host run|launch|attach|list|watch|kill|forget|shim|connect|--version (see nex-host help)";
 
 #[cfg(unix)]
 fn run(args: &[String]) -> std::io::Result<i32> {
@@ -129,6 +132,7 @@ fn run(args: &[String]) -> std::io::Result<i32> {
             Ok(0)
         }
         "watch" => watch(),
+        "connect" => connect(),
         "shim" => {
             let paths = match rest.first().map(String::as_str) {
                 Some("install") => shim::install()?,
@@ -189,6 +193,37 @@ fn watch() -> std::io::Result<i32> {
                 }
                 std::thread::sleep(Duration::from_secs(2));
             }
+        }
+    }
+}
+
+/// `connect`: one connection to the daemon (started if it isn't running), carried over stdin
+/// and stdout, for a client on an ssh channel without a terminal. It speaks the protocol
+/// itself (see `proto`); this ends when either side hangs up.
+#[cfg(unix)]
+fn connect() -> std::io::Result<i32> {
+    use std::io::{self, Read, Write};
+
+    let stream = client::connect(true)?;
+    let mut to_daemon = stream.try_clone()?;
+    std::thread::spawn(move || {
+        let _ = io::copy(&mut io::stdin().lock(), &mut to_daemon);
+        // The client is done sending; the daemon may still have output for it.
+        let _ = to_daemon.shutdown(std::net::Shutdown::Write);
+    });
+    let mut from_daemon = stream;
+    let mut out = io::stdout().lock();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        match from_daemon.read(&mut buf) {
+            Ok(0) => return Ok(0),
+            Ok(n) => {
+                // Each chunk goes out at once: it's a terminal's output.
+                out.write_all(&buf[..n])?;
+                out.flush()?;
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
         }
     }
 }

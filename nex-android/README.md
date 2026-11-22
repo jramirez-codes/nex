@@ -9,11 +9,12 @@ library NativeActivity loads (`android_main`). The code for the Android build it
 
 The port is happening in milestones (see the plan in the PR):
 
-1. **The app starts** *(this one)*: the APK installs and opens to the connect screen
-   (server, port, user). Connect doesn't connect yet.
-2. **ssh**: on the first connection you type your password once. The app then makes a device
-   key, adds it to `~/.ssh/authorized_keys` on the server with an expiry date, and logs in with
-   that key from then on. Shells run under `nex-host`, so they survive switching apps.
+1. **The app starts** *(done)*: the APK installs and opens to the connect screen.
+2. **ssh** *(this one)*: on the first connection you type your password once. The app then
+   makes a device key, adds it to `~/.ssh/authorized_keys` on the server with an expiry date
+   (`device-key-days`, 30 by default), and logs in with that key from then on. Every pane's
+   shell is a `nex-host` session on the server, so it survives switching apps and network
+   changes: the pane reconnects and the screen comes back.
 3. Touch typing: the soft keyboard and an extra-keys bar (Esc, Ctrl, Tab, arrows), plus
    drag to scroll.
 4. The Agents, Changes and Files panes over the same connection.
@@ -34,6 +35,18 @@ You need:
   export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.3.11579264
   ```
 - cargo-apk: `cargo install cargo-apk`
+
+The app installs `nex-host` on the server itself, so it has to carry a build of it for your
+server's kind of machine. Build that first. `build.rs` picks it up, and the APK build warns if
+it's missing:
+
+```sh
+rustup target add x86_64-unknown-linux-musl            # an x86_64 server; aarch64-… for ARM
+cargo build -p nex-host --release --target x86_64-unknown-linux-musl
+```
+
+If the server already has the same nex-host in `~/.nex/bin` (version and protocol, see
+`~/.nex/bin/nex-host --version`), nothing is installed.
 
 Then, from the repository root, with the phone plugged in and USB debugging on:
 
@@ -60,13 +73,29 @@ export CARGO_APK_RELEASE_KEYSTORE_PASSWORD=...
 cargo apk run -p nex-android --release
 ```
 
-## What to check on the phone (milestone 1)
+## What to check on the phone (milestone 2)
 
-- The app opens full screen to the connect screen and doesn't close by itself.
-- Tapping a field brings up the soft keyboard, and typing fills it in.
-- Connect with an empty field says which field is missing. With everything filled in it says
-  ssh isn't built in yet.
-- Rotating the phone redraws the screen without restarting the app.
-- Leaving the app and coming back still shows the screen. `adb logcat -s nex` shows no panic.
+1. **First connection.** Fill in server, port and user, then tap Connect.
+   - It asks for your password. After you type it, it shows the server's key fingerprint.
+   - Compare the fingerprint with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the
+     server, then tap Trust and connect.
+   - A shell opens.
+   - On the server, `~/.ssh/authorized_keys` ends with an `expiry-time="…" ssh-ed25519 … nex-device-…`
+     line. Hosts with OpenSSH older than 8.7 get the line without `expiry-time`.
+2. **Typing.** Tapping the terminal brings up the keyboard, and what you type reaches the
+   shell. The keyboard covers the bottom of the screen for now, and there's no Ctrl or Esc key
+   yet. Both come in milestone 3.
+3. **Next launch.** Close the app from the recents screen and open it again. It connects
+   without asking for anything, and the shell you left open comes back as it was.
+4. **Switching away.** Leave the app for a few minutes, or turn Wi-Fi off and on, then go back.
+   - The pane says it lost the connection and is reconnecting.
+   - Then the screen comes back.
+   - A command that was running (`top`, say) is still running.
+5. **New tabs.** The new-tab button in the sidebar opens another shell. Closing a pane ends its
+   shell: `~/.nex/bin/nex-host list` on the server no longer shows it.
+6. **No panics.** `adb logcat -s nex` shows none.
+
+The same thing runs on a desktop with `nex --remote=you@server`, which is quicker for checking
+the server side.
 
 If a step fails, send the `adb logcat` output from around that moment.

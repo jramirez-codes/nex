@@ -38,6 +38,8 @@ src/
 │   ├── mod.rs            PTY + VT state, title and cwd
 │   ├── input.rs          keyboard & mouse → xterm escape sequences
 │   ├── osc7.rs           PTY wrapper that picks up OSC 7 (the shell's working directory)
+│   ├── remote.rs         a pane whose shell is a nex-host session on a host nex connects
+│   │                     to itself (the Android app, `--remote`)
 │   ├── search.rs         scrollback search, URL and OSC 8 link detection
 │   └── snapshot.rs       copy of the visible screen, taken under the lock
 ├── render/           drawing the terminal grid
@@ -62,7 +64,8 @@ src/
 │   ├── motion.rs         cards moving between sections
 │   └── view.rs           drawing and the mouse
 ├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture),
-│                     installing and watching nex-host
+│                     installing and watching nex-host; ssh/ is nex's own ssh client (russh):
+│                     host keys, the one-time password and device key, reconnecting
 ├── ui/               shared UI kit: theme, glide/ink animation, painting, icons, widgets, toasts
 └── platform/         everything OS-specific, behind one API (see platform/mod.rs)
     ├── mod.rs            the shared types and the per-OS switch

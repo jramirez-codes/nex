@@ -136,8 +136,10 @@ fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
                 env,
             };
             let on_end_state = Arc::downgrade(state);
+            // Killed sessions are forgotten when they end, and so are shells: a shell that
+            // exited has nothing left to show.
             let ended = move |a: &Arc<Agent>| {
-                if a.killed.load(Ordering::Relaxed)
+                if (a.killed.load(Ordering::Relaxed) || a.kind == proto::SHELL_KIND)
                     && let Some(s) = on_end_state.upgrade()
                 {
                     s.agents.locked().remove(&a.id);

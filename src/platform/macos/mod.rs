@@ -28,6 +28,9 @@ use super::{ShortcutStyle, WindowDefaults};
 /// Panes run shells on this machine.
 pub const LOCAL_SHELLS: bool = true;
 
+/// A physical keyboard.
+pub const SOFT_KEYBOARD: bool = false;
+
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Cmd;
 
 /// The system's own traffic lights, drawn over nex's title bar (see `main.rs`).

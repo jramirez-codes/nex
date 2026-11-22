@@ -129,8 +129,11 @@ impl Agent {
     /// Start `spec` in a new pty, and a thread reading its output for as long as it runs.
     /// `on_end` runs on that thread once it has ended.
     pub fn spawn(id: String, spec: Spec, on_end: impl FnOnce(&Arc<Agent>) + Send + 'static) -> io::Result<Arc<Agent>> {
-        let program = spec.argv.first().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "nothing to run"))?;
-        let base = program.rsplit('/').next().unwrap_or(program).to_string();
+        // No command: the login shell itself.
+        let base = match spec.argv.first() {
+            Some(program) => program.rsplit('/').next().unwrap_or(program).to_string(),
+            None => proto::SHELL_KIND.to_string(),
+        };
         let kind = spec.kind.clone().unwrap_or_else(|| detect_kind(&spec.argv).unwrap_or(&base).to_string());
         let cwd = if spec.cwd.is_dir() { spec.cwd.clone() } else { PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into())) };
         let name = spec.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
@@ -361,7 +364,7 @@ pub fn quote(word: &str) -> String {
 }
 
 /// Start `argv` in `cwd` under the login shell (which `exec`s it, so the program keeps the
-/// shell's pid) on a new pty, as the leader of its own session with the pty as its terminal.
+/// shell's pid), or the login shell itself when `argv` is empty, on a new pty, as the leader of its own session with the pty as its terminal.
 fn spawn_in_pty(argv: &[String], env: Option<&[(String, String)]>, cwd: &std::path::Path, cols: u16, rows: u16) -> io::Result<(File, Child)> {
     let (mut master, mut slave) = (-1, -1);
     let mut size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
@@ -387,6 +390,15 @@ fn spawn_in_pty(argv: &[String], env: Option<&[(String, String)]>, cwd: &std::pa
     }
 
     let mut cmd = match env {
+        // A plain shell: the login shell, interactive (in `env` when one was sent).
+        _ if argv.is_empty() => {
+            let mut cmd = Command::new(login_shell());
+            cmd.arg("-l");
+            if let Some(env) = env {
+                cmd.env_clear().envs(env.iter().filter(|(k, _)| !skip_var(k)).map(|(k, v)| (k, v)));
+            }
+            cmd
+        }
         // The environment of the shell it was started from: run it directly in that.
         Some(env) => {
             let mut cmd = Command::new(&argv[0]);

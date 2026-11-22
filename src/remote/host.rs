@@ -162,23 +162,54 @@ impl HostInfo {
 /// the same, folded into starting up (see [`watch_script`]). Only the install test uses it.
 #[cfg(all(test, target_os = "linux"))]
 pub fn ensure(target: &SshTarget) -> Result<HostInfo, HostError> {
-    let info = HostInfo::parse(&run(target, CHECK_SCRIPT, None)?);
+    ensure_with(|script, stdin| run(target, script, stdin))
+}
+
+/// [`ensure`] over any connection: `run` runs a script on the host (feeding it the bytes
+/// given) and returns what it printed. nex's own ssh client uses this (see `ssh/host.rs`).
+pub fn ensure_with(mut run: impl FnMut(&str, Option<&[u8]>) -> Result<String, HostError>) -> Result<HostInfo, HostError> {
+    let info = HostInfo::parse(&run(CHECK_SCRIPT, None)?);
     if info.current() {
         return Ok(info);
     }
-    install(target, info)
+    install(run, info)
+}
+
+/// The `nex-host` program for `triple`: built into the app where there is no folder of
+/// builds beside it (Android, see `build.rs`), else from [`local_binary`].
+fn binary(triple: &str) -> Result<Vec<u8>, String> {
+    if let Some(bytes) = bundled(triple) {
+        return Ok(bytes.to_vec());
+    }
+    let path = local_binary(triple).ok_or_else(|| format!("nex has no {triple} build"))?;
+    std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[cfg(target_os = "android")]
+fn bundled(triple: &str) -> Option<&'static [u8]> {
+    let bytes: &'static [u8] = match triple {
+        "x86_64-unknown-linux-musl" => include_bytes!(concat!(env!("OUT_DIR"), "/nex-host-x86_64-unknown-linux-musl")),
+        "aarch64-unknown-linux-musl" => include_bytes!(concat!(env!("OUT_DIR"), "/nex-host-aarch64-unknown-linux-musl")),
+        _ => return None,
+    };
+    // `build.rs` leaves the file empty when there was no build to bundle.
+    (!bytes.is_empty()).then_some(bytes)
+}
+
+#[cfg(not(target_os = "android"))]
+fn bundled(_triple: &str) -> Option<&'static [u8]> {
+    None
 }
 
 /// Send this nex's `nex-host` to a host the install check said `info` about. Blocks.
-fn install(target: &SshTarget, info: HostInfo) -> Result<HostInfo, HostError> {
+fn install(mut run: impl FnMut(&str, Option<&[u8]>) -> Result<String, HostError>, info: HostInfo) -> Result<HostInfo, HostError> {
     let HostInfo { uname, gzip, .. } = info;
     let triple = target_triple(&uname).ok_or_else(|| HostError::Unsupported(uname.clone()))?;
-    let binary = local_binary(triple).ok_or_else(|| HostError::Unsupported(format!("{uname} (nex has no {triple} build)")))?;
-    let mut bytes = std::fs::read(&binary).map_err(|e| HostError::Other(format!("{}: {e}", binary.display())))?;
+    let mut bytes = binary(triple).map_err(|e| HostError::Unsupported(format!("{uname} ({e})")))?;
     if gzip {
         bytes = gzipped(&bytes).map_err(|e| HostError::Other(format!("compressing nex-host: {e}")))?;
     }
-    let installed = HostInfo { uname, gzip, ..HostInfo::parse(&run(target, &install_script(gzip), Some(&bytes))?) };
+    let installed = HostInfo { uname, gzip, ..HostInfo::parse(&run(&install_script(gzip), Some(&bytes))?) };
     if installed.current() {
         Ok(installed)
     } else {
@@ -403,7 +434,7 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
         if needs_login(&err) {
             set_state(State::Failed(HostError::NeedsLogin));
         } else if status.and_then(|s| s.code()) == Some(NEEDS_INSTALL) {
-            match install(target, HostInfo::parse(&check)) {
+            match install(|script, stdin| run(target, script, stdin), HostInfo::parse(&check)) {
                 Ok(info) => {
                     if let Ok(mut s) = snapshot.lock() {
                         s.shim = info.shim;

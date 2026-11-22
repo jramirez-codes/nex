@@ -218,6 +218,12 @@ pub struct ScanReader<R> {
     agent: AgentSlot,
 }
 
+impl<R> ScanReader<R> {
+    pub fn new(inner: R, slot: Slot, alert: Alert, agent: AgentSlot) -> Self {
+        ScanReader { inner, scanner: Scanner::default(), slot, alert, agent }
+    }
+}
+
 impl<R: Read> Read for ScanReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.inner.read(buf)?;
@@ -251,7 +257,7 @@ mod pty {
     use alacritty_terminal::tty::{ChildEvent, EventedPty, EventedReadWrite, Pty};
     use polling::{Event, PollMode, Poller};
 
-    use super::{AgentSlot, Alert, ScanReader, Scanner, Slot};
+    use super::{AgentSlot, Alert, ScanReader, Slot};
 
     /// A [`Pty`] whose output is scanned for OSC 7 and notifications. Reads go through a second handle on the
     /// same PTY; registration, writes, resizes and child events go to the [`Pty`] itself.
@@ -263,7 +269,7 @@ mod pty {
     impl ScanPty {
         pub fn new(mut pty: Pty, slot: Slot, alert: Alert, agent: AgentSlot) -> io::Result<Self> {
             let file = pty.reader().try_clone()?;
-            Ok(Self { pty, reader: ScanReader { inner: file, scanner: Scanner::default(), slot, alert, agent } })
+            Ok(Self { pty, reader: ScanReader::new(file, slot, alert, agent) })
         }
     }
 

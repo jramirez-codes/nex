@@ -34,6 +34,14 @@ flate2 = "1"
 nex-host = { path = "nex-host", default-features = false }
 # Syntax colors in the Changes pane (see src/git_diff/syntax.rs): syntect's parser with bat's
 # grammars, pure-Rust regexes (no oniguruma to build).
+# nex's own ssh client, for hosts it connects to itself rather than through a pane's `ssh`
+# (the Android app, `nex --remote`; see src/remote/ssh/). ring rather than aws-lc-rs: no
+# cmake when building for Android. tokio runs it on one background thread.
+russh = { version = "0.63.1", default-features = false, features = ["ring", "flate2"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+# The device key and its comment (see src/remote/ssh/device.rs); russh's own version.
+rand = { version = "0.10", features = ["thread_rng"] }
+serde = { version = "1", features = ["derive"] }
 syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy"] }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 

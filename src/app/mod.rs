@@ -151,8 +151,12 @@ pub struct App {
     session: restore::SessionState,
     /// Where the tabs were drawn and how they are animating (see `chrome/titlebar.rs`).
     strip: chrome::titlebar::TabStrip,
-    /// The connect screen, shown where there are no local shells and no pane is open yet.
-    connect: connect::ConnectForm,
+    /// The host every pane works on, where this window is a thin client (Android,
+    /// `--remote`), and the connect screen shown until a pane is open (see `connect.rs`).
+    connect: connect::Connect,
+    /// Shells already on that host that the next panes opened attach to, instead of starting
+    /// new ones (the ones this device left open there).
+    adopt: Vec<String>,
 }
 
 impl App {
@@ -174,6 +178,8 @@ impl App {
 
         // Read before the literal moves `args.command` out.
         let save_session = args.restores_session() && session_lock.is_some();
+        let remote_window = !crate::platform::LOCAL_SHELLS || args.remote.is_some();
+        let remote_arg = args.remote.clone();
         Self {
             cfg,
             config_mtime: config::modified(),
@@ -253,7 +259,8 @@ impl App {
                 tab_hits: Vec::new(),
                 strip_rect: None,
             },
-            connect: connect::ConnectForm::default(),
+            connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
+            adopt: Vec::new(),
         }
     }
 }
@@ -284,7 +291,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.update_metrics(ctx);
         self.update_content_area(ctx);
-        if !self.started && crate::platform::LOCAL_SHELLS {
+        if !self.started && !self.connect.active {
             // The first shell is spawned on the first frame, once the window size is known.
             self.started = true;
             let restored = self.session.restore_at_start.take().is_some_and(|s| self.restore_session(ctx, s));
@@ -301,8 +308,8 @@ impl eframe::App for App {
             }
         }
 
-        // No local shells (Android) and nothing open yet: ask where to connect.
-        if !crate::platform::LOCAL_SHELLS && self.tabs.is_empty() {
+        // A thin client (Android, `--remote`) with nothing open: connect, then open the panes.
+        if self.connect.active && self.tabs.is_empty() {
             self.connect_screen(ctx);
             return;
         }
@@ -349,6 +356,9 @@ impl eframe::App for App {
 
         self.handle_pinch(ctx);
         self.handle_mouse(ctx);
+        if crate::platform::SOFT_KEYBOARD {
+            self.ask_for_keyboard(ctx);
+        }
         if !self.pending.is_empty() {
             self.drain_pending(ctx);
             ctx.request_repaint();
@@ -363,13 +373,34 @@ impl eframe::App for App {
 }
 
 impl App {
-    /// Draw the connect screen and act on its Connect button.
+    /// Draw the connect screen; once connected, open a tab for each shell this device left on
+    /// the host, or one new shell.
     fn connect_screen(&mut self, ctx: &egui::Context) {
-        let theme = Theme::from_config(&self.cfg);
-        if let Some(t) = self.connect.show(ctx, &theme) {
-            // The in-process ssh client comes with the next step of the Android port.
-            self.connect.set_message(format!("Can't connect to {}@{}:{} yet: ssh isn't built into this version.", t.user, t.host, t.port));
+        if let Some(shells) = self.connect.poll() {
+            let tabs = shells.len().max(1);
+            self.adopt = shells;
+            // Oldest first, as they were opened.
+            self.adopt.reverse();
+            for _ in 0..tabs {
+                self.new_tab(ctx, None, None);
+            }
+            if !self.tabs.is_empty() {
+                self.show_tab(0);
+                ctx.request_repaint();
+                return;
+            }
         }
+        let theme = Theme::from_config(&self.cfg);
+        self.connect.show(ctx, &theme, self.cfg.device_key_days);
+    }
+
+    /// Keep the on-screen keyboard up while a terminal has focus: egui shows it for as long as
+    /// a frame says where text goes (here, the terminal's last line).
+    fn ask_for_keyboard(&self, ctx: &egui::Context) {
+        let Some(id) = self.focused_pane().filter(|id| self.panes.contains_key(id)) else { return };
+        let Some(&(_, rect)) = self.term_rects.iter().find(|(p, _)| *p == id) else { return };
+        let cursor_rect = Rect::from_min_size(rect.left_bottom() - Vec2::new(0.0, 2.0), Vec2::new(1.0, 2.0));
+        ctx.output_mut(|o| o.ime = Some(egui::output::IMEOutput { rect, cursor_rect }));
     }
 
     /// The area below the title bar (or right of the sidebar) where panes go.

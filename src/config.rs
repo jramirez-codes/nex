@@ -121,6 +121,9 @@ pub struct Config {
     pub command: Option<String>,
     /// Bring back the last session's tabs, splits and folders at launch (`restore-session`).
     pub restore_session: bool,
+    /// How long the key nex puts on a host it connects to itself (the Android app, `--remote`)
+    /// lasts before the password is asked for again (see `remote/ssh/device.rs`).
+    pub device_key_days: u32,
 }
 
 impl Default for Config {
@@ -179,6 +182,7 @@ impl Default for Config {
             scrollback_limit: 10_000,
             command: None,
             restore_session: true,
+            device_key_days: 30,
         }
     }
 }
@@ -334,6 +338,9 @@ impl Config {
                 self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?
             }
             "restore-session" => self.restore_session = boolean(value)?,
+            "device-key-days" => {
+                self.device_key_days = value.parse().ok().filter(|&d| (1..=3650).contains(&d)).ok_or_else(|| format!("invalid device-key-days `{value}` (1 to 3650)"))?
+            }
             "command" => self.command = Some(value.to_string()).filter(|s| !s.is_empty()),
             _ => return Err(format!("unknown key `{key}`")),
         }

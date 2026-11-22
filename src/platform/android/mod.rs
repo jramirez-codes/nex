@@ -20,6 +20,9 @@ use super::{ProcInfo, ShortcutStyle, WindowDefaults};
 /// No shells on the phone: panes are ssh sessions to a host.
 pub const LOCAL_SHELLS: bool = false;
 
+/// The on-screen keyboard: nex asks for it while a terminal has focus.
+pub const SOFT_KEYBOARD: bool = true;
+
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
 /// Full screen: no OS decorations, no window buttons, any size the screen is, and the

@@ -377,7 +377,14 @@ nex --working-directory ~/code     # where the first shell starts
 nex -e htop                        # run a program instead of the shell (the rest of the line)
 nex --explorer                     # open on the Files tab
 nex ~/Downloads                    # open the Files tab in a folder (a path or file:// URI)
+nex --remote=me@home.lan           # every pane on that host, with nex's own ssh client
 ```
+
+`--remote` is what the Android app does (see [`nex-android/`](nex-android/README.md)). The first
+time, you type your password once. nex then adds a key for this device to the host's
+`~/.ssh/authorized_keys`, set to expire after `device-key-days` (30 by default), and logs in
+with that key from then on. Each pane's shell is a `nex-host` session on the host, so a dropped
+connection loses nothing: the pane reconnects and the screen comes back as it was.
 
 `-e` only applies to the first pane; new tabs and splits start your shell. The window closes
 when the program exits. A new window (`Ctrl+Shift+N`, `Cmd+N` on macOS) keeps `--config` and

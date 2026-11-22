@@ -84,9 +84,9 @@ fn run(args: cli::Args, event_loop: impl FnOnce(&mut EventLoopBuilder) -> &mut E
 
     // The first shell starts now, so it gets going while the window opens: in the last
     // session's first pane when it is coming back (none if that session had no terminals).
-    // Where there are no local shells (Android), there is nothing to start early.
+    // Where panes are on a host (Android, `--remote`), there is nothing to start early.
     let early_cwd = match &session {
-        _ if !platform::LOCAL_SHELLS => None,
+        _ if !platform::LOCAL_SHELLS || args.remote.is_some() => None,
         Some(s) => app::restore::first_shell_dir(s).map(Some),
         None => Some(std::env::current_dir().ok()),
     };
