@@ -19,6 +19,9 @@ const SWIPE_DISTANCE: f32 = 80.0;
 const FLICK_DISTANCE: f32 = 30.0;
 /// Sideways speed (points a second) that makes a short swipe a flick.
 const FLICK_SPEED: f32 = 400.0;
+/// Whether swiping left brings in the next tab (as pages turn) or the previous one. On
+/// Android the finger drags the tabs along instead, so a left swipe goes back.
+const LEFT_IS_NEXT: bool = !cfg!(target_os = "android");
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {
@@ -78,8 +81,7 @@ impl App {
                     let vx = s.velocity.x;
                     let flick = dx.abs() >= FLICK_DISTANCE && vx.abs() >= FLICK_SPEED && vx.signum() == dx.signum();
                     if dx.abs() >= SWIPE_DISTANCE || flick {
-                        // Swiping left brings in the tab on the right, as pages do.
-                        self.pending.push(Action::SwipeTab(dx < 0.0));
+                        self.pending.push(Action::SwipeTab((dx < 0.0) == LEFT_IS_NEXT));
                     }
                 }
                 _ => {}
