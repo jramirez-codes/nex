@@ -200,15 +200,15 @@ impl App {
     /// The drop target in the title bar (or sidebar) at `at`: a tab, or the empty strip
     /// for a new tab (if the pane has company to leave behind).
     fn strip_target(&self, at: Pos2, shown: u64, home: u64) -> Option<DropTarget> {
-        if let Some(&(uid, _)) = self.tab_hits.iter().find(|(_, r)| r.contains(at)) {
+        if let Some(&(uid, _)) = self.strip.tab_hits.iter().find(|(_, r)| r.contains(at)) {
             // The tab already showing is only a target for a pane from another tab.
             return (uid != shown || uid != home).then_some(DropTarget::Tab(uid));
         }
-        if self.files_rect.is_some_and(|r| r.contains(at)) {
+        if self.strip.files_rect.is_some_and(|r| r.contains(at)) {
             return None;
         }
         let company = self.tabs.iter().find(|t| t.uid == home).is_some_and(|t| t.root.panes().len() > 1);
-        (company && self.strip_rect.is_some_and(|r| r.contains(at))).then_some(DropTarget::NewTab)
+        (company && self.strip.strip_rect.is_some_and(|r| r.contains(at))).then_some(DropTarget::NewTab)
     }
 
     /// Where the shown tab's cards would go if the dragged pane were dropped now.

@@ -40,7 +40,6 @@ use input::keymap::{Binding, keybindings};
 use input::mouse::MouseState;
 use workspace::tab::Tab;
 use animation::tab_switch::TabSwitch;
-use animation::tab_close::{TabDrawn, TabGhost};
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;
@@ -94,25 +93,6 @@ pub struct App {
     links: LinkFinder,
     /// Link under the pointer while Ctrl is held.
     hover_link: Option<(PaneId, Link)>,
-    /// Animated position of the active-tab highlight, in tab slots.
-    pill_glide: Glide,
-    /// Where each title-bar tab was drawn last frame, by tab uid (closes start from there).
-    tab_rects: HashMap<u64, TabDrawn>,
-    /// Closed tabs still folding away.
-    tab_ghosts: Vec<TabGhost>,
-    /// Where the Files tab (the directory label, or the sidebar tile) was drawn this frame.
-    files_rect: Option<Rect>,
-    /// Where the Files tab's dog is in its intro, as the time the intro would have started
-    /// (set at launch; moved so the blep plays each time Files is shown), and whether Files
-    /// was showing last frame.
-    dog_wake: Option<f64>,
-    dog_was_active: bool,
-    /// Where each visible tab was drawn this frame (title bar or sidebar), by tab uid: where
-    /// a dragged pane can be dropped into another tab.
-    tab_hits: Vec<(u64, Rect)>,
-    /// The title bar or sidebar this frame: dropping a pane on its empty space gives the
-    /// pane a tab of its own.
-    strip_rect: Option<Rect>,
     /// A pane being dragged by its header, if any (it can be carried to another tab).
     pane_drag: Option<workspace::pane_drag::PaneDrag>,
     /// The tab-switch transition (`tab-animation`): the old tab's panes giving way to the new.
@@ -166,6 +146,8 @@ pub struct App {
     ssh: ssh::SshState,
     /// Restoring the last session and keeping the session file (see `restore.rs`).
     session: restore::SessionState,
+    /// Where the tabs were drawn and how they are animating (see `chrome/titlebar.rs`).
+    strip: chrome::titlebar::TabStrip,
 }
 
 impl App {
@@ -213,14 +195,6 @@ impl App {
             glyphs: GlyphCache::default(),
             links: LinkFinder::new(),
             hover_link: None,
-            pill_glide: Glide::new(0.2),
-            tab_rects: HashMap::new(),
-            tab_ghosts: Vec::new(),
-            files_rect: None,
-            dog_wake: None,
-            dog_was_active: false,
-            tab_hits: Vec::new(),
-            strip_rect: None,
             pane_drag: None,
             switch: TabSwitch::default(),
             explorers: HashMap::new(),
@@ -263,6 +237,16 @@ impl App {
                 session_suspended: false,
                 last_user_input: None,
                 saved_session: None,
+            },
+            strip: chrome::titlebar::TabStrip {
+                pill_glide: Glide::new(0.2),
+                tab_rects: HashMap::new(),
+                tab_ghosts: Vec::new(),
+                files_rect: None,
+                dog_wake: None,
+                dog_was_active: false,
+                tab_hits: Vec::new(),
+                strip_rect: None,
             },
         }
     }

@@ -271,7 +271,7 @@ impl Sim {
     }
     /// Where tab `uid` is drawn in the title bar.
     fn tab_at(&self, uid: u64) -> Pos2 {
-        self.app.tab_hits.iter().find(|(u, _)| *u == uid).expect("tab not drawn").1.center()
+        self.app.strip.tab_hits.iter().find(|(u, _)| *u == uid).expect("tab not drawn").1.center()
     }
     fn shown_uid(&self) -> u64 {
         self.app.cur_tab().unwrap().uid

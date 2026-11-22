@@ -487,15 +487,15 @@ impl App {
             self.notice = Some(n);
         }
         let tab = self.take_tab(index);
-        if let Some(&drawn) = self.tab_rects.get(&tab.uid) {
-            for g in self.tab_ghosts.iter_mut().filter(|g| g.index > index) {
+        if let Some(&drawn) = self.strip.tab_rects.get(&tab.uid) {
+            for g in self.strip.tab_ghosts.iter_mut().filter(|g| g.index > index) {
                 g.index -= 1;
             }
             let (title, process) = label.unwrap_or_else(|| self.pane_label(tab.focused));
             let (mark, title) = icons::title_mark(&process, &title);
             let (mark, title) = (mark.map(str::to_string), title.to_string());
             let drawn = TabDrawn { active: drawn.active && !self.explorer_active, ..drawn };
-            self.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
+            self.strip.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
         }
         let sticky = self.sticky;
         for id in tab.root.panes().into_iter().filter(|&id| Some(id) != sticky) {

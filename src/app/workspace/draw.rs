@@ -199,7 +199,7 @@ impl App {
     /// Where tab `uid` is in the strip (its tab, or the Files label), brought onto the
     /// nearest edge of the pane area: where the ink drops when it is shown.
     fn drop_origin(&self, uid: u64, area: Rect) -> Pos2 {
-        let at = if self.explorer_active { self.files_rect } else { self.tab_rects.get(&uid).map(|d| d.rect) };
+        let at = if self.explorer_active { self.strip.files_rect } else { self.strip.tab_rects.get(&uid).map(|d| d.rect) };
         at.map_or(area.center_top(), |r| area.clamp(r.center()))
     }
 
