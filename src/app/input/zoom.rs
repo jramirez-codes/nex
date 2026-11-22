@@ -4,7 +4,7 @@
 use egui::Pos2;
 
 use crate::config::{FONT_MAX, FONT_MIN};
-use crate::layout::PaneId;
+use crate::layout::{PaneId, PaneKind};
 
 use crate::app::App;
 
@@ -26,16 +26,19 @@ impl App {
             return;
         }
         let Some(id) = self.pane_at(at).or_else(|| self.focused_pane()) else { return };
-        if let Some(explorer) = self.explorers.get_mut(&id) {
-            explorer.zoom_by(delta, at);
-            ctx.request_repaint();
-        } else if self.diffs.contains_key(&id) {
-            // Smooth, like the explorer: the diff is laid out every frame anyway.
-            let size = (self.pane_font(id) * delta).clamp(FONT_MIN, FONT_MAX);
-            self.pane_fonts.insert(id, size);
-            ctx.request_repaint();
-        } else if self.panes.contains_key(&id) {
-            self.pinch_terminal(ctx, id, delta);
+        match self.pane_kind(id) {
+            Some(PaneKind::Explorer) => {
+                self.explorers.get_mut(&id).unwrap().zoom_by(delta, at);
+                ctx.request_repaint();
+            }
+            Some(PaneKind::Diff) => {
+                // Smooth, like the explorer: the diff is laid out every frame anyway.
+                let size = (self.pane_font(id) * delta).clamp(FONT_MIN, FONT_MAX);
+                self.pane_fonts.insert(id, size);
+                ctx.request_repaint();
+            }
+            Some(PaneKind::Terminal) => self.pinch_terminal(ctx, id, delta),
+            Some(PaneKind::Agents) | None => {}
         }
     }
 

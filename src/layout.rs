@@ -4,6 +4,18 @@ use egui::{Pos2, Rect, Vec2};
 
 pub type PaneId = u64;
 
+/// What a pane in the split tree shows. The app keeps each kind's state in its own map
+/// (see `App::pane_kind`); sessions save it per leaf.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaneKind {
+    Terminal,
+    Explorer,
+    /// A Changes (git diff) pane; in a session, `cwd` is the folder whose repository it shows.
+    Diff,
+    /// An Agents pane (in a session, `cwd` is unused).
+    Agents,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Axis {
     /// Children side by side (divider is vertical). "Split right".

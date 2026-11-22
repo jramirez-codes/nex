@@ -6,7 +6,7 @@ use egui::emath::TSTransform;
 use egui::epaint::Shadow;
 use egui::{Color32, CursorIcon, FontId, Id, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::layout::{Axis, Divider, PaneId};
+use crate::layout::{Axis, Divider, PaneId, PaneKind};
 use crate::render::{self, FrameKey, PaintOptions};
 use crate::terminal::search::Search;
 use crate::terminal::GridSize;
@@ -159,18 +159,19 @@ impl App {
 
     /// One pane of the shown tab: a terminal, a file explorer, a Changes or an Agents pane.
     fn draw_pane(&mut self, ui: &mut Ui, pane: &PaneView, theme: &Theme, blink_on: bool) {
-        if self.agents.contains_key(&pane.id) {
-            self.agents_pane(ui, pane, theme);
-        } else if self.diffs.contains_key(&pane.id) {
-            self.diff_pane(ui, pane, theme);
-        } else if self.explorers.contains_key(&pane.id) {
-            self.explorer_pane(ui, pane, theme);
-        } else if self.panes.contains_key(&pane.id) {
-            self.terminal_pane(ui, pane, theme, blink_on);
-        } else {
-            return;
-        }
+        let Some(kind) = self.pane_kind(pane.id) else { return };
+        self.draw_content(ui, kind, pane, theme, blink_on);
         self.card_rects.push((pane.id, pane.target));
+    }
+
+    /// The card of pane `pane`, a `kind` pane: its header and what it shows.
+    fn draw_content(&mut self, ui: &mut Ui, kind: PaneKind, pane: &PaneView, theme: &Theme, blink_on: bool) {
+        match kind {
+            PaneKind::Terminal => self.terminal_pane(ui, pane, theme, blink_on),
+            PaneKind::Explorer => self.explorer_pane(ui, pane, theme),
+            PaneKind::Diff => self.diff_pane(ui, pane, theme),
+            PaneKind::Agents => self.agents_pane(ui, pane, theme),
+        }
     }
 
     /// A pane dragged here from another tab, held at `card`. Its terminal keeps the size of
@@ -189,16 +190,10 @@ impl App {
             on_top: true,
             scale_content: mini,
         };
-        if self.agents.contains_key(&id) {
-            self.agents_pane(ui, &pane, theme);
-        } else if self.diffs.contains_key(&id) {
-            self.diff_pane(ui, &pane, theme);
-        } else if self.explorers.contains_key(&id) {
-            self.explorer_pane(ui, &pane, theme);
-        } else if self.panes.contains_key(&id) {
-            self.terminal_pane(ui, &pane, theme, blink_on);
-            self.term_rects.retain(|(p, _)| *p != id);
-        }
+        let Some(kind) = self.pane_kind(id) else { return };
+        self.draw_content(ui, kind, &pane, theme, blink_on);
+        // It takes no part in this tab's mouse hit-testing.
+        self.term_rects.retain(|(p, _)| *p != id);
     }
 
     /// Where tab `uid` is in the strip (its tab, or the Files label), brought onto the

@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::layout::{Node, PaneId};
-use crate::session::{self, PaneKind, PaneNode, PaneState, Session, TabState};
+use crate::layout::{Node, PaneId, PaneKind};
+use crate::session::{self, PaneNode, PaneState, Session, TabState};
 
 use crate::app::workspace::tab::Tab;
 use crate::app::{App, PANE_GAP};
@@ -90,15 +90,7 @@ impl App {
     fn pane_node(&self, node: &Node) -> PaneNode {
         match node {
             Node::Leaf(id) => PaneNode::Leaf(PaneState {
-                kind: if self.explorers.contains_key(id) {
-                    PaneKind::Explorer
-                } else if self.diffs.contains_key(id) {
-                    PaneKind::Diff
-                } else if self.agents.contains_key(id) {
-                    PaneKind::Agents
-                } else {
-                    PaneKind::Terminal
-                },
+                kind: self.pane_kind(*id).unwrap_or(PaneKind::Terminal),
                 cwd: self.pane_cwd(*id),
                 font_size: self.pane_fonts.get(id).copied(),
                 command: self.panes.get(id).and_then(|t| t.running_command()),

@@ -14,7 +14,7 @@ use egui::{Pos2, Rect};
 
 use crate::file_explorer::FileExplorer;
 use crate::git_diff::GitDiff;
-use crate::layout::{Axis, Direction, Node, PaneId};
+use crate::layout::{Axis, Direction, Node, PaneId, PaneKind};
 use crate::terminal::Terminal;
 use crate::ui::icons;
 
@@ -30,6 +30,22 @@ impl App {
         let id = self.next_id;
         self.next_id += 1;
         id
+    }
+
+    /// What pane `id` shows, or `None` if it's gone. Match on this rather than probing the
+    /// per-kind maps, so a new kind of pane is a compile error everywhere it needs handling.
+    pub(in crate::app) fn pane_kind(&self, id: PaneId) -> Option<PaneKind> {
+        if self.panes.contains_key(&id) {
+            Some(PaneKind::Terminal)
+        } else if self.explorers.contains_key(&id) {
+            Some(PaneKind::Explorer)
+        } else if self.diffs.contains_key(&id) {
+            Some(PaneKind::Diff)
+        } else if self.agents.contains_key(&id) {
+            Some(PaneKind::Agents)
+        } else {
+            None
+        }
     }
 
     /// Drop everything kept for pane `id` (its terminal or explorer, and its zoom level).
@@ -109,27 +125,26 @@ impl App {
 
     /// Working directory of a pane: the shell's cwd, or the folder a explorer is showing.
     pub(in crate::app) fn pane_cwd(&self, id: PaneId) -> Option<PathBuf> {
-        if let Some(d) = self.diffs.get(&id) {
-            return Some(d.dir.clone());
-        }
-        match self.explorers.get(&id) {
-            Some(b) => Some(b.dir.clone()),
-            None => self.panes.get(&id).and_then(|t| t.cwd.clone()),
+        match self.pane_kind(id)? {
+            PaneKind::Terminal => self.panes[&id].cwd.clone(),
+            PaneKind::Explorer => Some(self.explorers[&id].dir.clone()),
+            PaneKind::Diff => Some(self.diffs[&id].dir.clone()),
+            PaneKind::Agents => None,
         }
     }
 
     /// `(title, process)` for a pane's tab and header.
     pub(in crate::app) fn pane_label(&self, id: PaneId) -> (String, String) {
-        if let Some(b) = self.explorers.get(&id) {
-            return (b.title(), icons::EXPLORER_PROCESS.into());
+        match self.pane_kind(id) {
+            Some(PaneKind::Terminal) => {
+                let t = &self.panes[&id];
+                (t.title(), t.process.clone())
+            }
+            Some(PaneKind::Explorer) => (self.explorers[&id].title(), icons::EXPLORER_PROCESS.into()),
+            Some(PaneKind::Diff) => (self.diffs[&id].title(), icons::DIFF_PROCESS.into()),
+            Some(PaneKind::Agents) => (self.agents[&id].title(), icons::AGENTS_PROCESS.into()),
+            None => Default::default(),
         }
-        if let Some(d) = self.diffs.get(&id) {
-            return (d.title(), icons::DIFF_PROCESS.into());
-        }
-        if let Some(a) = self.agents.get(&id) {
-            return (a.title(), icons::AGENTS_PROCESS.into());
-        }
-        self.panes.get(&id).map(|t| (t.title(), t.process.clone())).unwrap_or_default()
     }
 
     /// Show the Files tab (opening it at the focused directory the first time), or hide it

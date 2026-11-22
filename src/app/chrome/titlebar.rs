@@ -1,8 +1,11 @@
 //! The title bar: window buttons, the workspace (Files) label and the tab strip.
 
+use std::collections::HashMap;
+
 use egui::emath::TSTransform;
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
+use crate::layout::{PaneId, PaneKind};
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
@@ -461,6 +464,21 @@ impl App {
         false
     }
 
+    /// The app tile pane `id` shows in its tab's icon deck: its process and title mark.
+    fn deck_card(&self, id: PaneId) -> (String, Option<String>) {
+        match self.pane_kind(id) {
+            Some(PaneKind::Terminal) => {
+                let t = &self.panes[&id];
+                let title = t.title();
+                (t.process.clone(), icons::title_mark(&t.process, &title).0.map(str::to_string))
+            }
+            Some(PaneKind::Explorer) => (icons::EXPLORER_PROCESS.to_string(), None),
+            Some(PaneKind::Diff) => (icons::DIFF_PROCESS.to_string(), None),
+            Some(PaneKind::Agents) => (icons::AGENTS_PROCESS.to_string(), None),
+            None => Default::default(),
+        }
+    }
+
     /// The tab's icon: the focused pane's app tile, or a deck with one card per pane (focused
     /// on top, up to 3 peeking out behind, each `step` further). With `center`, the whole deck
     /// is centered on `icon` rather than fanning out from it. Returns where the title text
@@ -468,24 +486,9 @@ impl App {
     fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect, step: Vec2, center: bool) -> f32 {
         let (title, process) = self.pane_label(self.tabs[i].focused);
         let mark = icons::title_mark(&process, &title).0.map(str::to_string);
-        let (panes, explorers, diffs, agents) = (&self.panes, &self.explorers, &self.diffs, &self.agents);
-        let cards = self.tabs[i].deck_cards(ctx, |id| {
-            if explorers.contains_key(&id) {
-                (icons::EXPLORER_PROCESS.to_string(), None)
-            } else if diffs.contains_key(&id) {
-                (icons::DIFF_PROCESS.to_string(), None)
-            } else if agents.contains_key(&id) {
-                (icons::AGENTS_PROCESS.to_string(), None)
-            } else {
-                panes
-                    .get(&id)
-                    .map(|t| {
-                        let title = t.title();
-                        (t.process.clone(), icons::title_mark(&t.process, &title).0.map(str::to_string))
-                    })
-                    .unwrap_or_default()
-            }
-        });
+        let card_of: HashMap<PaneId, (String, Option<String>)> =
+            self.tabs[i].root.panes().into_iter().map(|id| (id, self.deck_card(id))).collect();
+        let cards = self.tabs[i].deck_cards(ctx, |id| card_of.get(&id).cloned().unwrap_or_default());
         let mut text_left = icon.right() + 9.0;
         if cards.len() > 1 {
             let cards: Vec<(&str, Option<&str>, f32)> = cards.iter().map(|((p, m), d)| (p.as_str(), m.as_deref(), *d)).collect();

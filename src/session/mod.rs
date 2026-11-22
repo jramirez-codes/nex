@@ -65,15 +65,7 @@ pub struct PaneState {
     pub sticky: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PaneKind {
-    Terminal,
-    Explorer,
-    /// A Changes (git diff) pane; `cwd` is the folder whose repository it shows.
-    Diff,
-    /// An Agents pane (`cwd` is unused).
-    Agents,
-}
+pub use crate::layout::PaneKind;
 
 impl Session {
     /// The session as JSON, including `"version"`.

@@ -93,8 +93,9 @@ Outside the Rust code:
 - **Nothing outside `platform/` checks the OS.** Porting nex to another OS means adding a folder
   there that provides the same items (`platform/mod.rs` lists them).
 - **Panes live in the split tree** (`layout.rs`), keyed by `PaneId`. A pane is a terminal, a file
-  explorer, a Changes pane or an Agents pane; `App` keeps each kind in its own map, and
-  `app/workspace/draw.rs` (`draw_pane`) picks the one to draw.
+  explorer, a Changes pane or an Agents pane (`layout::PaneKind`); `App` keeps each kind's state
+  in its own map. Code that treats kinds differently matches on `App::pane_kind(id)` rather
+  than probing the maps, so the compiler finds every place a new kind needs handling.
 - **`ui/` is stateless and shared.** Colors shared across the chrome belong in `ui/theme.rs`;
   easing curves, `smoothstep` and `Lerp` in `ui/glide.rs`; font size limits in `config.rs`.
 - **Background work never blocks a frame.** Git, file copies, ssh jobs and process polls run on
@@ -103,10 +104,11 @@ Outside the Rust code:
 ## Where to start for common changes
 
 - **A new action or shortcut:** `app/actions.rs` (the action), `app/input/keymap.rs` (the key).
-- **A new pane kind:** follow how the Changes pane (`git_diff/`) is wired in: its map on `App`
-  (`app/mod.rs`), opening it (`app/workspace/`), drawing it (`app/workspace/draw.rs`), forgetting
-  it (`forget_pane`), its zoom (`app/input/zoom.rs`, `app/actions.rs`) and saving it
-  (`session/mod.rs` `PaneKind`, `app/restore.rs`).
+- **A new pane kind:** add it to `layout::PaneKind` and give it a map on `App` (`app/mod.rs`),
+  then follow the compiler through every `match` on `App::pane_kind` (drawing, labels, keys,
+  zoom, the title-bar deck). Beyond those: `pane_kind` and `forget_pane`
+  (`app/workspace/mod.rs`), opening it (`app/workspace/`), and reading it back from a session
+  (`session/mod.rs`, `app/restore.rs`). The Changes pane (`git_diff/`) is a compact example.
 - **Something on an ssh host:** the work goes in `remote/` (no UI), the buttons, dialogs and
   toasts in `app/ssh/`.
 - **A config option:** `config.rs`, then document it in `config.example` and the README.
