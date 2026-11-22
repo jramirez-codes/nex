@@ -60,6 +60,11 @@ pub(super) enum Action {
     CloseExplorer,
     /// Open a Changes (git diff) pane beside the focused pane, or close the tab's one.
     ToggleGitDiff,
+    /// Open an Agents pane beside the focused pane, or close the tab's one.
+    ToggleAgents,
+    /// Show the Agents tab (the title bar's Agents label; opening it the first time), or
+    /// from it, go back to the terminal tab.
+    ToggleAgentsTab,
     /// Share this machine's microphone with a pane's ssh host, or stop; `ToggleMic(0)` means
     /// the focused pane (see `ssh/mic.rs`).
     ToggleMic(PaneId),
@@ -141,6 +146,8 @@ impl App {
             }
             Action::ToggleExplorer => self.toggle_explorer(),
             Action::ToggleGitDiff => self.toggle_git_diff(ctx),
+            Action::ToggleAgents => self.toggle_agents(ctx),
+            Action::ToggleAgentsTab => self.toggle_agents_tab(),
             Action::ToggleMic(0) => {
                 if let Some(id) = focused {
                     self.toggle_mic(ctx, id)
@@ -255,6 +262,9 @@ impl App {
                 Action::FontSmaller => explorer.zoom_by(1.0 / EXPLORER_ZOOM_STEP, None),
                 _ => explorer.reset_zoom(),
             }
+            return;
+        }
+        if self.agents.contains_key(&id) {
             return;
         }
         if self.diffs.contains_key(&id) {

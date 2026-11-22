@@ -1,5 +1,6 @@
 //! Tests that drive the whole `App` through egui frames.
 
+mod agents;
 mod drop;
 mod explorer_view;
 mod git_diff;

@@ -12,6 +12,8 @@ use super::paint::{bold, top_radius};
 pub const EXPLORER_PROCESS: &str = "files";
 /// Pseudo process name for Changes (git diff) panes.
 pub const DIFF_PROCESS: &str = "changes";
+/// Pseudo process name for Agents panes.
+pub const AGENTS_PROCESS: &str = "agents";
 /// The Git logo (Devicons' "git"), for Changes panes.
 const GIT_LOGO: char = '\u{e702}';
 
@@ -21,6 +23,7 @@ enum Kind {
     Node,
     Folder,
     Diff,
+    Agents,
     Other,
 }
 
@@ -30,6 +33,7 @@ fn kind(process: &str) -> Kind {
         "node" | "nodejs" | "npm" | "npx" | "pnpm" | "yarn" | "deno" => Kind::Node,
         EXPLORER_PROCESS => Kind::Folder,
         DIFF_PROCESS => Kind::Diff,
+        AGENTS_PROCESS => Kind::Agents,
         _ => Kind::Other,
     }
 }
@@ -45,6 +49,7 @@ fn tile_color(process: &str) -> Color32 {
         "git" | "lazygit" | "tig" | "gitui" | DIFF_PROCESS => Color32::from_rgb(0xe8, 0x4e, 0x31),
         "claude" => Color32::from_rgb(0xd9, 0x77, 0x57),
         "codex" => Color32::from_rgb(0xf2, 0xf2, 0xf2),
+        AGENTS_PROCESS => Color32::from_rgb(0x5e, 0x5c, 0xe6),
         "cargo" | "rustc" => Color32::from_rgb(0xb7, 0x41, 0x0e),
         "go" => Color32::from_rgb(0x00, 0xad, 0xd8),
         "htop" | "btop" | "top" => Color32::from_rgb(0x6d, 0x4a, 0xd6),
@@ -83,7 +88,7 @@ fn extends_icon(c: char) -> bool {
 /// icon takes the place of the tile's own glyph, animating as the program rewrites its title;
 /// a title without one leaves the tile as it was. File explorers keep their folder.
 pub fn title_mark<'a>(process: &str, title: &'a str) -> (Option<&'a str>, &'a str) {
-    if matches!(kind(process), Kind::Folder | Kind::Diff) {
+    if matches!(kind(process), Kind::Folder | Kind::Diff | Kind::Agents) {
         return (None, title);
     }
     let mut it = title.char_indices();
@@ -163,6 +168,7 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>) {
         Kind::Node => hexagon(&p, r.center(), r.width() * 0.3, Stroke::new((r.width() * 0.08).max(1.2), fg), None),
         Kind::Folder => icon_folder(&p, Rect::from_center_size(r.center(), Vec2::new(r.width() * 0.6, r.height() * 0.48)), fg),
         Kind::Diff => paint_glyph(&p, r.center(), r.width() * 0.56, GIT_LOGO, fg),
+        Kind::Agents => sparkles(&p, r, fg),
         Kind::Other => {
             p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, initial(process), bold(r.height() * 0.58), fg);
         }
@@ -245,6 +251,7 @@ pub fn header_glyph(p: &Painter, r: Rect, process: &str, mark: Option<&str>, col
         Kind::Node => hexagon(p, r.center(), r.width() * 0.48, Stroke::NONE, Some(color)),
         Kind::Folder => icon_folder(p, Rect::from_center_size(r.center(), Vec2::new(r.width(), r.height() * 0.82)), color),
         Kind::Diff => paint_glyph(p, r.center(), r.width() * 1.05, GIT_LOGO, color),
+        Kind::Agents => sparkles(p, r.expand(r.width() * 0.2), color),
         Kind::Shell => {
             let rr = Rect::from_center_size(r.center(), Vec2::new(r.width(), r.height() * 0.82));
             p.rect_filled(rr, 3, color);
@@ -264,6 +271,25 @@ pub fn header_glyph(p: &Painter, r: Rect, process: &str, mark: Option<&str>, col
             p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, letter, bold(r.height() * 0.62), Color32::from_rgb(0x24, 0x20, 0x24));
         }
     }
+}
+
+/// A four-pointed sparkle centered at `c`, `radius` to its tips: four slim kites meeting in
+/// the middle (each one convex, so it fills with clean anti-aliased edges).
+pub fn sparkle(p: &Painter, c: Pos2, radius: f32, color: Color32) {
+    let waist = radius * 0.2;
+    for i in 0..4 {
+        let a = std::f32::consts::FRAC_PI_2 * i as f32;
+        let dir = |a: f32, len: f32| c + Vec2::new(a.cos(), a.sin()) * len;
+        let q = std::f32::consts::FRAC_PI_4;
+        p.add(PathShape::convex_polygon(vec![c, dir(a - q, waist), dir(a, radius), dir(a + q, waist)], color, Stroke::NONE));
+    }
+}
+
+/// The Agents glyph: a large sparkle with a small one at its upper right.
+fn sparkles(p: &Painter, r: Rect, color: Color32) {
+    let s = r.width().min(r.height());
+    sparkle(p, r.center() + Vec2::new(-s * 0.06, s * 0.06), s * 0.3, color);
+    sparkle(p, r.center() + Vec2::new(s * 0.22, -s * 0.22), s * 0.12, color);
 }
 
 fn hexagon(p: &Painter, c: Pos2, radius: f32, stroke: Stroke, fill: Option<Color32>) {

@@ -117,6 +117,8 @@ pub struct Terminal {
     pub scroll_accum: f32,
     /// Bumped whenever the PTY produced output (used to refresh search results).
     pub generation: u64,
+    /// When the PTY last produced output (the Agents pane's "working" fallback).
+    pub last_output: Instant,
     visible: Arc<AtomicBool>,
     /// The window's egui context, shared with the [`EventProxy`].
     repaint: Arc<OnceLock<egui::Context>>,
@@ -225,6 +227,7 @@ impl Terminal {
             last_input: Instant::now(),
             scroll_accum: 0.0,
             generation: 0,
+            last_output: Instant::now(),
             visible,
             repaint,
             snapshot: None,
@@ -276,6 +279,7 @@ impl Terminal {
         while let Ok(event) = self.events.try_recv() {
             if matches!(event, Event::Wakeup) {
                 self.generation += 1;
+                self.last_output = Instant::now();
             }
             match event {
                 Event::Title(title) => {
@@ -386,6 +390,12 @@ impl Terminal {
         if let Some(cwd) = info.cwd {
             self.cwd = Some(cwd);
         }
+    }
+
+    /// The foreground job's pid and command line, as of the last process poll (`None` at the
+    /// prompt).
+    pub fn foreground_job(&self) -> Option<(u32, &[String])> {
+        Some((self.job?, &self.process_argv))
     }
 
     /// What the shell is running, as of the last process poll, to run again when the session

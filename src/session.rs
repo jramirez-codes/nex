@@ -73,6 +73,8 @@ pub enum PaneKind {
     Explorer,
     /// A Changes (git diff) pane; `cwd` is the folder whose repository it shows.
     Diff,
+    /// An Agents pane (`cwd` is unused).
+    Agents,
 }
 
 impl Session {
@@ -146,6 +148,7 @@ fn node_to_value(n: &PaneNode) -> Value {
                 PaneKind::Terminal => "terminal",
                 PaneKind::Explorer => "explorer",
                 PaneKind::Diff => "diff",
+                PaneKind::Agents => "agents",
             };
             m.insert("kind".into(), kind.into());
             if let Some(cwd) = &p.cwd {
@@ -199,6 +202,7 @@ fn node_from_value(v: &Value, depth: usize) -> Option<PaneNode> {
             "terminal" => PaneKind::Terminal,
             "explorer" => PaneKind::Explorer,
             "diff" => PaneKind::Diff,
+            "agents" => PaneKind::Agents,
             _ => return None,
         };
         let cwd = match obj.get("cwd") {

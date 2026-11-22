@@ -85,15 +85,22 @@ impl App {
         if !active && resp.hovered() {
             painter.rect_filled(r, 14, HOVER);
         }
-        let project = self
-            .focused_cwd()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
-            .unwrap_or_else(|| "~".into());
-        let resp = resp.on_hover_text(format!("Files: {project} on {}", self.hostname));
+        let files = self.home_is_files();
+        let (project, tip) = if files {
+            let project = self
+                .focused_cwd()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+                .unwrap_or_else(|| "~".into());
+            let tip = format!("Files: {project} on {}", self.hostname);
+            (project, tip)
+        } else {
+            ("Agents".to_string(), format!("Agents: {}", self.agent_tracker.counts().summary()))
+        };
+        let resp = resp.on_hover_text(tip);
         if resp.clicked_by(PointerButton::Middle) {
             self.pending.push(Action::CloseExplorer);
         } else if resp.clicked_by(PointerButton::Primary) {
-            self.pending.push(Action::ToggleExplorer);
+            self.pending.push(if files { Action::ToggleExplorer } else { Action::ToggleAgentsTab });
         }
         let color = if active { theme.text_bright } else { theme.text_dim };
         let (icon, text) = sidebar_tile_parts(r);

@@ -157,9 +157,11 @@ impl App {
         ui.ctx().request_repaint_after(Duration::from_millis(next as u64 + 1));
     }
 
-    /// One pane of the shown tab: a terminal, a file explorer or a Changes pane.
+    /// One pane of the shown tab: a terminal, a file explorer, a Changes or an Agents pane.
     fn draw_pane(&mut self, ui: &mut Ui, pane: &PaneView, theme: &Theme, blink_on: bool) {
-        if self.diffs.contains_key(&pane.id) {
+        if self.agents.contains_key(&pane.id) {
+            self.agents_pane(ui, pane, theme);
+        } else if self.diffs.contains_key(&pane.id) {
             self.diff_pane(ui, pane, theme);
         } else if self.explorers.contains_key(&pane.id) {
             self.explorer_pane(ui, pane, theme);
@@ -187,7 +189,9 @@ impl App {
             on_top: true,
             scale_content: mini,
         };
-        if self.diffs.contains_key(&id) {
+        if self.agents.contains_key(&id) {
+            self.agents_pane(ui, &pane, theme);
+        } else if self.diffs.contains_key(&id) {
             self.diff_pane(ui, &pane, theme);
         } else if self.explorers.contains_key(&id) {
             self.explorer_pane(ui, &pane, theme);
@@ -388,6 +392,23 @@ impl App {
             d.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, PANE_RADIUS - 1, theme, size);
             let requests: Vec<_> = d.requests.drain(..).map(|r| (pane.id, r)).collect();
             self.diff_requests.extend(requests);
+        }
+        self.dim_unfocused(&pane_painter(ui, pane), pane);
+    }
+
+    /// An Agents pane: the usual card and header, then the pane's title, filter and agent
+    /// cards, edge to edge of the card below the header.
+    fn agents_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme) {
+        let top = self.pane_frame(ui, pane, theme, None);
+        let content = Rect::from_min_max(Pos2::new(pane.card.left(), top), pane.card.max);
+        if pressed_in(ui, content) {
+            self.pending.push(Action::FocusPane(pane.id));
+        }
+        if let Some(a) = self.agents.get_mut(&pane.id) {
+            let painter = pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0));
+            a.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, theme, self.agent_tracker.agents());
+            let requests: Vec<_> = a.requests.drain(..).map(|r| (pane.id, r)).collect();
+            self.agent_requests.extend(requests);
         }
         self.dim_unfocused(&pane_painter(ui, pane), pane);
     }

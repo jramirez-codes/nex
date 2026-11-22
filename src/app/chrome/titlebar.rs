@@ -219,34 +219,48 @@ impl App {
         }
     }
 
-    /// The current directory name and hostname. This label *is* the Files tab: clicking it
-    /// toggles the tab, and the glass pill glides onto it while Files is showing.
+    /// The Agents tab's label: "Agents" over a live summary ("2 working · 1 needs you"), or,
+    /// while that tab is a file explorer (`--explorer`, a folder argument), the current
+    /// directory name and hostname. Clicking it toggles the tab, and the glass pill glides
+    /// onto it while the tab is showing.
     fn workspace_label(&mut self, ui: &Ui, label_r: Rect, theme: &Theme) {
         self.files_rect = Some(label_r);
         let painter = ui.painter();
-        let project = self
-            .focused_cwd()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
-            .unwrap_or_else(|| "~".into());
         let (x, cy) = (label_r.left() + 7.0, label_r.center().y);
         let label = ui.interact(label_r, Id::new("workspace-label"), Sense::click());
         let active = self.explorer_active;
         if !active && label.hovered() {
             painter.rect_filled(label_r, 8, HOVER);
         }
-        let tip = if active { "Back to terminal  (middle-click closes)" } else { "Files" };
+        let files = self.home_is_files();
+        let tip = match (active, files) {
+            (true, _) => "Back to terminal  (middle-click closes)",
+            (false, true) => "Files",
+            (false, false) => "Agents",
+        };
         let label = label.on_hover_text(tip);
         if label.clicked_by(PointerButton::Middle) {
             self.pending.push(Action::CloseExplorer);
         } else if label.clicked_by(PointerButton::Primary) {
-            self.pending.push(Action::ToggleExplorer);
+            self.pending.push(if files { Action::ToggleExplorer } else { Action::ToggleAgentsTab });
         }
 
         self.files_dog(ui.ctx(), painter, Rect::from_center_size(Pos2::new(x + 9.0, cy), Vec2::splat(21.0)), theme);
         let x = x + 26.0;
-        let project_color = if active { theme.text_bright } else { theme.text };
-        paint::faded_text(painter, Pos2::new(x, cy - 7.0), &project, paint::bold(13.0), project_color, LABEL_WIDTH, 16.0);
-        paint::faded_text(painter, Pos2::new(x, cy + 8.0), &self.hostname, FontId::proportional(11.0), theme.text_dim, LABEL_WIDTH, 16.0);
+        let title_color = if active { theme.text_bright } else { theme.text };
+        let (title, detail, detail_color) = if files {
+            let project = self
+                .focused_cwd()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+                .unwrap_or_else(|| "~".into());
+            (project, self.hostname.clone(), theme.text_dim)
+        } else {
+            let counts = self.agent_tracker.counts();
+            let color = if counts.needs_you > 0 { theme.yellow } else { theme.text_dim };
+            ("Agents".to_string(), counts.headline(), color)
+        };
+        paint::faded_text(painter, Pos2::new(x, cy - 7.0), &title, paint::bold(13.0), title_color, LABEL_WIDTH, 16.0);
+        paint::faded_text(painter, Pos2::new(x, cy + 8.0), &detail, FontId::proportional(11.0), detail_color, LABEL_WIDTH, 16.0);
     }
 
     /// The nex dog marking the Files tab (title-bar label or sidebar tile). It wakes up at
@@ -454,12 +468,14 @@ impl App {
     fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect, step: Vec2, center: bool) -> f32 {
         let (title, process) = self.pane_label(self.tabs[i].focused);
         let mark = icons::title_mark(&process, &title).0.map(str::to_string);
-        let (panes, explorers, diffs) = (&self.panes, &self.explorers, &self.diffs);
+        let (panes, explorers, diffs, agents) = (&self.panes, &self.explorers, &self.diffs, &self.agents);
         let cards = self.tabs[i].deck_cards(ctx, |id| {
             if explorers.contains_key(&id) {
                 (icons::EXPLORER_PROCESS.to_string(), None)
             } else if diffs.contains_key(&id) {
                 (icons::DIFF_PROCESS.to_string(), None)
+            } else if agents.contains_key(&id) {
+                (icons::AGENTS_PROCESS.to_string(), None)
             } else {
                 panes
                     .get(&id)

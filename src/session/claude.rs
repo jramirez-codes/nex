@@ -83,14 +83,36 @@ fn config_dir() -> Option<PathBuf> {
     }
 }
 
+/// What Claude Code says about one of its running processes, from its session file.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SessionInfo {
+    /// The conversation id (a UUID), if the file names a valid one.
+    pub id: Option<String>,
+    /// The session's display name (Claude Code derives one from the folder, or the user
+    /// renames it).
+    pub name: Option<String>,
+    /// What it is doing, in Claude Code's own words (`idle`, `busy`, …).
+    pub status: Option<String>,
+}
+
 /// The conversation the Claude Code process `pid` is in, if it says.
 pub fn session_id(pid: u32) -> Option<String> {
-    session_id_in(&config_dir()?.join("sessions"), pid, proc_start(pid).as_deref())
+    session_info(pid)?.id
+}
+
+/// Everything the session file of the Claude Code process `pid` says that nex uses.
+pub fn session_info(pid: u32) -> Option<SessionInfo> {
+    session_info_in(&config_dir()?.join("sessions"), pid, proc_start(pid).as_deref())
+}
+
+#[cfg(test)]
+fn session_id_in(dir: &Path, pid: u32, start: Option<&str>) -> Option<String> {
+    session_info_in(dir, pid, start)?.id
 }
 
 /// Read `<dir>/<pid>.json`. When the process's start time is known (`start`), the file must
 /// name the same one, so a file left by an earlier process with a reused pid is ignored.
-fn session_id_in(dir: &Path, pid: u32, start: Option<&str>) -> Option<String> {
+fn session_info_in(dir: &Path, pid: u32, start: Option<&str>) -> Option<SessionInfo> {
     let text = std::fs::read_to_string(dir.join(format!("{pid}.json"))).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
     if v.get("pid")?.as_u64()? != u64::from(pid) {
@@ -103,8 +125,18 @@ fn session_id_in(dir: &Path, pid: u32, start: Option<&str>) -> Option<String> {
             return None;
         }
     }
-    let id = v.get("sessionId")?.as_str()?;
-    valid_id(id).then(|| id.to_string())
+    let text = |key: &str| {
+        v.get(key)
+            .and_then(|s| s.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 200)
+            .map(str::to_string)
+    };
+    Some(SessionInfo {
+        id: text("sessionId").filter(|id| valid_id(id)),
+        name: text("name"),
+        status: text("status"),
+    })
 }
 
 /// The process's start time in clock ticks since boot (`/proc/<pid>/stat` field 22), as
@@ -170,6 +202,21 @@ mod tests {
         assert_eq!(session_id_in(&dir, 4243, None), None);
         std::fs::write(dir.join("4244.json"), r#"{"pid":1,"sessionId":"abc"}"#).unwrap();
         assert_eq!(session_id_in(&dir, 4244, None), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn reads_status_and_name() {
+        let dir = std::env::temp_dir().join(format!("nex-claude-info-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = format!(r#"{{"pid":77,"sessionId":"{ID}","name":"nex-2e","status":"idle","procStart":"5"}}"#);
+        std::fs::write(dir.join("77.json"), file).unwrap();
+        let info = session_info_in(&dir, 77, Some("5")).unwrap();
+        assert_eq!(info, SessionInfo { id: Some(ID.into()), name: Some("nex-2e".into()), status: Some("idle".into()) });
+        // A bad id doesn't hide the rest.
+        std::fs::write(dir.join("78.json"), r#"{"pid":78,"sessionId":"nope!","status":"busy"}"#).unwrap();
+        let info = session_info_in(&dir, 78, None).unwrap();
+        assert_eq!((info.id, info.status.as_deref()), (None, Some("busy")));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

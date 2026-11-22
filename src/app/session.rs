@@ -94,6 +94,8 @@ impl App {
                     PaneKind::Explorer
                 } else if self.diffs.contains_key(id) {
                     PaneKind::Diff
+                } else if self.agents.contains_key(id) {
+                    PaneKind::Agents
                 } else {
                     PaneKind::Terminal
                 },
@@ -126,7 +128,9 @@ impl App {
         if let Some(t) = &s.explorer {
             self.explorer_tab = self.restore_tab(ctx, t);
         }
-        if self.tabs.is_empty() && self.explorer_tab.is_none() {
+        // Only an Agents tab came back: there's nothing to watch without a terminal, so start
+        // a fresh one beside it.
+        if self.tabs.is_empty() && !self.home_keeps_window() {
             return false;
         }
         self.active = active.unwrap_or(0);
@@ -194,6 +198,11 @@ impl App {
                 if let Some(fs) = p.font_size {
                     self.pane_fonts.insert(id, fs);
                 }
+                Some(id)
+            }
+            PaneKind::Agents => {
+                let id = self.alloc_pane_id();
+                self.agents.insert(id, crate::agents::AgentsPane::new());
                 Some(id)
             }
         }
