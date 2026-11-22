@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 pub use clipboard::{clipboard_text, mirror_copies};
-pub use keyboard::{sync_soft_keyboard, typed_text};
+pub use keyboard::{soft_keyboard_visible, sync_soft_keyboard, typed_text};
 pub use super::fontdb::{find_font, nerd_mono_families};
 pub use super::no_dnd::Dnd;
 pub use super::no_watch::{DirWatch, on_dir_change};
@@ -30,13 +30,15 @@ pub const SOFT_KEYBOARD: bool = true;
 
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
-/// Full screen: no OS decorations, no window buttons, and any size the screen is.
+/// Full screen: no OS decorations, no window buttons, any size the screen is, and tabs
+/// two and a half to a screen that swipe sideways.
 pub const WINDOW: WindowDefaults = WindowDefaults {
     decorations: false,
     controls: false,
     titlebar_inset: 0.0,
     min_size: [0.0, 0.0],
     transparent: false,
+    scroll_tabs: true,
 };
 
 /// Android's own fonts cover symbols, emoji and CJK.

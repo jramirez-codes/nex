@@ -34,7 +34,7 @@ pub const SOFT_KEYBOARD: bool = false;
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
 /// nex draws its own title bar and window buttons.
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true };
+pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true, scroll_tabs: false };
 
 /// Desktop launchers start nex in the home folder already, so there is nothing to detect.
 /// The window keeps eframe's default icon (on macOS, the bundle's own icon wins).

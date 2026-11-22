@@ -34,7 +34,7 @@ pub const SOFT_KEYBOARD: bool = false;
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Cmd;
 
 /// The system's own traffic lights, drawn over nex's title bar (see `main.rs`).
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: true, controls: false, titlebar_inset: 72.0, min_size: [420.0, 260.0], transparent: true };
+pub const WINDOW: WindowDefaults = WindowDefaults { decorations: true, controls: false, titlebar_inset: 72.0, min_size: [420.0, 260.0], transparent: true, scroll_tabs: false };
 
 /// An empty icon: eframe then leaves the Dock icon alone, so nex.app keeps its own `nex.icns`
 /// (with no icon set, eframe swaps in the egui logo once the app is running).

@@ -143,6 +143,10 @@ pub struct App {
     dnd: Option<crate::platform::Dnd>,
     /// The "Copied …" / "Pasted …" message currently on screen.
     toast: Option<Toast>,
+    /// Typing goes through an on-screen keyboard (`platform::SOFT_KEYBOARD`; tests turn it on).
+    soft_keyboard: bool,
+    /// The floating button that shows or hides the on-screen keyboard.
+    keyboard_button: chrome::keyboard_button::KeyboardButton,
     /// A toast to show on the next frame, from code without the egui context.
     notice: Option<String>,
     /// Uploads, the shared mic, watched agents and their dialogs (see `ssh/`).
@@ -230,6 +234,8 @@ impl App {
             early_terminal,
             dnd: crate::platform::Dnd::new(cc),
             toast: None,
+            soft_keyboard: crate::platform::SOFT_KEYBOARD,
+            keyboard_button: Default::default(),
             notice: None,
             ssh: ssh::SshState {
                 uploads: Vec::new(),
@@ -260,6 +266,7 @@ impl App {
                 dog_was_active: false,
                 tab_hits: Vec::new(),
                 strip_rect: None,
+                scroll: chrome::titlebar::TabScroll::new(crate::platform::WINDOW.scroll_tabs),
             },
             connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
             adopt: Vec::new(),
@@ -374,8 +381,9 @@ impl eframe::App for App {
         self.glyphs.end_frame(ctx);
 
         self.handle_pinch(ctx);
+        self.keyboard_button(ctx);
         self.handle_mouse(ctx);
-        if crate::platform::SOFT_KEYBOARD {
+        if self.soft_keyboard {
             self.ask_for_keyboard(ctx);
         }
         crate::platform::mirror_copies(ctx);
@@ -420,6 +428,10 @@ impl App {
     /// Keep the on-screen keyboard up while a terminal has focus: egui shows it for as long as
     /// a frame says where text goes (here, the terminal's last line).
     fn ask_for_keyboard(&self, ctx: &egui::Context) {
+        // Put away with the keyboard button: it stays down until the button brings it back.
+        if self.keyboard_button.hidden {
+            return;
+        }
         let Some(id) = self.focused_pane().filter(|id| self.panes.contains_key(id)) else { return };
         let Some(&(_, rect)) = self.term_rects.iter().find(|(p, _)| *p == id) else { return };
         let cursor_rect = Rect::from_min_size(rect.left_bottom() - Vec2::new(0.0, 2.0), Vec2::new(1.0, 2.0));
