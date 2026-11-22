@@ -102,6 +102,8 @@ pub struct Start {
     pub host: Arc<RemoteHost>,
     /// The session to attach to; `None` starts a new shell.
     pub session: SessionSlot,
+    /// Closing the pane leaves the session running (an agent) instead of ending it.
+    pub keep: bool,
     /// Where a new shell starts on the host (`None`: home).
     pub cwd: Option<String>,
     pub cols: u16,
@@ -123,7 +125,7 @@ pub fn open(start: Start, osc7: Slot, alert: Alert, agent: AgentSlot) -> io::Res
 
 /// Carry one pane to its session on the host until one of them ends.
 fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiver<(u16, u16)>) {
-    let Start { host, session, cwd, cols, rows } = start;
+    let Start { host, session, keep, cwd, cols, rows } = start;
     let size = Arc::new(Mutex::new((cols, rows)));
     // Where keys and resizes go: the attached connection's input, while there is one.
     let to_host: Arc<Mutex<Option<ExecWriter>>> = Arc::default();
@@ -217,8 +219,8 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
         let _ = exit_tx.write_all(&[0]);
         return;
     }
-    // Closing the pane ends its shell, as closing a local one would.
-    if let Some(id) = session.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // Closing the pane ends its shell, as closing a local one would; an agent keeps running.
+    if !keep && let Some(id) = session.lock().unwrap_or_else(|e| e.into_inner()).clone() {
         let _ = request(&host, &Request::Kill { id });
     }
     let _ = keys;

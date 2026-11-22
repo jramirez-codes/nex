@@ -101,11 +101,17 @@ impl App {
     fn spawn_remote_pane(&mut self, ctx: &egui::Context, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
         let host = self.connect.host.clone()?;
         let cwd = self.focused_pane().and_then(|id| self.panes.get(&id)).and_then(|t| t.remote_cwd());
-        let session = std::sync::Arc::new(std::sync::Mutex::new(self.adopt.pop()));
+        // An agent picked in the Agents pane stays running when its pane closes; a shell
+        // doesn't.
+        let (session, keep) = match self.attach_next.clone() {
+            Some(agent) => (Some(agent), true),
+            None => (self.adopt.pop(), false),
+        };
+        let session = std::sync::Arc::new(std::sync::Mutex::new(session));
         let id = self.alloc_pane_id();
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);
-        let remote = crate::terminal::RemotePane { host, session };
+        let remote = crate::terminal::RemotePane { host, session, keep };
         match Terminal::spawn_remote(&self.cfg, remote, cwd, size, cell_px(ctx, m), ctx) {
             Ok(t) => {
                 self.panes.insert(id, t);

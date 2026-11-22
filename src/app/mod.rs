@@ -157,6 +157,8 @@ pub struct App {
     /// Shells already on that host that the next panes opened attach to, instead of starting
     /// new ones (the ones this device left open there).
     adopt: Vec<String>,
+    /// The agent session the next remote pane attaches to (picked in the Agents pane).
+    attach_next: Option<String>,
 }
 
 impl App {
@@ -261,6 +263,7 @@ impl App {
             },
             connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
             adopt: Vec::new(),
+            attach_next: None,
         }
     }
 }

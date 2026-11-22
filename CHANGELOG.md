@@ -8,6 +8,10 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Android: the Agents pane lists the agents on the server the app is connected to, watched
+  over the app's own connection. Opening one attaches a pane to it, and closing that pane
+  only detaches (the agent keeps running); stopping one goes over the same connection. A
+  server with a `nex-host` from before `connect` gets this one installed.
 - A **Done** section in the Agents pane: an agent that finishes while you're not looking at
   its pane moves there, in blue, instead of going straight to Idle. It becomes Idle once you
   look at its pane. The title bar shows "1 done" too.

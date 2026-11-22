@@ -133,7 +133,7 @@ fn logs_in_with_the_device_key_and_keeps_a_shell_through_a_dropped_connection() 
 
     // A shell over the remote "PTY": type into it, read what it prints.
     let session = Arc::new(Mutex::new(None));
-    let start = crate::terminal::remote::Start { host: remote.clone(), session: session.clone(), cwd: None, cols: 80, rows: 24 };
+    let start = crate::terminal::remote::Start { host: remote.clone(), session: session.clone(), keep: false, cwd: None, cols: 80, rows: 24 };
     let repaint = Arc::new(std::sync::OnceLock::new());
     let mut pty = crate::terminal::remote::open(start, Default::default(), crate::terminal::osc7::Alert::new(repaint), Default::default()).unwrap();
     let io = pty_io(&mut pty);
