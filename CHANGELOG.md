@@ -8,6 +8,13 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- nex brings back the last window when it starts: every tab, its splits and their sizes, each
+  pane's folder and zoom, which pane and tab were focused, and the Files tab. Terminals start a
+  fresh shell in their folder (ssh panes come back as local shells; a folder that is gone opens
+  home). Closing every tab starts the next launch fresh. Only a plain `nex` restores, not `-e`,
+  a folder, `--working-directory`, `--explorer`, a new window, or a second nex while one is
+  running. Turn it off with
+  `restore-session = false`.
 - nex can answer other apps' "Show in Folder" (Firefox, Chromium, VS Code and anything else that
   calls D-Bus `org.freedesktop.FileManager1`). It opens the file's folder on the Files tab with
   the file selected, showing hidden files if the file is one. Opt in with

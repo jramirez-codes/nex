@@ -55,5 +55,11 @@ ssh-follow = true
 # hosts with libasound2 only; nex adds a block to the host's ~/.asoundrc, removed when it stops.
 ssh-mic = manual
 scrollback-limit = 10000
+# Bring back the last window at launch: its tabs, splits, each pane's folder and zoom, and the
+# Files tab. Terminals start a fresh shell there (ssh panes come back as local shells). Only a
+# plain `nex` restores; closing every tab starts the next launch fresh. Saved to
+# $XDG_STATE_HOME/nex/session.json (~/.local/state/nex/session.json), or
+# ~/Library/Application Support/nex/session.json on macOS.
+restore-session = true
 
 # command = fish

@@ -353,6 +353,7 @@ animations = false                           # turn off pane and tab animations
 tab-animation = ink                          # switching tabs: glide (default) | ink | none
 explorer-view = grid                         # file explorers open as a grid (default: list)
 mobile = false                               # phone-sized touch screens: tabs in a left sidebar
+restore-session = false                      # start with one fresh shell instead of the last window
 command = fish                               # defaults to your login shell
 ```
 
@@ -372,6 +373,11 @@ nex ~/Downloads                    # open the Files tab in a folder (a path or f
 `-e` only applies to the first pane; new tabs and splits start your shell. The window closes
 when the program exits. A new window (`Ctrl+Shift+N`, `Cmd+N` on macOS) keeps `--config` and
 `--app-id`.
+
+A plain `nex` brings back the last window: every tab and split, each pane's folder and zoom,
+and the Files tab. Terminals start a fresh shell in their folder (no scrollback). Closing every
+tab makes the next launch start fresh; `-e`, a folder, `--working-directory`, `--explorer` and
+new windows never restore, nor does a second `nex` while one is already running. Turn it off with `restore-session = false`.
 
 > [!TIP]
 > Translucent backgrounds look best with compositor blur. On Hyprland, set

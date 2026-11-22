@@ -71,11 +71,18 @@ impl App {
             Action::NewWindow => self.new_window(),
             Action::ClosePane(0) => {
                 if let Some(id) = focused {
+                    self.user_closing();
                     self.close_pane(ctx, id)
                 }
             }
-            Action::ClosePane(id) => self.close_pane(ctx, id),
-            Action::CloseTab(i) => self.close_tab(i),
+            Action::ClosePane(id) => {
+                self.user_closing();
+                self.close_pane(ctx, id)
+            }
+            Action::CloseTab(i) => {
+                self.user_closing();
+                self.close_tab(i)
+            }
             Action::Split(axis) => {
                 if let Some(id) = focused {
                     self.split(ctx, id, axis)
@@ -139,7 +146,10 @@ impl App {
                     self.split_explorer(ctx, id, Axis::Horizontal)
                 }
             }
-            Action::CloseExplorer => self.close_explorer(),
+            Action::CloseExplorer => {
+                self.user_closing();
+                self.close_explorer()
+            }
             Action::ToggleSearch => self.toggle_search(),
             Action::ClearScreen => {
                 // Ask the shell to redraw on a clean screen: clear + form feed (Ctrl+L).

@@ -6,6 +6,7 @@ mod layout;
 mod platform;
 mod remote;
 mod render;
+mod session;
 mod terminal;
 mod ui;
 
@@ -48,15 +49,23 @@ fn main() -> eframe::Result {
         config::set_path(path.clone());
     }
     let cfg = config::Config::load();
+    // Only one window owns the session: a second plain `nex` starts fresh, as `--no-restore`.
+    let session_lock = if args.restores_session() { session::try_lock() } else { None };
+    let session = if session_lock.is_some() && cfg.restore_session { session::load() } else { None };
 
-    // The first shell starts now, so it gets going while the window opens.
-    let early = match terminal::Terminal::spawn_early(&cfg, args.command.clone(), std::env::current_dir().ok()) {
+    // The first shell starts now, so it gets going while the window opens: in the last
+    // session's first pane when it is coming back (none if that session had no terminals).
+    let early_cwd = match &session {
+        Some(s) => app::session::first_shell_dir(s).map(Some),
+        None => Some(std::env::current_dir().ok()),
+    };
+    let early = early_cwd.and_then(|cwd| match terminal::Terminal::spawn_early(&cfg, args.command.clone(), cwd) {
         Ok(t) => Some(t),
         Err(e) => {
             eprintln!("nex: failed to spawn shell: {e}");
             None
         }
-    };
+    });
 
     // On macOS the system draws its traffic lights over nex's own title bar.
     let overlay = platform::WINDOW.overlays_titlebar();
@@ -80,6 +89,6 @@ fn main() -> eframe::Result {
     platform::Dnd::prepare(&event_loop);
     let vsync = platform::vsync(&event_loop);
     let options = eframe::NativeOptions { viewport, vsync, ..Default::default() };
-    let eframe_app = eframe::create_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args, early)))), &event_loop);
+    let eframe_app = eframe::create_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args, early, session, session_lock)))), &event_loop);
     platform::WinitApp::new(eframe_app, !vsync).run(&mut event_loop)
 }

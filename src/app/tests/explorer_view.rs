@@ -20,7 +20,7 @@ fn explorer_views(mobile: bool, view: View) -> Vec<View> {
     let cfg = Config { mobile, explorer_view: view, ..Default::default() };
     let ctx = egui::Context::default();
     let cc = eframe::CreationContext::_new_kittest(ctx.clone());
-    let mut app = App::new(&cc, cfg, Default::default(), None);
+    let mut app = App::new(&cc, cfg, crate::cli::Args { no_restore: true, ..Default::default() }, None, None, None);
     run(&mut app, &ctx);
     app.toggle_explorer();
     let first = *app.explorers.keys().next().unwrap();

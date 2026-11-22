@@ -22,6 +22,8 @@ memmap2 = "0.9"
 # Recording the microphone to share with an ssh host (see src/remote/audio.rs). Cross-platform
 # itself (CoreAudio, ALSA, WASAPI); on Linux it needs libasound2-dev to build.
 cpal = "0.18.2"
+# The saved window layout (see src/session.rs) and the Wayland drag-and-drop relay.
+serde_json = "1"
 
 # Per-OS dependencies, used only by src/platform/<os>/.
 [target.'cfg(unix)'.dependencies]
@@ -33,7 +35,6 @@ polling = "3.8"
 # Drag and drop with other windows on Wayland (see src/platform/linux/dnd/).
 wayland-client = { version = "0.31", features = ["system"] }
 raw-window-handle = "0.6"
-serde_json = "1"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 # System font lookup where there is no fontconfig (see src/platform/fontdb.rs). `memmap` maps

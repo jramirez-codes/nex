@@ -88,6 +88,8 @@ pub struct Config {
     pub scrollback_limit: usize,
     /// Command to run instead of the user's login shell.
     pub command: Option<String>,
+    /// Bring back the last session's tabs, splits and folders at launch (`restore-session`).
+    pub restore_session: bool,
 }
 
 impl Default for Config {
@@ -143,6 +145,7 @@ impl Default for Config {
             ssh_mic: SshMic::Manual,
             scrollback_limit: 10_000,
             command: None,
+            restore_session: true,
         }
     }
 }
@@ -275,6 +278,7 @@ impl Config {
             "scrollback-limit" => {
                 self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?
             }
+            "restore-session" => self.restore_session = boolean(value)?,
             "command" => self.command = Some(value.to_string()).filter(|s| !s.is_empty()),
             _ => return Err(format!("unknown key `{key}`")),
         }
@@ -362,5 +366,14 @@ mod tests {
             assert_eq!(cfg.tab_animation, want);
         }
         assert!(cfg.apply("tab-animation", "fade").is_err());
+    }
+
+    #[test]
+    fn restore_session_defaults_on() {
+        let mut cfg = Config::default();
+        assert!(cfg.restore_session);
+        cfg.apply("restore-session", "false").unwrap();
+        assert!(!cfg.restore_session);
+        assert!(cfg.apply("restore-session", "no").is_err());
     }
 }

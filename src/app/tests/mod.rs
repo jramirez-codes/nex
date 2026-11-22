@@ -2,3 +2,4 @@
 
 mod drop;
 mod explorer_view;
+mod session;
