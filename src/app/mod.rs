@@ -72,6 +72,8 @@ pub struct App {
     /// Cell metrics for every font size in use this frame, keyed by `f32::to_bits`.
     metrics: HashMap<u32, CellMetrics>,
     mouse: MouseState,
+    /// A finger on a pane that may become a sideways swipe to the next or previous tab.
+    tab_swipe: Option<input::swipe::TabSwipe>,
     /// Pinch zoom of a terminal not yet applied (font sizes change in whole points).
     pinch_accum: f32,
     pending: Vec<Action>,
@@ -197,6 +199,7 @@ impl App {
             zoom_font: None,
             metrics: HashMap::new(),
             mouse: MouseState::default(),
+            tab_swipe: None,
             pinch_accum: 1.0,
             pending: Vec::new(),
             term_rects: Vec::new(),
@@ -382,6 +385,7 @@ impl eframe::App for App {
 
         self.handle_pinch(ctx);
         self.keyboard_button(ctx);
+        self.handle_tab_swipe(ctx);
         self.handle_mouse(ctx);
         if self.soft_keyboard {
             self.ask_for_keyboard(ctx);

@@ -1,4 +1,8 @@
-//! Mouse input over terminals: selection, mouse reporting, wheel scrolling and links.
+//! Mouse input over terminals: selection, mouse reporting, wheel scrolling and links. On
+//! touch screens a finger is not a mouse: a swipe up or down scrolls (and flings on after
+//! the finger lifts), a swipe sideways is left to `swipe.rs` (it switches tabs), a long press
+//! selects a word (and a following drag extends it), and a tap focuses (and clicks in
+//! programs that take the mouse).
 
 use std::time::{Duration, Instant};
 
@@ -12,10 +16,52 @@ use crate::render;
 
 use crate::app::App;
 use crate::app::actions::Action;
+use crate::app::input::swipe::{LONG_PRESS, TOUCH_SLOP};
+use crate::ui::glide;
 
 /// Clicks closer together than this (in time and distance) count as a double/triple click.
 const MULTI_CLICK_TIME: Duration = Duration::from_millis(400);
 const MULTI_CLICK_DISTANCE: f32 = 6.0;
+
+/// A fling starts above this speed and stops below [`FLING_STOP`] (points a second).
+const FLING_START: f32 = 300.0;
+const FLING_STOP: f32 = 5.0;
+/// How quickly a fling slows down (the same as the title-bar tabs').
+const FLING_DECAY: f32 = 4.0;
+
+/// A finger down on a terminal.
+struct TouchPress {
+    id: PaneId,
+    rect: Rect,
+    origin: Pos2,
+    /// Where the finger was at the last move.
+    last: Pos2,
+    at: f64,
+    /// The finger's speed at the last move, for a fling or a flick.
+    velocity: Vec2,
+    gesture: TouchGesture,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum TouchGesture {
+    /// Down and not yet moved: may become a tap, a long press, a scroll or a swipe.
+    Pending,
+    /// Moving up or down: scrolls.
+    Scrolling,
+    /// Moving sideways: the terminal leaves it alone (it switches tabs, see `swipe.rs`).
+    Swiping,
+    /// Held: selecting (the selection is then driven as a mouse drag, through `capture`).
+    Selecting,
+}
+
+/// Scrolling on after a swipe, slowing down.
+struct Fling {
+    id: PaneId,
+    rect: Rect,
+    pos: Pos2,
+    /// Points a second; positive shows older lines.
+    velocity: f32,
+}
 
 #[derive(Default)]
 pub(in crate::app) struct MouseState {
@@ -30,6 +76,10 @@ pub(in crate::app) struct MouseState {
     /// A two-finger pinch is (or was, until every finger lifts) in progress: the finger that
     /// arrived as a pointer press must not select or click.
     pinching: bool,
+    /// A finger down on a terminal (touch screens).
+    touch: Option<TouchPress>,
+    /// Scrolling on after a swipe.
+    fling: Option<Fling>,
 }
 
 impl MouseState {
@@ -47,6 +97,8 @@ impl App {
         }
         // A pane is being dragged by its header: the terminals under it don't see the pointer.
         if self.pane_drag.is_some() {
+            self.mouse.touch = None;
+            self.mouse.fling = None;
             return;
         }
         // A dialog is on top (the delete confirmation): it gets the pointer, not the terminals.
@@ -54,9 +106,10 @@ impl App {
             self.cancel_press();
             return;
         }
+        self.tick_touch(ctx);
         for event in events {
             match event {
-                Event::PointerButton { pos, button, pressed: true, modifiers } => self.on_press(pos, button, modifiers),
+                Event::PointerButton { pos, button, pressed: true, modifiers } => self.on_press(ctx, pos, button, modifiers),
                 Event::PointerMoved(pos) => self.on_move(ctx, pos),
                 Event::PointerButton { pos, button, pressed: false, modifiers } => self.on_release(ctx, pos, button, modifiers),
                 Event::MouseWheel { unit, delta, modifiers } => {
@@ -87,6 +140,8 @@ impl App {
     /// Forget the current press: clear the selection it started, or, if it was reported to
     /// the program, report its release now (the real one will be ignored).
     fn cancel_press(&mut self) {
+        self.mouse.touch = None;
+        self.mouse.fling = None;
         let Some((id, _)) = self.mouse.capture.take() else { return };
         let Some(t) = self.panes.get_mut(&id) else { return };
         if let Some(btn) = self.mouse.reporting.take() {
@@ -106,12 +161,21 @@ impl App {
     }
 
     /// A button press: open a Ctrl+clicked (Cmd+clicked on macOS) link, report it to the program, or start a selection.
-    fn on_press(&mut self, pos: Pos2, button: PointerButton, modifiers: Modifiers) {
+    fn on_press(&mut self, ctx: &egui::Context, pos: Pos2, button: PointerButton, modifiers: Modifiers) {
+        // Any press stops a fling, as a finger on a scrolling list does.
+        self.mouse.fling = None;
         // The keyboard button floats over the terminal: its taps are its own.
         if self.keyboard_button.rect.is_some_and(|r| r.contains(pos)) {
             return;
         }
         let Some((id, rect)) = self.terminal_at(pos) else { return };
+        // A finger decides what it is doing once it moves, is held, or lifts.
+        if button == PointerButton::Primary && ctx.input(|i| i.any_touches()) {
+            self.pending.push(Action::FocusPane(id));
+            let at = ctx.input(|i| i.time);
+            self.mouse.touch = Some(TouchPress { id, rect, origin: pos, last: pos, at, velocity: Vec2::ZERO, gesture: TouchGesture::Pending });
+            return;
+        }
         if modifiers.command && button == PointerButton::Primary
             && let Some((link_pane, link)) = &self.hover_link
                 && *link_pane == id {
@@ -166,6 +230,10 @@ impl App {
     /// Pointer motion: extend the selection or report a drag while a button is held, or report
     /// plain motion to programs that asked for it.
     fn on_move(&mut self, ctx: &egui::Context, pos: Pos2) {
+        if self.mouse.touch.as_ref().is_some_and(|p| p.gesture != TouchGesture::Selecting) {
+            self.on_touch_move(ctx, pos);
+            return;
+        }
         if let Some((id, rect)) = self.mouse.capture {
             self.on_drag(ctx, id, rect, pos);
             return;
@@ -223,6 +291,11 @@ impl App {
 
     /// A button release: finish reporting, or finish (and maybe copy) the selection.
     fn on_release(&mut self, ctx: &egui::Context, pos: Pos2, button: PointerButton, modifiers: Modifiers) {
+        if let Some(press) = self.mouse.touch.take()
+            && press.gesture != TouchGesture::Selecting {
+                self.on_touch_release(ctx, press, pos);
+                return;
+            }
         let Some((id, rect)) = self.mouse.capture.take() else { return };
         let m = self.pane_metrics(id);
         let Some(t) = self.panes.get_mut(&id) else { return };
@@ -249,18 +322,28 @@ impl App {
     fn on_wheel(&mut self, pos: Pos2, unit: MouseWheelUnit, delta: Vec2, modifiers: Modifiers) {
         let Some((id, rect)) = self.terminal_at(pos) else { return };
         let m = self.pane_metrics(id);
-        let Some(t) = self.panes.get_mut(&id) else { return };
+        let Some(t) = self.panes.get(&id) else { return };
         let lines_f = match unit {
             MouseWheelUnit::Point => delta.y / m.height,
             MouseWheelUnit::Line => delta.y * 3.0,
             MouseWheelUnit::Page => delta.y * t.size().lines as f32,
         };
+        self.scroll_pane(id, rect, pos, lines_f, modifiers);
+    }
+
+    /// Scroll pane `id` by `lines_f` lines (positive shows older lines), as the wheel at
+    /// `pos` would: reported to mouse-aware programs, turned into arrow keys on the
+    /// alternate screen, otherwise through the scrollback. Returns false if the scrollback
+    /// was already at its end (or the pane is gone).
+    fn scroll_pane(&mut self, id: PaneId, rect: Rect, pos: Pos2, lines_f: f32, modifiers: Modifiers) -> bool {
+        let m = self.pane_metrics(id);
+        let Some(t) = self.panes.get_mut(&id) else { return false };
         // Keep the fractional part so slow trackpad scrolls still add up to lines.
         t.scroll_accum += lines_f;
         let lines = t.scroll_accum.trunc() as i32;
         t.scroll_accum -= lines as f32;
         if lines == 0 {
-            return;
+            return true;
         }
 
         let mode = *t.term.lock().mode();
@@ -281,7 +364,103 @@ impl App {
             };
             t.write(seq.repeat(lines.unsigned_abs() as usize));
         } else {
+            let before = t.term.lock().grid().display_offset();
             t.scroll(lines);
+            return t.term.lock().grid().display_offset() != before;
+        }
+        true
+    }
+
+    /// Each frame: turn a held finger into a selection, and move a fling on.
+    fn tick_touch(&mut self, ctx: &egui::Context) {
+        let (now, dt) = ctx.input(|i| (i.time, i.stable_dt.min(0.1)));
+        if let Some(press) = self.mouse.touch.as_mut()
+            && press.gesture == TouchGesture::Pending {
+                let left = LONG_PRESS - (now - press.at);
+                if left > 0.0 {
+                    ctx.request_repaint_after(Duration::from_secs_f64(left));
+                } else {
+                    press.gesture = TouchGesture::Selecting;
+                    let (id, rect, origin) = (press.id, press.rect, press.origin);
+                    self.start_touch_selection(id, rect, origin);
+                }
+            }
+        if let Some(f) = self.mouse.fling.as_mut() {
+            let (id, rect, pos, dy) = (f.id, f.rect, f.pos, f.velocity * dt);
+            f.velocity *= (-dt * FLING_DECAY).exp();
+            let going = f.velocity.abs() > FLING_STOP;
+            let lines_f = dy / self.pane_metrics(id).height;
+            if going && self.scroll_pane(id, rect, pos, lines_f, Modifiers::NONE) {
+                ctx.request_repaint();
+            } else {
+                self.mouse.fling = None;
+            }
+        }
+    }
+
+    /// A long press: select the word under the finger; moving on extends the selection, as
+    /// a mouse drag does.
+    fn start_touch_selection(&mut self, id: PaneId, rect: Rect, pos: Pos2) {
+        let m = self.pane_metrics(id);
+        let Some(t) = self.panes.get_mut(&id) else { return };
+        let (point, side, col, line) = render::point_at(pos, rect, m, t);
+        t.term.lock().selection = Some(Selection::new(SelectionType::Semantic, point, side));
+        self.mouse.capture = Some((id, rect));
+        self.mouse.reporting = None;
+        self.mouse.last_cell = (col, line);
+        self.mouse.moved = false;
+        // Not a plain click: the release keeps (and maybe copies) the word.
+        self.mouse.click_count = 2;
+    }
+
+    /// A finger moving: decide whether it scrolls or swipes, then keep doing that.
+    fn on_touch_move(&mut self, ctx: &egui::Context, pos: Pos2) {
+        let velocity = ctx.input(|i| i.pointer.velocity());
+        let Some(press) = self.mouse.touch.as_mut() else { return };
+        if press.gesture == TouchGesture::Pending {
+            let d = pos - press.origin;
+            if d.length() <= TOUCH_SLOP {
+                return;
+            }
+            // The first clear direction decides, so a scroll that drifts sideways stays a scroll.
+            press.gesture = if d.y.abs() >= d.x.abs() { TouchGesture::Scrolling } else { TouchGesture::Swiping };
+        }
+        press.velocity = velocity;
+        let dy = pos.y - press.last.y;
+        press.last = pos;
+        if press.gesture == TouchGesture::Scrolling {
+            let (id, rect) = (press.id, press.rect);
+            let lines_f = dy / self.pane_metrics(id).height;
+            self.scroll_pane(id, rect, pos, lines_f, Modifiers::NONE);
+        }
+    }
+
+    /// A finger lifting: a tap, or the end of a scroll (which may fling on).
+    fn on_touch_release(&mut self, ctx: &egui::Context, press: TouchPress, pos: Pos2) {
+        match press.gesture {
+            TouchGesture::Pending => {
+                let m = self.pane_metrics(press.id);
+                let Some(t) = self.panes.get_mut(&press.id) else { return };
+                let mode = *t.term.lock().mode();
+                if mode.intersects(TermMode::MOUSE_MODE) {
+                    let (_, _, col, line) = render::point_at(press.origin, press.rect, m, t);
+                    for action in [MouseAction::Press, MouseAction::Release] {
+                        if let Some(b) = input::encode_mouse(action, MouseButton::Left, col, line, Modifiers::NONE, mode) {
+                            t.write(b);
+                        }
+                    }
+                } else {
+                    t.term.lock().selection = None;
+                }
+            }
+            TouchGesture::Scrolling => {
+                let v = press.velocity.y;
+                if glide::animations(ctx) && v.abs() > FLING_START {
+                    self.mouse.fling = Some(Fling { id: press.id, rect: press.rect, pos, velocity: v });
+                    ctx.request_repaint();
+                }
+            }
+            TouchGesture::Swiping | TouchGesture::Selecting => {}
         }
     }
 
