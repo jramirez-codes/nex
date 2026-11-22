@@ -144,6 +144,21 @@ impl Node {
         }
     }
 
+    /// Put `pane` along the whole `dir` edge of this tree, taking `frac` of the space.
+    pub fn wrap_edge(&mut self, pane: PaneId, dir: Direction, frac: f32) {
+        let frac = frac.clamp(0.1, 0.9);
+        let axis = match dir {
+            Direction::Left | Direction::Right => Axis::Horizontal,
+            Direction::Up | Direction::Down => Axis::Vertical,
+        };
+        let rest = Box::new(std::mem::replace(self, Node::Leaf(0)));
+        let leaf = Box::new(Node::Leaf(pane));
+        *self = match dir {
+            Direction::Left | Direction::Up => Node::Split { axis, ratio: frac, a: leaf, b: rest },
+            Direction::Right | Direction::Down => Node::Split { axis, ratio: 1.0 - frac, a: rest, b: leaf },
+        };
+    }
+
     pub fn ratio_mut(&mut self, path: &[bool]) -> Option<&mut f32> {
         match self {
             Node::Leaf(_) => None,
@@ -264,6 +279,37 @@ impl Node {
     }
 }
 
+/// Which edge of `area` the pane at `rect` sits along, and how much of the area it takes
+/// across that edge: a pane spanning the full height on the right is `(Right, width share)`.
+/// A pane touching no full edge goes on the side it is nearest. `(Right, 0.4)` if `area`
+/// is empty.
+pub fn edge_placement(rect: Rect, area: Rect) -> (Direction, f32) {
+    if !area.is_positive() || !rect.is_positive() {
+        return (Direction::Right, 0.4);
+    }
+    const SLACK: f32 = 2.0;
+    let full_h = rect.top() <= area.top() + SLACK && rect.bottom() >= area.bottom() - SLACK;
+    let full_w = rect.left() <= area.left() + SLACK && rect.right() >= area.right() - SLACK;
+    let wfrac = (rect.width() / area.width()).clamp(0.1, 0.9);
+    let hfrac = (rect.height() / area.height()).clamp(0.1, 0.9);
+    let (dl, dr) = (rect.left() - area.left(), area.right() - rect.right());
+    let (du, dd) = (rect.top() - area.top(), area.bottom() - rect.bottom());
+    let side = |left: bool| if left { Direction::Left } else { Direction::Right };
+    let vside = |up: bool| if up { Direction::Up } else { Direction::Down };
+    if full_h && !full_w {
+        return (side(dl < dr), wfrac);
+    }
+    if full_w && !full_h {
+        return (vside(du < dd), hfrac);
+    }
+    if full_w && full_h {
+        return (Direction::Right, 0.4);
+    }
+    // Nearest edge, preferring left/right on ties (columns read best beside other panes).
+    let (dh, dv) = (dl.min(dr), du.min(dd));
+    if dh <= dv { (side(dl < dr), wfrac) } else { (vside(du < dd), hfrac) }
+}
+
 /// Pick the pane whose rect lies in `dir` from `from`, preferring the nearest one that
 /// overlaps on the perpendicular axis.
 pub fn neighbor(rects: &[(PaneId, Rect)], from: PaneId, dir: Direction) -> Option<PaneId> {
@@ -344,6 +390,33 @@ mod tests {
         assert_eq!(*axis, Axis::Vertical);
         assert!(matches!(**b, Node::Split { axis: Axis::Horizontal, .. }));
         assert_eq!(n.panes(), vec![2, 1, 3]);
+    }
+
+    #[test]
+    fn wrap_edge_puts_the_pane_on_that_side() {
+        let mut n = split(Axis::Vertical, 0.5, Node::Leaf(1), Node::Leaf(2));
+        n.wrap_edge(9, Direction::Right, 0.3);
+        let Node::Split { axis, ratio, b, .. } = &n else { panic!() };
+        assert_eq!(*axis, Axis::Horizontal);
+        assert!((ratio - 0.7).abs() < 1e-6);
+        assert!(matches!(**b, Node::Leaf(9)));
+        let mut n = Node::Leaf(1);
+        n.wrap_edge(9, Direction::Up, 0.25);
+        assert_eq!(n.panes(), vec![9, 1]);
+        let Node::Split { axis, ratio, .. } = n else { panic!() };
+        assert_eq!((axis, ratio), (Axis::Vertical, 0.25));
+    }
+
+    #[test]
+    fn edge_placement_finds_the_side_and_share() {
+        let area = Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 50.0));
+        let right = Rect::from_min_max(Pos2::new(60.0, 0.0), Pos2::new(100.0, 50.0));
+        assert_eq!(edge_placement(right, area), (Direction::Right, 0.4));
+        let bottom = Rect::from_min_max(Pos2::new(0.0, 25.0), Pos2::new(100.0, 50.0));
+        assert_eq!(edge_placement(bottom, area), (Direction::Down, 0.5));
+        let corner = Rect::from_min_max(Pos2::ZERO, Pos2::new(30.0, 40.0));
+        assert_eq!(edge_placement(corner, area), (Direction::Left, 0.3));
+        assert_eq!(edge_placement(area, area), (Direction::Right, 0.4));
     }
 
     #[test]

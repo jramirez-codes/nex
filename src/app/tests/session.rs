@@ -28,7 +28,7 @@ fn restored(s: Session) -> (egui::Context, App) {
 }
 
 fn leaf(kind: PaneKind, cwd: &std::path::Path, font_size: Option<f32>) -> PaneNode {
-    PaneNode::Leaf(PaneState { kind, cwd: Some(cwd.to_path_buf()), font_size, command: None })
+    PaneNode::Leaf(PaneState { kind, cwd: Some(cwd.to_path_buf()), font_size, command: None, sticky: false })
 }
 
 #[test]
