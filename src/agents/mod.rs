@@ -23,8 +23,7 @@ pub enum Request {
     /// Show this agent's pane: switch to its tab and focus it (for an agent on an ssh host
     /// that no pane shows, open one on it).
     Focus(PaneId),
-    /// `Delete` on this agent: for one on an ssh host, stop it (after asking), or drop it
-    /// from the list once it has exited.
+    /// `Delete` on this agent: for one on an ssh host, stop it (after asking).
     Dismiss(PaneId),
 }
 
@@ -67,7 +66,7 @@ impl AgentsPane {
     }
 
     /// Arrow keys (and j / k / h / l) move the highlight, Enter or Space jumps to the agent,
-    /// Delete stops (or, once exited, dismisses) one on an ssh host.
+    /// Delete stops one on an ssh host (after asking).
     /// Returns whether the key was used.
     pub fn key(&mut self, key: Key, modifiers: Modifiers) -> bool {
         if modifiers.command || modifiers.alt || modifiers.ctrl {

@@ -72,31 +72,28 @@ pub enum Status {
     NeedsYou,
     Working,
     Idle,
-    /// An agent on an ssh host whose program ended while no pane showed it; listed until
-    /// it's dismissed.
-    Exited,
 }
 
 impl Status {
-    pub const ALL: [Status; 4] = [Status::NeedsYou, Status::Working, Status::Idle, Status::Exited];
+    pub const ALL: [Status; 3] = [Status::NeedsYou, Status::Working, Status::Idle];
 
     pub fn label(self) -> &'static str {
         match self {
             Status::NeedsYou => "Needs you",
             Status::Working => "Working",
             Status::Idle => "Idle",
-            Status::Exited => "Exited",
         }
     }
 
-    /// What `nex-host` says an agent on an ssh host is doing.
-    pub fn from_host(s: nex_host::proto::Status) -> Status {
+    /// What `nex-host` says an agent on an ssh host is doing, or `None` once its program
+    /// has ended (it's no longer listed).
+    pub fn from_host(s: nex_host::proto::Status) -> Option<Status> {
         use nex_host::proto::Status as Host;
         match s {
-            Host::NeedsYou => Status::NeedsYou,
-            Host::Working => Status::Working,
-            Host::Idle => Status::Idle,
-            Host::Exited => Status::Exited,
+            Host::NeedsYou => Some(Status::NeedsYou),
+            Host::Working => Some(Status::Working),
+            Host::Idle => Some(Status::Idle),
+            Host::Exited => None,
         }
     }
 
@@ -178,7 +175,7 @@ impl Probe {
     pub fn status(&self, now: Instant) -> Status {
         if let Some(s) = self.reported {
             // A bell the pane showing it heard counts too.
-            return if self.attention && s != Status::Exited { Status::NeedsYou } else { s };
+            return if self.attention { Status::NeedsYou } else { s };
         }
         let reported = self.session_status.as_deref().and_then(Status::from_claude);
         if reported == Some(Status::NeedsYou) || self.attention {
@@ -237,12 +234,11 @@ pub struct Counts {
     pub needs_you: usize,
     pub working: usize,
     pub idle: usize,
-    pub exited: usize,
 }
 
 impl Counts {
     pub fn total(&self) -> usize {
-        self.needs_you + self.working + self.idle + self.exited
+        self.needs_you + self.working + self.idle
     }
 
     /// Each non-empty state as a phrase, most urgent first: "1 needs you", "2 working".
@@ -254,13 +250,11 @@ impl Counts {
                     Status::NeedsYou => self.needs_you,
                     Status::Working => self.working,
                     Status::Idle => self.idle,
-                    Status::Exited => self.exited,
                 };
                 let text = match s {
                     Status::NeedsYou => format!("{n} need{} you", if n == 1 { "s" } else { "" }),
                     Status::Working => format!("{n} working"),
                     Status::Idle => format!("{n} idle"),
-                    Status::Exited => format!("{n} exited"),
                 };
                 (n > 0).then_some((s, text))
             })
@@ -331,7 +325,6 @@ impl Tracker {
                 Status::NeedsYou => c.needs_you += 1,
                 Status::Working => c.working += 1,
                 Status::Idle => c.idle += 1,
-                Status::Exited => c.exited += 1,
             }
         }
         c

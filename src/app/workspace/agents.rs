@@ -79,6 +79,8 @@ impl App {
             let host = target.host().to_string();
             for s in &snap.sessions {
                 let Some(kind) = AgentKind::from_name(&s.kind) else { continue };
+                // One whose program ended has nothing left to show or attach to.
+                let Some(status) = Status::from_host(s.status) else { continue };
                 if !listed.insert((host.clone(), s.id.clone())) {
                     continue;
                 }
@@ -98,7 +100,7 @@ impl App {
                     last_output: now,
                     last_input: now,
                     source: Source::Remote { host: host.clone(), target: target.clone(), session: s.id.clone(), pane: shown.map(|(p, _, _)| p) },
-                    reported: Some(Status::from_host(s.status)),
+                    reported: Some(status),
                 });
             }
         }
@@ -182,29 +184,19 @@ impl App {
         let Source::Remote { target, session, pane, .. } = agent.source.clone() else { return };
         match pane {
             Some(p) => self.focus_pane(p),
-            None if agent.status != Status::Exited => {
+            None => {
                 self.new_tab(ctx, None, Some(target.attach_command(&session)));
                 self.track_agents();
             }
-            None => {}
         }
     }
 
-    /// `Delete` on card `key`, for an agent on an ssh host: drop it from the list when it has
-    /// exited, else ask before stopping it.
+    /// `Delete` on card `key`, for an agent on an ssh host: ask before stopping it.
     pub(in crate::app) fn dismiss_agent(&mut self, key: PaneId) {
         let Some(agent) = self.agent_tracker.agents().iter().find(|a| a.pane == key) else { return };
         let Source::Remote { target, session, .. } = agent.source.clone() else { return };
-        if agent.status != Status::Exited {
-            let what = format!("{} \u{00b7} {}", agent.kind.label(), agent.name);
-            self.confirm_stop(target, session, what);
-            return;
-        }
-        std::thread::spawn(move || {
-            if let Err(e) = crate::remote::host::forget(&target, &session) {
-                eprintln!("nex: couldn't dismiss agent {session} on {}: {e}", target.host());
-            }
-        });
+        let what = format!("{} \u{00b7} {}", agent.kind.label(), agent.name);
+        self.confirm_stop(target, session, what);
     }
 
     /// What the toast says when pane `id` closes while it shows an agent on an ssh host: it
@@ -215,9 +207,6 @@ impl App {
         let session = t.agent_session().or_else(|| t.foreground_job().and_then(|(_, argv)| SshTarget::attach_id(argv)))?;
         let host = target.host().to_string();
         let agent = self.agent_tracker.agents().iter().find(|a| a.pane == remote_key(&host, &session));
-        if agent.is_some_and(|a| a.status == Status::Exited) {
-            return None;
-        }
         let what = agent.map_or("The agent", |a| a.kind.label());
         Some(format!("{what} keeps running on {host} \u{00b7} reopen it from Agents"))
     }

@@ -23,9 +23,9 @@ All notable changes to nex are documented here. The format follows
   `~/.nex/bin/nex-host run -- claude`. The Agents pane lists it with its host, folder and live status
   (Detached when no pane shows it). Click it to open a tab attached to it, with its screen
   redrawn where it left off; closing that tab only detaches it again ("Claude Code keeps
-  running on devbox"). `Delete` stops a running one (after asking) and dismisses an exited
-  one. Hosts nex can't reach get a quiet line at the top of the pane. Hosts with agents are
-  remembered across restarts. `ssh-agents = false` turns it off. See
+  running on devbox"). `Delete` stops one (after asking), and one whose program ends drops
+  off the list. Hosts nex can't reach get a quiet line at the top of the pane. Hosts with
+  agents are remembered across restarts. `ssh-agents = false` turns it off. See
   `nex-host/README.md`.
 
 - An Agents pane: every Claude Code and Codex agent running in nex at a glance.
