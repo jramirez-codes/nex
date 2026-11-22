@@ -24,6 +24,8 @@ memmap2 = "0.9"
 cpal = "0.18.2"
 # The saved window layout (see src/session.rs) and the Wayland drag-and-drop relay.
 serde_json = "1"
+# gzipping nex-host on its way to a host (see src/remote/host.rs).
+flate2 = "1"
 # What nex says to `nex-host`, its helper on ssh hosts (see nex-host/ and src/remote/host.rs):
 # only the protocol, not the program.
 nex-host = { path = "nex-host", default-features = false }

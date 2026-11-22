@@ -82,6 +82,14 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- nex's own connections to an ssh host (the Agents watch, installing `nex-host`, uploads,
+  the shared mic, stopping an agent) share one ssh connection per host, so only the first one
+  logs in; each one after it starts in about one round trip. It is the pane's own shared
+  connection where there is one, otherwise one nex keeps up until two minutes after its last
+  use. A host whose `nex-host` is up to date is watched in one connection, not two.
+  `nex-host` travels gzipped (1.2 MB down to about 540 KB), and uploads of text and source
+  folders are gzipped on the way. Screenshots and other already-compressed files go as they are.
+
 - The title bar's directory label opens the Agents tab instead of the Files tab. `nex
   --explorer`, a folder argument and the file-manager service still open Files, and `Ctrl+E`
   still splits an explorer off any pane.

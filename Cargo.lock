@@ -1994,6 +1994,7 @@ dependencies = [
  "cpal",
  "eframe",
  "egui",
+ "flate2",
  "fontdb",
  "libc",
  "memmap2",

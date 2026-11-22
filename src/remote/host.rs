@@ -3,8 +3,10 @@
 //!
 //! nex installs it in `~/.nex/bin` over its own batch connection (see the module above):
 //! `uname` says which build the host needs, the version it prints says whether it's
-//! already the right one, and the binary travels over ssh's stdin. Then one long-lived
-//! `nex-host watch` per host streams its agents as JSON lines, for the Agents pane.
+//! already the right one, and the binary travels over ssh's stdin, gzipped when the host has
+//! `gzip` (less than half the size). Then one long-lived `nex-host watch` per host streams its
+//! agents as JSON lines, for the Agents pane. Starting the watch checks the version first, so
+//! a host that's up to date takes one connection, not a check and then a watch.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
@@ -82,12 +84,32 @@ pub fn local_binary(triple: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.is_file())
 }
 
-/// What the install check prints: `uname Linux x86_64`, then if it's installed,
-/// `version nex-host 0.11.0 (protocol 1)` and `shim on` (or `off`).
-const CHECK_SCRIPT: &str = r#"echo "uname $(uname -sm)"; p="$HOME/.nex/bin/nex-host"; if [ -x "$p" ]; then echo "version $("$p" --version 2>/dev/null)"; echo "shim $("$p" shim status 2>/dev/null)"; fi; true"#;
+/// What the install check prints: `uname Linux x86_64`, `gzip yes` if the host can unpack a
+/// gzipped binary, then if it's installed, `version nex-host 0.11.0 (protocol 1)` and
+/// `shim on` (or `off`).
+const CHECK_SCRIPT: &str = r#"echo "uname $(uname -sm)"; command -v gzip >/dev/null 2>&1 && echo "gzip yes"; p="$HOME/.nex/bin/nex-host"; if [ -x "$p" ]; then echo "version $("$p" --version 2>/dev/null)"; echo "shim $("$p" shim status 2>/dev/null)"; fi; true"#;
 
-/// Put the binary arriving on stdin in place: a temporary file, then a rename, so a daemon
-/// still running the old one keeps going and nothing half-written is ever run.
+/// How the watch's script ends when the host needs this nex's nex-host first.
+const NEEDS_INSTALL: i32 = 86;
+
+/// Start the watch if the host has this nex's nex-host (one that answers `shim status`),
+/// saying first whether the shim is on. If not, print the install check and exit with
+/// [`NEEDS_INSTALL`].
+fn watch_script() -> String {
+    let want = posix_quote(&proto::version_line());
+    format!(
+        r#"p="$HOME/.nex/bin/nex-host"; if [ -x "$p" ] && [ "$("$p" --version 2>/dev/null)" = {want} ] && s=$("$p" shim status 2>/dev/null) && [ -n "$s" ]; then echo "shim $s"; exec "$p" watch; fi; {CHECK_SCRIPT}; exit {NEEDS_INSTALL}"#
+    )
+}
+
+/// Put the binary arriving on stdin (gzipped, with `gzip`) in place: a temporary file, then
+/// a rename, so a daemon still running the old one keeps going and nothing half-written is
+/// ever run.
+fn install_script(gzip: bool) -> String {
+    let unpack = if gzip { "gzip -dc" } else { "cat" };
+    INSTALL_SCRIPT.replace("cat >", &format!("{unpack} >"))
+}
+
 const INSTALL_SCRIPT: &str = r#"d="$HOME/.nex/bin" && mkdir -p "$d" && chmod 700 "$HOME/.nex" && cat > "$d/nex-host.tmp" && chmod 700 "$d/nex-host.tmp" && mv -f "$d/nex-host.tmp" "$d/nex-host" && echo "version $("$d/nex-host" --version)" && echo "shim $("$d/nex-host" shim status)""#;
 
 /// What the install check found on a host.
@@ -99,6 +121,8 @@ pub struct HostInfo {
     /// Its shim is in the shell's config (see `nex-host/src/shim.rs`). `None` from a
     /// nex-host too old to say.
     pub shim: Option<bool>,
+    /// The host has `gzip`, so the binary can travel compressed.
+    pub gzip: bool,
 }
 
 impl HostInfo {
@@ -109,6 +133,7 @@ impl HostInfo {
                 Some(("uname", v)) => info.uname = v.trim().to_string(),
                 Some(("version", v)) if !v.trim().is_empty() => info.version = Some(v.trim().to_string()),
                 Some(("shim", v)) => info.shim = matches!(v.trim(), "on" | "off").then(|| v.trim() == "on"),
+                Some(("gzip", v)) => info.gzip = v.trim() == "yes",
                 _ => {}
             }
         }
@@ -122,23 +147,39 @@ impl HostInfo {
     }
 }
 
-/// Make sure the host has this nex's `nex-host`, installing it if not. Blocks: run it on a
-/// worker thread.
+/// Make sure the host has this nex's `nex-host`, installing it if not. Blocks. The watch does
+/// the same, folded into starting up (see [`watch_script`]).
+#[cfg(test)]
 pub fn ensure(target: &SshTarget) -> Result<HostInfo, HostError> {
     let info = HostInfo::parse(&run(target, CHECK_SCRIPT, None)?);
     if info.current() {
         return Ok(info);
     }
-    let uname = info.uname.clone();
+    install(target, info)
+}
+
+/// Send this nex's `nex-host` to a host the install check said `info` about. Blocks.
+fn install(target: &SshTarget, info: HostInfo) -> Result<HostInfo, HostError> {
+    let HostInfo { uname, gzip, .. } = info;
     let triple = target_triple(&uname).ok_or_else(|| HostError::Unsupported(uname.clone()))?;
     let binary = local_binary(triple).ok_or_else(|| HostError::Unsupported(format!("{uname} (nex has no {triple} build)")))?;
-    let bytes = std::fs::read(&binary).map_err(|e| HostError::Other(format!("{}: {e}", binary.display())))?;
-    let installed = HostInfo { uname, ..HostInfo::parse(&run(target, INSTALL_SCRIPT, Some(&bytes))?) };
+    let mut bytes = std::fs::read(&binary).map_err(|e| HostError::Other(format!("{}: {e}", binary.display())))?;
+    if gzip {
+        bytes = gzipped(&bytes).map_err(|e| HostError::Other(format!("compressing nex-host: {e}")))?;
+    }
+    let installed = HostInfo { uname, gzip, ..HostInfo::parse(&run(target, &install_script(gzip), Some(&bytes))?) };
     if installed.current() {
         Ok(installed)
     } else {
         Err(HostError::Other(format!("installed nex-host says {:?}", installed.version.unwrap_or_default())))
     }
+}
+
+/// `bytes` as a gzip stream, as small as it gets (once per install, about 50 ms for nex-host).
+fn gzipped(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut gz = flate2::write::GzEncoder::new(Vec::with_capacity(bytes.len() / 2), flate2::Compression::best());
+    gz.write_all(bytes)?;
+    gz.finish()
 }
 
 /// Run `script` on the host over a batch connection (feeding it `stdin`), and return what
@@ -300,31 +341,8 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
         }
     };
     let mut retry = RETRY_MIN;
-    let mut installed = false;
     while !stop.load(Ordering::Relaxed) {
-        if !installed {
-            match ensure(target) {
-                Ok(info) => {
-                    installed = true;
-                    if let Ok(mut s) = snapshot.lock() {
-                        s.shim = info.shim;
-                    }
-                }
-                Err(e) => {
-                    let wait = if matches!(e, HostError::Unsupported(_)) { RETRY_MAX * 5 } else { retry };
-                    set_state(State::Failed(e));
-                    sleep(stop, wait);
-                    retry = (retry * 2).min(RETRY_MAX);
-                    continue;
-                }
-            }
-        }
-        let child = target
-            .batch_command(&format!("exec {REMOTE_BIN_SH} watch"))
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn();
+        let child = target.batch_command(&watch_script()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn();
         let mut child = match child {
             Ok(c) => c,
             Err(e) => {
@@ -338,9 +356,20 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
             *c = Some(child);
         }
         let mut lines = 0;
+        // The lines that aren't the watch's: `shim on` ahead of it, or the install check.
+        let mut check = String::new();
         for line in BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
-            let Ok(r) = serde_json::from_str::<Response>(&line) else { continue };
+            let Ok(r) = serde_json::from_str::<Response>(&line) else {
+                if let Some(shim) = HostInfo::parse(&line).shim
+                    && let Ok(mut s) = snapshot.lock()
+                {
+                    s.shim = Some(shim);
+                }
+                check.push_str(&line);
+                check.push('\n');
+                continue;
+            };
             lines += 1;
             if let Ok(mut s) = snapshot.lock() {
                 s.state = State::Live;
@@ -360,9 +389,25 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
         }
         if needs_login(&err) {
             set_state(State::Failed(HostError::NeedsLogin));
+        } else if status.and_then(|s| s.code()) == Some(NEEDS_INSTALL) {
+            match install(target, HostInfo::parse(&check)) {
+                Ok(info) => {
+                    if let Ok(mut s) = snapshot.lock() {
+                        s.shim = info.shim;
+                    }
+                    // Straight back to watching, now that it's there.
+                    retry = RETRY_MIN;
+                    continue;
+                }
+                Err(e) => {
+                    let wait = if matches!(e, HostError::Unsupported(_)) { RETRY_MAX * 5 } else { retry };
+                    set_state(State::Failed(e));
+                    sleep(stop, wait);
+                    retry = (retry * 2).min(RETRY_MAX);
+                    continue;
+                }
+            }
         } else {
-            // 127: the program is gone (removed by hand): install it again.
-            installed = status.and_then(|s| s.code()) != Some(127);
             set_state(State::Failed(HostError::Other(last_line(&err).unwrap_or_else(|| "connection lost".into()))));
         }
         retry = if lines > 0 { RETRY_MIN } else { (retry * 2).min(RETRY_MAX) };
@@ -400,7 +445,8 @@ mod tests {
     fn reads_the_install_check() {
         let v = proto::version_line();
         let info = HostInfo::parse(&format!("uname Linux x86_64\nversion {v}\nshim on\n"));
-        assert_eq!(info, HostInfo { uname: "Linux x86_64".into(), version: Some(v.clone()), shim: Some(true) });
+        assert_eq!(info, HostInfo { uname: "Linux x86_64".into(), version: Some(v.clone()), shim: Some(true), gzip: false });
+        assert!(HostInfo::parse("uname Linux x86_64\ngzip yes\n").gzip);
         assert!(info.current());
         let missing = HostInfo::parse("uname Darwin arm64\n");
         assert_eq!(missing.version, None);
@@ -409,6 +455,45 @@ mod tests {
         let old = HostInfo::parse(&format!("uname Linux x86_64\nversion {v}\nshim \n"));
         assert_eq!(old.shim, None);
         assert!(!old.current());
+    }
+
+    /// The install's remote half, run here with a local `sh`: a gzipped binary arrives whole.
+    #[test]
+    #[cfg(unix)]
+    fn gzipped_install_unpacks() {
+        let home = std::env::temp_dir().join(format!("nex-gz-install-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let program = b"#!/bin/sh\n[ \"$1\" = --version ] && echo 'nex-host test'\n[ \"$1\" = shim ] && echo off\ntrue\n".repeat(50);
+        let packed = gzipped(&program).unwrap();
+        assert!(packed.len() < program.len() / 4);
+        let mut sh = std::process::Command::new("sh")
+            .args(["-c", &install_script(true)])
+            .env("HOME", &home)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        sh.stdin.take().unwrap().write_all(&packed).unwrap();
+        let out = sh.wait_with_output().unwrap();
+        assert!(out.status.success());
+        assert_eq!(std::fs::read(home.join(".nex/bin/nex-host")).unwrap(), program);
+        let info = HostInfo::parse(&String::from_utf8_lossy(&out.stdout));
+        assert_eq!((info.version.as_deref(), info.shim), (Some("nex-host test"), Some(false)));
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    /// The watch's script on a host without nex-host: the install check, and the exit code
+    /// that says to install.
+    #[test]
+    #[cfg(unix)]
+    fn watch_script_asks_for_an_install() {
+        let home = std::env::temp_dir().join(format!("nex-watch-script-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let out = std::process::Command::new("sh").args(["-c", &watch_script()]).env("HOME", &home).output().unwrap();
+        assert_eq!(out.status.code(), Some(NEEDS_INSTALL));
+        let info = HostInfo::parse(&String::from_utf8_lossy(&out.stdout));
+        assert!(!info.uname.is_empty() && info.version.is_none());
+        std::fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]

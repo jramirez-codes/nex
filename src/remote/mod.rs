@@ -4,6 +4,7 @@
 //! remote/
 //!   mod.rs     this file: reading a pane's ssh command line (SshTarget), the options nex's
 //!              own connections use, and connection sharing in ~/.ssh/config
+//!   mux.rs     one shared connection per host for all of nex's own, so only one logs in
 //!   upload.rs  files dropped or pasted into an ssh pane, copied to the remote host
 //!   host.rs    nex-host on the host: installing it, watching the agents it keeps running there
 //!   mic.rs     the local microphone shared with the remote host, as its default mic
@@ -20,6 +21,7 @@
 pub mod audio;
 pub mod host;
 pub mod mic;
+mod mux;
 mod upload;
 
 pub use upload::{UploadError, remove_saved, save_png, upload};
@@ -46,8 +48,6 @@ const BATCH_OPTS: &[&str] = &[
     "-o", "BatchMode=yes",
     "-o", "ConnectTimeout=8",
     "-o", "ClearAllForwardings=yes",
-    // Share an existing master connection, but don't become one.
-    "-o", "ControlMaster=no",
     "-o", "RemoteCommand=none",
     "-o", "RequestTTY=no",
     "-o", "PermitLocalCommand=no",
@@ -170,8 +170,19 @@ impl SshTarget {
 
     /// The full `ssh` argument list (without the program name) for one of nex's own
     /// connections to this host, running `script` under `sh` there.
+    #[cfg(test)]
     fn batch_args(&self, script: &str) -> Vec<String> {
+        self.batch_args_via(None, script)
+    }
+
+    /// [`batch_args`](Self::batch_args), riding the master connection at `control` if given.
+    fn batch_args_via(&self, control: Option<&str>, script: &str) -> Vec<String> {
         let mut args: Vec<String> = BATCH_OPTS.iter().map(|s| s.to_string()).collect();
+        // Share a master connection, but never become one here: see `mux`.
+        args.extend(["-o".into(), "ControlMaster=no".into()]);
+        if let Some(path) = control {
+            args.extend(["-o".into(), mux::control_path_opt(path)]);
+        }
         args.extend(self.opts.iter().cloned());
         args.push("--".into());
         args.push(self.destination.clone());
@@ -181,12 +192,15 @@ impl SshTarget {
         args
     }
 
-    /// A `Command` for [`batch_args`](Self::batch_args), with no stdin or stdout set.
+    /// A `Command` for [`batch_args`](Self::batch_args), with no stdin or stdout set. It
+    /// rides nex's shared connection to the host (see `mux`), starting it if need be, so only
+    /// the first one pays for a login.
     fn batch_command(&self, script: &str) -> Command {
+        let control = mux::ensure_master(self);
         let mut ssh = Command::new("ssh");
         // So the sharing block in `~/.ssh/config` finds the pane's connection, whatever
         // terminal nex itself was started from.
-        ssh.env("TERM_PROGRAM", "nex").args(self.batch_args(script));
+        ssh.env("TERM_PROGRAM", "nex").args(self.batch_args_via(control.as_deref(), script));
         ssh
     }
 }
@@ -335,6 +349,19 @@ mod tests {
         argv.extend(t.opts.iter().cloned());
         argv.extend(["--".into(), t.destination.clone(), "cd /x; exec \"$SHELL\" -l".into()]);
         assert_eq!(SshTarget::from_argv(&argv), target(&["-o", "RemoteCommand=none", "-p", "2222"], "me@host"));
+    }
+
+    #[test]
+    fn batch_args_ride_a_master() {
+        let t = target(&["-p", "2222"], "host").unwrap();
+        let plain = t.batch_args("true");
+        assert!(plain.windows(2).any(|w| w == ["-o", "ControlMaster=no"]));
+        assert!(!plain.iter().any(|a| a.starts_with("ControlPath")));
+        let via = t.batch_args_via(Some("/home/me/.ssh/nex-ab"), "true");
+        let at = via.iter().position(|a| a == "ControlPath=/home/me/.ssh/nex-ab").expect("control path");
+        // Before the pane's options, so it wins over them.
+        assert!(at < via.iter().position(|a| a == "2222").unwrap());
+        assert!(via.windows(2).any(|w| w == ["-o", "ControlMaster=no"]));
     }
 
     #[test]
