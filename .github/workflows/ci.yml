@@ -36,10 +36,17 @@ jobs:
         run: cargo build --locked
 
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked --workspace
 
       - name: Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      # nex-host ships to servers as a static binary: make sure it still builds as one.
+      - name: Build nex-host (static, musl)
+        if: runner.os == 'Linux'
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --locked -p nex-host --release --target x86_64-unknown-linux-musl
 
   # The Windows backend (src/platform/windows/) isn't a supported build yet; this keeps it
   # compiling so the platform layer stays honest.

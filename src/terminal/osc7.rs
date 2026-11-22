@@ -27,6 +27,10 @@ pub struct Report {
 /// The latest report, shared between the PTY thread and the pane.
 pub type Slot = Arc<Mutex<Option<Report>>>;
 
+/// The `nex-host` agent the pane is showing, as `nex-host attach` announces it (see
+/// `nex_host::proto::AGENT_TAG`), shared between the PTY thread and the pane.
+pub type AgentSlot = Arc<Mutex<Option<String>>>;
+
 /// Raised by the PTY thread when the program sends a notification OSC; the pane takes it on
 /// its next frame. Raising it repaints the window even when the pane is hidden.
 #[derive(Clone, Default)]
@@ -76,11 +80,14 @@ pub struct Scanner {
     buf: Vec<u8>,
     /// Set when a notification OSC completes; cleared by whoever reads it.
     pub notified: bool,
+    /// Set when `nex-host attach` announces an agent (`Some("")`: it stopped showing one);
+    /// taken by whoever reads it.
+    pub agent: Option<String>,
 }
 
 impl Default for Scanner {
     fn default() -> Self {
-        Self { state: State::Ground, buf: Vec::new(), notified: false }
+        Self { state: State::Ground, buf: Vec::new(), notified: false, agent: None }
     }
 }
 
@@ -145,6 +152,14 @@ impl Scanner {
             self.notified = true;
             return None;
         }
+        if let Some(id) = self.buf.strip_prefix(nex_host::proto::AGENT_TAG.as_bytes()) {
+            let id = String::from_utf8_lossy(id);
+            // Session ids are short hex; anything else isn't one of ours.
+            if id.len() <= 32 && id.chars().all(|c| c.is_ascii_alphanumeric()) {
+                self.agent = Some(id.into_owned());
+            }
+            return None;
+        }
         let body = self.buf.strip_prefix(b"7;")?;
         parse(&String::from_utf8_lossy(body))
     }
@@ -200,6 +215,7 @@ pub struct ScanReader<R> {
     scanner: Scanner,
     slot: Slot,
     alert: Alert,
+    agent: AgentSlot,
 }
 
 impl<R: Read> Read for ScanReader<R> {
@@ -212,6 +228,11 @@ impl<R: Read> Read for ScanReader<R> {
         }
         if std::mem::take(&mut self.scanner.notified) {
             self.alert.raise();
+        }
+        if let Some(id) = self.scanner.agent.take()
+            && let Ok(mut agent) = self.agent.lock()
+        {
+            *agent = (!id.is_empty()).then_some(id);
         }
         Ok(n)
     }
@@ -230,7 +251,7 @@ mod pty {
     use alacritty_terminal::tty::{ChildEvent, EventedPty, EventedReadWrite, Pty};
     use polling::{Event, PollMode, Poller};
 
-    use super::{Alert, ScanReader, Scanner, Slot};
+    use super::{AgentSlot, Alert, ScanReader, Scanner, Slot};
 
     /// A [`Pty`] whose output is scanned for OSC 7 and notifications. Reads go through a second handle on the
     /// same PTY; registration, writes, resizes and child events go to the [`Pty`] itself.
@@ -240,9 +261,9 @@ mod pty {
     }
 
     impl ScanPty {
-        pub fn new(mut pty: Pty, slot: Slot, alert: Alert) -> io::Result<Self> {
+        pub fn new(mut pty: Pty, slot: Slot, alert: Alert, agent: AgentSlot) -> io::Result<Self> {
             let file = pty.reader().try_clone()?;
-            Ok(Self { pty, reader: ScanReader { inner: file, scanner: Scanner::default(), slot, alert } })
+            Ok(Self { pty, reader: ScanReader { inner: file, scanner: Scanner::default(), slot, alert, agent } })
         }
     }
 

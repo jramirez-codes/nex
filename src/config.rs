@@ -39,6 +39,18 @@ pub enum SshMic {
     Auto,
 }
 
+/// Whether nex puts `nex-host`'s shim on ssh hosts (`ssh-agent-shim`), so `claude` and
+/// `codex` typed in its ssh panes keep running after the pane closes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentShim {
+    /// Never.
+    Off,
+    /// Offer it once per host (an alert); Not Now isn't asked again.
+    Ask,
+    /// On every host, without asking.
+    On,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub font_family: String,
@@ -83,6 +95,11 @@ pub struct Config {
     /// Splitting a pane running `ssh`, or opening a tab from it, opens another session on the
     /// same host in the same remote directory (see `remote::SshTarget::session_command`).
     pub ssh_follow: bool,
+    /// Agents on ssh hosts in the Agents pane: nex installs `nex-host` on hosts its panes
+    /// connect to and watches the agents it keeps running there (see `remote::host`).
+    pub ssh_agents: bool,
+    /// `nex-host`'s shim on hosts (see [`AgentShim`]).
+    pub ssh_agent_shim: AgentShim,
     /// Sharing this machine's microphone with a pane's ssh host (see `remote::mic`).
     pub ssh_mic: SshMic,
     pub scrollback_limit: usize,
@@ -142,6 +159,8 @@ impl Default for Config {
             clipboard_toasts: true,
             ssh_upload: true,
             ssh_follow: true,
+            ssh_agents: true,
+            ssh_agent_shim: AgentShim::Ask,
             ssh_mic: SshMic::Manual,
             scrollback_limit: 10_000,
             command: None,
@@ -267,6 +286,15 @@ impl Config {
             "clipboard-toasts" => self.clipboard_toasts = boolean(value)?,
             "ssh-upload" => self.ssh_upload = boolean(value)?,
             "ssh-follow" => self.ssh_follow = boolean(value)?,
+            "ssh-agents" => self.ssh_agents = boolean(value)?,
+            "ssh-agent-shim" => {
+                self.ssh_agent_shim = match value {
+                    "off" | "false" => AgentShim::Off,
+                    "ask" => AgentShim::Ask,
+                    "on" | "true" => AgentShim::On,
+                    _ => return Err(format!("invalid ssh-agent-shim `{value}` (ask, on or off)")),
+                }
+            }
             "ssh-mic" => {
                 self.ssh_mic = match value {
                     "off" | "false" => SshMic::Off,

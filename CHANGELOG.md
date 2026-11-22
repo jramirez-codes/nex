@@ -8,6 +8,26 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Syntax colors in the Changes pane: diffs are highlighted for their language (Rust, TOML,
+  Python, TypeScript, shell, Markdown and the rest of bat's grammars), in colors taken from
+  your terminal palette. Changed words keep their tint on top. Coloring runs in the
+  background, starting with the hunks on screen: most diffs arrive fully colored, and a very
+  large one shows with its first screen colored while the rest fills in from wherever you've
+  scrolled to. Hunks that haven't changed keep their colors across refreshes.
+
+- Agents on ssh hosts that keep running after their pane closes. nex installs its helper,
+  `nex-host`, in `~/.nex` on hosts its panes connect to (no root; one static binary). An agent
+  started there survives closing the pane, a dropped connection, or quitting nex: nex offers
+  (once per host) to make `claude` and `codex` typed in its ssh panes start that way, with a
+  few marked lines in the host's shell config (`ssh-agent-shim`), or start one by hand with
+  `~/.nex/bin/nex-host run -- claude`. The Agents pane lists it with its host, folder and live status
+  (Detached when no pane shows it). Click it to open a tab attached to it, with its screen
+  redrawn where it left off; closing that tab only detaches it again ("Claude Code keeps
+  running on devbox"). `Delete` stops a running one (after asking) and dismisses an exited
+  one. Hosts nex can't reach get a quiet line at the top of the pane. Hosts with agents are
+  remembered across restarts. `ssh-agents = false` turns it off. See
+  `nex-host/README.md`.
+
 - An Agents pane: every Claude Code and Codex agent running in nex at a glance.
   `Ctrl+Shift+A` (`Cmd+Shift+A` on macOS) splits it off the focused pane, and the title bar's
   label (the one with the nex dog) now opens it as a tab of its own, with a live headline

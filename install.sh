@@ -9,8 +9,10 @@ cd "$(dirname "$0")"
 if [ -f Cargo.toml ]; then
   cargo build --release --locked
   BIN=target/release/nex
+  HOST_DIR=target/host   # if you've built nex-host there (see nex-host/README.md)
 else
   BIN=./nex
+  HOST_DIR=host
 fi
 
 PREFIX="${PREFIX:-$HOME/.local}"
@@ -19,6 +21,12 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nex"
 # `install -D` is GNU-only, so folders are made first (works with BSD install on macOS too).
 install -d "$PREFIX/bin"
 install -m755 "$BIN" "$PREFIX/bin/nex"
+# nex-host for each kind of ssh host, which nex installs on hosts its panes connect to. The
+# macOS app carries its own copy too (make-app.sh); this one serves $PREFIX/bin/nex.
+if ls "$HOST_DIR"/nex-host-* >/dev/null 2>&1; then
+  install -d "$PREFIX/share/nex/host"
+  for f in "$HOST_DIR"/nex-host-*; do install -m755 "$f" "$PREFIX/share/nex/host/"; done
+fi
 if [ "$(uname -s)" = Linux ]; then
   # Absolute Exec path: desktop launchers often don't inherit the shell's PATH (e.g. ~/.local/bin).
   install -d "$PREFIX/share/applications" "$PREFIX/share/icons/hicolor/scalable/apps"
@@ -39,7 +47,7 @@ elif [ "$(uname -s)" = Darwin ]; then
   if [ -z "${APP_DIR:-}" ]; then
     if [ -w /Applications ]; then APP_DIR=/Applications; else APP_DIR="$HOME/Applications"; fi
   fi
-  packaging/macos/make-app.sh "$BIN" "$APP_DIR"
+  packaging/macos/make-app.sh "$BIN" "$APP_DIR" "" "$HOST_DIR"
 fi
 if [ ! -e "$CONFIG_DIR/config" ]; then
   install -d "$CONFIG_DIR"

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use egui::{Key, Modifiers};
 
 use super::AgentsPane;
-use super::model::{AgentKind, Counts, Probe, Status, Tracker, elapsed};
+use super::model::{AgentKind, Counts, Probe, Source, Status, Tracker, elapsed, is_remote_key, remote_key};
 
 fn v(s: &[&str]) -> Vec<String> {
     s.iter().map(|s| s.to_string()).collect()
@@ -25,6 +25,8 @@ fn probe(pane: u64, tab: usize, kind: AgentKind, at: Instant) -> Probe {
         attention: false,
         last_output: at - Duration::from_secs(60),
         last_input: at - Duration::from_secs(60),
+        source: Source::Local,
+        reported: None,
     }
 }
 
@@ -114,7 +116,7 @@ fn sorts_by_need_then_tab_and_keeps_time_in_state() {
     t.update(vec![idle.clone(), working.clone(), waiting.clone(), also_idle.clone()], start);
     let order: Vec<u64> = t.agents().iter().map(|a| a.pane).collect();
     assert_eq!(order, vec![9, 3, 2, 5]);
-    assert_eq!(t.counts(), Counts { needs_you: 1, working: 1, idle: 2 });
+    assert_eq!(t.counts(), Counts { needs_you: 1, working: 1, idle: 2, exited: 0 });
     assert_eq!(t.counts().summary(), "1 needs you · 1 working · 2 idle");
 
     // Still idle a minute later: its clock keeps running. Working → idle restarts it.
@@ -130,8 +132,8 @@ fn sorts_by_need_then_tab_and_keeps_time_in_state() {
 #[test]
 fn summaries_and_elapsed_times() {
     assert_eq!(Counts::default().summary(), "No agents running");
-    assert_eq!(Counts { needs_you: 2, working: 1, idle: 0 }.summary(), "2 need you · 1 working");
-    assert_eq!(Counts { needs_you: 0, working: 3, idle: 1 }.headline(), "3 working");
+    assert_eq!(Counts { needs_you: 2, working: 1, idle: 0, exited: 0 }.summary(), "2 need you · 1 working");
+    assert_eq!(Counts { needs_you: 0, working: 3, idle: 1, exited: 0 }.headline(), "3 working");
     assert_eq!(Counts::default().headline(), "None running");
     assert_eq!(elapsed(Duration::from_secs(2)), "now");
     assert_eq!(elapsed(Duration::from_secs(42)), "42s");
@@ -159,4 +161,43 @@ fn keys_move_through_cards_and_jump() {
     // Shortcuts with modifiers aren't the pane's.
     assert!(!a.key(Key::J, Modifiers::CTRL));
     assert!(!a.key(Key::Q, Modifiers::NONE));
+}
+
+fn remote(host: &str, session: &str, status: Status, at: Instant) -> Probe {
+    let target = crate::remote::SshTarget { opts: vec![], destination: host.into() };
+    Probe {
+        pane: remote_key(host, session),
+        tab: None,
+        reported: Some(status),
+        source: Source::Remote { host: host.into(), target, session: session.into(), pane: None },
+        ..probe(0, 0, AgentKind::Claude, at)
+    }
+}
+
+#[test]
+fn agents_on_ssh_hosts_have_keys_no_pane_has() {
+    let k = remote_key("devbox", "3fa91c0e");
+    assert_eq!(k, remote_key("devbox", "3fa91c0e"), "the same card every poll");
+    assert_ne!(k, remote_key("gpu", "3fa91c0e"));
+    assert!(is_remote_key(k));
+    assert!(!is_remote_key(1) && !is_remote_key(4096));
+}
+
+#[test]
+fn what_nex_host_reports_is_the_status_and_exited_agents_go_last() {
+    let at = Instant::now();
+    let mut needs = remote("devbox", "a", Status::Working, at);
+    needs.attention = true;
+    assert_eq!(needs.status(at), Status::NeedsYou, "the pane showing it heard the bell");
+    let mut exited = remote("devbox", "b", Status::Exited, at);
+    exited.attention = true;
+    assert_eq!(exited.status(at), Status::Exited);
+
+    let mut t = Tracker::default();
+    t.update(vec![remote("devbox", "b", Status::Exited, at), remote("devbox", "c", Status::Idle, at), probe(1, 0, AgentKind::Codex, at)], at);
+    let statuses: Vec<Status> = t.agents().iter().map(|a| a.status).collect();
+    assert_eq!(statuses, vec![Status::Idle, Status::Idle, Status::Exited]);
+    assert!(matches!(&t.agents()[2].source, Source::Remote { session, .. } if session == "b"));
+    assert_eq!(t.counts(), Counts { needs_you: 0, working: 0, idle: 2, exited: 1 });
+    assert_eq!(t.counts().summary(), "2 idle · 1 exited");
 }

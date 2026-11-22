@@ -5,6 +5,7 @@
 //!   mod.rs     this file: reading a pane's ssh command line (SshTarget), the options nex's
 //!              own connections use, and connection sharing in ~/.ssh/config
 //!   upload.rs  files dropped or pasted into an ssh pane, copied to the remote host
+//!   host.rs    nex-host on the host: installing it, watching the agents it keeps running there
 //!   mic.rs     the local microphone shared with the remote host, as its default mic
 //!   audio.rs   recording from this machine's default microphone (cpal), for mic.rs
 //! ```
@@ -17,6 +18,7 @@
 //! its connection, so nex's connections ride on the login typed into the pane.
 
 pub mod audio;
+pub mod host;
 pub mod mic;
 mod upload;
 

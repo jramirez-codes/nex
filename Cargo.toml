@@ -24,6 +24,13 @@ memmap2 = "0.9"
 cpal = "0.18.2"
 # The saved window layout (see src/session.rs) and the Wayland drag-and-drop relay.
 serde_json = "1"
+# What nex says to `nex-host`, its helper on ssh hosts (see nex-host/ and src/remote/host.rs):
+# only the protocol, not the program.
+nex-host = { path = "nex-host", default-features = false }
+# Syntax colors in the Changes pane (see src/git_diff/syntax.rs): syntect's parser with bat's
+# grammars, pure-Rust regexes (no oniguruma to build).
+syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy"] }
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 
 # Per-OS dependencies, used only by src/platform/<os>/.
 [target.'cfg(unix)'.dependencies]
@@ -49,6 +56,11 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString"] }
 raw-window-handle = "0.6"
 
+# `nex-host`, the helper nex installs on ssh hosts to keep agents running after their pane
+# closes (see nex-host/README.md). `cargo build` here still builds nex alone.
+[workspace]
+members = ["nex-host"]
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
@@ -72,4 +84,6 @@ assets = [
     ["assets/nex.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["config.example", "usr/share/doc/nex/config.example", "644"],
     ["README.md", "usr/share/doc/nex/README.md", "644"],
+    # nex-host for each kind of ssh host (built by the release workflow into target/host).
+    ["target/host/nex-host-*", "usr/share/nex/host/", "755"],
 ]

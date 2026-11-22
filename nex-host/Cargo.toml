@@ -1,0 +1,28 @@
+[package]
+name = "nex-host"
+# Kept equal to nex's own version: nex reinstalls the helper on a host when they differ.
+version = "0.11.0"
+edition = "2024"
+rust-version = "1.88"
+description = "nex's helper on ssh hosts: keeps coding agents running after the pane they were started in closes."
+license = "MIT"
+repository = "https://github.com/jramirez-codes/nex"
+publish = false
+
+[features]
+default = ["daemon"]
+# The `nex-host` program itself. Without it this is only the protocol nex speaks to it.
+daemon = ["dep:alacritty_terminal", "dep:libc"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+alacritty_terminal = { version = "0.26.0", default-features = false, optional = true }
+libc = { version = "0.2", optional = true }
+
+[[bin]]
+name = "nex-host"
+path = "src/main.rs"
+required-features = ["daemon"]

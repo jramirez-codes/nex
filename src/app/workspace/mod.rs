@@ -434,6 +434,9 @@ impl App {
     }
 
     fn close_unpinned(&mut self, ctx: &egui::Context, id: PaneId) {
+        if let Some(n) = self.detach_notice(id) {
+            self.notice = Some(n);
+        }
         let (title, process) = self.pane_label(id);
         let shapes = self.panes.get_mut(&id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
@@ -464,6 +467,9 @@ impl App {
     fn close_tab_labeled(&mut self, index: usize, label: Option<(String, String)>) {
         if index >= self.tabs.len() {
             return;
+        }
+        if let Some(n) = self.tabs[index].root.panes().into_iter().find_map(|id| self.detach_notice(id)) {
+            self.notice = Some(n);
         }
         let tab = self.take_tab(index);
         if let Some(&drawn) = self.tab_rects.get(&tab.uid) {

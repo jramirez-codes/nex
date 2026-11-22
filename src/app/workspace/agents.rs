@@ -1,12 +1,15 @@
-//! Agents panes in the workspace: finding every agent running in a pane (each process
-//! poll), opening and closing Agents panes and the Agents tab, and jumping to an agent.
+//! Agents panes in the workspace: finding every agent (each process poll), in this
+//! machine's panes and on the ssh hosts they connect to, opening and closing Agents panes
+//! and the Agents tab, and jumping to an agent (or opening a pane on one).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::agents::AgentsPane;
-use crate::agents::model::{AgentKind, Probe};
+use crate::agents::model::{AgentKind, Probe, Source, Status, is_remote_key, remote_key};
 use crate::layout::{Axis, PaneId};
+use crate::remote::SshTarget;
 use crate::session::claude;
 use crate::ui::icons;
 
@@ -14,8 +17,9 @@ use crate::app::App;
 use crate::app::workspace::tab::Tab;
 
 impl App {
-    /// Re-read what every agent pane is doing. Run with the process poll, and only while
-    /// something shows it (an Agents pane, or the title bar's Agents label).
+    /// Re-read what every agent is doing: those running in panes here, and those `nex-host`
+    /// keeps on the ssh hosts panes connect to (see `ssh/agents.rs`). Run with the process
+    /// poll, and only while something shows it (an Agents pane, or the title bar's label).
     pub(in crate::app) fn track_agents(&mut self) {
         if self.agents.is_empty() && !self.shows_agents_label() {
             return;
@@ -24,6 +28,9 @@ impl App {
         // Each pane once, in tab order (the sticky pane is in every tab: its first one).
         let mut seen = HashSet::new();
         let mut probes = Vec::new();
+        // The hosts ssh panes connect to, and which remote agent each pane shows.
+        let mut hosts = HashSet::new();
+        let mut showing: HashMap<String, (PaneId, Option<usize>, bool)> = HashMap::new();
         let tabs = self.tabs.iter().enumerate().map(|(i, t)| (Some(i), t)).chain(self.explorer_tab.iter().map(|t| (None, t)));
         for (index, tab) in tabs {
             for id in tab.root.panes() {
@@ -31,6 +38,14 @@ impl App {
                     continue;
                 }
                 let Some(t) = self.panes.get(&id) else { continue };
+                if let Some(target) = t.last_ssh_target() {
+                    hosts.insert(target.normalized());
+                    let session = t.agent_session().or_else(|| t.foreground_job().and_then(|(_, argv)| SshTarget::attach_id(argv)));
+                    if let Some(session) = session {
+                        showing.entry(session).or_insert((id, index, t.attention));
+                    }
+                    continue;
+                }
                 let Some((pid, argv)) = t.foreground_job() else { continue };
                 let Some(kind) = AgentKind::detect(&t.process, argv) else { continue };
                 let session = (kind == AgentKind::Claude).then(|| claude::session_info(pid)).flatten().unwrap_or_default();
@@ -48,6 +63,41 @@ impl App {
                     attention: t.attention,
                     last_output: t.last_output,
                     last_input: t.last_input,
+                    source: Source::Local,
+                    reported: None,
+                });
+            }
+        }
+
+        self.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
+        self.offer_shim(&hosts);
+        self.agent_notes = self.host_notes();
+        // Two panes may reach one host under different names: list each agent once.
+        let mut listed = HashSet::new();
+        for (target, snap) in self.remote_hosts.snapshots() {
+            let host = target.host().to_string();
+            for s in &snap.sessions {
+                let Some(kind) = AgentKind::from_name(&s.kind) else { continue };
+                if !listed.insert((host.clone(), s.id.clone())) {
+                    continue;
+                }
+                let shown = showing.get(&s.id).copied();
+                let title = s.title.clone().unwrap_or_default();
+                let (mark, rest) = icons::title_mark(kind.process(), &title);
+                probes.push(Probe {
+                    pane: remote_key(&host, &s.id),
+                    tab: shown.and_then(|(_, tab, _)| tab),
+                    kind,
+                    title: rest.to_string(),
+                    mark: mark.map(str::to_string),
+                    cwd: Some(PathBuf::from(home_relative(&s.cwd, snap.home.as_deref()))),
+                    session_name: Some(s.name.clone()),
+                    session_status: None,
+                    attention: shown.is_some_and(|(_, _, attention)| attention),
+                    last_output: now,
+                    last_input: now,
+                    source: Source::Remote { host: host.clone(), target: target.clone(), session: s.id.clone(), pane: shown.map(|(p, _, _)| p) },
+                    reported: Some(Status::from_host(s.status)),
                 });
             }
         }
@@ -120,9 +170,59 @@ impl App {
         self.explorer_active = true;
     }
 
-    /// Jump to the agent in `pane`: show its tab and focus it.
-    pub(in crate::app) fn focus_agent(&mut self, pane: PaneId) {
-        if let Some(i) = self.tabs.iter().position(|t| t.contains(pane)) {
+    /// Show the agent behind card `key`: jump to its pane, or, for an agent on an ssh host
+    /// that no pane shows, open a tab attached to it.
+    pub(in crate::app) fn focus_agent(&mut self, ctx: &egui::Context, key: PaneId) {
+        if !is_remote_key(key) {
+            self.focus_pane(key);
+            return;
+        }
+        let Some(agent) = self.agent_tracker.agents().iter().find(|a| a.pane == key) else { return };
+        let Source::Remote { target, session, pane, .. } = agent.source.clone() else { return };
+        match pane {
+            Some(p) => self.focus_pane(p),
+            None if agent.status != Status::Exited => {
+                self.new_tab(ctx, None, Some(target.attach_command(&session)));
+                self.track_agents();
+            }
+            None => {}
+        }
+    }
+
+    /// `Delete` on card `key`, for an agent on an ssh host: drop it from the list when it has
+    /// exited, else ask before stopping it.
+    pub(in crate::app) fn dismiss_agent(&mut self, key: PaneId) {
+        let Some(agent) = self.agent_tracker.agents().iter().find(|a| a.pane == key) else { return };
+        let Source::Remote { target, session, .. } = agent.source.clone() else { return };
+        if agent.status != Status::Exited {
+            let what = format!("{} \u{00b7} {}", agent.kind.label(), agent.name);
+            self.confirm_stop(target, session, what);
+            return;
+        }
+        std::thread::spawn(move || {
+            if let Err(e) = crate::remote::host::forget(&target, &session) {
+                eprintln!("nex: couldn't dismiss agent {session} on {}: {e}", target.host());
+            }
+        });
+    }
+
+    /// What the toast says when pane `id` closes while it shows an agent on an ssh host: it
+    /// keeps running there.
+    pub(in crate::app) fn detach_notice(&self, id: PaneId) -> Option<String> {
+        let t = self.panes.get(&id)?;
+        let target = t.last_ssh_target()?;
+        let session = t.agent_session().or_else(|| t.foreground_job().and_then(|(_, argv)| SshTarget::attach_id(argv)))?;
+        let host = target.host().to_string();
+        let agent = self.agent_tracker.agents().iter().find(|a| a.pane == remote_key(&host, &session));
+        if agent.is_some_and(|a| a.status == Status::Exited) {
+            return None;
+        }
+        let what = agent.map_or("The agent", |a| a.kind.label());
+        Some(format!("{what} keeps running on {host} \u{00b7} reopen it from Agents"))
+    }
+
+    /// Show pane `pane`: its tab, focused.
+    fn focus_pane(&mut self, pane: PaneId) {        if let Some(i) = self.tabs.iter().position(|t| t.contains(pane)) {
             // The sticky pane is in every tab: stay on the shown one if it can.
             if !self.cur_tab().is_some_and(|t| t.contains(pane)) {
                 self.show_tab(i);
@@ -136,5 +236,27 @@ impl App {
             tab.focused = pane;
             tab.zoomed = false;
         }
+    }
+}
+
+/// `dir` on a host whose home is `home`, as `~/…` when it's in there.
+fn home_relative(dir: &str, home: Option<&str>) -> String {
+    match home.filter(|h| h.len() > 1).and_then(|h| dir.strip_prefix(h)) {
+        Some("") => "~".into(),
+        Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+        _ => dir.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::home_relative;
+
+    #[test]
+    fn remote_folders_read_from_the_remote_home() {
+        assert_eq!(home_relative("/home/me/code/nex", Some("/home/me")), "~/code/nex");
+        assert_eq!(home_relative("/home/me", Some("/home/me")), "~");
+        assert_eq!(home_relative("/home/media", Some("/home/me")), "/home/media");
+        assert_eq!(home_relative("/srv/app", None), "/srv/app");
     }
 }
