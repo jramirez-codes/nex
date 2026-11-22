@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::{Event, EventListener, Notify, OnResize, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, Msg, Notifier};
@@ -69,6 +69,16 @@ impl Dimensions for GridSize {
     }
 }
 
+/// How long a restored command waits for its shell to be ready before it's typed anyway.
+const PENDING_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// One argument as a POSIX (and fish) shell word: bare if plain, else single-quoted. Unlike
+/// `platform::shell_quote`, `~` is quoted too: in a saved argv it was already literal.
+fn quote_arg(a: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "_./-+:,@%=".contains(c);
+    if !a.is_empty() && a.chars().all(safe) { a.to_string() } else { format!("'{}'", a.replace('\'', r"'\''")) }
+}
+
 pub struct Terminal {
     pub term: Arc<FairMutex<Term<EventProxy>>>,
     notifier: Notifier,
@@ -86,6 +96,11 @@ pub struct Terminal {
     pub process: String,
     /// The foreground process's command line (to reconnect to an `ssh` session's host).
     process_argv: Vec<String>,
+    /// The foreground job's pid while the shell is running something (see `ProcInfo::job`).
+    job: Option<u32>,
+    /// A restored command waiting to be typed into the shell once it is ready, and when it
+    /// was queued (see [`Terminal::queue_command`]).
+    pending_command: Option<(String, Instant)>,
     pub cwd: Option<PathBuf>,
     /// The directory the shell last reported with OSC 7 (see [`osc7`]).
     osc7: osc7::Slot,
@@ -199,6 +214,8 @@ impl Terminal {
             osc_title_owner: String::new(),
             process: String::new(),
             process_argv: Vec::new(),
+            job: None,
+            pending_command: None,
             cwd,
             osc7,
             alert,
@@ -296,6 +313,7 @@ impl Terminal {
         if self.alert.take() {
             self.attention = true;
         }
+        self.flush_pending_command();
     }
 
     /// Send raw bytes to the child process.
@@ -364,8 +382,59 @@ impl Terminal {
             self.process = name;
             self.process_argv = info.argv;
         }
+        self.job = info.job;
         if let Some(cwd) = info.cwd {
             self.cwd = Some(cwd);
+        }
+    }
+
+    /// What the shell is running, as of the last process poll, to run again when the session
+    /// is restored: the foreground job's command line, or `None` at the prompt. Claude Code
+    /// is rewritten to resume the same conversation.
+    pub fn running_command(&self) -> Option<Vec<String>> {
+        let job = self.job?;
+        let argv = &self.process_argv;
+        if argv.first().is_none_or(String::is_empty) {
+            return None;
+        }
+        if crate::session::claude::is_claude(argv) {
+            return Some(crate::session::claude::resume_argv(argv, crate::session::claude::session_id(job).as_deref()));
+        }
+        Some(argv.clone())
+    }
+
+    /// Type `argv` into the shell once it is ready: it has drawn something (its prompt) and
+    /// nothing else holds the terminal (rc files can run programs that read input). Typed
+    /// rather than run in its place, so it lands in history and quitting it leaves the shell.
+    pub fn queue_command(&mut self, argv: &[String]) {
+        if argv.is_empty() {
+            return;
+        }
+        let line = argv.iter().map(|a| quote_arg(a)).collect::<Vec<_>>().join(" ");
+        self.pending_command = Some((line, Instant::now()));
+    }
+
+    pub fn has_pending_command(&self) -> bool {
+        self.pending_command.is_some()
+    }
+
+    /// Send the queued command if the shell is ready, or has had long enough.
+    fn flush_pending_command(&mut self) {
+        let Some((_, queued)) = &self.pending_command else { return };
+        let overdue = queued.elapsed() >= PENDING_COMMAND_TIMEOUT;
+        if !overdue {
+            if self.generation == 0 {
+                return;
+            }
+            self.refresh_process_info();
+            if self.job.is_some() {
+                return;
+            }
+        }
+        if let Some((line, _)) = self.pending_command.take()
+            && !self.exited
+        {
+            self.write(format!("{line}\r").into_bytes());
         }
     }
 
@@ -466,4 +535,18 @@ fn term_config(cfg: &Config) -> term::Config {
 fn is_local_host(host: &str) -> bool {
     let short = |h: &str| h.split('.').next().unwrap_or_default().to_ascii_lowercase();
     host.is_empty() || host == "localhost" || short(host) == short(&platform::hostname())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quote_arg;
+
+    #[test]
+    fn quotes_only_what_needs_it() {
+        let line = |argv: &[&str]| argv.iter().map(|a| quote_arg(a)).collect::<Vec<_>>().join(" ");
+        assert_eq!(line(&["npm", "run", "dev"]), "npm run dev");
+        assert_eq!(line(&["python3", "-m", "http.server", "--bind=127.0.0.1"]), "python3 -m http.server --bind=127.0.0.1");
+        assert_eq!(line(&["echo", "a b", "it's", ""]), r"echo 'a b' 'it'\''s' ''");
+        assert_eq!(line(&["ls", "~", "$HOME", "*.rs"]), "ls '~' '$HOME' '*.rs'");
+    }
 }

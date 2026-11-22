@@ -26,7 +26,8 @@ pub fn proc_info(pid: u32) -> ProcInfo {
 
     let argv = std::fs::read(format!("/proc/{fg_pid}/cmdline")).map(|b| split_cmdline(&b)).unwrap_or_default();
 
-    ProcInfo { name, cwd: fg_cwd.or(shell_cwd), argv }
+    let job = (fg_pid != pid).then_some(fg_pid);
+    ProcInfo { name, cwd: fg_cwd.or(shell_cwd), argv, job }
 }
 
 /// `/proc/<pid>/cmdline`: the arguments, each ended by a NUL.

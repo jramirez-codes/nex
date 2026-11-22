@@ -90,6 +90,9 @@ pub struct ProcInfo {
     pub cwd: Option<PathBuf>,
     /// Its command line (`ssh -p 2222 user@host`), empty where the OS doesn't say.
     pub argv: Vec<String>,
+    /// The foreground job's pid when it is something other than the shell itself (`node`
+    /// started from the prompt); `None` while the shell is at its prompt.
+    pub job: Option<u32>,
 }
 
 /// What the clipboard holds that isn't text: copied files, or an image (as PNG).

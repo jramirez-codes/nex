@@ -18,6 +18,7 @@ pub fn proc_info(pid: u32) -> ProcInfo {
         name: name(fg).or_else(|| name(shell)),
         cwd: cwd(fg).or_else(|| cwd(shell)),
         argv: args(fg).unwrap_or_default(),
+        job: (fg != shell).then_some(fg),
     }
 }
 

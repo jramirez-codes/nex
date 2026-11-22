@@ -15,6 +15,10 @@ All notable changes to nex are documented here. The format follows
   a folder, `--working-directory`, `--explorer`, a new window, or a second nex while one is
   running. Turn it off with
   `restore-session = false`.
+- A restored pane runs again what it was running when nex quit (`npm run dev`, `ssh host`,
+  anything in the foreground), typed into its fresh shell so quitting it leaves you at the
+  prompt. Claude Code comes back on the same conversation with `claude --resume`; its prompt
+  and `-p` are dropped so the first message isn't sent again. Not on Windows yet.
 - nex can answer other apps' "Show in Folder" (Firefox, Chromium, VS Code and anything else that
   calls D-Bus `org.freedesktop.FileManager1`). It opens the file's folder on the Files tab with
   the file selected, showing hidden files if the file is one. Opt in with

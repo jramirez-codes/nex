@@ -376,6 +376,10 @@ impl App {
             if t.exited {
                 exited.push(*id);
             }
+            if t.has_pending_command() {
+                // Hidden panes may not repaint on output: keep checking until it's typed.
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
         }
         // A program wants input while nex is in the background: flag it in the dock/taskbar.
         if alerted && !ctx.input(|i| i.focused) {
