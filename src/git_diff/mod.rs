@@ -7,12 +7,14 @@
 //! the state, background loading and keys.
 
 pub mod git;
+pub mod syntax;
 mod view;
 #[cfg(test)]
 mod tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
@@ -22,8 +24,22 @@ use crate::layout::PaneId;
 
 use git::{FileChange, FileDiff, Status};
 
-/// A finished diff load: its generation, the file, and the diff (or why it failed).
-type DiffResult = (u64, Sel, Result<FileDiff, String>);
+/// What a diff job sends, tagged with its generation and file.
+type DiffResult = (u64, Sel, DiffMsg);
+
+/// A diff job's messages: the diff first, then its syntax colors a chunk at a time.
+#[derive(Debug)]
+enum DiffMsg {
+    Diff(Result<FileDiff, String>),
+    /// Colors for lines `start..` of hunk `hunk`; `done` when that was the hunk's last line.
+    Colors { hunk: usize, start: usize, lines: Vec<syntax::Tokens>, done: bool },
+}
+
+/// Lines colored between two messages (a few tens of milliseconds of work).
+const COLOR_CHUNK: usize = 200;
+/// How long a job may color the hunks in view before sending the diff: most diffs are done
+/// by then and arrive colored in one piece; bigger ones show plain and fill in.
+const FIRST_PAINT_BUDGET: Duration = Duration::from_millis(40);
 
 /// How often the status is re-read while the pane is on screen.
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
@@ -115,6 +131,9 @@ pub struct GitDiff {
     diff: Option<(Sel, Arc<Result<FileDiff, String>>)>,
     diff_job: Option<Receiver<DiffResult>>,
     diff_gen: u64,
+    /// The topmost hunk on screen, written by the view each frame: the diff job colors from
+    /// there down first.
+    color_focus: Arc<AtomicUsize>,
     pub filter: Filter,
     /// Collapsed list sections: staged, unstaged.
     collapsed: [bool; 2],
@@ -145,6 +164,7 @@ impl GitDiff {
             diff: None,
             diff_job: None,
             diff_gen: 0,
+            color_focus: Arc::new(AtomicUsize::new(0)),
             filter: Filter::All,
             collapsed: [false; 2],
             focus: Column::List,
@@ -181,7 +201,8 @@ impl GitDiff {
 
     /// Re-read the status if it's due (called every poll while the pane is on screen).
     pub fn refresh_if_stale(&mut self) {
-        if self.status_job.is_none() && self.last_status.is_none_or(|t| t.elapsed() >= REFRESH_INTERVAL) {
+        // Not while a diff is still being colored: a re-read would start it over.
+        if self.status_job.is_none() && self.diff_job.is_none() && self.last_status.is_none_or(|t| t.elapsed() >= REFRESH_INTERVAL) {
             self.refresh();
         }
     }
@@ -216,12 +237,62 @@ impl GitDiff {
         let generation = self.diff_gen;
         let root = snap.root.clone();
         let ctx = self.ctx.clone();
+        // The diff on screen, when it's this file's: its colors are reused where it's unchanged.
+        let prev = self.diff.as_ref().filter(|(s, _)| *s == sel).map(|(_, d)| Arc::clone(d));
+        if prev.is_none() {
+            // A new file opens at the top.
+            self.color_focus.store(0, Ordering::Relaxed);
+        }
+        let focus = Arc::clone(&self.color_focus);
         let (tx, rx) = mpsc::channel();
         self.diff_job = Some(rx);
         std::thread::spawn(move || {
-            let diff = git::load_diff(&root, &file);
-            let _ = tx.send((generation, sel, diff));
-            ctx.request_repaint();
+            // Stops early once nobody listens (another file was picked, or a re-read began).
+            let send = |msg: DiffMsg| {
+                let ok = tx.send((generation, sel.clone(), msg)).is_ok();
+                ctx.request_repaint();
+                ok
+            };
+            let mut d = match git::load_diff(&root, &file) {
+                Ok(d) if !d.binary => d,
+                other => {
+                    send(DiffMsg::Diff(other));
+                    return;
+                }
+            };
+            if let Some(Ok(p)) = prev.as_deref() {
+                syntax::reuse(&mut d, p);
+            }
+            // Let go of it: holding it would make the pane copy the whole diff to color it.
+            drop(prev);
+            let Some(mut colorer) = syntax::Colorer::new(&d, &file.path) else {
+                send(DiffMsg::Diff(Ok(d)));
+                return;
+            };
+            let focus = || focus.load(Ordering::Relaxed);
+            // What's in view first, briefly, so most diffs arrive colored in one piece.
+            let started = Instant::now();
+            while started.elapsed() < FIRST_PAINT_BUDGET
+                && let Some(h) = syntax::next(&d, focus())
+            {
+                colorer.step(&mut d, h, COLOR_CHUNK);
+            }
+            if syntax::next(&d, 0).is_none() {
+                send(DiffMsg::Diff(Ok(d)));
+                return;
+            }
+            if !send(DiffMsg::Diff(Ok(d.clone()))) {
+                return;
+            }
+            // Then the rest a chunk at a time, always from wherever the view is now.
+            while let Some(h) = syntax::next(&d, focus()) {
+                let range = colorer.step(&mut d, h, COLOR_CHUNK);
+                let hunk = &d.hunks[h];
+                let lines = hunk.lines[range.clone()].iter().map(|l| l.syntax.clone()).collect();
+                if !send(DiffMsg::Colors { hunk: h, start: range.start, lines, done: hunk.colored }) {
+                    return;
+                }
+            }
         });
     }
 
@@ -236,21 +307,45 @@ impl GitDiff {
                 self.set_status(status);
             }
         }
-        if let Some(rx) = &self.diff_job
-            && let Ok((generation, sel, diff)) = rx.try_recv()
-        {
-            self.diff_job = None;
-            if generation == self.diff_gen && Some(&sel) == self.selected.as_ref() {
-                let same_file = self.diff.as_ref().is_some_and(|(s, _)| *s == sel);
-                if !same_file {
-                    self.diff_scroll.set(0.0);
-                    self.diff_scroll_x = 0.0;
-                    self.view.fade_in(&self.ctx);
+        // A diff job sends the diff, then colors for the rest of it; it's done when it hangs up.
+        while let Some(rx) = &self.diff_job {
+            let (generation, sel, msg) = match rx.try_recv() {
+                Ok(msg) => msg,
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.diff_job = None;
+                    break;
                 }
-                let unchanged = self.diff.as_ref().is_some_and(|(s, d)| *s == sel && **d == diff);
-                if !unchanged {
-                    self.diff = Some((sel, Arc::new(diff)));
+            };
+            if generation != self.diff_gen || Some(&sel) != self.selected.as_ref() {
+                continue;
+            }
+            let diff = match msg {
+                DiffMsg::Diff(diff) => diff,
+                DiffMsg::Colors { hunk, start, lines, done } => {
+                    // Usually not shared, so this colors the diff on screen in place.
+                    if let Some((s, arc)) = &mut self.diff
+                        && *s == sel
+                        && let Ok(d) = Arc::make_mut(arc)
+                        && let Some(h) = d.hunks.get_mut(hunk)
+                    {
+                        for (line, tokens) in h.lines.iter_mut().skip(start).zip(lines) {
+                            line.syntax = tokens;
+                        }
+                        h.colored |= done;
+                    }
+                    continue;
                 }
+            };
+            let same_file = self.diff.as_ref().is_some_and(|(s, _)| *s == sel);
+            if !same_file {
+                self.diff_scroll.set(0.0);
+                self.diff_scroll_x = 0.0;
+                self.view.fade_in(&self.ctx);
+            }
+            let unchanged = self.diff.as_ref().is_some_and(|(s, d)| *s == sel && **d == diff);
+            if !unchanged {
+                self.diff = Some((sel, Arc::new(diff)));
             }
         }
     }

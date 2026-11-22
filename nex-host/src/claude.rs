@@ -1,0 +1,95 @@
+//! Claude Code's session file: `~/.claude/sessions/<pid>.json`, one per running process,
+//! with its conversation id, display name, status and folder. It's Claude Code's own state,
+//! not an interface, so anything unexpected in it is ignored.
+
+use std::path::{Path, PathBuf};
+
+use crate::proto::Claude;
+
+/// Claude Code's config folder: `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
+pub fn config_dir() -> Option<PathBuf> {
+    match std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        Some(p) => Some(p),
+        None => Some(PathBuf::from(std::env::var_os("HOME")?).join(".claude")),
+    }
+}
+
+/// What the session file of the Claude Code process `pid` says, if it has one.
+pub fn read(pid: u32) -> Option<Claude> {
+    read_in(&config_dir()?.join("sessions"), pid, proc_start(pid).as_deref())
+}
+
+/// Read `<dir>/<pid>.json` (see [`parse`]).
+pub fn read_in(dir: &Path, pid: u32, start: Option<&str>) -> Option<Claude> {
+    parse(&std::fs::read_to_string(dir.join(format!("{pid}.json"))).ok()?, pid, start)
+}
+
+/// A session file's contents, if it's for process `pid`. When the process's start time is
+/// known (`start`), the file must name the same one, so a file left by an earlier process
+/// with a reused pid is ignored.
+pub fn parse(text: &str, pid: u32, start: Option<&str>) -> Option<Claude> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    if v.get("pid")?.as_u64()? != u64::from(pid) {
+        return None;
+    }
+    if let Some(start) = start {
+        let saved = v.get("procStart")?;
+        let saved = saved.as_str().map(str::to_string).or_else(|| saved.as_u64().map(|n| n.to_string()))?;
+        if saved != start {
+            return None;
+        }
+    }
+    let text = |key: &str| {
+        v.get(key)
+            .and_then(|s| s.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 200)
+            .map(str::to_string)
+    };
+    Some(Claude {
+        session_id: text("sessionId").filter(|id| valid_id(id)),
+        name: text("name"),
+        status: text("status"),
+        cwd: text("cwd"),
+    })
+}
+
+/// A conversation id is a UUID; anything else is ignored.
+pub fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+/// The process's start time as Claude Code records it (`/proc/<pid>/stat` field 22), on
+/// Linux. Elsewhere `None`, and the pid alone has to match.
+pub fn proc_start(pid: u32) -> Option<String> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // Fields after `(comm)` start at field 3 (state), so field 22 is the 20th of them.
+    stat[stat.rfind(')')? + 1..].split_whitespace().nth(19).map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ID: &str = "f216e068-1eb3-47fc-a19f-b8739e6274e7";
+
+    #[test]
+    fn reads_what_nex_uses() {
+        let text = format!(r#"{{"pid":7,"sessionId":"{ID}","name":"nex","status":"busy","cwd":"/home/u/nex","procStart":"123"}}"#);
+        let c = parse(&text, 7, Some("123")).unwrap();
+        assert_eq!(c.session_id.as_deref(), Some(ID));
+        assert_eq!(c.name.as_deref(), Some("nex"));
+        assert_eq!(c.status.as_deref(), Some("busy"));
+        assert_eq!(c.cwd.as_deref(), Some("/home/u/nex"));
+        assert_eq!(parse(&text, 7, None), Some(c));
+    }
+
+    #[test]
+    fn ignores_other_processes_and_junk() {
+        let text = r#"{"pid":7,"procStart":"123","sessionId":"not a uuid!"}"#;
+        assert_eq!(parse(text, 8, None), None, "another pid");
+        assert_eq!(parse(text, 7, Some("999")), None, "a reused pid");
+        assert_eq!(parse(text, 7, None).unwrap().session_id, None);
+        assert_eq!(parse("not json", 7, None), None);
+    }
+}

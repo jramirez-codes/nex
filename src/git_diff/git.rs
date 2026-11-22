@@ -329,6 +329,8 @@ pub struct Line {
     pub text: String,
     /// Byte ranges of `text` that changed within the line (word-level highlights).
     pub emphasis: Vec<Range<usize>>,
+    /// Byte ranges of `text` by token kind, for syntax colors (empty for unknown languages).
+    pub syntax: super::syntax::Tokens,
     /// The file ends here without a newline.
     pub no_newline: bool,
 }
@@ -342,6 +344,8 @@ pub struct Hunk {
     /// The function or section the hunk is in (`fn paint(...)`), as git guessed it.
     pub context: String,
     pub lines: Vec<Line>,
+    /// Every line carries its syntax colors (they're worked out in the background).
+    pub colored: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -458,7 +462,7 @@ pub fn parse_diff(out: &str) -> FileDiff {
             new_no += 1;
         }
         let (old_no_shown, new_no_shown) = if prefix_cols > 1 { (None, n) } else { (o, n) };
-        hunk.lines.push(Line { kind, old_no: old_no_shown, new_no: new_no_shown, text: expand_tabs(text), emphasis: Vec::new(), no_newline: false });
+        hunk.lines.push(Line { kind, old_no: old_no_shown, new_no: new_no_shown, text: expand_tabs(text), emphasis: Vec::new(), syntax: Vec::new(), no_newline: false });
         total += 1;
     }
     for h in &mut diff.hunks {
@@ -488,7 +492,7 @@ fn parse_hunk_header(line: &str) -> Option<(Hunk, usize)> {
     };
     let old = ranges.iter().find(|r| r.starts_with('-')).and_then(|r| range(r))?;
     let new = ranges.iter().find(|r| r.starts_with('+')).and_then(|r| range(r))?;
-    let hunk = Hunk { old_start: old.0, old_len: old.1, new_start: new.0, new_len: new.1, context, lines: Vec::new() };
+    let hunk = Hunk { old_start: old.0, old_len: old.1, new_start: new.0, new_len: new.1, context, lines: Vec::new(), colored: false };
     Some((hunk, ats - 1))
 }
 

@@ -47,6 +47,17 @@ ssh-upload = true
 # the same host, in the same remote folder. With connection sharing on, it reuses the pane's
 # login. The folder comes from the remote shell (OSC 7, or a "user@host: dir" title).
 ssh-follow = true
+# Agents on ssh hosts: nex installs its small helper, nex-host, in ~/.nex on hosts its panes
+# connect to (no root needed; `rm -rf ~/.nex` removes it). Agents started with it keep
+# running after their pane closes, show up in the Agents pane, and reopen when clicked.
+ssh-agents = true
+# With it, `claude` and `codex` typed in nex's ssh panes start through nex-host, so they keep
+# running too: nex adds a few marked lines to the host's ~/.bashrc / ~/.zshrc (fish: a file
+# in ~/.config/fish/conf.d). `ask`: an alert offers it once per host. `on`: every host,
+# without asking. `off`: never. They only act in nex (ssh passes LC_TERMINAL=nex on, as
+# Debian and Ubuntu set it up; elsewhere add `SendEnv LC_TERMINAL` to ~/.ssh/config), and
+# `command claude` skips them. Remove them with `~/.nex/bin/nex-host shim remove`.
+ssh-agent-shim = ask
 # Share this machine's microphone with a pane's ssh host, as the host's default ALSA mic, so
 # programs there (Claude Code's voice mode, arecord) can record from it. `manual`: the pane
 # header's mic button or Ctrl+Shift+M (Cmd+Shift+M on macOS). `auto`: every ssh pane whose

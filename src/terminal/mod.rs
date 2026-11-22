@@ -106,6 +106,8 @@ pub struct Terminal {
     osc7: osc7::Slot,
     /// Raised when the program sends a notification OSC (see [`osc7::Alert`]).
     alert: osc7::Alert,
+    /// The `nex-host` agent this pane's ssh session is showing, if it said (see [`osc7`]).
+    agent_tag: osc7::AgentSlot,
     pub exited: bool,
     pub bell_at: Option<Instant>,
     /// The program rang the bell or sent a notification since the user last looked at this
@@ -183,6 +185,10 @@ impl Terminal {
             ("COLORTERM".to_string(), "truecolor".to_string()),
             ("TERM_PROGRAM".to_string(), "nex".to_string()),
             ("TERM_PROGRAM_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string()),
+            // What ssh passes on (as LC_*, which most servers accept), so a program on the
+            // other end can tell it's in nex: nex-host's shim does (see nex-host/src/shim.rs).
+            ("LC_TERMINAL".to_string(), "nex".to_string()),
+            ("LC_TERMINAL_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string()),
         ]);
         env.extend(platform::shell_env());
         let options = platform::pty_options(shell, cwd.clone().filter(|p| p.is_dir()), env);
@@ -193,8 +199,9 @@ impl Terminal {
         let osc7 = osc7::Slot::default();
         let repaint = Arc::new(OnceLock::new());
         let alert = osc7::Alert::new(repaint.clone());
+        let agent_tag = osc7::AgentSlot::default();
         #[cfg(unix)]
-        let pty = osc7::ScanPty::new(pty, osc7.clone(), alert.clone())?;
+        let pty = osc7::ScanPty::new(pty, osc7.clone(), alert.clone(), agent_tag.clone())?;
 
         let (tx, events) = mpsc::channel();
         let visible = Arc::new(AtomicBool::new(true));
@@ -221,6 +228,7 @@ impl Terminal {
             cwd,
             osc7,
             alert,
+            agent_tag,
             exited: false,
             bell_at: None,
             attention: false,
@@ -479,6 +487,15 @@ impl Terminal {
             return None;
         }
         self.osc_title.as_deref().and_then(osc7::title_dir).map(str::to_string)
+    }
+
+    /// The `nex-host` session this pane shows (it's running `ssh` to a host where
+    /// `nex-host attach` said so), from the last process poll.
+    pub fn agent_session(&self) -> Option<String> {
+        if self.process != "ssh" {
+            return None;
+        }
+        self.agent_tag.lock().ok().and_then(|t| t.clone())
     }
 
     /// The label shown in pane headers, e.g. "Node ~/Sites/rex-snake".

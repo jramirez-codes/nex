@@ -136,7 +136,7 @@ impl App {
 
     /// A modal dialog is open over the terminals and takes the keyboard.
     pub(in crate::app) fn upload_modal_open(&self) -> bool {
-        self.sharing_prompt.is_some()
+        self.sharing_prompt.is_some() || self.agent_prompt.is_some()
     }
 
     /// Offered when an upload needed a password: Turn On adds the sharing block to

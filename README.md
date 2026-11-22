@@ -479,6 +479,34 @@ terminal title when there is one.
 | ---------------------------- | ----------------------------------------------------- |
 | Pick an agent                | Arrows (or `h` / `j` / `k` / `l`), `Home` / `End`     |
 | Jump to its pane             | `Enter` or `Space`, click                             |
+| Stop an agent on an ssh host (asks first), or dismiss an exited one | `Delete` |
+
+#### Agents on ssh hosts
+
+Agents on your servers can keep running after their pane closes. When a pane connects to a host
+with `ssh`, nex installs its small helper, `nex-host`, in `~/.nex` there. It needs no root, and
+`rm -rf ~/.nex` removes it. nex then offers, once per host, to make `claude` and `codex` typed
+in its ssh panes start through the helper. It adds a few marked lines to the host's `~/.bashrc`
+or `~/.zshrc` (fish: a file in `~/.config/fish/conf.d`) that only act in nex. `command claude`
+skips them, and `~/.nex/bin/nex-host shim remove` takes them out. Set `ssh-agent-shim` to `on`
+to skip the question, or `off` to never be asked. You can also start one by hand with
+`~/.nex/bin/nex-host run -- claude`.
+
+An agent started either way keeps running when you close its pane, lose the connection or quit
+nex. Its card stays in the Agents pane with its host, its folder and its
+live status, marked **Detached**. Click the card to open a tab attached to it, with the screen
+redrawn where it left off. Closing that tab only detaches it again. An agent whose program
+ends is listed as **Exited** until you dismiss it. `Delete` on a running one stops it, after
+asking. Hosts with agents are remembered, so their cards come back when nex restarts. A host nex
+can't reach gets a line at the top of the pane saying why.
+
+The shim knows it's in nex from `LC_TERMINAL=nex`, which ssh passes on to servers that accept
+`LC_*` variables (Debian and Ubuntu do). On other servers, add `SendEnv LC_TERMINAL` to the host
+in `~/.ssh/config` and `AcceptEnv LC_*` to its `sshd_config`.
+
+nex's connections to the host never ask for a password. They work with keys or an ssh agent,
+or by sharing a pane's login (nex offers to set that up). Set `ssh-agents = false` to turn all
+of this off. See [`nex-host/README.md`](nex-host/README.md) for how it works.
 
 ### File explorer
 

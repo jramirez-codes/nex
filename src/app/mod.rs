@@ -170,6 +170,14 @@ pub struct App {
     pending_pane: Option<ssh::follow::PendingPane>,
     /// Hosts this machine's microphone is shared with (see `ssh/mic.rs`).
     mics: ssh::mic::Mics,
+    /// The ssh hosts whose agents the Agents pane shows (see `ssh/agents.rs`).
+    remote_hosts: ssh::agents::Hosts,
+    /// A toast to show on the next frame, from code without the egui context.
+    notice: Option<String>,
+    /// An alert about agents on a host: the shim offer, stopping one (see `ssh/agents.rs`).
+    agent_prompt: Option<ssh::agents::AgentPrompt>,
+    /// Hosts the Agents pane can't watch, one line each, for the top of the pane.
+    agent_notes: Vec<String>,
     /// The last session, to bring back on the first frame (see `session.rs`).
     restore_at_start: Option<crate::session::Session>,
     /// This window keeps the session file: a plain launch holding the session lock (not a
@@ -275,6 +283,10 @@ impl App {
             sharing_prompt: None,
             sharing_declined: false,
             mics: ssh::mic::Mics::default(),
+            remote_hosts: ssh::agents::Hosts::default(),
+            notice: None,
+            agent_prompt: None,
+            agent_notes: Vec::new(),
             pending_pane: None,
             restore_at_start: session,
             saved_session: None,
@@ -332,6 +344,11 @@ impl eframe::App for App {
         self.poll_ptys(ctx);
         self.poll_uploads(ctx);
         self.poll_mics(ctx);
+        self.remote_hosts.set_ctx(ctx);
+        self.poll_agent_jobs(ctx);
+        if let Some(n) = self.notice.take() {
+            self.toast = Some(Toast::new(ctx, n));
+        }
         if self.close_if_empty(ctx) {
             return;
         }
@@ -504,7 +521,8 @@ impl App {
         }
         for (_, request) in std::mem::take(&mut self.agent_requests) {
             match request {
-                agents::Request::Focus(target) => self.focus_agent(target),
+                agents::Request::Focus(target) => self.focus_agent(ctx, target),
+                agents::Request::Dismiss(target) => self.dismiss_agent(target),
             }
         }
     }
@@ -533,6 +551,7 @@ impl App {
         file_explorer::paint_drag_ghost(&ctx, &theme);
         self.window_resize_edges(&ctx, full);
         self.sharing_dialog(&ctx, &theme);
+        self.agent_dialog(&ctx, &theme);
         if self.toast.as_ref().is_some_and(|t| !t.paint(&ctx, area, &theme)) {
             self.toast = None;
         }

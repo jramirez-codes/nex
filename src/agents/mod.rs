@@ -20,8 +20,12 @@ use crate::layout::PaneId;
 /// What the pane asks the app for (it can't move focus itself).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
-    /// Show this agent's pane: switch to its tab and focus it.
+    /// Show this agent's pane: switch to its tab and focus it (for an agent on an ssh host
+    /// that no pane shows, open one on it).
     Focus(PaneId),
+    /// `Delete` on this agent: for one on an ssh host, stop it (after asking), or drop it
+    /// from the list once it has exited.
+    Dismiss(PaneId),
 }
 
 pub struct AgentsPane {
@@ -62,7 +66,8 @@ impl AgentsPane {
         "Agents".into()
     }
 
-    /// Arrow keys (and j / k / h / l) move the highlight, Enter or Space jumps to the agent.
+    /// Arrow keys (and j / k / h / l) move the highlight, Enter or Space jumps to the agent,
+    /// Delete stops (or, once exited, dismisses) one on an ssh host.
     /// Returns whether the key was used.
     pub fn key(&mut self, key: Key, modifiers: Modifiers) -> bool {
         if modifiers.command || modifiers.alt || modifiers.ctrl {
@@ -78,6 +83,12 @@ impl AgentsPane {
             Key::Enter | Key::Space => {
                 if let Some(pane) = self.selected.filter(|p| self.order.contains(p)) {
                     self.requests.push(Request::Focus(pane));
+                }
+                return true;
+            }
+            Key::Delete | Key::Backspace => {
+                if let Some(pane) = self.selected.filter(|p| self.order.contains(p)) {
+                    self.requests.push(Request::Dismiss(pane));
                 }
                 return true;
             }

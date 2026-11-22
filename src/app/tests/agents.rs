@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Pos2, RawInput, Rect, Vec2};
 
-use crate::agents::model::{AgentKind, Probe};
+use crate::agents::model::{AgentKind, Probe, Source, Status, remote_key};
 use crate::app::App;
 use crate::app::actions::Action;
 use crate::config::Config;
@@ -40,6 +40,8 @@ fn probe(pane: u64, tab: Option<usize>, kind: AgentKind, status: &str) -> Probe 
         attention: false,
         last_output: now - Duration::from_secs(30),
         last_input: now - Duration::from_secs(30),
+        source: Source::Local,
+        reported: None,
     }
 }
 
@@ -132,4 +134,93 @@ fn explorer_mode_still_opens_files() {
     assert!(app.explorers.contains_key(&id));
     assert!(app.home_is_files() && !app.shows_agents_label());
     assert!(app.home_keeps_window());
+}
+
+#[test]
+fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx);
+    run(&mut app, &ctx, 1400.0);
+    app.pending.push(Action::ToggleAgents);
+    run(&mut app, &ctx, 1400.0);
+    let id = *app.agents.keys().next().unwrap();
+    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+
+    // A detached agent on a host no pane is connected to. Its ssh never gets anywhere (a
+    // proxy that just waits), so the tab it opens stays open for the test.
+    let opts = vec!["-o".to_string(), "ProxyCommand=sleep 5".to_string()];
+    let target = crate::remote::SshTarget { opts, destination: "nex-test.invalid".into() };
+    let key = remote_key("nex-test.invalid", "3fa91c0e");
+    let detached = Probe {
+        pane: key,
+        tab: None,
+        reported: Some(Status::Working),
+        source: Source::Remote { host: "nex-test.invalid".into(), target: target.clone(), session: "3fa91c0e".into(), pane: None },
+        ..probe(0, None, AgentKind::Claude, "")
+    };
+    app.agent_tracker.update(vec![detached], Instant::now());
+    for width in [1400.0, 420.0] {
+        run(&mut app, &ctx, width);
+    }
+    assert_eq!(app.agents[&id].selected, Some(key));
+
+    let tabs = app.tabs.len();
+    app.agents.get_mut(&id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    run(&mut app, &ctx, 1400.0);
+    run(&mut app, &ctx, 1400.0);
+    assert_eq!(app.tabs.len(), tabs + 1, "opened a tab on it");
+    for _ in 0..3 {
+        run(&mut app, &ctx, 1400.0);
+    }
+    assert_eq!(app.active, tabs, "and shows it");
+    assert!(!app.explorer_active);
+
+    // An exited one doesn't open anything.
+    let exited = Probe {
+        pane: key,
+        tab: None,
+        reported: Some(Status::Exited),
+        source: Source::Remote { host: "nex-test.invalid".into(), target, session: "3fa91c0e".into(), pane: None },
+        ..probe(0, None, AgentKind::Claude, "")
+    };
+    app.agent_tracker.update(vec![exited], Instant::now());
+    app.focus_agent(&ctx, key);
+    assert_eq!(app.tabs.len(), tabs + 1);
+}
+
+#[test]
+fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx);
+    run(&mut app, &ctx, 1400.0);
+    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    let target = crate::remote::SshTarget { opts: vec![], destination: "nex-test.invalid".into() };
+    let key = remote_key("nex-test.invalid", "3fa91c0e");
+    let remote = |status| Probe {
+        pane: key,
+        tab: None,
+        reported: Some(status),
+        source: Source::Remote { host: "nex-test.invalid".into(), target: target.clone(), session: "3fa91c0e".into(), pane: None },
+        title: "Fix the tests".into(),
+        ..probe(0, None, AgentKind::Claude, "")
+    };
+
+    app.agent_tracker.update(vec![remote(Status::Working)], Instant::now());
+    app.dismiss_agent(key);
+    match &app.agent_prompt {
+        Some(crate::app::ssh::agents::AgentPrompt::Stop { session, what, .. }) => {
+            assert_eq!(session, "3fa91c0e");
+            assert!(what.contains("Fix the tests"), "{what}");
+        }
+        other => panic!("expected the stop alert, got {other:?}"),
+    }
+    assert!(app.upload_modal_open(), "the alert takes the keyboard");
+    run(&mut app, &ctx, 1400.0);
+    assert!(app.agent_prompt.is_some(), "and stays up until answered");
+
+    // An exited one is just dropped from the list, without asking.
+    app.agent_prompt = None;
+    app.agent_tracker.update(vec![remote(Status::Exited)], Instant::now());
+    app.dismiss_agent(key);
+    assert!(app.agent_prompt.is_none());
 }

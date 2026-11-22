@@ -15,7 +15,8 @@ use crate::ui::theme::{ACCENT, HAIRLINE, HOVER, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, ScrollSpan, overlay_scrollbar};
 use crate::ui::{icons, paint};
 
-use super::git::{Change, FileChange, FileDiff, Hunk, LineKind, Snapshot, Status};
+use super::git::{Change, FileChange, FileDiff, Hunk, Line, LineKind, Snapshot, Status};
+use super::syntax::Token;
 use super::{Column, Filter, GitDiff, Sel};
 
 const TOOLBAR_H: f32 = 42.0;
@@ -581,6 +582,9 @@ impl GitDiff {
         let scroll = self.diff_scroll.pos;
         let sx = self.diff_scroll_x;
         let origin = view.top() - scroll;
+        // The background colorer works from the topmost hunk on screen down.
+        let first_visible = tops.iter().zip(&d.hunks).position(|(&t, h)| origin + t + HUNK_CAPTION_H + h.lines.len() as f32 * line_h + HUNK_PAD_BOTTOM >= view.top());
+        self.color_focus.store(first_visible.unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
 
         for (h, &top) in d.hunks.iter().zip(&tops) {
             let card_top = origin + top;
@@ -623,7 +627,7 @@ impl GitDiff {
                 if let Some(t) = tint {
                     inner.text(Pos2::new(code_x - 9.0, cy), Align2::CENTER_CENTER, mark, small.clone(), t.gamma_multiply(0.9));
                 }
-                let job = code_job(&line.text, &line.emphasis, code.clone(), c.text, tint);
+                let job = code_job(line, code.clone(), c, tint, line.kind == LineKind::Removed);
                 let galley = code_clip.layout_job(job);
                 let gy = cy - galley.size().y / 2.0;
                 let end_x = code_x - sx + galley.size().x;
@@ -802,24 +806,67 @@ fn hunk_card(p: &Painter, card: Rect, h: &Hunk, c: &Theme) {
     paint::faded_text(p, Pos2::new(cap.left() + 12.0, cy), &label, font, c.text_dim, (rx - cap.left() - 24.0).max(0.0), 20.0);
 }
 
-/// One line of code, with its changed words on a stronger tint.
-fn code_job(text: &str, emphasis: &[std::ops::Range<usize>], font: FontId, color: Color32, tint: Option<Color32>) -> LayoutJob {
-    let mut job = LayoutJob::default();
-    let plain = TextFormat { font_id: font.clone(), color, ..Default::default() };
-    let strong = TextFormat { font_id: font, color: Color32::WHITE, background: tint.map_or(Color32::TRANSPARENT, |t| t.gamma_multiply(0.32)), ..Default::default() };
-    let mut at = 0;
-    for r in emphasis.iter().filter(|r| r.end <= text.len() && text.is_char_boundary(r.start) && text.is_char_boundary(r.end)) {
-        if r.start > at {
-            job.append(&text[at..r.start], 0.0, plain.clone());
-        }
-        job.append(&text[r.start..r.end], 0.0, strong.clone());
-        at = r.end;
+/// A token's color, from the terminal palette.
+fn token_color(t: Token, c: &Theme) -> Color32 {
+    match t {
+        Token::Keyword => c.magenta,
+        Token::String => c.green,
+        Token::Comment => c.text_dim.gamma_multiply(0.85),
+        Token::Number | Token::Constant => c.yellow,
+        Token::Function => c.blue,
+        Token::Type => c.cyan,
+        Token::Attribute => c.yellow.gamma_multiply(0.8),
+        Token::Operator | Token::Punct => c.text.gamma_multiply(0.75),
     }
-    if at < text.len() {
-        job.append(&text[at..], 0.0, plain);
+}
+
+/// `color` lifted toward white (changed words stand out on their tint).
+fn brighten(color: Color32) -> Color32 {
+    crate::ui::theme::lighten(color, 0.35)
+}
+
+/// One line of code in its syntax colors, with its changed words on a stronger tint.
+/// `dim` softens the colors (removed lines, so the new code reads first).
+fn code_job(line: &Line, font: FontId, c: &Theme, tint: Option<Color32>, dim: bool) -> LayoutJob {
+    use std::ops::Range;
+    let text = line.text.as_str();
+    let ok = |r: &Range<usize>| r.start < r.end && r.end <= text.len() && text.is_char_boundary(r.start) && text.is_char_boundary(r.end);
+    let emphasis: Vec<&Range<usize>> = line.emphasis.iter().filter(|r| ok(r)).collect();
+    let syntax: Vec<&(Range<usize>, Token)> = line.syntax.iter().filter(|(r, _)| ok(r)).collect();
+
+    // Cut the line wherever a token or a changed word starts or ends.
+    let mut cuts: Vec<usize> = vec![0, text.len()];
+    cuts.extend(emphasis.iter().flat_map(|r| [r.start, r.end]));
+    cuts.extend(syntax.iter().flat_map(|(r, _)| [r.start, r.end]));
+    cuts.sort_unstable();
+    cuts.dedup();
+
+    let background = tint.map_or(Color32::TRANSPARENT, |t| t.gamma_multiply(0.32));
+    let mut job = LayoutJob::default();
+    let (mut si, mut ei) = (0, 0);
+    for w in cuts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        while si < syntax.len() && syntax[si].0.end <= a {
+            si += 1;
+        }
+        while ei < emphasis.len() && emphasis[ei].end <= a {
+            ei += 1;
+        }
+        let token = syntax.get(si).filter(|(r, _)| r.start <= a).map(|(_, t)| *t);
+        let strong = emphasis.get(ei).is_some_and(|r| r.start <= a);
+        let mut color = token.map_or(c.text, |t| token_color(t, c));
+        if dim {
+            color = color.gamma_multiply(0.8);
+        }
+        let format = if strong {
+            TextFormat { font_id: font.clone(), color: brighten(color), background, ..Default::default() }
+        } else {
+            TextFormat { font_id: font.clone(), color, ..Default::default() }
+        };
+        job.append(&text[a..b], 0.0, format);
     }
     if job.sections.is_empty() {
-        job.append(" ", 0.0, TextFormat { color: Color32::TRANSPARENT, ..TextFormat::simple(FontId::proportional(10.0), color) });
+        job.append(" ", 0.0, TextFormat { color: Color32::TRANSPARENT, ..TextFormat::simple(FontId::proportional(10.0), c.text) });
     }
     job
 }
@@ -884,5 +931,48 @@ fn refresh_icon(p: &Painter, r: Rect, color: Color32, turn: f32, spinning: bool)
         let k = radius * 0.55;
         let tip = end + tangent * k * 0.6;
         p.add(Shape::convex_polygon(vec![tip, end - tangent * k * 0.35 + normal * k * 0.6, end - tangent * k * 0.35 - normal * k * 0.6], color, Stroke::NONE));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn theme() -> Theme {
+        let k = |v: u8| Color32::from_rgb(v, v, v);
+        Theme { window: k(0), card: k(10), text: k(200), text_bright: k(250), text_dim: k(120), green: k(1), red: k(2), yellow: k(3), blue: k(4), magenta: k(5), cyan: k(6) }
+    }
+
+    #[test]
+    fn code_job_merges_tokens_and_emphasis() {
+        // "let é = 1;": keyword "let", changed word "é = 1" crossing into the number.
+        let text = "let é = 1;".to_string();
+        let one = text.find('1').unwrap();
+        let line = Line {
+            kind: LineKind::Added,
+            old_no: None,
+            new_no: Some(1),
+            emphasis: std::iter::once(4..one + 1).collect(),
+            syntax: vec![(0..3, Token::Keyword), (one..one + 1, Token::Number)],
+            text,
+            no_newline: false,
+        };
+        let c = theme();
+        let job = code_job(&line, mono(12.0), &c, Some(c.green), false);
+        let parts: Vec<(&str, Color32, bool)> = job
+            .sections
+            .iter()
+            .map(|s| (&job.text[s.byte_range.clone()], s.format.color, s.format.background != Color32::TRANSPARENT))
+            .collect();
+        assert_eq!(
+            parts,
+            vec![
+                ("let", c.magenta, false),
+                (" ", c.text, false),
+                ("é = ", brighten(c.text), true),
+                ("1", brighten(c.yellow), true),
+                (";", c.text, false),
+            ]
+        );
     }
 }

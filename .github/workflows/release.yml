@@ -12,8 +12,56 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # nex-host, the helper nex installs on ssh hosts (see nex-host/README.md), for every system a
+  # host can run. Every package carries all of them: the machine nex runs on says nothing about
+  # the servers it connects to.
+  host:
+    name: nex-host ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Static (musl), so one binary runs on any distro's glibc, or none.
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-22.04
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-22.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-host-${{ matrix.target }}
+
+      - name: Build
+        run: |
+          cargo build --release --locked -p nex-host --target ${{ matrix.target }}
+          mkdir -p host
+          cp target/${{ matrix.target }}/release/nex-host host/nex-host-${{ matrix.target }}
+          # A binary that can run here should say it's this release's.
+          if [ "${{ matrix.target }}" != x86_64-apple-darwin ]; then
+            host/nex-host-${{ matrix.target }} --version | grep -F "nex-host ${GITHUB_REF_NAME#v} "
+          fi
+          file host/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-${{ matrix.target }}
+          path: host/*
+          if-no-files-found: error
+
   build:
     name: Build ${{ matrix.arch }}
+    needs: host
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: true
@@ -52,16 +100,24 @@ jobs:
       - name: Test
         run: cargo test --release --locked
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: host-*
+          merge-multiple: true
+          path: target/host
+
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb
 
       - name: Package
         run: |
+          chmod 755 target/host/*
           name="nex-${GITHUB_REF_NAME}-${{ matrix.arch }}-linux"
-          mkdir -p "dist/$name/assets"
+          mkdir -p "dist/$name/assets" "dist/$name/host"
           cp target/release/nex install.sh LICENSE README.md CHANGELOG.md config.example "dist/$name/"
           cp assets/nex.desktop assets/nex-files.desktop assets/nex.svg assets/org.freedesktop.FileManager1.service "dist/$name/assets/"
+          cp target/host/* "dist/$name/host/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name"
 
@@ -76,6 +132,7 @@ jobs:
 
   build-macos:
     name: Build macOS (universal)
+    needs: host
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -109,17 +166,25 @@ jobs:
             target/aarch64-apple-darwin/release/nex target/x86_64-apple-darwin/release/nex
           lipo -info target/universal/nex
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: host-*
+          merge-multiple: true
+          path: target/host
+
       - name: Package
         run: |
+          chmod 755 target/host/*
           name="nex-${GITHUB_REF_NAME}-universal-macos"
-          mkdir -p "dist/$name/packaging"
+          mkdir -p "dist/$name/packaging" "dist/$name/host"
           cp target/universal/nex install.sh LICENSE README.md CHANGELOG.md config.example "dist/$name/"
           cp -R packaging/macos "dist/$name/packaging/"
+          cp target/host/* "dist/$name/host/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name"
 
           # nex.app on its own, zipped with ditto so the bundle's signature survives.
-          packaging/macos/make-app.sh target/universal/nex build
+          packaging/macos/make-app.sh target/universal/nex build "" target/host
           ditto -c -k --keepParent build/nex.app "dist/nex-${GITHUB_REF_NAME}-macos-app.zip"
           cd dist && shasum -a 256 * > "SHA256SUMS-macos.txt"
 

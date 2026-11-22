@@ -39,6 +39,16 @@ impl AgentKind {
         }
     }
 
+    /// The agent `nex-host` reports as `kind` (`claude`, `codex`); other programs it holds
+    /// aren't agents.
+    pub fn from_name(kind: &str) -> Option<AgentKind> {
+        match kind {
+            "claude" => Some(AgentKind::Claude),
+            "codex" => Some(AgentKind::Codex),
+            _ => None,
+        }
+    }
+
     /// The process name its app tile is drawn for (see `ui::icons::app_tile`).
     pub fn process(self) -> &'static str {
         match self {
@@ -62,16 +72,31 @@ pub enum Status {
     NeedsYou,
     Working,
     Idle,
+    /// An agent on an ssh host whose program ended while no pane showed it; listed until
+    /// it's dismissed.
+    Exited,
 }
 
 impl Status {
-    pub const ALL: [Status; 3] = [Status::NeedsYou, Status::Working, Status::Idle];
+    pub const ALL: [Status; 4] = [Status::NeedsYou, Status::Working, Status::Idle, Status::Exited];
 
     pub fn label(self) -> &'static str {
         match self {
             Status::NeedsYou => "Needs you",
             Status::Working => "Working",
             Status::Idle => "Idle",
+            Status::Exited => "Exited",
+        }
+    }
+
+    /// What `nex-host` says an agent on an ssh host is doing.
+    pub fn from_host(s: nex_host::proto::Status) -> Status {
+        use nex_host::proto::Status as Host;
+        match s {
+            Host::NeedsYou => Status::NeedsYou,
+            Host::Working => Status::Working,
+            Host::Idle => Status::Idle,
+            Host::Exited => Status::Exited,
         }
     }
 
@@ -91,10 +116,36 @@ impl Status {
     }
 }
 
-/// Where an agent runs. Only this machine's panes for now; agents on an ssh host are next.
+/// Where an agent runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
+    /// In one of this machine's panes.
     Local,
+    /// Held by `nex-host` on an ssh host (see `remote::host`): it keeps running when no pane
+    /// shows it.
+    Remote {
+        /// The host's name, for the card.
+        host: String,
+        target: crate::remote::SshTarget,
+        /// Its `nex-host` session id.
+        session: String,
+        /// The pane showing it right now, if one is.
+        pane: Option<PaneId>,
+    },
+}
+
+/// The key a remote agent's card goes by: never a real pane's id (those count up from 1),
+/// and the same for the same agent every poll.
+pub fn remote_key(host: &str, session: &str) -> PaneId {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (host, session).hash(&mut h);
+    h.finish() | (1 << 63)
+}
+
+/// Whether `key` is a remote agent's (see [`remote_key`]) rather than a pane's.
+pub fn is_remote_key(key: PaneId) -> bool {
+    key & (1 << 63) != 0
 }
 
 /// What the app knows about one agent pane at a poll.
@@ -116,12 +167,19 @@ pub struct Probe {
     pub attention: bool,
     pub last_output: Instant,
     pub last_input: Instant,
+    pub source: Source,
+    /// What it's doing, when someone already worked it out (`nex-host` for remote agents).
+    pub reported: Option<Status>,
 }
 
 impl Probe {
     /// The best guess at what it's doing: Claude Code's own word first, then the bell, then
     /// its title spinner, then whether it's been printing on its own.
     pub fn status(&self, now: Instant) -> Status {
+        if let Some(s) = self.reported {
+            // A bell the pane showing it heard counts too.
+            return if self.attention && s != Status::Exited { Status::NeedsYou } else { s };
+        }
         let reported = self.session_status.as_deref().and_then(Status::from_claude);
         if reported == Some(Status::NeedsYou) || self.attention {
             return Status::NeedsYou;
@@ -170,7 +228,6 @@ pub struct Agent {
     pub status: Status,
     /// Since when it has been in `status`.
     pub since: Instant,
-    #[allow(dead_code, reason = "only local agents so far; ssh hosts' agents are next")]
     pub source: Source,
 }
 
@@ -180,11 +237,12 @@ pub struct Counts {
     pub needs_you: usize,
     pub working: usize,
     pub idle: usize,
+    pub exited: usize,
 }
 
 impl Counts {
     pub fn total(&self) -> usize {
-        self.needs_you + self.working + self.idle
+        self.needs_you + self.working + self.idle + self.exited
     }
 
     /// Each non-empty state as a phrase, most urgent first: "1 needs you", "2 working".
@@ -196,11 +254,13 @@ impl Counts {
                     Status::NeedsYou => self.needs_you,
                     Status::Working => self.working,
                     Status::Idle => self.idle,
+                    Status::Exited => self.exited,
                 };
                 let text = match s {
                     Status::NeedsYou => format!("{n} need{} you", if n == 1 { "s" } else { "" }),
                     Status::Working => format!("{n} working"),
                     Status::Idle => format!("{n} idle"),
+                    Status::Exited => format!("{n} exited"),
                 };
                 (n > 0).then_some((s, text))
             })
@@ -251,7 +311,7 @@ impl Tracker {
                     cwd: p.cwd.clone(),
                     status,
                     since: at,
-                    source: Source::Local,
+                    source: p.source.clone(),
                 }
             })
             .collect();
@@ -271,6 +331,7 @@ impl Tracker {
                 Status::NeedsYou => c.needs_you += 1,
                 Status::Working => c.working += 1,
                 Status::Idle => c.idle += 1,
+                Status::Exited => c.exited += 1,
             }
         }
         c

@@ -1,0 +1,318 @@
+//! What nex and `nex-host` say to each other.
+//!
+//! Every connection to the daemon's socket starts with one [`Request`] as a JSON line, and
+//! the daemon answers with one [`Response`] line. Then:
+//! - `watch` gets a new [`Response`] line with every session whenever something changes
+//!   (and every [`HEARTBEAT_SECS`] regardless), until the client hangs up;
+//! - `attach` turns into a terminal: the daemon sends the agent's screen and then its output
+//!   as raw bytes, and the client sends [`frame`]s (keys, resizes) back;
+//! - everything else is done after its answer.
+
+use serde::{Deserialize, Serialize};
+
+/// Bumped whenever a change here would confuse the other side.
+pub const PROTOCOL: u32 = 1;
+/// The `nex-host` version, which nex compares to its own to decide whether to reinstall.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// How often `watch` resends the session list when nothing has changed: a client that hears
+/// nothing for longer than this knows the connection is gone.
+pub const HEARTBEAT_SECS: u64 = 15;
+/// Output this recent (and not just the echo of typing) counts as working.
+pub const BUSY_WINDOW_MS: u64 = 1500;
+
+/// What `nex-host --version` prints: `nex-host 0.11.0 (protocol 1)`.
+pub fn version_line() -> String {
+    format!("nex-host {VERSION} (protocol {PROTOCOL})")
+}
+
+/// What an agent is doing, most urgent first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Status {
+    NeedsYou,
+    Working,
+    Idle,
+    /// Its program ended; the session stays listed until it's dismissed.
+    Exited,
+}
+
+impl Status {
+    /// Claude Code's own word for its state (its session file's `status`), if it's one nex knows.
+    pub fn from_claude(status: &str) -> Option<Status> {
+        let s = status.to_ascii_lowercase();
+        let has = |words: &[&str]| words.iter().any(|w| s.contains(w));
+        if has(&["wait", "permission", "input", "blocked", "attention", "approval"]) {
+            Some(Status::NeedsYou)
+        } else if has(&["busy", "running", "working", "thinking", "active", "streaming", "tool"]) {
+            Some(Status::Working)
+        } else if has(&["idle", "ready", "done", "complete"]) {
+            Some(Status::Idle)
+        } else {
+            None
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::NeedsYou => "needs you",
+            Status::Working => "working",
+            Status::Idle => "idle",
+            Status::Exited => "exited",
+        }
+    }
+}
+
+/// What Claude Code's session file says about the agent.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Claude {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+/// One agent the daemon holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    /// `claude`, `codex`, or the program's name.
+    pub kind: String,
+    pub name: String,
+    pub cwd: String,
+    pub argv: Vec<String>,
+    pub pid: u32,
+    /// Unix time in milliseconds.
+    pub started: u64,
+    /// The title the program last set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// It rang the bell while no pane was attached.
+    #[serde(default)]
+    pub bell: bool,
+    /// A pane is showing it right now.
+    #[serde(default)]
+    pub attached: bool,
+    /// Unix ms of its last output and of the last key sent to it.
+    pub last_output: u64,
+    pub last_input: u64,
+    /// Its exit code (128 + the signal when a signal ended it), once it has ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude: Option<Claude>,
+    pub status: Status,
+}
+
+impl Session {
+    /// The best guess at what it's doing at `now` (unix ms): ended, then Claude Code's own
+    /// word, then the bell, then Claude's title mark (✳ waiting, a spinner frame working),
+    /// then whether it has been printing on its own.
+    pub fn compute_status(&self, now: u64) -> Status {
+        if self.exit.is_some() {
+            return Status::Exited;
+        }
+        let reported = self.claude.as_ref().and_then(|c| c.status.as_deref()).and_then(Status::from_claude);
+        if reported == Some(Status::NeedsYou) || self.bell {
+            return Status::NeedsYou;
+        }
+        if let Some(s) = reported {
+            return s;
+        }
+        if self.kind == "claude"
+            && let Some(mark) = self.title.as_deref().and_then(title_mark)
+        {
+            return if mark == '✳' { Status::Idle } else { Status::Working };
+        }
+        let recent = |t: u64| now.saturating_sub(t) < BUSY_WINDOW_MS;
+        if recent(self.last_output) && !recent(self.last_input) { Status::Working } else { Status::Idle }
+    }
+}
+
+/// The icon leading a title (`✳ Fixing tests` → `✳`), if it starts with one followed by a space.
+fn title_mark(title: &str) -> Option<char> {
+    let mut chars = title.chars();
+    let first = chars.next()?;
+    let icon = !first.is_alphanumeric() && !first.is_ascii() || first == '*';
+    (icon && chars.next().is_none_or(char::is_whitespace)).then_some(first)
+}
+
+/// A request: the first line a client sends.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum Request {
+    /// Start `argv` in a new session. Answered with its `id`.
+    Launch {
+        argv: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Absolute, or starting with `~/`. The daemon's home when missing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cols: Option<u16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rows: Option<u16>,
+        /// The environment to run it in (`run` sends the shell's own, so the agent finds
+        /// what it would there: `PATH`, API keys). Without it, the user's login shell's.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        env: Option<Vec<(String, String)>>,
+    },
+    List,
+    Watch,
+    /// End a session's program (it's forgotten once it has exited).
+    Kill { id: String },
+    /// Drop an exited session from the list.
+    Forget { id: String },
+    /// Show a session: the connection becomes its terminal, `cols` by `rows`.
+    Attach { id: String, cols: u16, rows: u16 },
+}
+
+/// The daemon's answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Response {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions: Option<Vec<Session>>,
+    /// The host's home folder, with `list` and `watch`, for showing folders as `~/…`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
+}
+
+impl Response {
+    pub fn ok() -> Self {
+        Self { ok: true, ..Self::default() }
+    }
+
+    pub fn error(e: impl Into<String>) -> Self {
+        Self { ok: false, error: Some(e.into()), ..Self::default() }
+    }
+
+    pub fn sessions(sessions: Vec<Session>) -> Self {
+        let home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
+        Self { ok: true, sessions: Some(sessions), home, ..Self::default() }
+    }
+}
+
+/// What `attach` prints to tell the terminal it's in (nex) which agent it shows:
+/// `ESC ] 7700 ; nex-agent=<id> BEL`, and the same with no id when it stops. Other
+/// terminals ignore it.
+pub const AGENT_TAG: &str = "7700;nex-agent=";
+
+/// The tag sequence for `id` (empty: no agent any more).
+pub fn agent_tag(id: &str) -> String {
+    format!("\x1b]{AGENT_TAG}{id}\x07")
+}
+
+/// Keys typed into an attached session.
+pub const FRAME_INPUT: u8 = 0;
+/// The attached pane's new size: columns then rows, each a big-endian `u16`.
+pub const FRAME_RESIZE: u8 = 1;
+/// The largest frame either side accepts.
+pub const FRAME_MAX: usize = 1 << 20;
+
+/// A frame from an attached client: its kind, the payload's length (big-endian `u32`), then
+/// the payload.
+pub fn frame(kind: u8, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(5 + payload.len());
+    out.push(kind);
+    out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    out.extend_from_slice(payload);
+    out
+}
+
+/// A resize frame.
+pub fn resize_frame(cols: u16, rows: u16) -> Vec<u8> {
+    let mut p = cols.to_be_bytes().to_vec();
+    p.extend_from_slice(&rows.to_be_bytes());
+    frame(FRAME_RESIZE, &p)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session() -> Session {
+        Session {
+            id: "a1b2c3d4".into(),
+            kind: "claude".into(),
+            name: "nex".into(),
+            cwd: "/home/u/code/nex".into(),
+            argv: vec!["claude".into()],
+            pid: 42,
+            started: 1_000,
+            title: None,
+            bell: false,
+            attached: false,
+            last_output: 0,
+            last_input: 0,
+            exit: None,
+            claude: None,
+            status: Status::Idle,
+        }
+    }
+
+    #[test]
+    fn requests_are_tagged_json() {
+        let r = Request::Attach { id: "x".into(), cols: 80, rows: 24 };
+        let line = serde_json::to_string(&r).unwrap();
+        assert_eq!(line, r#"{"op":"attach","id":"x","cols":80,"rows":24}"#);
+        assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), r);
+        assert_eq!(serde_json::from_str::<Request>(r#"{"op":"list"}"#).unwrap(), Request::List);
+        let launch: Request = serde_json::from_str(r#"{"op":"launch","argv":["claude"]}"#).unwrap();
+        assert!(matches!(launch, Request::Launch { cwd: None, .. }));
+    }
+
+    #[test]
+    fn sessions_round_trip() {
+        let mut s = session();
+        s.claude = Some(Claude { status: Some("busy".into()), ..Claude::default() });
+        let r = Response::sessions(vec![s]);
+        let back: Response = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(back, r);
+    }
+
+    #[test]
+    fn status_prefers_exit_then_claude_then_bell_then_title_then_output() {
+        let mut s = session();
+        s.exit = Some(0);
+        s.bell = true;
+        assert_eq!(s.compute_status(10_000), Status::Exited);
+
+        let mut s = session();
+        s.claude = Some(Claude { status: Some("waiting_for_permission".into()), ..Claude::default() });
+        assert_eq!(s.compute_status(10_000), Status::NeedsYou);
+        s.claude = Some(Claude { status: Some("busy".into()), ..Claude::default() });
+        assert_eq!(s.compute_status(10_000), Status::Working);
+        s.bell = true;
+        assert_eq!(s.compute_status(10_000), Status::NeedsYou);
+
+        let mut s = session();
+        s.title = Some("✳ Fix the tests".into());
+        assert_eq!(s.compute_status(10_000), Status::Idle);
+        s.title = Some("✻ Fix the tests".into());
+        assert_eq!(s.compute_status(10_000), Status::Working);
+        s.title = Some("Fix the tests".into());
+        s.last_output = 9_500;
+        assert_eq!(s.compute_status(10_000), Status::Working);
+        s.last_input = 9_400;
+        assert_eq!(s.compute_status(10_000), Status::Idle, "just the echo of typing");
+        s.last_input = 0;
+        assert_eq!(s.compute_status(20_000), Status::Idle);
+    }
+
+    #[test]
+    fn frames_carry_their_length() {
+        assert_eq!(frame(FRAME_INPUT, b"hi"), vec![0, 0, 0, 0, 2, b'h', b'i']);
+        assert_eq!(resize_frame(120, 40), vec![1, 0, 0, 0, 4, 0, 120, 0, 40]);
+    }
+}

@@ -15,7 +15,7 @@ use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
 use crate::ui::{icons, paint};
 
 use super::AgentsPane;
-use super::model::{Agent, Status, elapsed};
+use super::model::{Agent, Source, Status, elapsed};
 use super::motion::Motion;
 
 const SIDE: f32 = 18.0;
@@ -77,15 +77,16 @@ fn status_color(s: Status, c: &Theme) -> Color32 {
     match s {
         Status::Working => c.green,
         Status::NeedsYou => c.yellow,
-        Status::Idle => c.text_dim,
+        Status::Idle | Status::Exited => c.text_dim,
     }
 }
 
 impl AgentsPane {
     /// Draw the pane into `rect` (below the pane header, edge to edge of the card), showing
-    /// `agents` (all of them, sorted).
+    /// `agents` (all of them, sorted), under `notes` (one line per ssh host that can't be
+    /// watched).
     #[allow(clippy::too_many_arguments)]
-    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: u64, focused: bool, c: &Theme, agents: &[Agent]) {
+    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: u64, focused: bool, c: &Theme, agents: &[Agent], notes: &[String]) {
         let ctx = ui.ctx().clone();
         let f = Frame {
             ui,
@@ -99,7 +100,11 @@ impl AgentsPane {
         };
         let painter = &painter.with_clip_rect(f.clip);
 
-        let body = Rect::from_min_max(rect.min + Vec2::new(0.0, 6.0), rect.max);
+        let mut body = Rect::from_min_max(rect.min + Vec2::new(0.0, 6.0), rect.max);
+        if !notes.is_empty() {
+            let strip = host_notes(&f, painter, body, notes);
+            body.min.y += strip;
+        }
         if !body.is_positive() {
             return;
         }
@@ -309,12 +314,23 @@ fn agent_card(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: Look) {
     let title_room = (pill.left() - 12.0 - x).max(0.0);
     paint::faded_text(p, Pos2::new(x, r.top() + 25.0), &agent.name, paint::bold(14.0), c.text_bright, title_room, 18.0);
     let mut detail = agent.kind.label().to_string();
+    let remote = match &agent.source {
+        Source::Remote { host, pane, .. } => Some((host, pane.is_some())),
+        Source::Local => None,
+    };
+    if let Some((host, _)) = remote {
+        detail.push_str(" · ");
+        detail.push_str(host);
+    }
     if let Some(dir) = &agent.cwd {
         detail.push_str(" · ");
-        detail.push_str(&crate::terminal::tilde(dir));
+        // A remote folder comes already shortened with the host's own home.
+        detail.push_str(&if remote.is_some() { dir.to_string_lossy().into_owned() } else { crate::terminal::tilde(dir) });
     }
-    if let Some(tab) = agent.tab {
-        detail.push_str(&format!(" · Tab {}", tab + 1));
+    match (agent.tab, remote) {
+        (Some(tab), _) => detail.push_str(&format!(" · Tab {}", tab + 1)),
+        (None, Some((_, false))) if agent.status != Status::Exited => detail.push_str(" · Detached"),
+        _ => {}
     }
     let detail_room = (pill.right() - 4.0 - since_w - 12.0 - x).max(0.0);
     paint::faded_text(p, Pos2::new(x, since_y), &detail, ui_font(12.0), c.text_dim, detail_room, 18.0);
@@ -333,6 +349,20 @@ fn status_dot(f: &Frame, p: &Painter, at: Pos2, status: Status, color: Color32) 
 }
 
 /// Nothing to show: no agents running.
+/// The hosts that can't be watched, one quiet line each with an amber dot, above the cards.
+/// Returns the height they took.
+fn host_notes(f: &Frame, p: &Painter, area: Rect, notes: &[String]) -> f32 {
+    const LINE: f32 = 20.0;
+    let mut y = area.top() + 8.0 + LINE / 2.0;
+    let room = (area.width() - 2.0 * SIDE - 14.0).max(0.0);
+    for note in notes {
+        p.circle_filled(Pos2::new(area.left() + SIDE + 3.0, y), 3.0, f.c.yellow.gamma_multiply(0.8));
+        paint::faded_text(p, Pos2::new(area.left() + SIDE + 14.0, y), note, ui_font(12.0), f.c.text_dim, room, LINE);
+        y += LINE;
+    }
+    8.0 + notes.len() as f32 * LINE
+}
+
 fn empty_state(f: &Frame, p: &Painter, area: Rect) {
     let c = f.c;
     let center = area.center() - Vec2::new(0.0, (area.height() * 0.08).min(36.0));
