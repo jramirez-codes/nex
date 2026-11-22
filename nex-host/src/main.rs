@@ -11,23 +11,34 @@
 //! nex-host forget ID                                 drop an exited one from the list
 //! nex-host shim install|remove|status                the `claude` / `codex` shim (see `shim.rs`)
 //! nex-host connect                                   one connection to the daemon, over stdin/stdout
+//! nex-host spawn|send|done|recv|read|pipe|skill      agents working together (see `agentcli.rs`)
 //! nex-host --version
 //! ```
 
 #[cfg(unix)]
 mod agent;
 #[cfg(unix)]
+mod agentcli;
+#[cfg(unix)]
 mod attach;
+#[cfg(unix)]
+mod broker;
 #[cfg(unix)]
 mod client;
 #[cfg(unix)]
 mod daemon;
 #[cfg(unix)]
+mod deliver;
+#[cfg(unix)]
 mod locked;
+#[cfg(unix)]
+mod pipeline;
 #[cfg(unix)]
 mod redraw;
 #[cfg(unix)]
 mod shim;
+#[cfg(unix)]
+mod skill;
 
 #[cfg(not(unix))]
 fn main() {
@@ -63,10 +74,25 @@ const HELP: &str = "nex-host keeps coding agents running after the nex pane they
   nex-host connect                                 pass one connection to the daemon through
                                                    stdin and stdout (nex's own ssh client uses it)
 
+Agents working together (nex-host skill prints the manual for agents):
+  nex-host spawn NAME [--kind claude|codex] [--role R] [--cwd DIR] [--worktree] TASK [-- CMD ...]
+                                                   start an agent on a task; it reports back with done
+  nex-host send TO TEXT [--ask | --task] [--reply-to ID] [--files a,b] [--force]
+                                                   message an agent (typed into its input)
+  nex-host done TEXT [--verdict approved|changes|failed] [--files a,b]
+                                                   report on your task to whoever gave it
+  nex-host recv [--from WHO] [--reply-to ID] [--kind K] [--timeout 10m] [--json]
+                                                   wait for a message to you (for scripts)
+  nex-host read WHO [--lines N]                    an agent's screen as text
+  nex-host pipe NAME TASK [--bg] | pipe ls         run a pipeline (.nex/pipelines/NAME.toml)
+  nex-host skill [install|remove]                  the manual, or install it for Claude Code and Codex
+  TO / WHO: an id, a name, @parent, @children, @task or user. TEXT `-`: read from stdin.
+
 Everything lives in ~/.nex (or $NEX_HOME); remove that folder to remove nex-host.";
 
 #[cfg(unix)]
-const USAGE: &str = "usage: nex-host run|launch|attach|list|watch|kill|forget|shim|connect|--version (see nex-host help)";
+const USAGE: &str =
+    "usage: nex-host run|launch|attach|list|spawn|send|done|recv|read|pipe|skill|watch|kill|forget|shim|connect|--version (see nex-host help)";
 
 #[cfg(unix)]
 fn run(args: &[String]) -> std::io::Result<i32> {
@@ -120,17 +146,19 @@ fn run(args: &[String]) -> std::io::Result<i32> {
             if sessions.is_empty() {
                 println!("No agents running.");
             }
-            let home = std::env::var("HOME").unwrap_or_default();
-            for s in sessions {
-                let cwd = match s.cwd.strip_prefix(&home) {
-                    Some(rest) if !home.is_empty() => format!("~{rest}"),
-                    _ => s.cwd.clone(),
-                };
-                let attached = if s.attached { "  (attached)" } else { "" };
-                println!("{}  {:<9}  {:<6}  {}  {}{attached}", s.id, s.status.label(), s.kind, s.name, cwd);
+            for line in agentcli::tree(&sessions) {
+                println!("{line}");
             }
             Ok(0)
         }
+        "spawn" => agentcli::spawn(rest),
+        "send" => agentcli::send(rest),
+        "done" => agentcli::done(rest),
+        "recv" => agentcli::recv(rest),
+        "read" => agentcli::read(rest),
+        "pipe" => agentcli::pipe(rest),
+        "pipe-run" => agentcli::pipe_run(rest),
+        "skill" => skill::run(rest),
         "watch" => watch(),
         "connect" => connect(),
         "shim" => {

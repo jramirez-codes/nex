@@ -28,6 +28,7 @@ fn probe(pane: u64, tab: Option<usize>, kind: AgentKind, status: &str) -> Probe 
         last_input: now - Duration::from_secs(30),
         source: Source::Local,
         reported: None,
+        team: Default::default(),
     }
 }
 

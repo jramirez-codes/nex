@@ -18,6 +18,8 @@ const BUSY_WINDOW: Duration = Duration::from_millis(nex_host::proto::BUSY_WINDOW
 pub enum AgentKind {
     Claude,
     Codex,
+    /// `nex-host pipe` running a pipeline on an ssh host: its stages are its team.
+    Pipeline,
 }
 
 impl AgentKind {
@@ -36,12 +38,13 @@ impl AgentKind {
         }
     }
 
-    /// The agent `nex-host` reports as `kind` (`claude`, `codex`); other programs it holds
-    /// aren't agents.
+    /// The agent `nex-host` reports as `kind` (`claude`, `codex`, `pipeline`); other programs
+    /// it holds aren't agents.
     pub fn from_name(kind: &str) -> Option<AgentKind> {
         match kind {
             "claude" => Some(AgentKind::Claude),
             "codex" => Some(AgentKind::Codex),
+            nex_host::proto::PIPELINE_KIND => Some(AgentKind::Pipeline),
             _ => None,
         }
     }
@@ -51,6 +54,7 @@ impl AgentKind {
         match self {
             AgentKind::Claude => "claude",
             AgentKind::Codex => "codex",
+            AgentKind::Pipeline => crate::ui::icons::PIPELINE_PROCESS,
         }
     }
 
@@ -58,8 +62,22 @@ impl AgentKind {
         match self {
             AgentKind::Claude => "Claude Code",
             AgentKind::Codex => "Codex",
+            AgentKind::Pipeline => "Pipeline",
         }
     }
+}
+
+/// Where an agent sits in a team: who started it (`nex-host spawn`, or a pipeline running
+/// it as a stage), what for, and when, so a team's members keep the order they started in.
+/// Only agents on ssh hosts have one; local panes' agents are always on their own.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Team {
+    /// The card of the agent that started it.
+    pub parent: Option<PaneId>,
+    /// Its role (`reviewer`) or pipeline stage (`build`).
+    pub role: Option<String>,
+    /// When it started (unix ms).
+    pub started: u64,
 }
 
 /// What an agent is doing. Ordered by how much it wants the user: the list shows agents
@@ -158,6 +176,7 @@ pub struct Probe {
     pub source: Source,
     /// What it's doing, when someone already worked it out (`nex-host` for remote agents).
     pub reported: Option<Status>,
+    pub team: Team,
 }
 
 impl Probe {
@@ -232,6 +251,7 @@ pub struct Agent {
     /// Since when it has been in `status`.
     pub since: Instant,
     pub source: Source,
+    pub team: Team,
 }
 
 impl Agent {
@@ -321,7 +341,10 @@ impl Tracker {
                 let looked_at = self.seen.is_some() && p.shown_pane() == self.seen;
                 let was = self.since.get(&p.pane).map(|&(s, _)| s);
                 let mut status = p.status(now);
-                if status == Status::Idle && matches!(was, Some(Status::Working | Status::Done)) && !looked_at {
+                // A pipeline prints a line per stage: that's not it finishing (its stages
+                // finishing is what counts, and they have cards of their own).
+                let finishes = p.kind != AgentKind::Pipeline;
+                if finishes && status == Status::Idle && matches!(was, Some(Status::Working | Status::Done)) && !looked_at {
                     status = Status::Done;
                 }
                 let changed_into = was.is_some() && was != Some(status) && matches!(status, Status::Done | Status::NeedsYou);
@@ -344,6 +367,7 @@ impl Tracker {
                     status,
                     since: at,
                     source: p.source.clone(),
+                    team: p.team.clone(),
                 }
             })
             .collect();
@@ -392,9 +416,10 @@ impl Tracker {
         &self.agents
     }
 
+    /// How many agents are in each state (a pipeline isn't one: its stages are).
     pub fn counts(&self) -> Counts {
         let mut c = Counts::default();
-        for a in &self.agents {
+        for a in self.agents.iter().filter(|a| a.kind != AgentKind::Pipeline) {
             match a.status {
                 Status::NeedsYou => c.needs_you += 1,
                 Status::Done => c.done += 1,

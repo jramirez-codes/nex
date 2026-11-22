@@ -8,6 +8,8 @@
 //!     sock           the daemon's socket
 //!     lock           held by the running daemon
 //!     daemon.log     what the daemon had to say (errors only)
+//!     mail/          agents' mailboxes, and long messages in full
+//!   worktrees/       git worktrees made by `spawn --worktree`
 //! ```
 
 use std::path::PathBuf;
@@ -33,6 +35,25 @@ pub fn socket() -> Option<PathBuf> {
 
 pub fn lock() -> Option<PathBuf> {
     Some(run_dir()?.join("lock"))
+}
+
+/// Agents' mailboxes (`<id>.jsonl`) and the whole text of long messages (`<message id>.md`).
+pub fn mail_dir() -> Option<PathBuf> {
+    Some(run_dir()?.join("mail"))
+}
+
+/// Where `spawn --worktree` puts git worktrees.
+pub fn worktrees() -> Option<PathBuf> {
+    Some(root()?.join("worktrees"))
+}
+
+/// `path` as `~/…` when it's under the home folder, for showing it.
+pub fn tilde(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy();
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() && s.starts_with(&format!("{h}/")) => format!("~{}", &s[h.len()..]),
+        _ => s.into_owned(),
+    }
 }
 
 pub fn log() -> Option<PathBuf> {
