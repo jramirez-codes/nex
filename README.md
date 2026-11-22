@@ -479,7 +479,7 @@ terminal title when there is one.
 | ---------------------------- | ----------------------------------------------------- |
 | Pick an agent                | Arrows (or `h` / `j` / `k` / `l`), `Home` / `End`     |
 | Jump to its pane             | `Enter` or `Space`, click                             |
-| Stop an agent on an ssh host (asks first), or dismiss an exited one | `Delete` |
+| Stop an agent on an ssh host (asks first) | `Delete` |
 
 #### Agents on ssh hosts
 
@@ -496,8 +496,7 @@ An agent started either way keeps running when you close its pane, lose the conn
 nex. Its card stays in the Agents pane with its host, its folder and its
 live status, marked **Detached**. Click the card to open a tab attached to it, with the screen
 redrawn where it left off. Closing that tab only detaches it again. An agent whose program
-ends is listed as **Exited** until you dismiss it. `Delete` on a running one stops it, after
-asking. Hosts with agents are remembered, so their cards come back when nex restarts. A host nex
+ends drops off the list. `Delete` on a running one stops it, after asking. Hosts with agents are remembered, so their cards come back when nex restarts. A host nex
 can't reach gets a line at the top of the pane saying why.
 
 The shim knows it's in nex from `LC_TERMINAL=nex`, which ssh passes on to servers that accept

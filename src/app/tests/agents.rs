@@ -174,18 +174,6 @@ fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
     }
     assert_eq!(app.active, tabs, "and shows it");
     assert!(!app.explorer_active);
-
-    // An exited one doesn't open anything.
-    let exited = Probe {
-        pane: key,
-        tab: None,
-        reported: Some(Status::Exited),
-        source: Source::Remote { host: "nex-test.invalid".into(), target, session: "3fa91c0e".into(), pane: None },
-        ..probe(0, None, AgentKind::Claude, "")
-    };
-    app.agent_tracker.update(vec![exited], Instant::now());
-    app.focus_agent(&ctx, key);
-    assert_eq!(app.tabs.len(), tabs + 1);
 }
 
 #[test]
@@ -217,10 +205,4 @@ fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
     assert!(app.upload_modal_open(), "the alert takes the keyboard");
     run(&mut app, &ctx, 1400.0);
     assert!(app.agent_prompt.is_some(), "and stays up until answered");
-
-    // An exited one is just dropped from the list, without asking.
-    app.agent_prompt = None;
-    app.agent_tracker.update(vec![remote(Status::Exited)], Instant::now());
-    app.dismiss_agent(key);
-    assert!(app.agent_prompt.is_none());
 }

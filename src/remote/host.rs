@@ -206,11 +206,6 @@ fn run(target: &SshTarget, script: &str, stdin: Option<&[u8]>) -> Result<String,
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Drop an exited agent from the host's list. Blocks.
-pub fn forget(target: &SshTarget, id: &str) -> Result<(), HostError> {
-    run(target, &format!("{REMOTE_BIN_SH} forget {}", posix_quote(id)), None).map(drop)
-}
-
 /// End an agent on the host. Blocks.
 pub fn kill(target: &SshTarget, id: &str) -> Result<(), HostError> {
     run(target, &format!("{REMOTE_BIN_SH} kill {}", posix_quote(id)), None).map(drop)

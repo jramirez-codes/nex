@@ -77,7 +77,7 @@ fn status_color(s: Status, c: &Theme) -> Color32 {
     match s {
         Status::Working => c.green,
         Status::NeedsYou => c.yellow,
-        Status::Idle | Status::Exited => c.text_dim,
+        Status::Idle => c.text_dim,
     }
 }
 
@@ -329,7 +329,7 @@ fn agent_card(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: Look) {
     }
     match (agent.tab, remote) {
         (Some(tab), _) => detail.push_str(&format!(" · Tab {}", tab + 1)),
-        (None, Some((_, false))) if agent.status != Status::Exited => detail.push_str(" · Detached"),
+        (None, Some((_, false))) => detail.push_str(" · Detached"),
         _ => {}
     }
     let detail_room = (pill.right() - 4.0 - since_w - 12.0 - x).max(0.0);
