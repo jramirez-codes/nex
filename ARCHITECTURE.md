@@ -52,7 +52,7 @@ src/
 │   ├── mod.rs            state, background loading, keys
 │   ├── git.rs            running git, parsing status and diffs
 │   ├── syntax.rs         syntax colors (syntect with bat's grammars)
-│   └── view.rs           drawing and the mouse
+│   └── view/             drawing and the mouse: the layout, toolbar, file list and diff
 ├── agents/           the Agents pane: every Claude Code / Codex agent at a glance
 │   ├── mod.rs            the pane's state and keys
 │   ├── model.rs          which panes are agents and what they're doing (Tracker)
