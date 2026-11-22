@@ -359,6 +359,7 @@ impl eframe::App for App {
         if crate::platform::SOFT_KEYBOARD {
             self.ask_for_keyboard(ctx);
         }
+        crate::platform::mirror_copies(ctx);
         if !self.pending.is_empty() {
             self.drain_pending(ctx);
             ctx.request_repaint();
@@ -392,6 +393,7 @@ impl App {
         }
         let theme = Theme::from_config(&self.cfg);
         self.connect.show(ctx, &theme, self.cfg.device_key_days);
+        crate::platform::mirror_copies(ctx);
     }
 
     /// Keep the on-screen keyboard up while a terminal has focus: egui shows it for as long as

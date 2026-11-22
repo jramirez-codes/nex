@@ -3,10 +3,12 @@
 //! process's usual surroundings, so [`android_setup`] gives nex a `HOME` and a `TMPDIR` in the
 //! app's private storage, and sends stdout and stderr to logcat (see `log.rs`).
 
+mod clipboard;
 mod log;
 
 use std::path::Path;
 
+pub use clipboard::{clipboard_text, mirror_copies};
 pub use super::fontdb::{find_font, nerd_mono_families};
 pub use super::no_dnd::Dnd;
 pub use super::no_watch::{DirWatch, on_dir_change};

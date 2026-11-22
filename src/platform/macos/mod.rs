@@ -63,3 +63,12 @@ pub fn open_uri(uri: &std::ffi::OsStr) {
 
 /// Where to let nex use the microphone, after the OS refused it.
 pub const MIC_PERMISSION_HINT: &str = "Allow it in System Settings → Privacy & Security → Microphone, then share again.";
+
+/// egui reads and writes the system clipboard itself here (Ctrl+V reaches text fields), so
+/// nex never needs to.
+pub fn clipboard_text() -> Option<String> {
+    None
+}
+
+/// egui already puts what nex copies on the system clipboard.
+pub fn mirror_copies(_ctx: &egui::Context) {}

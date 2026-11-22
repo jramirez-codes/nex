@@ -34,6 +34,7 @@
 //! | `FALLBACK_FAMILIES` | system fonts tried for glyphs the grid font lacks |
 //! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |
 //! | `process_start(pid)` | when a process started, as Claude Code's session file records it |
+//! | `clipboard_text()` / `mirror_copies(ctx)` | the system clipboard where egui has none (Android): pasting into text fields, and copies mirrored to it |
 //! | `clipboard_files()` | an image or copied files on the clipboard ([`ClipboardFiles`]), where `Dnd` can't read it |
 //! | `pty_options(..)` / `pty_pid(..)` | build the PTY options, read the child's pid |
 //! | `shell_env()` | variables the shell needs but may not inherit (`LANG` on macOS) |

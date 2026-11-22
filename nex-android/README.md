@@ -79,6 +79,8 @@ cargo apk run -p nex-android --release
    - It asks for your password. After you type it, it shows the server's key fingerprint.
    - Compare the fingerprint with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the
      server, then tap Trust and connect.
+   - Pasting works in every field: long-press it and tap Paste. Text copied in another app
+     comes in.
    - A shell opens.
    - On the server, `~/.ssh/authorized_keys` ends with an `expiry-time="…" ssh-ed25519 … nex-device-…`
      line. Hosts with OpenSSH older than 8.7 get the line without `expiry-time`.
