@@ -1,7 +1,8 @@
 # Architecture
 
-nex is a single Rust binary (`src/`) plus `nex-host` (`nex-host/`), a small helper nex installs on
-ssh hosts. The terminal engine is [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal);
+nex is a single Rust crate (`src/`, a library with the `nex` program on top) plus `nex-host`
+(`nex-host/`), a small helper nex installs on ssh hosts, and `nex-android/`, which wraps the same
+library as the Android app. The terminal engine is [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal);
 everything on screen is drawn with [egui](https://github.com/emilk/egui) on eframe, which nex
 runs on its own winit event loop (`src/platform/winit_app.rs`).
 
@@ -12,7 +13,8 @@ Read those first; this page is the map.
 
 ```
 src/
-├── main.rs           window setup (eframe / winit)
+├── main.rs           the `nex` program: hands over to lib.rs
+├── lib.rs            command line, window setup (eframe / winit), the Android entry point
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
 ├── layout.rs         binary split tree + directional focus (PaneId, Axis)
@@ -23,6 +25,7 @@ src/
 │   ├── actions.rs        the actions and carrying them out
 │   ├── reload.rs         live config reload
 │   ├── restore.rs        saving the window into a session and restoring one at launch
+│   ├── connect.rs        the connect screen, where panes can't run local shells (Android)
 │   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
 │   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
 │   ├── workspace/        tabs, splits, opening and closing panes, drawing panes, pane drag,
@@ -35,6 +38,8 @@ src/
 │   ├── mod.rs            PTY + VT state, title and cwd
 │   ├── input.rs          keyboard & mouse → xterm escape sequences
 │   ├── osc7.rs           PTY wrapper that picks up OSC 7 (the shell's working directory)
+│   ├── remote.rs         a pane whose shell is a nex-host session on a host nex connects
+│   │                     to itself (the Android app, `--remote`)
 │   ├── search.rs         scrollback search, URL and OSC 8 link detection
 │   └── snapshot.rs       copy of the visible screen, taken under the lock
 ├── render/           drawing the terminal grid
@@ -59,7 +64,8 @@ src/
 │   ├── motion.rs         cards moving between sections
 │   └── view.rs           drawing and the mouse
 ├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture),
-│                     installing and watching nex-host
+│                     installing and watching nex-host; ssh/ is nex's own ssh client (russh):
+│                     host keys, the one-time password and device key, reconnecting
 ├── ui/               shared UI kit: theme, glide/ink animation, painting, icons, widgets, toasts
 └── platform/         everything OS-specific, behind one API (see platform/mod.rs)
     ├── mod.rs            the shared types and the per-OS switch
@@ -72,8 +78,12 @@ src/
     │                     clipboard, Open With, the FileManager1 D-Bus service
     ├── macos/            libproc process info, traffic lights, app menu, clipboard,
     │                     Open With, starting from nex.app
-    └── windows/          compiles, not supported yet
+    ├── windows/          compiles, not supported yet
+    └── android/          app folders, stdout/stderr to logcat, no local shells (a thin
+                          client: every pane works on an ssh host)
 
+nex-android/          the Android app: nex's library as NativeActivity's shared library
+                      (see nex-android/README.md)
 nex-host/             the helper on ssh hosts (see nex-host/README.md); nex itself links only
                       its protocol (`proto`, `claude`, `paths`), built without the `daemon` feature
 ```

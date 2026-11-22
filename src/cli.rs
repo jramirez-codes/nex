@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! nex [--config=PATH] [--app-id=ID] [--working-directory=DIR] [--explorer] [--select=PATH] [FOLDER] [-e COMMAND [ARGS...]]
+//! nex --remote=USER@HOST[:PORT]
 //! nex --file-manager-service
 //! ```
 //!
@@ -22,6 +23,8 @@ usage: nex [OPTIONS] [FOLDER] [-e COMMAND [ARGS...]]
   --working-directory=DIR   start the first shell in DIR
   --explorer                open the Files tab at startup
   --select=PATH             open the Files tab in PATH's folder, with PATH selected
+  --remote=USER@HOST[:PORT] open every pane on HOST with nex's own ssh client, as
+                            the Android app does (password once, then a device key)
   --file-manager-service    show files for other apps (\"Show in Folder\"), over D-Bus
   -e COMMAND [ARGS...]      run COMMAND in the first pane instead of the shell
   -h, --help                show this help
@@ -41,6 +44,8 @@ pub struct Args {
     pub file_manager_service: bool,
     /// Program and arguments for the first pane.
     pub command: Option<Vec<String>>,
+    /// `--remote`: every pane on this host (`user@host[:port]`), with nex's own ssh client.
+    pub remote: Option<String>,
     /// Don't bring back the last session (`--no-restore`, hidden: new windows pass it).
     pub no_restore: bool,
     pub help: bool,
@@ -73,6 +78,7 @@ impl Args {
                     }
                     out.command = Some(cmd);
                 }
+                "--remote" => out.remote = Some(value()?),
                 "--explorer" => out.explorer = true,
                 "--select" => out.select = Some(local_path(&value()?)),
                 "--file-manager-service" => out.file_manager_service = true,
@@ -102,6 +108,7 @@ impl Args {
     pub fn restores_session(&self) -> bool {
         !self.no_restore
             && self.command.is_none()
+            && self.remote.is_none()
             && self.working_directory.is_none()
             && !self.explorer
             && self.select.is_none()

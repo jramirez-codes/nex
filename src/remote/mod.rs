@@ -9,6 +9,8 @@
 //!   host.rs    nex-host on the host: installing it, watching the agents it keeps running there
 //!   mic.rs     the local microphone shared with the remote host, as its default mic
 //!   audio.rs   recording from this machine's default microphone (cpal), for mic.rs
+//!   ssh/       nex's own ssh client, for hosts it connects to itself (the Android app,
+//!              `nex --remote`): no `ssh` program involved
 //! ```
 //!
 //! nex's connections reuse the pane's own `ssh` arguments (port, user, identity, jump hosts,
@@ -22,6 +24,7 @@ pub mod audio;
 pub mod host;
 pub mod mic;
 mod mux;
+pub mod ssh;
 mod upload;
 
 pub use upload::{UploadError, remove_saved, save_png, upload};

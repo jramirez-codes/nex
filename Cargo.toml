@@ -17,7 +17,7 @@ workspace = true
 
 [dependencies]
 alacritty_terminal = "0.26.0"
-eframe = "0.33.3"
+# eframe itself is under the per-OS dependencies below: Android needs a different feature set.
 egui = "0.33.3"
 # nex runs eframe on its own event loop (see src/platform/winit_app.rs); same version as eframe's.
 winit = { version = "0.30.13", default-features = false }
@@ -34,10 +34,30 @@ flate2 = "1"
 nex-host = { path = "nex-host", default-features = false }
 # Syntax colors in the Changes pane (see src/git_diff/syntax.rs): syntect's parser with bat's
 # grammars, pure-Rust regexes (no oniguruma to build).
+# nex's own ssh client, for hosts it connects to itself rather than through a pane's `ssh`
+# (the Android app, `nex --remote`; see src/remote/ssh/). ring rather than aws-lc-rs: no
+# cmake when building for Android. tokio runs it on one background thread.
+russh = { version = "0.63.1", default-features = false, features = ["ring", "flate2"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+# The device key and its comment (see src/remote/ssh/device.rs); russh's own version.
+rand = { version = "0.10", features = ["thread_rng"] }
+serde = { version = "1", features = ["derive"] }
 syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy"] }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 
-# Per-OS dependencies, used only by src/platform/<os>/.
+# Per-OS dependencies, used only by src/platform/<os>/ (and eframe, picked per OS).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = "0.33.3"
+
+# The Android app (see nex-android/): NativeActivity, so the APK needs no Java. eframe's
+# accesskit can't be built with NativeActivity, so its default features are spelled out.
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.33.3", default-features = false, features = ["glow", "default_fonts", "android-native-activity"] }
+winit = { version = "0.30.13", default-features = false, features = ["android-native-activity"] }
+# The system clipboard, through ClipboardManager (see src/platform/android/clipboard.rs).
+jni = "0.21"
+ndk-context = "0.1"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 # Registering the PTY wrapper that scans for OSC 7 (see src/terminal/osc7.rs); alacritty_terminal's version.
@@ -63,8 +83,9 @@ raw-window-handle = "0.6"
 
 # `nex-host`, the helper nex installs on ssh hosts to keep agents running after their pane
 # closes (see nex-host/README.md). `cargo build` here still builds nex alone.
+# `nex-android` builds the Android app around this crate (see nex-android/README.md).
 [workspace]
-members = ["nex-host"]
+members = ["nex-host", "nex-android"]
 
 [profile.release]
 lto = "thin"

@@ -14,13 +14,21 @@ pub use proc::{proc_info, process_start};
 
 use super::{ShortcutStyle, WindowDefaults};
 
+/// Panes run shells on this machine.
+pub const LOCAL_SHELLS: bool = true;
+
+/// A physical keyboard.
+pub const SOFT_KEYBOARD: bool = false;
+
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0 };
+pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true };
 
 pub const FALLBACK_FAMILIES: &[&str] = &["Consolas", "Segoe UI Symbol", "Cambria Math", "Microsoft YaHei"];
 
 pub(super) const SANS_SERIF: &str = "Segoe UI";
+/// fontdb already scans the system's font folders.
+pub(super) const FONT_DIRS: &[&str] = &[];
 pub(super) const MONOSPACE: &str = "Consolas";
 
 /// The window keeps eframe's default icon (on macOS, the bundle's own icon wins).
@@ -158,3 +166,12 @@ pub fn pty_pid(pty: &alacritty_terminal::tty::Pty) -> u32 {
 
 /// Where to let nex use the microphone, after the OS refused it.
 pub const MIC_PERMISSION_HINT: &str = "Allow it in Settings → Privacy & security → Microphone, then share again.";
+
+/// egui reads and writes the system clipboard itself here (Ctrl+V reaches text fields), so
+/// nex never needs to.
+pub fn clipboard_text() -> Option<String> {
+    None
+}
+
+/// egui already puts what nex copies on the system clipboard.
+pub fn mirror_copies(_ctx: &egui::Context) {}

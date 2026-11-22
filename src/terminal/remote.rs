@@ -1,0 +1,264 @@
+//! A terminal whose shell runs on a host nex connects to itself (see `remote/ssh/`), as a
+//! `nex-host` session: nothing runs on this machine.
+//!
+//! alacritty's event loop wants a PTY: something it can poll, read, write and resize, that
+//! says when its child exits. [`RemotePty`] is one end of a socket pair for that, plus a
+//! second pair whose only byte says "the shell exited". A thread ([`pump`]) holds the other
+//! ends and carries them to the host over `nex-host connect`: the shell's output as it
+//! comes, keys as input frames, resizes as resize frames.
+//!
+//! The session outlives the connection. When the connection drops (the phone slept, the
+//! network changed), the pump says so in the pane, waits for the host to come back, and
+//! attaches again; the daemon then redraws the screen. When the pane closes, the pump ends
+//! the session; when the session ends (the shell exited), the pump ends the pane.
+
+use std::io::{self, Read, Write};
+use std::os::unix::net::UnixStream;
+use std::os::unix::process::ExitStatusExt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use alacritty_terminal::event::{OnResize, WindowSize};
+use alacritty_terminal::tty::{ChildEvent, EventedPty, EventedReadWrite};
+use nex_host::proto::{self, Request, Response};
+use polling::{Event, PollMode, Poller};
+
+use super::osc7::{AgentSlot, Alert, ScanReader, Slot};
+use crate::remote::ssh::ExecWriter;
+use crate::remote::ssh::host::RemoteHost;
+
+/// alacritty's poll key for a PTY's child events (`tty::unix`, not exported); the data key
+/// comes from the event loop with each call.
+const CHILD_KEY: usize = 1;
+/// How long to wait between tries to reach a host that dropped, at most.
+const RETRY_MAX: Duration = Duration::from_secs(10);
+
+/// The session a remote pane shows, once the host has started it: the pane keeps it to
+/// attach again, and the session file keeps it to restore the pane.
+pub type SessionSlot = Arc<Mutex<Option<String>>>;
+
+/// The event loop's side.
+pub struct RemotePty {
+    io: UnixStream,
+    reader: ScanReader<UnixStream>,
+    exited: UnixStream,
+    resize: Sender<(u16, u16)>,
+}
+
+impl EventedReadWrite for RemotePty {
+    type Reader = ScanReader<UnixStream>;
+    type Writer = UnixStream;
+
+    unsafe fn register(&mut self, poll: &Arc<Poller>, interest: Event, mode: PollMode) -> io::Result<()> {
+        // SAFETY: both sockets live as long as `self`, which the event loop deregisters
+        // before dropping.
+        unsafe {
+            poll.add_with_mode(&self.io, interest, mode)?;
+            poll.add_with_mode(&self.exited, Event::readable(CHILD_KEY), mode)
+        }
+    }
+
+    fn reregister(&mut self, poll: &Arc<Poller>, interest: Event, mode: PollMode) -> io::Result<()> {
+        poll.modify_with_mode(&self.io, interest, mode)?;
+        poll.modify_with_mode(&self.exited, Event::readable(CHILD_KEY), mode)
+    }
+
+    fn deregister(&mut self, poll: &Arc<Poller>) -> io::Result<()> {
+        poll.delete(&self.io)?;
+        poll.delete(&self.exited)
+    }
+
+    fn reader(&mut self) -> &mut Self::Reader {
+        &mut self.reader
+    }
+
+    fn writer(&mut self) -> &mut UnixStream {
+        &mut self.io
+    }
+}
+
+impl EventedPty for RemotePty {
+    fn next_child_event(&mut self) -> Option<ChildEvent> {
+        let mut code = [0u8; 1];
+        match self.exited.read(&mut code) {
+            Ok(1) => Some(ChildEvent::Exited(Some(std::process::ExitStatus::from_raw(i32::from(code[0]) << 8)))),
+            // The pump is gone without a word: the shell is as good as ended.
+            Ok(_) => Some(ChildEvent::Exited(None)),
+            Err(_) => None,
+        }
+    }
+}
+
+impl OnResize for RemotePty {
+    fn on_resize(&mut self, size: WindowSize) {
+        let _ = self.resize.send((size.num_cols, size.num_lines));
+    }
+}
+
+/// What the pump needs to start or find the session.
+pub struct Start {
+    pub host: Arc<RemoteHost>,
+    /// The session to attach to; `None` starts a new shell.
+    pub session: SessionSlot,
+    /// Where a new shell starts on the host (`None`: home).
+    pub cwd: Option<String>,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// The PTY for a new remote pane, and the pump thread behind it. `osc7`, `alert` and `agent`
+/// pick up what the shell reports, as for a local pane.
+pub fn open(start: Start, osc7: Slot, alert: Alert, agent: AgentSlot) -> io::Result<RemotePty> {
+    let (io, peer) = UnixStream::pair()?;
+    let (exited, exit_tx) = UnixStream::pair()?;
+    io.set_nonblocking(true)?;
+    exited.set_nonblocking(true)?;
+    let reader = ScanReader::new(io.try_clone()?, osc7, alert, agent);
+    let (resize, resizes) = mpsc::channel();
+    std::thread::Builder::new().name("remote pane".into()).spawn(move || pump(start, peer, exit_tx, resizes))?;
+    Ok(RemotePty { io, reader, exited, resize })
+}
+
+/// Carry one pane to its session on the host until one of them ends.
+fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiver<(u16, u16)>) {
+    let Start { host, session, cwd, cols, rows } = start;
+    let size = Arc::new(Mutex::new((cols, rows)));
+    // Where keys and resizes go: the attached connection's input, while there is one.
+    let to_host: Arc<Mutex<Option<ExecWriter>>> = Arc::default();
+    let pane_closed = Arc::new(AtomicBool::new(false));
+
+    // Keys: everything the pane writes, framed, to whichever connection is attached.
+    let keys = {
+        let (mut pane, to_host, closed) = (pane.try_clone(), to_host.clone(), pane_closed.clone());
+        std::thread::Builder::new().name("remote pane keys".into()).spawn(move || {
+            let Ok(pane) = pane.as_mut() else { return };
+            let mut buf = vec![0u8; 16 * 1024];
+            loop {
+                match pane.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if let Some(w) = to_host.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                            let _ = w.write_all(&proto::frame(proto::FRAME_INPUT, &buf[..n]));
+                        }
+                    }
+                }
+            }
+            // The pane is gone: dropping the input ends the attached connection.
+            closed.store(true, Ordering::Relaxed);
+            to_host.lock().unwrap_or_else(|e| e.into_inner()).take();
+        })
+    };
+    // Resizes, framed the same way; the last size is kept for attaching again.
+    {
+        let (to_host, size) = (to_host.clone(), size.clone());
+        let _ = std::thread::Builder::new().name("remote pane resize".into()).spawn(move || {
+            for (cols, rows) in resizes {
+                *size.lock().unwrap_or_else(|e| e.into_inner()) = (cols, rows);
+                if let Some(w) = to_host.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                    let _ = w.write_all(&proto::resize_frame(cols, rows));
+                }
+            }
+        });
+    }
+
+    let mut out = pane;
+    let say = |out: &mut UnixStream, line: &str| {
+        let _ = out.write_all(format!("\r\n\x1b[2m[{line}]\x1b[0m\r\n").as_bytes());
+    };
+    let mut wait = Duration::from_millis(500);
+    loop {
+        if pane_closed.load(Ordering::Relaxed) {
+            break;
+        }
+        let (cols, rows) = *size.lock().unwrap_or_else(|e| e.into_inner());
+        let id = session.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let attached = match id {
+            Some(id) => attach(&host, &id, cols, rows),
+            None => launch(&host, cwd.clone(), cols, rows).and_then(|id| {
+                *session.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
+                attach(&host, &id, cols, rows)
+            }),
+        };
+        let mut exec = match attached {
+            Ok(exec) => exec,
+            Err(Attach::Gone(why)) => {
+                say(&mut out, &why);
+                break;
+            }
+            Err(Attach::Unreachable(why)) => {
+                // Try again until the host is back (or the pane is closed).
+                say(&mut out, &format!("can't reach {}: {why}; trying again", host.server));
+                std::thread::sleep(wait);
+                wait = (wait * 2).min(RETRY_MAX);
+                continue;
+            }
+        };
+        wait = Duration::from_millis(500);
+        *to_host.lock().unwrap_or_else(|e| e.into_inner()) = Some(exec.writer.clone());
+        drop(exec.writer);
+        // The session's output, until the connection ends.
+        let _ = io::copy(&mut exec.reader, &mut out);
+        to_host.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if pane_closed.load(Ordering::Relaxed) {
+            break;
+        }
+        if host.connected() {
+            // The connection is fine, so the daemon let go: the shell ended, or another
+            // pane took the session. Either way this pane is done.
+            break;
+        }
+        say(&mut out, &format!("lost the connection to {}; reconnecting", host.server));
+    }
+    if !pane_closed.load(Ordering::Relaxed) {
+        // Tell the event loop the shell ended; it closes the pane, and the keys thread ends
+        // with it.
+        let _ = exit_tx.write_all(&[0]);
+        return;
+    }
+    // Closing the pane ends its shell, as closing a local one would.
+    if let Some(id) = session.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        let _ = request(&host, &Request::Kill { id });
+    }
+    let _ = keys;
+}
+
+enum Attach {
+    /// The session isn't there any more (it ended while nobody was attached).
+    Gone(String),
+    /// The host can't be reached right now.
+    Unreachable(String),
+}
+
+/// [`RemoteHost::ask`], with its errors sorted for the pump.
+fn request(host: &RemoteHost, request: &Request) -> Result<(Response, crate::remote::ssh::Exec), Attach> {
+    host.ask(request).map_err(|e| match e.kind() {
+        io::ErrorKind::Other => Attach::Gone(e.to_string()),
+        _ => Attach::Unreachable(e.to_string()),
+    })
+}
+
+/// Start a shell on the host; its session id.
+fn launch(host: &RemoteHost, cwd: Option<String>, cols: u16, rows: u16) -> Result<String, Attach> {
+    let shell = |argv: Vec<String>| Request::Launch { argv, kind: Some(proto::SHELL_KIND.into()), name: None, cwd: cwd.clone(), cols: Some(cols), rows: Some(rows), env: None };
+    let (mut r, _) = request(host, &shell(Vec::new()))?;
+    if !r.ok && r.error.as_deref().is_some_and(|e| e.contains("nothing to run")) {
+        // A daemon from before plain shells (still running the old nex-host after the new
+        // one was installed): ask for the login shell by name.
+        (r, _) = request(host, &shell(OLD_DAEMON_SHELL.iter().map(|s| s.to_string()).collect()))?;
+    }
+    match r.id {
+        Some(id) if r.ok => Ok(id),
+        _ => Err(Attach::Gone(format!("couldn't start a shell on {}: {}", host.server, r.error.unwrap_or_default()))),
+    }
+}
+
+/// The user's shell, interactive, for a daemon that needs a command.
+const OLD_DAEMON_SHELL: &[&str] = &["sh", "-c", "exec \"${SHELL:-/bin/sh}\" -i"];
+
+/// Attach to session `id`: the connection, now carrying its screen.
+fn attach(host: &RemoteHost, id: &str, cols: u16, rows: u16) -> Result<crate::remote::ssh::Exec, Attach> {
+    let (r, exec) = request(host, &Request::Attach { id: id.into(), cols, rows })?;
+    if r.ok { Ok(exec) } else { Err(Attach::Gone(r.error.unwrap_or_else(|| "the session ended".into()))) }
+}

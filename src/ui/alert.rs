@@ -17,7 +17,7 @@ const TITLE_SIZE: f32 = 15.0;
 const BODY_SIZE: f32 = 12.5;
 const BUTTON_RADIUS: u8 = 8;
 /// Apple's system blue (dark appearance): deeper than the UI accent, so white text on it reads.
-const BLUE: Color32 = Color32::from_rgb(0x0a, 0x84, 0xff);
+pub const BLUE: Color32 = Color32::from_rgb(0x0a, 0x84, 0xff);
 
 /// The symbol in the alert's icon tile.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -189,7 +189,7 @@ fn button(ui: &mut Ui, rect: Rect, label: &str, primary: bool, scale: f32, theme
 }
 
 /// A rounded tile in the icon's color with a white symbol, like a macOS alert's app badge.
-fn icon_tile(p: &Painter, r: Rect, icon: AlertIcon) {
+pub fn icon_tile(p: &Painter, r: Rect, icon: AlertIcon) {
     let color = match icon {
         AlertIcon::Lock => BLUE,
         AlertIcon::Done => Color32::from_rgb(0x34, 0xc7, 0x59),

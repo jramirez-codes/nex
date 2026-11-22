@@ -7,23 +7,30 @@
 //! - `attach` turns into a terminal: the daemon sends the agent's screen and then its output
 //!   as raw bytes, and the client sends [`frame`]s (keys, resizes) back;
 //! - everything else is done after its answer.
+//!
+//! `nex-host connect` passes one such connection through its stdin and stdout, for clients
+//! that reach the host over an ssh channel rather than a terminal (nex's own ssh client).
 
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a change here would confuse the other side.
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 /// The `nex-host` version, which nex compares to its own to decide whether to reinstall.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How often `watch` resends the session list when nothing has changed: a client that hears
 /// nothing for longer than this knows the connection is gone.
 pub const HEARTBEAT_SECS: u64 = 15;
+/// The kind of a session that is a plain shell (a [`Request::Launch`] with no `argv`), as
+/// opposed to an agent: the Agents pane leaves these out, and the daemon forgets one as soon
+/// as it exits.
+pub const SHELL_KIND: &str = "shell";
 /// Output this recent (and not just the echo of typing) counts as working.
 pub const BUSY_WINDOW_MS: u64 = 1500;
 /// Claude Code's title glyph while it waits at its prompt; spinner frames replace it while
 /// it works.
 pub const CLAUDE_IDLE_MARK: char = '✳';
 
-/// What `nex-host --version` prints: `nex-host 0.11.0 (protocol 1)`.
+/// What `nex-host --version` prints: `nex-host 0.11.0 (protocol 2)`.
 pub fn version_line() -> String {
     format!("nex-host {VERSION} (protocol {PROTOCOL})")
 }
@@ -149,7 +156,8 @@ fn title_mark(title: &str) -> Option<char> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
-    /// Start `argv` in a new session. Answered with its `id`.
+    /// Start `argv` in a new session (no `argv`: the user's login shell, interactive, as a
+    /// [`SHELL_KIND`] session). Answered with its `id`.
     Launch {
         argv: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -274,6 +282,9 @@ mod tests {
         assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), r);
         assert_eq!(serde_json::from_str::<Request>(r#"{"op":"list"}"#).unwrap(), Request::List);
         let launch: Request = serde_json::from_str(r#"{"op":"launch","argv":["claude"]}"#).unwrap();
+        assert!(matches!(launch, Request::Launch { cwd: None, .. }));
+        let launch: Request = serde_json::from_str(r#"{"op":"launch","argv":[],"kind":"shell"}"#).unwrap();
+        assert!(matches!(launch, Request::Launch { ref argv, .. } if argv.is_empty()));
         assert!(matches!(launch, Request::Launch { cwd: None, .. }));
     }
 

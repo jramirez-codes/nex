@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use egui::emath::TSTransform;
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
+use crate::config::AgentsTab;
 use crate::layout::{PaneId, PaneKind};
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
@@ -173,7 +174,8 @@ impl App {
         let inset = if overlaid { platform::WINDOW.titlebar_inset } else { 0.0 };
         let left = rect.left() + 18.0 + inset;
         let x = if self.cfg.window_controls { window_controls(ui, left, cy) } else { left };
-        let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 30.0 + LABEL_WIDTH, cy + 15.0));
+        let label_right = if self.agents_tab_icon_only() { x + 25.0 } else { x + 30.0 + LABEL_WIDTH };
+        let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(label_right, cy + 15.0));
         let now = ctx.input(|i| i.time);
         self.advance_tab_ghosts(&ctx, now);
         let mut slots = self.horizontal_tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy, now);
@@ -273,7 +275,12 @@ impl App {
             self.pending.push(if files { Action::ToggleExplorer } else { Action::ToggleAgentsTab });
         }
 
-        self.files_dog(ui.ctx(), painter, Rect::from_center_size(Pos2::new(x + 9.0, cy), Vec2::splat(21.0)), theme);
+        let dog = Rect::from_center_size(Pos2::new(x + 9.0, cy), Vec2::splat(21.0));
+        self.files_dog(ui.ctx(), painter, dog, theme);
+        if self.agents_tab_icon_only() {
+            self.agents_bubble(ui.ctx(), painter, dog.left_top() + Vec2::new(1.0, 1.0), theme);
+            return;
+        }
         let x = x + 26.0;
         let title_color = if active { theme.text_bright } else { theme.text };
         let (title, detail, detail_color) = if files {
@@ -295,6 +302,37 @@ impl App {
         };
         paint::faded_text(painter, Pos2::new(x, cy - 7.0), &title, paint::bold(13.0), title_color, LABEL_WIDTH, 16.0);
         paint::faded_text(painter, Pos2::new(x, cy + 8.0), &detail, FontId::proportional(11.0), detail_color, LABEL_WIDTH, 16.0);
+    }
+
+    /// Whether the Agents tab is the dog alone (`agents-tab = icon`). A Files tab keeps its
+    /// folder and host name.
+    fn agents_tab_icon_only(&self) -> bool {
+        self.cfg.agents_tab == AgentsTab::Icon && !self.home_is_files()
+    }
+
+    /// The bubble on the icon-only Agents tab, counting the agents that need you or are done:
+    /// amber (and pulsing) while any needs you, else blue; none while there are none.
+    fn agents_bubble(&self, ctx: &egui::Context, painter: &egui::Painter, center: Pos2, theme: &Theme) {
+        let counts = self.agent_tracker.counts();
+        let n = counts.needs_you + counts.done;
+        if n == 0 {
+            return;
+        }
+        let urgent = counts.needs_you > 0;
+        let color = if urgent { theme.yellow } else { theme.blue };
+        let text = if n > 9 { "9+".to_string() } else { n.to_string() };
+        let font = paint::bold(9.5);
+        let galley = painter.layout_no_wrap(text, font, theme.window);
+        let height = 14.0;
+        let width = (galley.size().x + 7.0).max(height);
+        let r = Rect::from_center_size(center, Vec2::new(width, height));
+        if urgent && self.cfg.animations {
+            let phase = (ctx.input(|i| i.time) % ATTENTION_PULSE / ATTENTION_PULSE) as f32;
+            painter.rect_filled(r.expand(5.0 * phase), 12, color.gamma_multiply(0.4 * (1.0 - phase)));
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        }
+        painter.rect(r, 7, color, Stroke::new(1.5_f32, theme.window), StrokeKind::Outside);
+        painter.galley(r.center() - galley.size() / 2.0, galley, theme.window);
     }
 
     /// The nex dog marking the Files tab (title-bar label or sidebar tile). It wakes up at

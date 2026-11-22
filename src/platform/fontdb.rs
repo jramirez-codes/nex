@@ -1,11 +1,12 @@
 //! Font lookup by scanning the system's font folders, for OSes without fontconfig.
-//! The backend names its default sans-serif and monospace families (`SANS_SERIF`, `MONOSPACE`).
+//! The backend names its default sans-serif and monospace families (`SANS_SERIF`, `MONOSPACE`)
+//! and any font folders to scan beyond the system's usual ones (`FONT_DIRS`).
 
 use std::sync::OnceLock;
 
 use fontdb::{Database, Query, Source, Stretch, Style};
 
-use super::backend::{MONOSPACE, SANS_SERIF};
+use super::backend::{FONT_DIRS, MONOSPACE, SANS_SERIF};
 use super::{Family, FontFace, Weight};
 
 /// Scanned once; a few dozen milliseconds on a typical system.
@@ -14,6 +15,10 @@ fn db() -> &'static Database {
     DB.get_or_init(|| {
         let mut db = Database::new();
         db.load_system_fonts();
+        // Folders fontdb doesn't know about (Android's `/system/fonts`).
+        for dir in FONT_DIRS {
+            db.load_fonts_dir(dir);
+        }
         db.set_sans_serif_family(SANS_SERIF);
         db.set_monospace_family(MONOSPACE);
         db

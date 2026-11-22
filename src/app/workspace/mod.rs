@@ -57,10 +57,14 @@ impl App {
         self.agents.remove(&id);
     }
 
-    /// Spawn a shell sized for `card`, so its first output is already laid out correctly.
+    /// Spawn a shell sized for `card`, so its first output is already laid out correctly
+    /// (on the connected host, where the window is a thin client).
     /// `font_size` is the new pane's own zoom level (`None` = config default). `command` runs
     /// instead of the shell.
     pub(in crate::app) fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
+        if self.connect.active {
+            return self.spawn_remote_pane(ctx, card, font_size);
+        }
         let id = self.alloc_pane_id();
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);
@@ -89,6 +93,38 @@ impl App {
                 None
             }
         }
+    }
+
+    /// A pane on the host the window is connected to: a shell it left there (see
+    /// `App::adopt`), else a new one in the focused pane's folder there.
+    #[cfg(unix)]
+    fn spawn_remote_pane(&mut self, ctx: &egui::Context, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
+        let host = self.connect.host.clone()?;
+        let cwd = self.focused_pane().and_then(|id| self.panes.get(&id)).and_then(|t| t.remote_cwd());
+        let session = std::sync::Arc::new(std::sync::Mutex::new(self.adopt.pop()));
+        let id = self.alloc_pane_id();
+        let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
+        let size = self.grid_for(card, ctx.pixels_per_point(), m);
+        let remote = crate::terminal::RemotePane { host, session };
+        match Terminal::spawn_remote(&self.cfg, remote, cwd, size, cell_px(ctx, m), ctx) {
+            Ok(t) => {
+                self.panes.insert(id, t);
+                if let Some(fs) = font_size {
+                    self.pane_fonts.insert(id, fs);
+                }
+                Some(id)
+            }
+            Err(e) => {
+                eprintln!("nex: failed to open a pane on the host: {e}");
+                None
+            }
+        }
+    }
+
+    /// Remote panes need a unix socket pair (see `terminal/remote.rs`).
+    #[cfg(not(unix))]
+    fn spawn_remote_pane(&mut self, _ctx: &egui::Context, _card: Rect, _font_size: Option<f32>) -> Option<PaneId> {
+        None
     }
 
     pub(in crate::app) fn focused_pane(&self) -> Option<PaneId> {

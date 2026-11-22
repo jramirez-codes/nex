@@ -33,6 +33,7 @@ animations = true           # pane splits / closes, focus fades, title-bar tabs
 tab-animation = glide       # switching tabs: glide | ink | none
 explorer-view = list        # file explorer layout: list | grid
 tab-bar = top               # top | sidebar (phone-sized touch screens: a left sidebar, bigger buttons)
+agents-tab = full           # full | icon (just the dog, with a bubble counting agents that need you or are done; Android's default)
 
 cursor-style = block        # block | bar | underline
 cursor-style-blink = true
@@ -72,5 +73,10 @@ scrollback-limit = 10000
 # $XDG_STATE_HOME/nex/session.json (~/.local/state/nex/session.json), or
 # ~/Library/Application Support/nex/session.json on macOS.
 restore-session = true
+# Days the key lasts that nex puts on a host it logs in to with its own ssh client (the Android
+# app, `nex --remote`). You type the password once, and nex adds this device's key to the
+# host's ~/.ssh/authorized_keys with this expiry. After that the password is asked for again
+# and the key is replaced.
+device-key-days = 30
 
 # command = fish

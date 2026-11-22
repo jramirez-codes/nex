@@ -1,8 +1,11 @@
 //! One terminal "surface": a PTY + child process, the alacritty VT state machine, and the
-//! bookkeeping (title, cwd, foreground process) shown in pane headers and tabs.
+//! bookkeeping (title, cwd, foreground process) shown in pane headers and tabs. A remote
+//! pane's "PTY" is a `nex-host` session on a host nex connects to itself (see `remote.rs`).
 
 pub mod input;
 pub mod osc7;
+#[cfg(unix)]
+pub mod remote;
 pub mod search;
 pub mod snapshot;
 
@@ -69,6 +72,22 @@ impl Dimensions for GridSize {
     }
 }
 
+/// Where a terminal's output scanner reports what it found (see `osc7.rs`), and the window
+/// context it repaints.
+struct Scan {
+    osc7: osc7::Slot,
+    alert: osc7::Alert,
+    agent_tag: osc7::AgentSlot,
+    repaint: Arc<OnceLock<egui::Context>>,
+}
+
+impl Default for Scan {
+    fn default() -> Self {
+        let repaint = Arc::new(OnceLock::new());
+        Scan { osc7: osc7::Slot::default(), alert: osc7::Alert::new(repaint.clone()), agent_tag: osc7::AgentSlot::default(), repaint }
+    }
+}
+
 /// How long a restored command waits for its shell to be ready before it's typed anyway.
 const PENDING_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -128,6 +147,18 @@ pub struct Terminal {
     snapshot: Option<Snapshot>,
     /// The shapes last drawn for this pane and what they were built from.
     frame: Option<(FrameKey, Vec<egui::Shape>)>,
+    /// Where the shell runs when it isn't on this machine (see `remote.rs`).
+    pub remote: Option<RemotePane>,
+}
+
+/// A pane whose shell is a `nex-host` session on a host nex is connected to itself.
+// Remote panes open on unix only (see `App::spawn_remote_pane`).
+#[cfg_attr(not(unix), allow(dead_code))]
+#[derive(Clone)]
+pub struct RemotePane {
+    pub host: Arc<crate::remote::ssh::host::RemoteHost>,
+    /// The session's id, once the host has started it.
+    pub session: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl Terminal {
@@ -196,13 +227,41 @@ impl Terminal {
         let window_size = window_size(size, cell_px);
         let pty = tty::new(&options, window_size, id)?;
         let pid = platform::pty_pid(&pty);
-        let osc7 = osc7::Slot::default();
-        let repaint = Arc::new(OnceLock::new());
-        let alert = osc7::Alert::new(repaint.clone());
-        let agent_tag = osc7::AgentSlot::default();
+        let scan = Scan::default();
         #[cfg(unix)]
-        let pty = osc7::ScanPty::new(pty, osc7.clone(), alert.clone(), agent_tag.clone())?;
+        let pty = osc7::ScanPty::new(pty, scan.osc7.clone(), scan.alert.clone(), scan.agent_tag.clone())?;
+        let mut t = Self::start(cfg, pty, scan, pid, size, cell_px, cwd, None)?;
+        t.refresh_process_info();
+        Ok(t)
+    }
 
+    /// A pane whose shell is a `nex-host` session on `remote`'s host: the one in its
+    /// `session` slot, or a new shell there (in `cwd` on the host, else home).
+    #[cfg(unix)]
+    pub fn spawn_remote(
+        cfg: &Config,
+        remote: RemotePane,
+        cwd: Option<String>,
+        size: GridSize,
+        cell_px: (u16, u16),
+        ctx: &egui::Context,
+    ) -> std::io::Result<Self> {
+        let scan = Scan::default();
+        let start = remote::Start { host: remote.host.clone(), session: remote.session.clone(), cwd, cols: size.cols as u16, rows: size.lines as u16 };
+        let pty = remote::open(start, scan.osc7.clone(), scan.alert.clone(), scan.agent_tag.clone())?;
+        let mut t = Self::start(cfg, pty, scan, 0, size, cell_px, None, Some(remote))?;
+        t.process = "shell".into();
+        t.attach(ctx);
+        Ok(t)
+    }
+
+    /// The terminal around `pty`, reading it on a thread of its own from now on.
+    #[allow(clippy::too_many_arguments)]
+    fn start<P>(cfg: &Config, pty: P, scan: Scan, pid: u32, size: GridSize, cell_px: (u16, u16), cwd: Option<PathBuf>, remote: Option<RemotePane>) -> std::io::Result<Self>
+    where
+        P: tty::EventedPty + OnResize + Send + 'static,
+    {
+        let Scan { osc7, alert, agent_tag, repaint } = scan;
         let (tx, events) = mpsc::channel();
         let visible = Arc::new(AtomicBool::new(true));
         let proxy = EventProxy { tx, ctx: repaint.clone(), visible: visible.clone() };
@@ -212,7 +271,7 @@ impl Terminal {
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();
 
-        let mut t = Self {
+        let t = Self {
             term,
             notifier,
             events,
@@ -240,8 +299,8 @@ impl Terminal {
             repaint,
             snapshot: None,
             frame: None,
+            remote,
         };
-        t.refresh_process_info();
         Ok(t)
     }
 
@@ -389,6 +448,10 @@ impl Terminal {
     /// Update `process` and `cwd` from the shell's foreground process, so running `node`
     /// shows "node" rather than "bash".
     pub fn refresh_process_info(&mut self) {
+        if self.remote.is_some() {
+            // Nothing runs here to look at.
+            return;
+        }
         let info = platform::proc_info(self.pid);
         if let Some(name) = info.name {
             self.process = name;
