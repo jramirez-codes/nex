@@ -12,4 +12,5 @@ pub mod paint;
 pub mod raster;
 pub mod theme;
 pub mod toast;
+pub mod touch_pan;
 pub mod widgets;

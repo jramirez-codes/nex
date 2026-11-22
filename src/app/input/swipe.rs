@@ -11,7 +11,7 @@ use crate::app::App;
 use crate::app::actions::Action;
 
 /// A finger moving further than this (in points) is a swipe, not a tap or a long press.
-pub(in crate::app) const TOUCH_SLOP: f32 = 10.0;
+pub(in crate::app) const TOUCH_SLOP: f32 = crate::ui::touch_pan::SLOP;
 /// Holding a finger this long (in seconds, without moving) is a long press.
 pub(in crate::app) const LONG_PRESS: f64 = 0.45;
 /// A sideways swipe this long switches tabs; a quick flick needs only [`FLICK_DISTANCE`].

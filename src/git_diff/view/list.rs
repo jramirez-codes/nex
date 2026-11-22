@@ -41,6 +41,11 @@ impl GitDiff {
                 self.view.list_active = ui.input(|i| i.time);
             }
         }
+        let d = self.view.list_pan.delta(ui, area);
+        if d != 0.0 {
+            self.list_scroll += d;
+            self.view.list_active = ui.input(|i| i.time);
+        }
         if std::mem::take(&mut self.reveal)
             && let Some(sy) = sel_y
         {
@@ -50,7 +55,11 @@ impl GitDiff {
                 self.list_scroll = sy + ROW_H + LIST_PAD - area.height();
             }
         }
-        self.list_scroll = self.list_scroll.clamp(0.0, (content_h - area.height()).max(0.0));
+        let clamped = self.list_scroll.clamp(0.0, (content_h - area.height()).max(0.0));
+        if clamped != self.list_scroll {
+            self.view.list_pan.stop();
+        }
+        self.list_scroll = clamped;
         let top = area.top() - self.list_scroll;
         let clip = p.with_clip_rect(area.intersect(f.clip));
 
