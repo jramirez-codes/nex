@@ -370,6 +370,7 @@ impl eframe::App for App {
         if self.close_if_empty(ctx) {
             return;
         }
+        self.remember_terminal_focus();
 
         self.clear_seen_attention(ctx);
         self.glyphs.begin_frame(ctx);

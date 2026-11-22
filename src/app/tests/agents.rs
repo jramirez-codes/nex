@@ -206,3 +206,35 @@ fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
     run(&mut app, &ctx, 1400.0);
     assert!(app.agent_prompt.is_some(), "and stays up until answered");
 }
+
+#[test]
+fn a_tab_keeps_its_terminals_name_while_its_agents_pane_has_focus() {
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx);
+    run(&mut app, &ctx, 1400.0);
+    let shell = app.focused_pane().unwrap();
+    app.pending.push(Action::NewTab);
+    run(&mut app, &ctx, 1400.0);
+    app.show_tab(0);
+    run(&mut app, &ctx, 1400.0);
+
+    app.pending.push(Action::ToggleAgents);
+    run(&mut app, &ctx, 1400.0);
+    let id = *app.agents.keys().next().unwrap();
+    assert_eq!(app.focused_pane(), Some(id));
+    assert_eq!(app.tab_header_pane(&app.tabs[0]), shell, "the header still names the shell");
+
+    // Away and back, the Agents pane still focused: still the shell.
+    app.show_tab(1);
+    run(&mut app, &ctx, 1400.0);
+    app.show_tab(0);
+    run(&mut app, &ctx, 1400.0);
+    assert_eq!(app.focused_pane(), Some(id));
+    assert_eq!(app.tab_header_pane(&app.tabs[0]), shell);
+
+    // With the shell gone, the tab is named after its Agents pane.
+    app.close_pane(&ctx, shell);
+    run(&mut app, &ctx, 1400.0);
+    assert_eq!(app.tab_header_pane(&app.tabs[0]), id);
+    assert_eq!(app.pane_label(id).0, "Agents");
+}

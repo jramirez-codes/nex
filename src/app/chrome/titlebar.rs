@@ -420,7 +420,7 @@ impl App {
             if self.tab_needs_attention(i) {
                 paint_attention(&ctx, painter, icon.left_top() + Vec2::splat(2.0), self.cfg.attention_color(), theme, self.cfg.animations);
             }
-            let (title, process) = self.pane_label(self.tabs[i].focused);
+            let (title, process) = self.pane_label(self.tab_header_pane(&self.tabs[i]));
             let title = icons::title_mark(&process, &title).1.to_string();
             let color = if active { theme.text_bright } else { theme.text_dim };
             paint::caption(painter, text, &title, FontId::proportional(12.0), color);
@@ -435,7 +435,7 @@ impl App {
 
         let icon = Rect::from_center_size(Pos2::new(r.left() + 19.0, r.center().y), Vec2::splat(20.0));
         let text_left = self.tab_icon(&ctx, painter, i, icon, icons::STACK_STEP, false);
-        let (title, process) = self.pane_label(self.tabs[i].focused);
+        let (title, process) = self.pane_label(self.tab_header_pane(&self.tabs[i]));
         let title = icons::title_mark(&process, &title).1;
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
         self.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
@@ -466,7 +466,7 @@ impl App {
     /// is centered on `icon` rather than fanning out from it. Returns where the title text
     /// starts.
     fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect, step: Vec2, center: bool) -> f32 {
-        let (title, process) = self.pane_label(self.tabs[i].focused);
+        let (title, process) = self.pane_label(self.tab_header_pane(&self.tabs[i]));
         let mark = icons::title_mark(&process, &title).0.map(str::to_string);
         let (panes, explorers, diffs, agents) = (&self.panes, &self.explorers, &self.diffs, &self.agents);
         let cards = self.tabs[i].deck_cards(ctx, |id| {
