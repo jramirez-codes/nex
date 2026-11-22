@@ -196,7 +196,7 @@ fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
 #[test]
 fn a_tab_keeps_its_terminals_name_while_its_agents_pane_has_focus() {
     let ctx = egui::Context::default();
-    let mut app = new_app(&ctx);
+    let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1400.0);
     let shell = app.focused_pane().unwrap();
     app.pending.push(Action::NewTab);
