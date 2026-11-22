@@ -212,7 +212,8 @@ impl App {
     }
 
     /// Show pane `pane`: its tab, focused.
-    fn focus_pane(&mut self, pane: PaneId) {        if let Some(i) = self.tabs.iter().position(|t| t.contains(pane)) {
+    fn focus_pane(&mut self, pane: PaneId) {
+        if let Some(i) = self.tabs.iter().position(|t| t.contains(pane)) {
             // The sticky pane is in every tab: stay on the shown one if it can.
             if !self.cur_tab().is_some_and(|t| t.contains(pane)) {
                 self.show_tab(i);

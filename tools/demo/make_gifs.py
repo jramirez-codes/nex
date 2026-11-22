@@ -7,7 +7,7 @@ Each clip spans its start/end markers in timeline.json. GIFs get a palette of th
 is flat colors and dither noise only blurs text and bloats the file. The only transparent
 pixels are the window's rounded corners (see gif_corners.py), which would otherwise show the
 desktop behind the window.
-Usage: docs/demo/make_gifs.py [TAKE_DIR] [OUT_DIR]
+Usage: tools/demo/make_gifs.py [TAKE_DIR] [OUT_DIR]
        (defaults: target/demo, site/public/demo)
 """
 

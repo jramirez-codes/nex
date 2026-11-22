@@ -14,9 +14,11 @@
 //!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
 //!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
 //!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland) · watch.rs (inotify)
-//!                 · file_manager/ (D-Bus FileManager1)
-//!                 · memory.rs (glibc arenas, malloc_trim)
+//!                 · file_manager/ (D-Bus FileManager1) · apps.rs (Open With, desktop entries)
+//!                 · clipboard.rs · memory.rs (glibc arenas, malloc_trim)
 //!   macos/        mod.rs · proc.rs (libproc) · memory.rs (malloc pressure relief)
+//!                 · apps.rs (Open With) · clipboard.rs · launch.rs (started from nex.app)
+//!                 · menu.rs (app menu) · window.rs (traffic lights, title)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
 //! ```
 //!
@@ -45,6 +47,15 @@
 //! | `DirWatch` / `on_dir_change(f)` | being told when a folder's contents change |
 //! | `tune_allocator()` / `trim_heap()` | allocator setup at launch; return freed heap to the OS |
 //! | `MIC_PERMISSION_HINT` | where to allow microphone access, after the OS refused it |
+//! | `app_icon()` | the window icon, where the OS takes it from the window |
+//! | `set_window_title(..)` / `align_window_buttons(..)` | the window title; centering native title-bar buttons (macOS) |
+//!
+//! Shared by every OS, defined in this folder rather than per backend:
+//!
+//! | Item | What it is |
+//! |---|---|
+//! | `WinitApp` / `vsync(..)` | eframe on nex's own winit event loop (`winit_app.rs`) |
+//! | `paste_key_pressed(..)` / `take_paste_key()` | the paste shortcut, noted by `winit_app.rs` before egui sees it |
 
 use std::path::PathBuf;
 
