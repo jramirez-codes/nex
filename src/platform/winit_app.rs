@@ -4,6 +4,9 @@
 //! - **Paste keys:** on Wayland nex reads the clipboard itself (see `Dnd::note_paste_key` in
 //!   `linux/dnd/`), but egui swallows a paste key when its own clipboard is empty, so the key
 //!   never reaches the app. This notes paste keys before handing every event on to eframe.
+//! - **Waking:** when the app comes back (resumed, or focused: some phones only say that
+//!   after the screen comes on), nex's own ssh connections are checked, since the phone may
+//!   have lost them while it slept (`remote::ssh::woke`).
 //! - **Frame pacing:** on Wayland vsync is off (see `vsync`), so this keeps frames to the
 //!   display's refresh rate instead.
 
@@ -101,6 +104,7 @@ fn is_paste(mods: ModifiersState, logical: &Key, physical: PhysicalKey) -> bool 
 
 impl ApplicationHandler<UserEvent> for WinitApp<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        crate::remote::ssh::woke();
         if let Some(p) = &mut self.pacer {
             p.interval = frame_interval(event_loop);
         }
@@ -110,6 +114,7 @@ impl ApplicationHandler<UserEvent> for WinitApp<'_> {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
         match &event {
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
+            WindowEvent::Focused(true) => crate::remote::ssh::woke(),
             WindowEvent::KeyboardInput { event: key, .. } if key.state == ElementState::Pressed && is_paste(self.mods, &key.logical_key, key.physical_key) => {
                 Dnd::note_paste_key();
                 super::paste_key_pressed(self.mods.shift_key());

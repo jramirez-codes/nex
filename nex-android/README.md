@@ -99,6 +99,8 @@ cargo apk run -p nex-android --release
    - The pane says it lost the connection and is reconnecting.
    - Then the screen comes back.
    - A command that was running (`top`, say) is still running.
+   - The same after locking the phone (power button) and unlocking it: the pane is live
+     again within a few seconds (`adb logcat -s nex` shows the reconnect).
 5. **New tabs.** The app stays in portrait with the tabs along the top. The new-tab button
    there opens another shell. Closing a pane ends its
    shell: `~/.nex/bin/nex-host list` on the server no longer shows it.
