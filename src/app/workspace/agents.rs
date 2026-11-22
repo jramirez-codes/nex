@@ -71,6 +71,7 @@ impl App {
 
         self.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
         self.offer_shim(&hosts);
+        self.offer_sharing(&hosts);
         self.agent_notes = self.host_notes();
         // Two panes may reach one host under different names: list each agent once.
         let mut listed = HashSet::new();

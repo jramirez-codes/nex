@@ -307,6 +307,12 @@ impl Watch {
         w
     }
 
+    /// A watch that connects nowhere, showing `snapshot`, for tests.
+    #[cfg(test)]
+    pub fn fake(snapshot: Snapshot) -> Self {
+        Watch { snapshot: Arc::new(Mutex::new(snapshot)), stop: Arc::default(), child: Arc::default() }
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         self.snapshot.lock().map(|s| s.clone()).unwrap_or_default()
     }

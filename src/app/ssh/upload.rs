@@ -148,8 +148,9 @@ impl App {
             SharingPrompt::Offer(host, _) => (
                 AlertIcon::Lock,
                 format!("{host} needs a password"),
-                "nex can share your ssh connection, so uploads and the shared microphone reuse \
-                 the login you already typed. It adds a small nex-only block to ~/.ssh/config."
+                "nex can share your ssh connection, so uploads, the shared microphone and the \
+                 Agents pane reuse the login you already typed. It adds a small nex-only block \
+                 to ~/.ssh/config."
                     .to_string(),
                 Vec::new(),
                 "Turn On",
@@ -210,8 +211,8 @@ impl App {
 /// What the connection-sharing dialog is showing.
 #[derive(Clone)]
 pub(in crate::app) enum SharingPrompt {
-    /// An upload to this host (or sharing the microphone with it) needed a password: offer to
-    /// turn sharing on. Then the last step of logging in again ("Drop the file again").
+    /// An upload to this host (sharing the microphone with it, or watching its agents) needed
+    /// a password: offer to turn sharing on. Then the last step of logging in again ("Drop the file again").
     Offer(String, &'static str),
     /// A split or new tab of an ssh session to this host would log in again: offer to turn
     /// sharing on first (see `follow`).

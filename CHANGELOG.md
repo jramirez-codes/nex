@@ -82,6 +82,10 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- When the Agents pane can't see a host's agents because it wants a password, nex offers to
+  share the ssh connection (once a run), so it reuses the login typed into the pane. If sharing
+  is on but that pane logged in before it was, the note says to log out and ssh back in.
+
 - nex's own connections to an ssh host (the Agents watch, installing `nex-host`, uploads,
   the shared mic, stopping an agent) share one ssh connection per host, so only the first one
   logs in; each one after it starts in about one round trip. It is the pane's own shared
