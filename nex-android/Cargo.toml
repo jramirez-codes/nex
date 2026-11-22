@@ -41,6 +41,9 @@ name = "android.permission.INTERNET"
 
 [package.metadata.android.application]
 label = "nex"
+# No action bar: NativeActivity's default theme reserves room for one (invisible, under nex's
+# surface), which would push nex's content area 56dp below the status bar.
+theme = "@android:style/Theme.DeviceDefault.NoActionBar"
 # Portrait only, with the tabs along the top as on a desktop. The app redraws itself on
 # keyboard and size changes instead of being restarted.
 [package.metadata.android.application.activity]

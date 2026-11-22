@@ -280,6 +280,22 @@ impl eframe::App for App {
         if let Some(dnd) = &mut self.dnd {
             dnd.feed(ctx, raw_input);
         }
+        // Android: the window covers the whole screen; keep nex out from under the status bar
+        // and navigation bar.
+        if let (Some([l, t, r, b]), Some(screen)) = (crate::platform::content_rect_px(), raw_input.screen_rect) {
+            let ppp = ctx.pixels_per_point();
+            let free = Rect::from_min_max(Pos2::new(l / ppp, t / ppp), Pos2::new(r / ppp, b / ppp)).intersect(screen);
+            if free.is_positive() {
+                raw_input.screen_rect = Some(free);
+            }
+        }
+        // The connect screen's text fields take what the on-screen keyboard committed (a paste
+        // from its clipboard history) as typed text; terminals take it in `handle_keyboard`.
+        if self.connect.active && self.tabs.is_empty() {
+            for text in crate::platform::typed_text() {
+                raw_input.events.push(egui::Event::Text(text));
+            }
+        }
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -360,6 +376,7 @@ impl eframe::App for App {
             self.ask_for_keyboard(ctx);
         }
         crate::platform::mirror_copies(ctx);
+        crate::platform::sync_soft_keyboard(ctx);
         if !self.pending.is_empty() {
             self.drain_pending(ctx);
             ctx.request_repaint();
@@ -394,6 +411,7 @@ impl App {
         let theme = Theme::from_config(&self.cfg);
         self.connect.show(ctx, &theme, self.cfg.device_key_days);
         crate::platform::mirror_copies(ctx);
+        crate::platform::sync_soft_keyboard(ctx);
     }
 
     /// Keep the on-screen keyboard up while a terminal has focus: egui shows it for as long as

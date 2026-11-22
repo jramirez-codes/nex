@@ -34,6 +34,8 @@
 //! | `FALLBACK_FAMILIES` | system fonts tried for glyphs the grid font lacks |
 //! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |
 //! | `process_start(pid)` | when a process started, as Claude Code's session file records it |
+//! | `content_rect_px()` | the part of the window system bars leave free (Android: the window covers the whole screen) |
+//! | `typed_text()` / `sync_soft_keyboard(ctx)` | text the on-screen keyboard committed (a paste, a suggestion), and showing or hiding it |
 //! | `clipboard_text()` / `mirror_copies(ctx)` | the system clipboard where egui has none (Android): pasting into text fields, and copies mirrored to it |
 //! | `clipboard_files()` | an image or copied files on the clipboard ([`ClipboardFiles`]), where `Dnd` can't read it |
 //! | `pty_options(..)` / `pty_pid(..)` | build the PTY options, read the child's pid |
@@ -102,6 +104,21 @@ use android as backend;
 compile_error!("nex has no platform backend for this OS yet: add one under src/platform/");
 
 pub use backend::*;
+
+/// Desktop windows have no system bars or on-screen keyboard drawn over them.
+#[cfg(not(target_os = "android"))]
+pub fn content_rect_px() -> Option<[f32; 4]> {
+    None
+}
+
+/// Only Android has an on-screen keyboard that commits text outside of key events.
+#[cfg(not(target_os = "android"))]
+pub fn typed_text() -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn sync_soft_keyboard(_ctx: &egui::Context) {}
 
 /// Why [`lock_file`] didn't take its lock.
 #[derive(Debug)]

@@ -35,6 +35,8 @@ You need:
   export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.3.11579264
   ```
 - cargo-apk: `cargo install cargo-apk`
+- A JDK (`javac`): `build.rs` compiles the app's bit of Java (the view the on-screen keyboard
+  types into, `src/platform/android/java/`) with it and the SDK's `d8`.
 
 The app installs `nex-host` on the server itself, so it has to carry a build of it for your
 server's kind of machine. Build that first. `build.rs` picks it up, and the APK build warns if
@@ -51,6 +53,9 @@ If the server already has the same nex-host in `~/.nex/bin` (version and protoco
 Then, from the repository root, with the phone plugged in and USB debugging on:
 
 ```sh
+# Newer phones use 16 KB memory pages and warn about a library linked for 4 KB ones.
+# cargo-apk ignores target-specific rustflags, so this has to be plain RUSTFLAGS.
+export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
 cargo apk run -p nex-android          # build, install and start a debug build
 adb logcat -s nex RustStdoutStderr    # nex's messages and any panic
 ```

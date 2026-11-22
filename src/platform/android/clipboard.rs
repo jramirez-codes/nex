@@ -7,7 +7,7 @@ use jni::objects::{JObject, JString, JValue};
 
 /// Run `f` with the JNI environment and the app's `Context`. `None` if anything along the way
 /// failed (a Java exception is cleared, not left pending).
-fn with_context<T>(f: impl FnOnce(&mut jni::JNIEnv, &JObject) -> jni::errors::Result<T>) -> Option<T> {
+pub(super) fn with_context<T>(f: impl FnOnce(&mut jni::JNIEnv, &JObject) -> jni::errors::Result<T>) -> Option<T> {
     let ctx = ndk_context::android_context();
     // SAFETY: android-activity hands ndk-context the process's JavaVM and the activity, both
     // valid for as long as the app runs.

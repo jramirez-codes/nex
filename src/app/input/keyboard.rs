@@ -42,6 +42,16 @@ impl App {
         if let (Some(shift), false) = (paste_key, pasted) {
             self.on_textless_paste(ctx, shift);
         }
+        // Text the on-screen keyboard committed: a paste from its clipboard history goes in as
+        // a paste, a single character as typing.
+        for text in platform::typed_text() {
+            let Some(t) = self.focused_terminal() else { continue };
+            if text.chars().count() > 1 {
+                t.paste(&text);
+            } else {
+                t.input(text.into_bytes());
+            }
+        }
     }
 
     /// A paste key egui made no `Paste` event for: the clipboard holds no text (an image, say).
