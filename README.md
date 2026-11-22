@@ -236,7 +236,9 @@ ssh-mic = off        # no mic button in ssh panes
   the dock or taskbar flags it too. For Claude Code, see the [FAQ](#faq).
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
   an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
-  selection into another folder, explorer or terminal pane.
+  selection into another folder, explorer or terminal pane. In a terminal, swipe up or down to
+  scroll (a quick swipe flings on), long-press to select a word and drag to extend it, and tap
+  to focus. Swipe sideways on any pane to go to the next or previous tab.
 - **Native-feeling chrome.** Tabs sit in a segmented track with a raised "glass" active pill,
   glossy per-app icons and titles that fade out instead of being cut off.
 - **Smart titles.** Every tab and pane shows the foreground program and its directory, such as

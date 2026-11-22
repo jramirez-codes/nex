@@ -8,6 +8,13 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Touch screens: a finger on a terminal no longer only selects text. Swipe up or down to
+  scroll (through the scrollback, or as the wheel in `less`, tmux and other programs), and
+  a quick swipe flings on. Swipe sideways on any pane (a terminal, Files, Changes, Agents)
+  to go to the next or previous tab; the home tab comes first, and the ends don't wrap.
+  Long-press to
+  select a word, then drag to extend the selection. A tap focuses the pane (and clicks, in
+  programs that take the mouse).
 - Android: the Agents pane lists the agents on the server the app is connected to, watched
   over the app's own connection. Opening one attaches a pane to it, and closing that pane
   only detaches (the agent keeps running); stopping one goes over the same connection. A
