@@ -30,6 +30,8 @@ const WATCH_TICK: Duration = Duration::from_millis(500);
 const DELIVER_TICK: Duration = Duration::from_millis(400);
 /// A program this new may not be reading its input yet: messages wait until it's older.
 const STARTUP_MS: u64 = 2500;
+/// How long Claude Code's screen must have been still before a message is typed in.
+const SETTLE_MS: u64 = 500;
 /// How long an agent may sit idle after working on a task without reporting before it's
 /// reminded to (once per task).
 const NUDGE_AFTER: Duration = Duration::from_secs(45);
@@ -534,7 +536,11 @@ fn post(state: &Arc<State>, d: Draft, force: bool) -> Result<(Vec<String>, Vec<S
 /// something (typing into a yes/no prompt would answer it).
 fn can_take(a: &Agent) -> bool {
     let now = agent::now_ms();
-    now.saturating_sub(a.started) >= STARTUP_MS && a.session(now).status != Status::NeedsYou
+    let s = a.session(now);
+    // Claude Code's first screen may be a dialog (see `Agent::session`): wait until it has
+    // drawn one and stopped, so a slow start can't have the message answer it unseen.
+    let settled = s.kind != "claude" || (s.last_output != 0 && now.saturating_sub(s.last_output) >= SETTLE_MS);
+    now.saturating_sub(a.started) >= STARTUP_MS && settled && s.status != Status::NeedsYou
 }
 
 /// Type in the messages that were waiting, once their recipients can take them; remind
