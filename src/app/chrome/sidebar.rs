@@ -1,4 +1,4 @@
-//! The mobile sidebar (`mobile = true`): the title bar's contents stacked down the left edge
+//! The sidebar (`tab-bar = sidebar`): the title bar's contents stacked down the left edge
 //! as large, touch-sized tiles. Window buttons on top, then the Files tile and the tabs (an
 //! app icon, or pane deck, over its title), and the new-tab button at the bottom.
 

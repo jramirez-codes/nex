@@ -23,7 +23,7 @@ pub(in crate::app) struct Shown {
     pub(in crate::app) area: Rect,
     /// Where its tab is, brought onto the pane area's edge.
     pub(in crate::app) origin: Pos2,
-    /// The tab strip runs top to bottom (the mobile sidebar).
+    /// The tab strip runs top to bottom (the sidebar).
     pub(in crate::app) vertical: bool,
     pub(in crate::app) style: TabAnimation,
 }

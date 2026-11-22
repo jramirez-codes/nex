@@ -105,7 +105,7 @@ impl App {
                 None,
             ),
         };
-        let alert = Alert { id: Id::new("nex-ssh-sharing"), icon, title: &title, body: &body, steps: &steps, primary, secondary, touch: self.cfg.mobile };
+        let alert = Alert { id: Id::new("nex-ssh-sharing"), icon, title: &title, body: &body, steps: &steps, primary, secondary, touch: self.cfg.sidebar() };
         let Some(choice) = alert.show(ctx, theme) else { return };
         self.ssh.sharing_prompt = match (prompt, choice) {
             (SharingPrompt::Offer(host, again), AlertChoice::Primary) => Some(match remote::enable_sharing() {

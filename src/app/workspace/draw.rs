@@ -67,7 +67,7 @@ impl App {
             pos: if self.home_active { -1 } else { self.active as isize },
             area,
             origin: self.drop_origin(tab_uid, area),
-            vertical: self.cfg.mobile,
+            vertical: self.cfg.sidebar(),
             style: self.cfg.tab_animation,
         };
         let sheet = self.switch.begin(ui, &shown);
@@ -439,8 +439,8 @@ impl App {
 
         // Buttons, laid out right to left: 28px buttons like the tab bar's +, with smaller (~12px)
         // glyphs so the header stays quiet. Mobile mode makes them finger-sized.
-        let (size, step, inset) = if self.cfg.mobile { (36.0, 38.0, 7.0) } else { (28.0, 30.0, 4.5) };
-        let mut bx = header.right() - if self.cfg.mobile { 26.0 } else { 22.0 };
+        let (size, step, inset) = if self.cfg.sidebar() { (36.0, 38.0, 7.0) } else { (28.0, 30.0, 4.5) };
+        let mut bx = header.right() - if self.cfg.sidebar() { 26.0 } else { 22.0 };
         let pinned = self.is_sticky(id);
         // Holding Shift turns the × into a pin: the pane follows the user to every tab. On
         // the pinned pane that slot is the pin (click to unpin, back to the ×), and Shift
@@ -513,7 +513,7 @@ impl App {
             }
         }
 
-        let font = if self.cfg.mobile { 15.0 } else { 13.5 };
+        let font = if self.cfg.sidebar() { 15.0 } else { 13.5 };
         header_label(painter, header, &process, &title, title_color, bx - 4.0, font);
         if pressed_in(ui, header) {
             self.pending.push(Action::FocusPane(id));

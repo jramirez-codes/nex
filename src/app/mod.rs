@@ -43,7 +43,7 @@ use animation::tab_switch::TabSwitch;
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;
-/// Pane headers in mobile mode, tall enough for touch-sized buttons.
+/// Pane headers with the sidebar tab bar, tall enough for touch-sized buttons.
 const MOBILE_HEADER_HEIGHT: f32 = 44.0;
 const PANE_GAP: f32 = 8.0;
 const WINDOW_RADIUS: u8 = 14;
@@ -352,10 +352,10 @@ impl eframe::App for App {
 }
 
 impl App {
-    /// The area below the title bar (or right of the mobile sidebar) where panes go.
+    /// The area below the title bar (or right of the sidebar) where panes go.
     fn update_content_area(&mut self, ctx: &egui::Context) {
         let full = ctx.content_rect();
-        let min = if self.cfg.mobile {
+        let min = if self.cfg.sidebar() {
             Pos2::new(full.left() + chrome::sidebar::SIDEBAR_WIDTH, full.top() + PANE_GAP)
         } else {
             Pos2::new(full.left() + PANE_GAP, full.top() + TITLEBAR_HEIGHT)
@@ -363,9 +363,9 @@ impl App {
         self.content_area = Rect::from_min_max(min, Pos2::new(full.right() - PANE_GAP, full.bottom() - PANE_GAP));
     }
 
-    /// Height of a pane's header (taller in mobile mode).
+    /// Height of a pane's header (taller with the sidebar tab bar).
     fn header_height(&self) -> f32 {
-        if self.cfg.mobile { MOBILE_HEADER_HEIGHT } else { HEADER_HEIGHT }
+        if self.cfg.sidebar() { MOBILE_HEADER_HEIGHT } else { HEADER_HEIGHT }
     }
 
     /// Read PTY events; panes whose shell exited are closed (like Ghostty).
@@ -498,7 +498,7 @@ impl App {
             ui.painter().rect_stroke(full, radius, Stroke::new(1.0_f32, WINDOW_BORDER), StrokeKind::Inside);
         }
 
-        if self.cfg.mobile {
+        if self.cfg.sidebar() {
             let sidebar = Rect::from_min_size(full.min, Vec2::new(chrome::sidebar::SIDEBAR_WIDTH, full.height()));
             self.sidebar(ui, sidebar, &theme);
         } else {

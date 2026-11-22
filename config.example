@@ -32,7 +32,7 @@ pane-headers = true
 animations = true           # pane splits / closes, focus fades, title-bar tabs
 tab-animation = glide       # switching tabs: glide | ink | none
 explorer-view = list        # file explorer layout: list | grid
-mobile = false              # phone-sized touch screens: tabs in a left sidebar, bigger buttons
+tab-bar = top               # top | sidebar (phone-sized touch screens: a left sidebar, bigger buttons)
 
 cursor-style = block        # block | bar | underline
 cursor-style-blink = true
