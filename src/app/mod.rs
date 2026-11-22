@@ -114,10 +114,12 @@ pub struct App {
     /// Every agent running in a pane and what it's doing, as of the last process poll; what
     /// Agents panes and the title bar's Agents label show.
     agent_tracker: agents::model::Tracker,
-    /// The Files tab. It lives outside `tabs`: the title-bar directory label is its tab.
-    explorer_tab: Option<Tab>,
-    /// Whether the Files tab is showing (`active` keeps the last terminal tab).
-    explorer_active: bool,
+    /// The home tab, outside `tabs`: the Files tab (the title-bar directory label is its
+    /// tab), or the Agents tab when it holds an Agents pane (see `home_is_files`). Saved in
+    /// the session as `explorer`.
+    home_tab: Option<Tab>,
+    /// Whether the home tab is showing (`active` keeps the last terminal tab).
+    home_active: bool,
     /// The sticky pane: it follows the user from tab to tab, a leaf in every tab's split
     /// tree (each tab keeps its own place and size for it). See `workspace/sticky.rs`.
     sticky: Option<PaneId>,
@@ -204,8 +206,8 @@ impl App {
             agents: HashMap::new(),
             agent_requests: Vec::new(),
             agent_tracker: agents::model::Tracker::default(),
-            explorer_tab: None,
-            explorer_active: false,
+            home_tab: None,
+            home_active: false,
             sticky: None,
             sticky_glide: Default::default(),
             last_pointer: None,
@@ -423,7 +425,7 @@ impl App {
         }
         self.session.had_tabs = true;
         if self.tabs.is_empty() {
-            self.explorer_active = true;
+            self.home_active = true;
         }
         false
     }

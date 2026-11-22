@@ -19,7 +19,7 @@ impl App {
 
     /// Every tab: the terminal tabs and the Files tab.
     fn every_tab_mut(&mut self) -> impl Iterator<Item = &mut Tab> {
-        self.tabs.iter_mut().chain(self.explorer_tab.iter_mut())
+        self.tabs.iter_mut().chain(self.home_tab.iter_mut())
     }
 
     /// Pin pane `id` (of the shown tab) so it follows the user to every tab, or unpin it.
@@ -66,7 +66,7 @@ impl App {
         let keep = self
             .cur_tab()
             .filter(|t| t.contains(id))
-            .or_else(|| self.tabs.iter().chain(self.explorer_tab.iter()).find(|t| t.contains(id)))
+            .or_else(|| self.tabs.iter().chain(self.home_tab.iter()).find(|t| t.contains(id)))
             .map(|t| t.uid);
         let mut lone = Vec::new();
         for t in self.every_tab_mut().filter(|t| Some(t.uid) != keep) {
@@ -86,14 +86,14 @@ impl App {
         let lone: Vec<u64> = self
             .tabs
             .iter()
-            .chain(self.explorer_tab.iter())
+            .chain(self.home_tab.iter())
             .filter(|t| matches!(t.root, Node::Leaf(p) if p == id))
             .map(|t| t.uid)
             .collect();
         if lone.is_empty() {
             return;
         }
-        let total = self.tabs.len() + usize::from(self.explorer_tab.is_some());
+        let total = self.tabs.len() + usize::from(self.home_tab.is_some());
         if lone.len() < total {
             self.drop_tabs(&lone);
             return;
@@ -105,9 +105,9 @@ impl App {
 
     /// Take the tabs with these uids out of the window, keeping their panes alive.
     fn drop_tabs(&mut self, uids: &[u64]) {
-        if self.explorer_tab.as_ref().is_some_and(|t| uids.contains(&t.uid)) {
-            self.explorer_tab = None;
-            self.explorer_active = false;
+        if self.home_tab.as_ref().is_some_and(|t| uids.contains(&t.uid)) {
+            self.home_tab = None;
+            self.home_active = false;
         }
         while let Some(i) = self.tabs.iter().position(|t| uids.contains(&t.uid)) {
             self.take_tab(i);
@@ -142,7 +142,7 @@ impl App {
     pub(in crate::app) fn forget_sticky_if_alone(&mut self) {
         if let Some(id) = self.sticky
             && self.tabs.is_empty()
-            && self.explorer_tab.is_none()
+            && self.home_tab.is_none()
         {
             self.sticky = None;
             self.forget_pane(id);

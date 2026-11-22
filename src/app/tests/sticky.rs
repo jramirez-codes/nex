@@ -48,7 +48,7 @@ impl Sim {
 
     /// Every tab (terminal tabs, then Files) holds `id`.
     fn everywhere(&self, id: PaneId) -> bool {
-        self.app.tabs.iter().chain(self.app.explorer_tab.iter()).all(|t| t.contains(id))
+        self.app.tabs.iter().chain(self.app.home_tab.iter()).all(|t| t.contains(id))
     }
 
     /// A tab split in two with its right pane pinned; returns `(left, sticky)`.

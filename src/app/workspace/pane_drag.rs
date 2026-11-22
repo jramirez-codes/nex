@@ -81,7 +81,7 @@ impl App {
     pub(in crate::app) fn start_pane_drag(&mut self, pane: PaneId, at: Pos2, slot: Rect) {
         let Some(home) = self.cur_tab().map(|t| t.uid) else { return };
         // The sticky pane is in every tab already: it can only move within one.
-        let roams = !self.explorer_active && !self.is_sticky(pane);
+        let roams = !self.home_active && !self.is_sticky(pane);
         self.pane_drag = Some(PaneDrag { pane, home, grab: at - slot.min, at, slot, over: None, hover: None, roams });
     }
 
@@ -93,7 +93,7 @@ impl App {
         let Some((pane, home, roams)) = self.pane_drag.as_ref().map(|d| (d.pane, d.home, d.roams)) else { return none };
         let Some((shown, zoomed)) = self.cur_tab().map(|t| (t.uid, t.zoomed)) else { return none };
         let at_home = shown == home;
-        let owner = self.tabs.iter().chain(self.explorer_tab.iter()).find(|t| t.uid == home && t.contains(pane)).map(|t| t.uid);
+        let owner = self.tabs.iter().chain(self.home_tab.iter()).find(|t| t.uid == home && t.contains(pane)).map(|t| t.uid);
         let slot = rects.iter().find(|(id, _)| *id == pane).map(|&(_, r)| r);
         // Nothing to drag it onto in a tab of one pane, unless it can go to another tab.
         let stuck = rects.len() < 2 && !(roams && self.tabs.len() > 1);

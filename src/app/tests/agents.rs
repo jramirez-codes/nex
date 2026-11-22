@@ -93,7 +93,7 @@ fn the_title_bar_label_opens_the_agents_tab() {
     assert!(app.shows_agents_label());
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1200.0);
-    assert!(app.explorer_active);
+    assert!(app.home_active);
     let id = app.focused_pane().unwrap();
     assert!(app.agents.contains_key(&id), "the Agents tab holds an Agents pane");
     assert!(app.explorers.is_empty());
@@ -103,7 +103,7 @@ fn the_title_bar_label_opens_the_agents_tab() {
     // Clicking it again goes back to the terminal.
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1200.0);
-    assert!(!app.explorer_active);
+    assert!(!app.home_active);
     assert!(app.panes.contains_key(&app.focused_pane().unwrap()));
     // An Agents tab on its own doesn't keep the window open.
     assert!(!app.home_keeps_window());
@@ -159,7 +159,7 @@ fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
         run(&mut app, &ctx, 1400.0);
     }
     assert_eq!(app.active, tabs, "and shows it");
-    assert!(!app.explorer_active);
+    assert!(!app.home_active);
 }
 
 #[test]

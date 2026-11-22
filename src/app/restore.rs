@@ -100,11 +100,11 @@ impl App {
     /// The window as it is now, or `None` once every tab is closed.
     pub(in crate::app) fn snapshot_session(&self) -> Option<Session> {
         let tabs: Vec<TabState> = self.tabs.iter().map(|t| self.tab_state(t)).collect();
-        let explorer = self.explorer_tab.as_ref().map(|t| self.tab_state(t));
+        let explorer = self.home_tab.as_ref().map(|t| self.tab_state(t));
         if tabs.is_empty() && explorer.is_none() {
             return None;
         }
-        Some(Session { tabs, active: self.active, explorer, explorer_active: self.explorer_active })
+        Some(Session { tabs, active: self.active, explorer, explorer_active: self.home_active })
     }
 
     fn tab_state(&self, tab: &Tab) -> TabState {
@@ -143,7 +143,7 @@ impl App {
             }
         }
         if let Some(t) = &s.explorer {
-            self.explorer_tab = self.restore_tab(ctx, t);
+            self.home_tab = self.restore_tab(ctx, t);
         }
         // Only an Agents tab came back: there's nothing to watch without a terminal, so start
         // a fresh one beside it.
@@ -151,7 +151,7 @@ impl App {
             return false;
         }
         self.active = active.unwrap_or(0);
-        self.explorer_active = self.explorer_tab.is_some() && (s.explorer_active || self.tabs.is_empty());
+        self.home_active = self.home_tab.is_some() && (s.explorer_active || self.tabs.is_empty());
         self.prune_sticky_tabs();
         true
     }

@@ -256,7 +256,7 @@ impl App {
         let painter = ui.painter();
         let (x, cy) = (label_r.left() + 7.0, label_r.center().y);
         let label = ui.interact(label_r, Id::new("workspace-label"), Sense::click());
-        let active = self.explorer_active;
+        let active = self.home_active;
         if !active && label.hovered() {
             painter.rect_filled(label_r, 8, HOVER);
         }
@@ -296,7 +296,7 @@ impl App {
     /// is hidden.
     pub(in crate::app) fn files_dog(&mut self, ctx: &egui::Context, painter: &egui::Painter, r: Rect, theme: &Theme) {
         let now = ctx.input(|i| i.time);
-        let active = self.explorer_active;
+        let active = self.home_active;
         match self.strip.dog_wake {
             None => self.strip.dog_wake = Some(now),
             // Switching to Files plays just the blep, unless the launch intro hasn't reached
@@ -343,7 +343,7 @@ impl App {
         let ctx = ui.ctx().clone();
         paint::tab_track(ui.painter(), track);
         let shown = visible.min(self.tabs.len());
-        let target = if self.explorer_active { Some(-1.0) } else { (self.active < shown).then_some(self.active as f32) };
+        let target = if self.home_active { Some(-1.0) } else { (self.active < shown).then_some(self.active as f32) };
         // While the active tab closes, the pill's path is the close animation's: be at the
         // new tab already when it hands back.
         let folding = self.strip.tab_ghosts.iter().any(|g| g.drawn.active);
@@ -418,7 +418,7 @@ impl App {
             self.show_tab(i);
         }
         self.strip.tab_hits.push((uid, r));
-        let active = i == self.active && !self.explorer_active;
+        let active = i == self.active && !self.home_active;
         let hovered = resp.hovered();
         if !active && hovered {
             painter.rect_filled(r.shrink(1.0), 8, TAB_HOVER);

@@ -64,7 +64,7 @@ impl App {
         // A newly shown tab takes over from the last one (`tab-animation`).
         let shown = Shown {
             uid: tab_uid,
-            pos: if self.explorer_active { -1 } else { self.active as isize },
+            pos: if self.home_active { -1 } else { self.active as isize },
             area,
             origin: self.drop_origin(tab_uid, area),
             vertical: self.cfg.mobile,
@@ -199,7 +199,7 @@ impl App {
     /// Where tab `uid` is in the strip (its tab, or the Files label), brought onto the
     /// nearest edge of the pane area: where the ink drops when it is shown.
     fn drop_origin(&self, uid: u64, area: Rect) -> Pos2 {
-        let at = if self.explorer_active { self.strip.files_rect } else { self.strip.tab_rects.get(&uid).map(|d| d.rect) };
+        let at = if self.home_active { self.strip.files_rect } else { self.strip.tab_rects.get(&uid).map(|d| d.rect) };
         at.map_or(area.center_top(), |r| area.clamp(r.center()))
     }
 
@@ -401,7 +401,7 @@ impl App {
         }
         if let Some(a) = self.agents.get_mut(&pane.id) {
             let painter = pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0));
-            let shown_tab = (!self.explorer_active).then_some(self.active);
+            let shown_tab = (!self.home_active).then_some(self.active);
             a.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, theme, self.agent_tracker.agents(), &self.ssh.agent_notes, shown_tab);
             let requests: Vec<_> = a.requests.drain(..).map(|r| (pane.id, r)).collect();
             self.agent_requests.extend(requests);
@@ -423,7 +423,7 @@ impl App {
         // (see `pane_drag`). It is registered before the buttons, so they stay on top and
         // keep their clicks. A tab's only pane can still be dragged to another tab.
         let handle = ui.interact(header, Id::new(("pane-drag", id)), Sense::click_and_drag());
-        if pane.multi || (self.tabs.len() > 1 && !self.explorer_active) {
+        if pane.multi || (self.tabs.len() > 1 && !self.home_active) {
             if handle.hovered() && !handle.dragged() {
                 ui.ctx().set_cursor_icon(CursorIcon::Grab);
             }

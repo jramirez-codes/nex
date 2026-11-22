@@ -171,7 +171,7 @@ fn staggered_shell_deaths_never_shrink_the_session() {
     frames(&ctx, &mut app, 3);
     assert_eq!(file_policy(&mut app), (false, false));
     shell_exits(&ctx, &mut app, ids[1], false);
-    assert!(app.tabs.is_empty() && app.explorer_tab.is_some());
+    assert!(app.tabs.is_empty() && app.home_tab.is_some());
     assert_eq!(file_policy(&mut app), (false, false));
     // The user is back (a click): the session follows the window again.
     let click = egui::Event::PointerButton { pos: Pos2::new(600.0, 400.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() };

@@ -97,18 +97,18 @@ impl App {
 
     /// The tab being shown: the Files tab or the active terminal tab.
     pub(in crate::app) fn cur_tab(&self) -> Option<&Tab> {
-        if self.explorer_active { self.explorer_tab.as_ref() } else { self.tabs.get(self.active) }
+        if self.home_active { self.home_tab.as_ref() } else { self.tabs.get(self.active) }
     }
 
     pub(in crate::app) fn cur_tab_mut(&mut self) -> Option<&mut Tab> {
-        if self.explorer_active { self.explorer_tab.as_mut() } else { self.tabs.get_mut(self.active) }
+        if self.home_active { self.home_tab.as_mut() } else { self.tabs.get_mut(self.active) }
     }
 
     /// The tab (Files or terminal) containing `pane`: the shown one if it does (the sticky
     /// pane is in every tab).
     pub(in crate::app) fn tab_with(&mut self, pane: PaneId) -> Option<&mut Tab> {
         let shown = self.cur_tab().filter(|t| t.contains(pane)).map(|t| t.uid);
-        self.explorer_tab
+        self.home_tab
             .iter_mut()
             .chain(self.tabs.iter_mut())
             .find(|t| shown.map_or_else(|| t.contains(pane), |uid| t.uid == uid))
@@ -116,7 +116,7 @@ impl App {
 
     pub(in crate::app) fn show_tab(&mut self, index: usize) {
         self.active = index;
-        self.explorer_active = false;
+        self.home_active = false;
     }
 
     pub(in crate::app) fn focused_cwd(&self) -> Option<PathBuf> {
@@ -150,27 +150,27 @@ impl App {
     /// Show the Files tab (opening it at the focused directory the first time), or hide it
     /// again, back to the terminal tab that was showing.
     pub(in crate::app) fn toggle_explorer(&mut self) {
-        if self.explorer_active {
+        if self.home_active {
             if !self.tabs.is_empty() {
-                self.explorer_active = false;
+                self.home_active = false;
             }
             return;
         }
-        if self.explorer_tab.is_none() {
+        if self.home_tab.is_none() {
             let dir = self
                 .focused_cwd()
                 .or_else(crate::platform::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
             let id = self.alloc_pane_id();
             self.explorers.insert(id, self.new_explorer(dir));
-            self.explorer_tab = Some(self.with_sticky(Tab::new(id, id)));
+            self.home_tab = Some(self.with_sticky(Tab::new(id, id)));
         }
-        self.explorer_active = true;
+        self.home_active = true;
     }
 
     /// Select `item` in the Files tab (opened at `item`'s folder by `--select`).
     pub(in crate::app) fn select_in_explorer(&mut self, item: &Path) {
-        let Some(id) = self.explorer_tab.as_ref().map(|t| t.focused) else { return };
+        let Some(id) = self.home_tab.as_ref().map(|t| t.focused) else { return };
         if let Some(b) = self.explorers.get_mut(&id) {
             b.reveal_item(item);
         }
@@ -185,12 +185,12 @@ impl App {
 
     pub(in crate::app) fn close_explorer(&mut self) {
         let sticky = self.sticky;
-        if let Some(tab) = self.explorer_tab.take() {
+        if let Some(tab) = self.home_tab.take() {
             for id in tab.root.panes().into_iter().filter(|&id| Some(id) != sticky) {
                 self.forget_pane(id);
             }
         }
-        self.explorer_active = false;
+        self.home_active = false;
         self.forget_sticky_if_alone();
     }
 
@@ -269,11 +269,11 @@ impl App {
         if self.diffs.is_empty() {
             return;
         }
-        let mut tabs: Vec<(Vec<PaneId>, PaneId)> = self.explorer_tab.iter().chain(&self.tabs).map(|t| (t.root.panes(), t.focused)).collect();
+        let mut tabs: Vec<(Vec<PaneId>, PaneId)> = self.home_tab.iter().chain(&self.tabs).map(|t| (t.root.panes(), t.focused)).collect();
         // The shown tab goes last, so a pinned (sticky) Changes pane, which is in every tab,
         // follows the focus of the tab on screen.
         if let Some(shown) = self.cur_tab().map(|t| t.uid)
-            && let Some(i) = self.explorer_tab.iter().chain(&self.tabs).position(|t| t.uid == shown)
+            && let Some(i) = self.home_tab.iter().chain(&self.tabs).position(|t| t.uid == shown)
         {
             let t = tabs.remove(i);
             tabs.push(t);
@@ -420,8 +420,8 @@ impl App {
 
     /// Show the tab (terminal or Files) with `uid`, if it is still open.
     pub(in crate::app) fn show_tab_uid(&mut self, uid: u64) {
-        if self.explorer_tab.as_ref().is_some_and(|t| t.uid == uid) {
-            self.explorer_active = true;
+        if self.home_tab.as_ref().is_some_and(|t| t.uid == uid) {
+            self.home_active = true;
         } else if let Some(i) = self.tabs.iter().position(|t| t.uid == uid) {
             self.show_tab(i);
         }
@@ -455,7 +455,7 @@ impl App {
         let (title, process) = self.pane_label(id);
         let shapes = self.panes.get_mut(&id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
-        if let Some(tab) = self.explorer_tab.as_mut().filter(|t| t.contains(id)) {
+        if let Some(tab) = self.home_tab.as_mut().filter(|t| t.contains(id)) {
             if tab.remove_pane(id) {
                 tab.motion.kick_close(ctx, id, title, process, shapes);
             } else {
@@ -494,7 +494,7 @@ impl App {
             let (title, process) = label.unwrap_or_else(|| self.pane_label(tab.focused));
             let (mark, title) = icons::title_mark(&process, &title);
             let (mark, title) = (mark.map(str::to_string), title.to_string());
-            let drawn = TabDrawn { active: drawn.active && !self.explorer_active, ..drawn };
+            let drawn = TabDrawn { active: drawn.active && !self.home_active, ..drawn };
             self.strip.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
         }
         let sticky = self.sticky;

@@ -233,12 +233,12 @@ impl App {
     fn cycle_tab(&mut self, forward: bool) {
         let n = self.tabs.len();
         let at_edge = if forward { self.active + 1 == n } else { self.active == 0 };
-        if self.explorer_active {
+        if self.home_active {
             if n > 0 {
                 self.show_tab(if forward { 0 } else { n - 1 });
             }
-        } else if at_edge && self.explorer_tab.is_some() {
-            self.explorer_active = true;
+        } else if at_edge && self.home_tab.is_some() {
+            self.home_active = true;
         } else if n > 0 {
             self.show_tab(if forward { (self.active + 1) % n } else { (self.active + n - 1) % n });
         }

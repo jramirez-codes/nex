@@ -30,7 +30,7 @@ impl App {
         // The hosts ssh panes connect to, and which remote agent each pane shows.
         let mut hosts = HashSet::new();
         let mut showing: HashMap<String, (PaneId, Option<usize>, bool)> = HashMap::new();
-        let tabs = self.tabs.iter().enumerate().map(|(i, t)| (Some(i), t)).chain(self.explorer_tab.iter().map(|t| (None, t)));
+        let tabs = self.tabs.iter().enumerate().map(|(i, t)| (Some(i), t)).chain(self.home_tab.iter().map(|t| (None, t)));
         for (index, tab) in tabs {
             for id in tab.root.panes() {
                 if !seen.insert(id) {
@@ -113,14 +113,14 @@ impl App {
 
     /// Whether the special tab holds a file explorer rather than an Agents pane.
     pub(in crate::app) fn home_is_files(&self) -> bool {
-        self.explorer_tab.as_ref().is_some_and(|t| t.root.panes().iter().any(|id| self.explorers.contains_key(id)) && !t.root.panes().iter().any(|id| self.agents.contains_key(id)))
+        self.home_tab.as_ref().is_some_and(|t| t.root.panes().iter().any(|id| self.explorers.contains_key(id)) && !t.root.panes().iter().any(|id| self.agents.contains_key(id)))
     }
 
     /// Whether the special tab is worth keeping the window open for once the terminal tabs
     /// are gone: it has a terminal or a file explorer (an Agents pane alone has nothing
     /// left to watch).
     pub(in crate::app) fn home_keeps_window(&self) -> bool {
-        self.explorer_tab
+        self.home_tab
             .as_ref()
             .is_some_and(|t| t.root.panes().iter().any(|id| self.panes.contains_key(id) || self.explorers.contains_key(id)))
     }
@@ -156,19 +156,19 @@ impl App {
     /// The title bar's Agents label: show the special tab (opening it on an Agents pane the
     /// first time), or from it, go back to the terminal tab that was showing.
     pub(in crate::app) fn toggle_agents_tab(&mut self) {
-        if self.explorer_active {
+        if self.home_active {
             if !self.tabs.is_empty() {
-                self.explorer_active = false;
+                self.home_active = false;
             }
             return;
         }
-        if self.explorer_tab.is_none() {
+        if self.home_tab.is_none() {
             let id = self.alloc_pane_id();
             self.agents.insert(id, AgentsPane::new());
-            self.explorer_tab = Some(self.with_sticky(Tab::new(id, id)));
+            self.home_tab = Some(self.with_sticky(Tab::new(id, id)));
             self.track_agents();
         }
-        self.explorer_active = true;
+        self.home_active = true;
     }
 
     /// Show the agent behind card `key`: jump to its pane, or, for an agent on an ssh host
@@ -216,8 +216,8 @@ impl App {
             if !self.cur_tab().is_some_and(|t| t.contains(pane)) {
                 self.show_tab(i);
             }
-        } else if self.explorer_tab.as_ref().is_some_and(|t| t.contains(pane)) {
-            self.explorer_active = true;
+        } else if self.home_tab.as_ref().is_some_and(|t| t.contains(pane)) {
+            self.home_active = true;
         } else {
             return;
         }

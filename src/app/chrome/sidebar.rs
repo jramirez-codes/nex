@@ -80,7 +80,7 @@ impl App {
     fn files_tile(&mut self, ui: &Ui, r: Rect, theme: &Theme) {
         self.strip.files_rect = Some(r);
         let painter = ui.painter();
-        let active = self.explorer_active;
+        let active = self.home_active;
         let resp = ui.interact(r, Id::new("workspace-label"), Sense::click());
         if !active && resp.hovered() {
             painter.rect_filled(r, 14, HOVER);
