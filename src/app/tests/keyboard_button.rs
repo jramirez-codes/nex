@@ -200,3 +200,33 @@ fn no_button_without_an_on_screen_keyboard() {
     frame(&mut app, &ctx, &mut t, vec![]);
     assert!(app.keyboard_button.rect.is_none());
 }
+
+#[test]
+fn armed_ctrl_turns_the_close_button_into_a_pin() {
+    let ctx = egui::Context::default();
+    let mut app = phone(&ctx);
+    let mut t = 0.0;
+    wait(&mut app, &ctx, &mut t, 0.1);
+    let c = app.keyboard_button.rect.unwrap().center();
+    let id = app.focused_pane().unwrap();
+    let card = app.card_rects.iter().find(|(p, _)| *p == id).unwrap().1;
+    // The header's first button (the ×), right to left.
+    let close = Pos2::new(card.right() - 22.0, card.top() + app.header_height() / 2.0 + 1.0);
+
+    tap(&mut app, &ctx, &mut t, c);
+    tap(&mut app, &ctx, &mut t, c);
+    assert!(app.keyboard_button.ctrl_armed);
+    wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05);
+
+    tap(&mut app, &ctx, &mut t, close);
+    wait(&mut app, &ctx, &mut t, 0.1);
+    assert!(app.is_sticky(id), "pinned, not closed");
+    assert!(app.panes.contains_key(&id));
+    assert!(!app.keyboard_button.ctrl_armed, "used up");
+
+    // Without Ctrl, the pinned pane's button is the pin: a tap unpins it.
+    tap(&mut app, &ctx, &mut t, close);
+    wait(&mut app, &ctx, &mut t, 0.1);
+    assert!(!app.is_sticky(id));
+    assert!(app.panes.contains_key(&id));
+}

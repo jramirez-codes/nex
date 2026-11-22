@@ -444,8 +444,10 @@ impl App {
         let pinned = self.is_sticky(id);
         // Holding Shift turns the × into a pin: the pane follows the user to every tab. On
         // the pinned pane that slot is the pin (click to unpin, back to the ×), and Shift
-        // brings the × back to close it.
-        let shift = ui.input(|i| i.modifiers.shift);
+        // brings the × back to close it. On Android, Ctrl armed with the keyboard button (no
+        // Shift to hold there) does the same for the focused pane, and the tap uses it up.
+        let armed = pane.focused && self.keyboard_button.ctrl_armed;
+        let shift = ui.input(|i| i.modifiers.shift) || armed;
         // The pinned pane's pin shows even when its other buttons are hidden.
         let shown = if show_buttons { 4 } else if pinned { 1 } else { 0 };
         if shown > 0 {
@@ -478,6 +480,9 @@ impl App {
                     .tooltip(tip)
                     .show(ui, painter, draw)
                 {
+                    if i == 0 && armed {
+                        self.keyboard_button.ctrl_armed = false;
+                    }
                     self.pending.push(action);
                 }
             }

@@ -32,6 +32,8 @@ All notable changes to nex are documented here. The format follows
     the further you push. On the Agents tab it moves the selection.
   - Double-tap it to arm Ctrl for the next key (double-tap, then `c`, is `^C`). It turns
     blue with a ⌃ until the key is pressed; double-tap again to cancel.
+    While Ctrl is armed, the focused pane's × is a pin, as with Shift held on a desktop:
+    tap it to pin the pane to every tab.
   - Taps, arrows and Ctrl give a light haptic tick.
 - Android: swipe (glide) typing on the on-screen keyboard types into the terminal. Words go
   in as you swipe, and the keyboard's corrections replace them.

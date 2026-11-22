@@ -97,6 +97,7 @@ cargo apk run -p nex-android --release
    - Drag it as a joystick to send arrow keys. They repeat while you hold, faster the further
      you push.
    - Double-tap it to arm Ctrl for the next key. Double-tap, then `c`, sends `^C`.
+     While it's armed, the focused pane's × is a pin (like holding Shift on a desktop).
    There's no Esc key yet (milestone 3, on hold).
 3. **Next launch.** Close the app from the recents screen and open it again. It connects
    without asking for anything, and the shell you left open comes back as it was.
