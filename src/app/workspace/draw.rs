@@ -157,9 +157,11 @@ impl App {
         ui.ctx().request_repaint_after(Duration::from_millis(next as u64 + 1));
     }
 
-    /// One pane of the shown tab, a terminal or a file explorer.
+    /// One pane of the shown tab: a terminal, a file explorer or a Changes pane.
     fn draw_pane(&mut self, ui: &mut Ui, pane: &PaneView, theme: &Theme, blink_on: bool) {
-        if self.explorers.contains_key(&pane.id) {
+        if self.diffs.contains_key(&pane.id) {
+            self.diff_pane(ui, pane, theme);
+        } else if self.explorers.contains_key(&pane.id) {
             self.explorer_pane(ui, pane, theme);
         } else if self.panes.contains_key(&pane.id) {
             self.terminal_pane(ui, pane, theme, blink_on);
@@ -185,7 +187,9 @@ impl App {
             on_top: true,
             scale_content: mini,
         };
-        if self.explorers.contains_key(&id) {
+        if self.diffs.contains_key(&id) {
+            self.diff_pane(ui, &pane, theme);
+        } else if self.explorers.contains_key(&id) {
             self.explorer_pane(ui, &pane, theme);
         } else if self.panes.contains_key(&id) {
             self.terminal_pane(ui, &pane, theme, blink_on);
@@ -366,6 +370,24 @@ impl App {
             b.paint(ui, &pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0)), content, pane.id, theme);
             let requests: Vec<_> = b.requests.drain(..).map(|r| (pane.id, r)).collect();
             self.explorer_requests.extend(requests);
+        }
+        self.dim_unfocused(&pane_painter(ui, pane), pane);
+    }
+
+    /// A Changes (git diff) pane: the usual card and header, then the pane's own toolbar,
+    /// file list and diff, edge to edge of the card below the header.
+    fn diff_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme) {
+        let top = self.pane_frame(ui, pane, theme, None);
+        let content = Rect::from_min_max(Pos2::new(pane.card.left(), top), pane.card.max);
+        if pressed_in(ui, content) {
+            self.pending.push(Action::FocusPane(pane.id));
+        }
+        let size = self.render_font(pane.id);
+        if let Some(d) = self.diffs.get_mut(&pane.id) {
+            let painter = pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0));
+            d.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, PANE_RADIUS - 1, theme, size);
+            let requests: Vec<_> = d.requests.drain(..).map(|r| (pane.id, r)).collect();
+            self.diff_requests.extend(requests);
         }
         self.dim_unfocused(&pane_painter(ui, pane), pane);
     }

@@ -8,6 +8,12 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- A Changes pane: `Ctrl+G` (`Cmd+G` on macOS) splits a read-only `git diff` viewer off the
+  focused pane, and `Ctrl+G` again closes it. Changed files sit in a sidebar (Staged and
+  Changes sections, with status badges and line counts, filtered by a segmented control) and
+  the selected file's diff shows as rounded hunk cards with line numbers, the enclosing
+  function and word-level highlights. It follows the focused pane's repository, refreshes
+  while on screen, keeps its zoom, and comes back with the session.
 - A sticky pane that follows you to every tab, the Files tab included. Hold Shift over a pane
   header and its × turns into a pin; click it to pin the pane. Each tab keeps its own place and
   size for it (it starts on the side it was pinned from), and on a tab switch it glides to its
@@ -46,6 +52,8 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- The file explorer's list / grid toggle moves to `Ctrl+Shift+G` (`Cmd+Shift+G`), since
+  `Ctrl+G` now opens Changes. `Ctrl+G` no longer reaches the shell as `^G`.
 - Dropping a dragged pane header on the title bar now opens it in a new tab instead of
   cancelling the drag.
 - The Files tab's icon is now the nex dog instead of a monitor. It wakes up when nex starts,

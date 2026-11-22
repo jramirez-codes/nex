@@ -208,6 +208,11 @@ ssh-mic = off        # no mic button in ssh panes
   splitting an explorer starts a terminal in the folder you're looking at. Back / Forward,
   clickable breadcrumbs and a typed location bar with Tab completion get you around, and
   typing a name jumps to it.
+- **Changes, built in.** `Ctrl+G` opens a Changes pane beside the current one: the files
+  `git` sees as changed (staged and not) in a sidebar, and the selected file's diff as
+  hunk cards with line numbers and word-level highlights. It follows the pane you're on, so
+  focusing a terminal in another repository shows that one, and it refreshes as you work.
+  `Ctrl+G` again closes it.
 - **Real file management.** List or grid view with icons for each kind of file, multi-select,
   and copy, cut and paste between explorers, with a right-click menu and an action bar. Rename
   in place, create folders and files, and see a file's Properties. Copies and moves show a
@@ -402,6 +407,7 @@ nex follows Ghostty's defaults on each OS. Both tables live in
 | Equalize splits        | `Ctrl+Shift+Alt+=`                                    | `Cmd+Ctrl+=`                                    |
 | Zoom pane              | `Ctrl+Shift+Enter`                                    | `Cmd+Shift+Enter`                               |
 | Explorer split here    | `Ctrl+E`                                              | `Cmd+E`                                         |
+| Changes (git diff)     | `Ctrl+G`                                              | `Cmd+G`                                         |
 | Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn/PgUp`)   | `Cmd+Shift+]` / `Cmd+Shift+[`, `Ctrl+Tab`       |
 | Go to tab *N*          | `Alt+1` … `Alt+8`, `Alt+9` for the last tab           | `Cmd+1` … `Cmd+8`, `Cmd+9` for the last tab     |
 | Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       | `Cmd+C` / `Cmd+V`                               |
@@ -428,6 +434,26 @@ Mouse actions (use Cmd instead of Ctrl on macOS):
 - Click the directory label in the title bar (the one with the nex dog) to show the Files tab, click it again to go back,
   and middle-click it to close it. Ctrl+Tab cycles through it too.
 
+### Changes
+
+`Ctrl+G` (`Cmd+G` on macOS) opens or closes the Changes pane. It shows the repository of
+whichever pane in the tab has focus and re-reads it every couple of seconds while on screen.
+It never changes anything in the repository.
+
+| Action                       | Keys / mouse                                          |
+| ---------------------------- | ----------------------------------------------------- |
+| Pick a file                  | `Up` / `Down` (or `j` / `k`), click                   |
+| Move between list and diff   | `Tab`, `Left` / `Right` (or `h` / `l`)                |
+| Scroll the diff              | `j` / `k`, `PgUp` / `PgDn`, `Space`, `g` / `G`, wheel  |
+| Next / previous hunk         | `n` / `p` (or `Shift+N`)                              |
+| All / unstaged / staged      | `1` / `2` / `3`, or the segmented control             |
+| Show the file in Files       | `Enter` or `o`, double-click                          |
+| Refresh                      | `r`, or the ↻ button                                  |
+| Copy the file's path         | `Ctrl+Shift+C`                                        |
+| Zoom the diff                | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   |
+
+In a narrow pane the list and the diff take turns: `Enter` opens the diff, `Esc` goes back.
+
 ### File explorer
 
 On macOS, use Cmd where this table says Ctrl.
@@ -448,7 +474,7 @@ On macOS, use Cmd where this table says Ctrl.
 | Copy / cut / paste files     | `Ctrl+C` / `Ctrl+X` / `Ctrl+V`                        |
 | Clear selection / clipboard  | `Esc`                                                 |
 | Delete (asks first)          | `Delete`                                              |
-| List / grid view             | `Ctrl+G`                                              |
+| List / grid view             | `Ctrl+Shift+G`                                        |
 | Show hidden files            | `Ctrl+H`                                              |
 | Zoom the listing             | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   |
 

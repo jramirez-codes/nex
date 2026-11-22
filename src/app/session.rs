@@ -90,7 +90,13 @@ impl App {
     fn pane_node(&self, node: &Node) -> PaneNode {
         match node {
             Node::Leaf(id) => PaneNode::Leaf(PaneState {
-                kind: if self.explorers.contains_key(id) { PaneKind::Explorer } else { PaneKind::Terminal },
+                kind: if self.explorers.contains_key(id) {
+                    PaneKind::Explorer
+                } else if self.diffs.contains_key(id) {
+                    PaneKind::Diff
+                } else {
+                    PaneKind::Terminal
+                },
                 cwd: self.pane_cwd(*id),
                 font_size: self.pane_fonts.get(id).copied(),
                 command: self.panes.get(id).and_then(|t| t.running_command()),
@@ -177,6 +183,14 @@ impl App {
             PaneKind::Explorer => {
                 let id = self.alloc_pane_id();
                 self.explorers.insert(id, self.new_explorer(dir));
+                if let Some(fs) = p.font_size {
+                    self.pane_fonts.insert(id, fs);
+                }
+                Some(id)
+            }
+            PaneKind::Diff => {
+                let id = self.alloc_pane_id();
+                self.diffs.insert(id, crate::git_diff::GitDiff::new(ctx, dir));
                 if let Some(fs) = p.font_size {
                     self.pane_fonts.insert(id, fs);
                 }

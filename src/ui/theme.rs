@@ -28,6 +28,12 @@ pub struct Theme {
     pub text: Color32,
     pub text_bright: Color32,
     pub text_dim: Color32,
+    /// The terminal palette's green, red, yellow and blue, softened a little for the chrome
+    /// (the Changes pane's additions, removals, modifications and renames).
+    pub green: Color32,
+    pub red: Color32,
+    pub yellow: Color32,
+    pub blue: Color32,
 }
 
 impl Theme {
@@ -40,6 +46,10 @@ impl Theme {
             text: cfg.foreground,
             text_bright: Color32::from_rgb(0xf5, 0xf2, 0xf6),
             text_dim: cfg.foreground.gamma_multiply(0.6),
+            green: soften(cfg.palette[2]),
+            red: soften(cfg.palette[1]),
+            yellow: soften(cfg.palette[3]),
+            blue: soften(cfg.palette[4]),
         }
     }
 }
@@ -51,4 +61,10 @@ pub fn lighten(c: Color32, f: f32) -> Color32 {
 
 pub fn darken(c: Color32, f: f32) -> Color32 {
     Color32::from_rgba_unmultiplied((c.r() as f32 * f) as u8, (c.g() as f32 * f) as u8, (c.b() as f32 * f) as u8, c.a())
+}
+
+/// A palette color nudged toward white, so it reads as a calm UI tint rather than a
+/// saturated terminal color.
+fn soften(c: Color32) -> Color32 {
+    lighten(c, 0.12)
 }

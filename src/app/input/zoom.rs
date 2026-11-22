@@ -28,6 +28,11 @@ impl App {
         if let Some(explorer) = self.explorers.get_mut(&id) {
             explorer.zoom_by(delta, at);
             ctx.request_repaint();
+        } else if self.diffs.contains_key(&id) {
+            // Smooth, like the explorer: the diff is laid out every frame anyway.
+            let size = (self.pane_font(id) * delta).clamp(6.0, 72.0);
+            self.pane_fonts.insert(id, size);
+            ctx.request_repaint();
         } else if self.panes.contains_key(&id) {
             self.pinch_terminal(ctx, id, delta);
         }
