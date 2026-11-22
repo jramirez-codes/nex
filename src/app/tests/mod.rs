@@ -12,6 +12,7 @@ mod explorer_view;
 mod git_diff;
 mod session;
 mod sticky;
+mod tab_scroll;
 
 /// An `App` with config `cfg` that doesn't restore (or save over) the user's session.
 fn new_app(ctx: &egui::Context, cfg: Config) -> App {

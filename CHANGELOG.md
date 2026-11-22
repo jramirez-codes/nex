@@ -8,6 +8,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Android: the title-bar tabs keep one width, two and a half to the screen, and the strip
+  swipes sideways (with a fling) instead of squeezing every tab in. Long-press a tab, then
+  drag, to reorder it; a new or newly shown tab scrolls into view.
 - A **Done** section in the Agents pane: an agent that finishes while you're not looking at
   its pane moves there, in blue, instead of going straight to Idle. It becomes Idle once you
   look at its pane. The title bar shows "1 done" too.
