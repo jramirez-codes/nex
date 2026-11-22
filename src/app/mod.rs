@@ -160,24 +160,8 @@ pub struct App {
     dnd: Option<crate::platform::Dnd>,
     /// The "Copied …" / "Pasted …" message currently on screen.
     toast: Option<Toast>,
-    /// Files on their way to an `ssh` pane's remote host.
-    uploads: Vec<ssh::upload::Upload>,
-    /// The connection-sharing dialog, after an upload couldn't log in.
-    sharing_prompt: Option<ssh::sharing::SharingPrompt>,
-    /// Not Now was picked in that offer: don't ask again this run.
-    sharing_declined: bool,
-    /// A split or tab into an ssh session, waiting on the sharing alert (see `follow`).
-    pending_pane: Option<ssh::follow::PendingPane>,
-    /// Hosts this machine's microphone is shared with (see `ssh/mic.rs`).
-    mics: ssh::mic::Mics,
-    /// The ssh hosts whose agents the Agents pane shows (see `ssh/hosts.rs`).
-    remote_hosts: ssh::hosts::Hosts,
     /// A toast to show on the next frame, from code without the egui context.
     notice: Option<String>,
-    /// An alert about agents on a host: the shim offer, stopping one (see `ssh/hosts.rs`).
-    agent_prompt: Option<ssh::hosts::AgentPrompt>,
-    /// Hosts the Agents pane can't watch, one line each, for the top of the pane.
-    agent_notes: Vec<String>,
     /// The last session, to bring back on the first frame (see `crate::session`).
     restore_at_start: Option<crate::session::Session>,
     /// This window keeps the session file: a plain launch holding the session lock (not a
@@ -198,6 +182,8 @@ pub struct App {
     last_user_input: Option<Instant>,
     /// The session as last written, so unchanged polls don't touch the disk.
     saved_session: Option<String>,
+    /// Uploads, the shared mic, watched agents and their dialogs (see `ssh/`).
+    ssh: ssh::SshState,
 }
 
 impl App {
@@ -279,17 +265,19 @@ impl App {
             early_terminal,
             dnd: crate::platform::Dnd::new(cc),
             toast: None,
-            uploads: Vec::new(),
-            sharing_prompt: None,
-            sharing_declined: false,
-            mics: ssh::mic::Mics::default(),
-            remote_hosts: ssh::hosts::Hosts::default(),
             notice: None,
-            agent_prompt: None,
-            agent_notes: Vec::new(),
-            pending_pane: None,
             restore_at_start: session,
             saved_session: None,
+            ssh: ssh::SshState {
+                uploads: Vec::new(),
+                sharing_prompt: None,
+                sharing_declined: false,
+                pending_pane: None,
+                mics: ssh::mic::Mics::default(),
+                remote_hosts: ssh::hosts::Hosts::default(),
+                agent_prompt: None,
+                agent_notes: Vec::new(),
+            },
         }
     }
 }
@@ -344,7 +332,7 @@ impl eframe::App for App {
         self.poll_ptys(ctx);
         self.poll_uploads(ctx);
         self.poll_mics(ctx);
-        self.remote_hosts.set_ctx(ctx);
+        self.ssh.remote_hosts.set_ctx(ctx);
         self.poll_agent_jobs(ctx);
         if let Some(n) = self.notice.take() {
             self.toast = Some(Toast::new(ctx, n));

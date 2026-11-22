@@ -181,7 +181,7 @@ fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
 
     app.agent_tracker.update(vec![remote(Status::Working)], Instant::now());
     app.dismiss_agent(key);
-    match &app.agent_prompt {
+    match &app.ssh.agent_prompt {
         Some(crate::app::ssh::hosts::AgentPrompt::Stop { session, what, .. }) => {
             assert_eq!(session, "3fa91c0e");
             assert!(what.contains("Fix the tests"), "{what}");
@@ -190,5 +190,5 @@ fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
     }
     assert!(app.ssh_modal_open(), "the alert takes the keyboard");
     run(&mut app, &ctx, 1400.0);
-    assert!(app.agent_prompt.is_some(), "and stays up until answered");
+    assert!(app.ssh.agent_prompt.is_some(), "and stays up until answered");
 }

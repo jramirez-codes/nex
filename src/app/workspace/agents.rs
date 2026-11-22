@@ -67,13 +67,13 @@ impl App {
             }
         }
 
-        self.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
+        self.ssh.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
         self.offer_shim(&hosts);
         self.offer_sharing(&hosts);
-        self.agent_notes = self.host_notes();
+        self.ssh.agent_notes = self.host_notes();
         // Two panes may reach one host under different names: list each agent once.
         let mut listed = HashSet::new();
-        for (target, snap) in self.remote_hosts.snapshots() {
+        for (target, snap) in self.ssh.remote_hosts.snapshots() {
             let host = target.host().to_string();
             for s in &snap.sessions {
                 let Some(kind) = AgentKind::from_name(&s.kind) else { continue };

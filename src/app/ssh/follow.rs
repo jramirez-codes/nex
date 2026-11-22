@@ -37,13 +37,13 @@ impl App {
         // No shared connection to ride on: offer to turn sharing on first, so the login this
         // pane is about to ask for becomes one later splits can share.
         let offer = remote::SHARING_SUPPORTED
-            && !self.sharing_declined
-            && self.sharing_prompt.is_none()
+            && !self.ssh.sharing_declined
+            && self.ssh.sharing_prompt.is_none()
             && !remote::sharing_enabled()
             && !remote::shared_connection_live(&target);
         if offer {
-            self.pending_pane = Some(PendingPane { place, cwd, command });
-            self.sharing_prompt = Some(SharingPrompt::OfferSession(target.host().to_string()));
+            self.ssh.pending_pane = Some(PendingPane { place, cwd, command });
+            self.ssh.sharing_prompt = Some(SharingPrompt::OfferSession(target.host().to_string()));
         } else {
             self.open_terminal(ctx, place, cwd, Some(command));
         }
@@ -51,7 +51,7 @@ impl App {
 
     /// Open the terminal that was waiting on the sharing alert, now it's answered.
     pub(in crate::app) fn open_pending(&mut self, ctx: &egui::Context) {
-        let Some(p) = self.pending_pane.take() else { return };
+        let Some(p) = self.ssh.pending_pane.take() else { return };
         let place = match p.place {
             Place::Split(target, _) if !self.panes.contains_key(&target) => Place::Tab,
             place => place,

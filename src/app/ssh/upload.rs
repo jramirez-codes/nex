@@ -73,17 +73,17 @@ impl App {
                 repaint.request_repaint();
             })
             .ok();
-        self.uploads.push(Upload { pane, host, fallback, temp, rx });
+        self.ssh.uploads.push(Upload { pane, host, fallback, temp, rx });
     }
 
     /// Type the remote paths of finished uploads into their panes.
     pub(in crate::app) fn poll_uploads(&mut self, ctx: &egui::Context) {
-        if self.uploads.is_empty() {
+        if self.ssh.uploads.is_empty() {
             return;
         }
         let mut i = 0;
-        while i < self.uploads.len() {
-            let result = match self.uploads[i].rx.try_recv() {
+        while i < self.ssh.uploads.len() {
+            let result = match self.ssh.uploads[i].rx.try_recv() {
                 Ok(r) => r,
                 Err(TryRecvError::Empty) => {
                     i += 1;
@@ -91,7 +91,7 @@ impl App {
                 }
                 Err(TryRecvError::Disconnected) => Err("the upload stopped".into()),
             };
-            let up = self.uploads.remove(i);
+            let up = self.ssh.uploads.remove(i);
             if let Some(temp) = &up.temp {
                 remote::remove_saved(temp);
             }
@@ -110,7 +110,7 @@ impl App {
                 }
             }
         }
-        if !self.uploads.is_empty() {
+        if !self.ssh.uploads.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(200));
         }
     }

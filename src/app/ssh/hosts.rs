@@ -178,15 +178,15 @@ impl App {
     /// After the hosts are synced: offer the shim on a host a pane is on (or, with
     /// `ssh-agent-shim = on`, just put it there).
     pub(in crate::app) fn offer_shim(&mut self, panes: &HashSet<SshTarget>) {
-        if self.cfg.ssh_agent_shim == AgentShim::Off || self.agent_prompt.is_some() || self.sharing_prompt.is_some() {
+        if self.cfg.ssh_agent_shim == AgentShim::Off || self.ssh.agent_prompt.is_some() || self.ssh.sharing_prompt.is_some() {
             return;
         }
-        let Some(target) = self.remote_hosts.shim_candidate(panes) else { return };
+        let Some(target) = self.ssh.remote_hosts.shim_candidate(panes) else { return };
         match self.cfg.ssh_agent_shim {
-            AgentShim::On => self.remote_hosts.start_shim_install(target),
+            AgentShim::On => self.ssh.remote_hosts.start_shim_install(target),
             _ => {
-                self.remote_hosts.offered.insert(target.clone());
-                self.agent_prompt = Some(AgentPrompt::Shim(target));
+                self.ssh.remote_hosts.offered.insert(target.clone());
+                self.ssh.agent_prompt = Some(AgentPrompt::Shim(target));
             }
         }
     }
@@ -195,28 +195,28 @@ impl App {
     /// sharing (once a run), which lets nex ride the login typed into that pane. The prompt
     /// then says to log in once more, since the pane's session started before sharing did.
     pub(in crate::app) fn offer_sharing(&mut self, panes: &HashSet<SshTarget>) {
-        if !remote::SHARING_SUPPORTED || self.remote_hosts.sharing_offered || self.sharing_declined || self.sharing_prompt.is_some() || self.agent_prompt.is_some() {
+        if !remote::SHARING_SUPPORTED || self.ssh.remote_hosts.sharing_offered || self.ssh.sharing_declined || self.ssh.sharing_prompt.is_some() || self.ssh.agent_prompt.is_some() {
             return;
         }
-        let Some(host) = self.remote_hosts.needs_login(panes).map(|t| t.host().to_string()) else { return };
-        self.remote_hosts.sharing_offered = true;
+        let Some(host) = self.ssh.remote_hosts.needs_login(panes).map(|t| t.host().to_string()) else { return };
+        self.ssh.remote_hosts.sharing_offered = true;
         if !remote::sharing_enabled() {
-            self.sharing_prompt = Some(SharingPrompt::Offer(host, "Its agents show up in Agents a moment later"));
+            self.ssh.sharing_prompt = Some(SharingPrompt::Offer(host, "Its agents show up in Agents a moment later"));
         }
     }
 
     /// Ask before stopping the agent `session` on `target`.
     pub(in crate::app) fn confirm_stop(&mut self, target: SshTarget, session: String, what: String) {
-        self.agent_prompt = Some(AgentPrompt::Stop { target, session, what });
+        self.ssh.agent_prompt = Some(AgentPrompt::Stop { target, session, what });
     }
 
     /// Results of the shim and stop jobs: toasts, and alerts when they failed.
     pub(in crate::app) fn poll_agent_jobs(&mut self, ctx: &egui::Context) {
-        let done = self.remote_hosts.done.lock().map(|mut d| std::mem::take(&mut *d)).unwrap_or_default();
+        let done = self.ssh.remote_hosts.done.lock().map(|mut d| std::mem::take(&mut *d)).unwrap_or_default();
         for d in done {
             match d {
                 Done::Shim(target, Ok(())) => {
-                    if let Some(w) = self.remote_hosts.watches.get(&target) {
+                    if let Some(w) = self.ssh.remote_hosts.watches.get(&target) {
                         w.set_shim(true);
                     }
                     let msg = format!("claude and codex on {} now keep running after their pane closes", target.host());
@@ -224,11 +224,11 @@ impl App {
                 }
                 Done::Shim(target, Err(e)) => {
                     let title = format!("Couldn't set it up on {}", target.host());
-                    self.agent_prompt = Some(AgentPrompt::Failed(title, e.to_string()));
+                    self.ssh.agent_prompt = Some(AgentPrompt::Failed(title, e.to_string()));
                 }
                 Done::Stop(_, Ok(())) => {}
                 Done::Stop(host, Err(e)) => {
-                    self.agent_prompt = Some(AgentPrompt::Failed(format!("Couldn't stop it on {host}"), e.to_string()));
+                    self.ssh.agent_prompt = Some(AgentPrompt::Failed(format!("Couldn't stop it on {host}"), e.to_string()));
                 }
             }
         }
@@ -236,7 +236,7 @@ impl App {
 
     /// The alert, if one is up.
     pub(in crate::app) fn agent_dialog(&mut self, ctx: &egui::Context, theme: &Theme) {
-        let Some(prompt) = self.agent_prompt.clone() else { return };
+        let Some(prompt) = self.ssh.agent_prompt.clone() else { return };
         let (icon, title, body, primary, secondary) = match &prompt {
             AgentPrompt::Shim(target) => (
                 AlertIcon::Done,
@@ -259,13 +259,13 @@ impl App {
         };
         let alert = Alert { id: Id::new("nex-agents-alert"), icon, title: &title, body: &body, steps: &[], primary, secondary, touch: self.cfg.mobile };
         let Some(choice) = alert.show(ctx, theme) else { return };
-        self.agent_prompt = None;
+        self.ssh.agent_prompt = None;
         match (prompt, choice) {
-            (AgentPrompt::Shim(target), AlertChoice::Primary) => self.remote_hosts.start_shim_install(target),
-            (AgentPrompt::Shim(target), AlertChoice::Secondary) => self.remote_hosts.decline(target),
+            (AgentPrompt::Shim(target), AlertChoice::Primary) => self.ssh.remote_hosts.start_shim_install(target),
+            (AgentPrompt::Shim(target), AlertChoice::Secondary) => self.ssh.remote_hosts.decline(target),
             (AgentPrompt::Stop { target, session, .. }, AlertChoice::Primary) => {
                 let host = target.host().to_string();
-                self.remote_hosts.spawn(move || Done::Stop(host, host::kill(&target, &session)));
+                self.ssh.remote_hosts.spawn(move || Done::Stop(host, host::kill(&target, &session)));
             }
             _ => {}
         }
@@ -273,7 +273,7 @@ impl App {
 
     /// One line per watched host that isn't working, for the top of the Agents pane.
     pub(in crate::app) fn host_notes(&self) -> Vec<String> {
-        let snapshots = self.remote_hosts.snapshots();
+        let snapshots = self.ssh.remote_hosts.snapshots();
         // Read only when it matters: a host wants a password.
         let sharing = snapshots.iter().any(|(_, s)| s.state == State::Failed(HostError::NeedsLogin)) && remote::sharing_enabled();
         snapshots

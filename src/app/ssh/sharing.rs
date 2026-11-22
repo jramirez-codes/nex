@@ -44,8 +44,8 @@ impl App {
         if remote::sharing_enabled() {
             // Sharing is on, but this session started before it was (or outside nex).
             LoginHelp::LogInAgain
-        } else if remote::SHARING_SUPPORTED && !self.sharing_declined {
-            self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string(), retry));
+        } else if remote::SHARING_SUPPORTED && !self.ssh.sharing_declined {
+            self.ssh.sharing_prompt = Some(SharingPrompt::Offer(host.to_string(), retry));
             LoginHelp::Offered
         } else {
             LoginHelp::None
@@ -54,14 +54,14 @@ impl App {
 
     /// A modal dialog is open over the terminals and takes the keyboard.
     pub(in crate::app) fn ssh_modal_open(&self) -> bool {
-        self.sharing_prompt.is_some() || self.agent_prompt.is_some()
+        self.ssh.sharing_prompt.is_some() || self.ssh.agent_prompt.is_some()
     }
 
     /// Offered when an upload needed a password: Turn On adds the sharing block to
     /// `~/.ssh/config`, then the alert stays up to say the session must be logged into again
     /// (a session already open can't start sharing). Not Now isn't asked again this run.
     pub(in crate::app) fn sharing_dialog(&mut self, ctx: &egui::Context, theme: &Theme) {
-        let Some(prompt) = self.sharing_prompt.clone() else { return };
+        let Some(prompt) = self.ssh.sharing_prompt.clone() else { return };
         let (icon, title, body, steps, primary, secondary) = match &prompt {
             SharingPrompt::Offer(host, _) => (
                 AlertIcon::Lock,
@@ -107,7 +107,7 @@ impl App {
         };
         let alert = Alert { id: Id::new("nex-ssh-sharing"), icon, title: &title, body: &body, steps: &steps, primary, secondary, touch: self.cfg.mobile };
         let Some(choice) = alert.show(ctx, theme) else { return };
-        self.sharing_prompt = match (prompt, choice) {
+        self.ssh.sharing_prompt = match (prompt, choice) {
             (SharingPrompt::Offer(host, again), AlertChoice::Primary) => Some(match remote::enable_sharing() {
                 Ok(()) => SharingPrompt::Reconnect(host, again),
                 Err(e) => SharingPrompt::Failed(e.to_string()),
@@ -115,7 +115,7 @@ impl App {
             // The new pane is the fresh login, so there's nothing to reconnect.
             (SharingPrompt::OfferSession(_), AlertChoice::Primary) => remote::enable_sharing().err().map(|e| SharingPrompt::Failed(e.to_string())),
             (SharingPrompt::Offer(..) | SharingPrompt::OfferSession(_), AlertChoice::Secondary) => {
-                self.sharing_declined = true;
+                self.ssh.sharing_declined = true;
                 None
             }
             _ => None,
