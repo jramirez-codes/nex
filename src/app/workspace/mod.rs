@@ -1,6 +1,7 @@
 //! Tabs and panes: opening and closing them and finding the focused one (here), drawing them,
 //! their cell metrics, and dragging panes around.
 
+pub(super) mod agents;
 pub(super) mod draw;
 pub(super) mod metrics;
 pub(super) mod pane_drag;
@@ -37,6 +38,7 @@ impl App {
         self.pane_fonts.remove(&id);
         self.explorers.remove(&id);
         self.diffs.remove(&id);
+        self.agents.remove(&id);
     }
 
     /// Spawn a shell sized for `card`, so its first output is already laid out correctly.
@@ -123,6 +125,9 @@ impl App {
         }
         if let Some(d) = self.diffs.get(&id) {
             return (d.title(), icons::DIFF_PROCESS.into());
+        }
+        if let Some(a) = self.agents.get(&id) {
+            return (a.title(), icons::AGENTS_PROCESS.into());
         }
         self.panes.get(&id).map(|t| (t.title(), t.process.clone())).unwrap_or_default()
     }

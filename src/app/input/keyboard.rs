@@ -91,7 +91,9 @@ impl App {
             self.pending.push(action);
             return true;
         }
-        if let Some(d) = self.focused_pane().and_then(|id| self.diffs.get_mut(&id)) {
+        if let Some(a) = self.focused_pane().and_then(|id| self.agents.get_mut(&id)) {
+            a.key(key, modifiers);
+        } else if let Some(d) = self.focused_pane().and_then(|id| self.diffs.get_mut(&id)) {
             d.key(key, modifiers);
         } else if let Some(b) = self.focused_explorer() {
             b.key(key, modifiers);
@@ -177,6 +179,10 @@ impl App {
                 Event::Paste(text) => b.paste(ctx, None, Some(&text)),
                 e => b.copy(ctx, e == Event::Cut),
             }
+            return;
+        }
+        // Nothing to copy or paste in an Agents pane.
+        if self.focused_pane().is_some_and(|id| self.agents.contains_key(&id)) {
             return;
         }
         // In a Changes pane, Copy copies the selected file's path; nothing pastes there.

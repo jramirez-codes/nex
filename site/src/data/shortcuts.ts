@@ -5,6 +5,7 @@ export const SHORTCUTS: { action: string; linux: string; mac: string }[] = [
   { action: 'Split down', linux: 'Ctrl+Shift+E', mac: 'Cmd+Shift+D' },
   { action: 'File explorer here', linux: 'Ctrl+E', mac: 'Cmd+E' },
   { action: 'Changes (git diff)', linux: 'Ctrl+G', mac: 'Cmd+G' },
+  { action: 'Agents', linux: 'Ctrl+Shift+A', mac: 'Cmd+Shift+A' },
   { action: 'Move between splits', linux: 'Ctrl+Alt+Arrows', mac: 'Cmd+Option+Arrows' },
   { action: 'Swap with neighbor', linux: 'Alt+Shift+Arrows', mac: 'Cmd+Shift+Option+Arrows' },
   { action: 'Zoom pane', linux: 'Ctrl+Shift+Enter', mac: 'Cmd+Shift+Enter' },

@@ -22,6 +22,7 @@ use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, Vec2, ViewportCommand};
 
 use crate::config::{self, Config};
 use crate::file_explorer::{self, FileExplorer};
+use crate::agents::{self, AgentsPane};
 use crate::git_diff::{self, GitDiff};
 use crate::render::fonts;
 use crate::render::glyphs::GlyphCache;
@@ -126,6 +127,13 @@ pub struct App {
     diffs: HashMap<PaneId, GitDiff>,
     /// What Changes panes asked for while painting (show a file in Files).
     diff_requests: Vec<(PaneId, git_diff::Request)>,
+    /// Agents panes, in the same pane id space and split tree.
+    agents: HashMap<PaneId, AgentsPane>,
+    /// What Agents panes asked for while painting (jump to an agent's pane).
+    agent_requests: Vec<(PaneId, agents::Request)>,
+    /// Every agent running in a pane and what it's doing, as of the last process poll; what
+    /// Agents panes and the title bar's Agents label show.
+    agent_tracker: agents::model::Tracker,
     /// The Files tab. It lives outside `tabs`: the title-bar directory label is its tab.
     explorer_tab: Option<Tab>,
     /// Whether the Files tab is showing (`active` keeps the last terminal tab).
@@ -241,6 +249,9 @@ impl App {
             explorer_requests: Vec::new(),
             diffs: HashMap::new(),
             diff_requests: Vec::new(),
+            agents: HashMap::new(),
+            agent_requests: Vec::new(),
+            agent_tracker: agents::model::Tracker::default(),
             explorer_tab: None,
             explorer_active: false,
             sticky: None,
@@ -424,10 +435,11 @@ impl App {
         }
     }
 
-    /// Close the window once no tabs are left. With only the Files tab left, show it.
-    /// Returns `true` if the window is closing.
+    /// Close the window once no tabs are left. With only the Files tab left (or an Agents tab
+    /// with a terminal or explorer split into it), show it. Returns `true` if the window is
+    /// closing.
     fn close_if_empty(&mut self, ctx: &egui::Context) -> bool {
-        if self.tabs.is_empty() && self.explorer_tab.is_none() {
+        if self.tabs.is_empty() && !self.home_keeps_window() {
             if self.forgets_session_when_empty() {
                 self.forget_session();
             }
@@ -472,6 +484,7 @@ impl App {
                 d.refresh_if_stale();
             }
         }
+        self.track_agents();
         self.autosave_session();
     }
 
@@ -487,6 +500,11 @@ impl App {
         for (pane, request) in std::mem::take(&mut self.diff_requests) {
             match request {
                 git_diff::Request::Reveal(path) => self.reveal_from_diff(ctx, pane, &path),
+            }
+        }
+        for (_, request) in std::mem::take(&mut self.agent_requests) {
+            match request {
+                agents::Request::Focus(target) => self.focus_agent(target),
             }
         }
     }

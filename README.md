@@ -203,7 +203,7 @@ ssh-mic = off        # no mic button in ssh panes
   it its own tab, or over another tab to move it there. Each pane's header has split, zoom
   and close buttons. You don't need tmux for layout.
 - **File explorer, built in.** `Ctrl+E` splits a file explorer off the current pane, open at
-  that pane's folder. The directory label in the title bar is also a Files tab of its own.
+  that pane's folder (`nex --explorer` opens nex as a file manager, on a Files tab).
   Folders open in place, files open in their default app (or any app from Open With), and
   splitting an explorer starts a terminal in the folder you're looking at. Back / Forward,
   clickable breadcrumbs and a typed location bar with Tab completion get you around, and
@@ -213,6 +213,10 @@ ssh-mic = off        # no mic button in ssh panes
   hunk cards with line numbers and word-level highlights. It follows the pane you're on, so
   focusing a terminal in another repository shows that one, and it refreshes as you work.
   `Ctrl+G` again closes it.
+- **Agents at a glance.** Running Claude Code or Codex in a few panes? `Ctrl+Shift+A` opens an
+  Agents pane: one card per agent with its task, folder and tab, and whether it needs you, is
+  working or is idle (and for how long). The label in the title bar opens it as a tab of its
+  own and tells you at a glance when an agent is waiting. Click a card to jump to its pane.
 - **Real file management.** List or grid view with icons for each kind of file, multi-select,
   and copy, cut and paste between explorers, with a right-click menu and an action bar. Rename
   in place, create folders and files, and see a file's Properties. Copies and moves show a
@@ -408,6 +412,7 @@ nex follows Ghostty's defaults on each OS. Both tables live in
 | Zoom pane              | `Ctrl+Shift+Enter`                                    | `Cmd+Shift+Enter`                               |
 | Explorer split here    | `Ctrl+E`                                              | `Cmd+E`                                         |
 | Changes (git diff)     | `Ctrl+G`                                              | `Cmd+G`                                         |
+| Agents                 | `Ctrl+Shift+A`                                        | `Cmd+Shift+A`                                   |
 | Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn/PgUp`)   | `Cmd+Shift+]` / `Cmd+Shift+[`, `Ctrl+Tab`       |
 | Go to tab *N*          | `Alt+1` … `Alt+8`, `Alt+9` for the last tab           | `Cmd+1` … `Cmd+8`, `Cmd+9` for the last tab     |
 | Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       | `Cmd+C` / `Cmd+V`                               |
@@ -431,8 +436,9 @@ Mouse actions (use Cmd instead of Ctrl on macOS):
 - Drag the gap between two panes to resize them.
 - Drag a pane by its header onto another pane to swap the two (`Esc` cancels). With
   `pane-headers = false`, use the keyboard swap instead.
-- Click the directory label in the title bar (the one with the nex dog) to show the Files tab, click it again to go back,
-  and middle-click it to close it. Ctrl+Tab cycles through it too.
+- Click the Agents label in the title bar (the one with the nex dog) to show the Agents tab, click it again to go back,
+  and middle-click it to close it. Ctrl+Tab cycles through it too. When nex was opened as a
+  file manager (`--explorer`, or a folder), the label is the Files tab instead.
 
 ### Changes
 
@@ -453,6 +459,26 @@ It never changes anything in the repository.
 | Zoom the diff                | `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, `Ctrl+wheel`, pinch   |
 
 In a narrow pane the list and the diff take turns: `Enter` opens the diff, `Esc` goes back.
+
+### Agents
+
+`Ctrl+Shift+A` (`Cmd+Shift+A` on macOS) opens or closes the Agents pane; the title bar's label
+opens it as a tab of its own. It lists every Claude Code and Codex agent running in a nex pane,
+in any tab, most urgent first:
+
+- **Needs you**: it rang the bell or sent a notification you haven't looked at, or Claude
+  Code says it is waiting on you (a permission prompt).
+- **Working**: Claude Code says it's busy (or its title spinner is turning); Codex is printing.
+- **Idle**: waiting at its prompt.
+
+Claude Code's status and session name come from its own session file
+(`~/.claude/sessions/<pid>.json`); a card is titled with the task Claude Code puts in the
+terminal title when there is one.
+
+| Action                       | Keys / mouse                                          |
+| ---------------------------- | ----------------------------------------------------- |
+| Pick an agent                | Arrows (or `h` / `j` / `k` / `l`), `Home` / `End`     |
+| Jump to its pane             | `Enter` or `Space`, click                             |
 
 ### File explorer
 

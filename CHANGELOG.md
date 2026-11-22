@@ -8,6 +8,16 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- An Agents pane: every Claude Code and Codex agent running in nex at a glance.
+  `Ctrl+Shift+A` (`Cmd+Shift+A` on macOS) splits it off the focused pane, and the title bar's
+  label (the one with the nex dog) now opens it as a tab of its own, with a live headline
+  ("1 needs you") underneath. Each agent is a card with its task, folder and tab, and a status
+  pill: Needs you (it rang the bell or is waiting on a prompt), Working (with a breathing dot),
+  or Idle, plus how long it has been that way. Cards are grouped by status, two or three to a
+  row when there's room. Click a card, or pick one with
+  the arrow keys and press `Enter`, to jump to that agent's pane. Claude Code's status comes
+  from its own session file; Codex's from its title, bell and output.
+
 - A Changes pane: `Ctrl+G` (`Cmd+G` on macOS) splits a read-only `git diff` viewer off the
   focused pane, and `Ctrl+G` again closes it. Changed files sit in a sidebar (Staged and
   Changes sections, with status badges and line counts, filtered by a segmented control) and
@@ -52,6 +62,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- The title bar's directory label opens the Agents tab instead of the Files tab. `nex
+  --explorer`, a folder argument and the file-manager service still open Files, and `Ctrl+E`
+  still splits an explorer off any pane.
 - The file explorer's list / grid toggle moves to `Ctrl+Shift+G` (`Cmd+Shift+G`), since
   `Ctrl+G` now opens Changes. `Ctrl+G` no longer reaches the shell as `^G`.
 - Dropping a dragged pane header on the title bar now opens it in a new tab instead of
