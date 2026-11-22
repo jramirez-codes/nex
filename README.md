@@ -557,7 +557,11 @@ you don't need tmux on the remote side just to get a second shell there. nex doe
 sessions, so keep tmux if you need work to survive a dropped connection.
 
 **How do I get a tab dot when Claude Code asks for input?**
-Claude Code doesn't recognise nex, so tell it to notify with the terminal bell:
+You don't need to set anything. When an agent nex is tracking finishes or starts needing
+input, its tab gets the dot on its own, and the agent's card moves to **Done** or **Needs
+you** in the Agents pane. This also works over ssh, with no setup on the server. The dot
+clears when you look at the pane. Claude Code doesn't recognise nex, so for its other
+notifications, tell it to use the terminal bell:
 `claude config set --global preferredNotifChannel terminal_bell` (or pick "Terminal Bell"
 under Notifications in `/config`). `iterm2` (OSC 9) works too. Any other program that rings
 the bell, such as `make; printf '\a'`, gets the same dot.

@@ -284,7 +284,13 @@ impl App {
             (project, self.hostname.clone(), theme.text_dim)
         } else {
             let counts = self.agent_tracker.counts();
-            let color = if counts.needs_you > 0 { theme.yellow } else { theme.text_dim };
+            let color = if counts.needs_you > 0 {
+                theme.yellow
+            } else if counts.done > 0 {
+                theme.blue
+            } else {
+                theme.text_dim
+            };
             ("Agents".to_string(), counts.headline(), color)
         };
         paint::faded_text(painter, Pos2::new(x, cy - 7.0), &title, paint::bold(13.0), title_color, LABEL_WIDTH, 16.0);
@@ -527,10 +533,17 @@ impl App {
         text_left
     }
 
-    /// Whether a pane in tab `i` rang the bell or sent a notification the user hasn't seen.
+    /// Whether a pane in tab `i` rang the bell or sent a notification the user hasn't seen,
+    /// or shows an agent that finished or started needing you since it was last looked at
+    /// (agents over ssh rarely ring the local bell).
     fn tab_needs_attention(&self, i: usize) -> bool {
         // Not the sticky pane, which every tab has.
-        self.tabs[i].root.panes().iter().filter(|&&id| !self.is_sticky(id)).any(|id| self.panes.get(id).is_some_and(|t| t.attention))
+        self.tabs[i]
+            .root
+            .panes()
+            .iter()
+            .filter(|&&id| !self.is_sticky(id))
+            .any(|&id| self.panes.get(&id).is_some_and(|t| t.attention) || self.agent_tracker.wants_you(id))
     }
 
     fn new_tab_button(&mut self, ui: &Ui, rect: Rect, cy: f32, theme: &Theme) {

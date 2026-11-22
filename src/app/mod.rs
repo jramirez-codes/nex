@@ -402,14 +402,20 @@ impl App {
         }
     }
 
-    /// Looking at a pane (the shown tab's focused pane, window focused) answers its bell. Run
-    /// after this frame's tab switches and before drawing, so the shown tab never flashes a dot.
+    /// Looking at a pane (the shown tab's focused pane, window focused) answers its bell, and
+    /// an agent on it that was done or needed you. Run after this frame's tab switches and
+    /// before drawing, so the shown tab never flashes a dot.
     fn clear_seen_attention(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.focused)
-            && let Some(seen) = self.cur_tab().map(|t| t.focused)
-            && let Some(t) = self.panes.get_mut(&seen)
-        {
+        let window_focused = ctx.input(|i| i.focused);
+        let seen = window_focused.then(|| self.cur_tab().map(|t| t.focused)).flatten();
+        if let Some(t) = seen.and_then(|id| self.panes.get_mut(&id)) {
             t.attention = false;
+        }
+        self.agent_tracker.mark_seen(seen, std::time::Instant::now());
+        // An agent finished or wants input while nex is in the background: flag it in the
+        // dock/taskbar, as a bell does.
+        if self.agent_tracker.take_alerted() && !window_focused {
+            ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
         }
     }
 

@@ -75,11 +75,13 @@ fn ui_font(size: f32) -> FontId {
     FontId::proportional(size)
 }
 
-/// The tint of a status: green while working, amber when it needs you, quiet grey at rest.
+/// The tint of a status: green while working, amber when it needs you, blue when it's done
+/// and you haven't looked yet, quiet grey at rest.
 fn status_color(s: Status, c: &Theme) -> Color32 {
     match s {
         Status::Working => c.green,
         Status::NeedsYou => c.yellow,
+        Status::Done => c.blue,
         Status::Idle => c.text_dim,
     }
 }
@@ -293,12 +295,14 @@ struct Look {
 }
 
 /// The border a card heads for: the accent when it's the selected one in the focused pane,
-/// amber when its agent needs you, a quiet hairline otherwise (brighter under the pointer).
+/// amber when its agent needs you, blue when it's done, a quiet hairline otherwise (brighter under the pointer).
 fn border_for(status: Status, selected: bool, focused: bool, hovered: bool, c: &Theme) -> (Color32, f32) {
     if selected && focused {
         (ACCENT.gamma_multiply(0.85), 1.5)
     } else if status == Status::NeedsYou {
         (c.yellow.gamma_multiply(0.45), 1.0)
+    } else if status == Status::Done {
+        (c.blue.gamma_multiply(0.4), 1.0)
     } else if selected {
         (white_alpha(40), 1.0)
     } else if hovered {
