@@ -449,6 +449,30 @@ pub fn icon_check(p: &Painter, r: Rect, c: Color32, on: bool) {
     }
 }
 
+/// A keyboard: a rounded outline with two rows of keys and a space bar.
+pub fn icon_keyboard(p: &Painter, r: Rect, c: Color32) {
+    let w = r.width();
+    let body = Rect::from_center_size(r.center(), Vec2::new(w, w * 0.64));
+    p.rect_stroke(body, (w * 0.14) as u8, Stroke::new(1.5_f32, c), StrokeKind::Middle);
+
+    // Keys: two rows of five, then a space bar, laid out inside the outline's padding.
+    let pad = w * 0.16;
+    let inner = body.shrink2(Vec2::new(pad, pad * 0.85));
+    let key = w * 0.085;
+    let row_gap = (inner.height() - key * 3.0) / 2.0;
+    for row in 0..2 {
+        let y = inner.top() + key / 2.0 + row as f32 * (key + row_gap);
+        let step = (inner.width() - key) / 4.0;
+        for col in 0..5 {
+            let x = inner.left() + key / 2.0 + col as f32 * step;
+            p.rect_filled(Rect::from_center_size(Pos2::new(x, y), Vec2::splat(key)), 1, c);
+        }
+    }
+    let space_w = inner.width() * 0.56;
+    let space = Rect::from_center_size(Pos2::new(inner.center().x, inner.bottom() - key / 2.0), Vec2::new(space_w, key));
+    p.rect_filled(space, 1, c);
+}
+
 #[cfg(test)]
 mod tests {
     use super::title_mark;

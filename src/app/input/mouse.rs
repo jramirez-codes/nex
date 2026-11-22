@@ -32,6 +32,13 @@ pub(in crate::app) struct MouseState {
     pinching: bool,
 }
 
+impl MouseState {
+    /// A two-finger pinch is in progress.
+    pub(in crate::app) fn pinching(&self) -> bool {
+        self.pinching
+    }
+}
+
 impl App {
     pub(in crate::app) fn handle_mouse(&mut self, ctx: &egui::Context) {
         let (events, hover) = ctx.input(|i| (i.events.clone(), i.pointer.hover_pos()));
@@ -100,6 +107,10 @@ impl App {
 
     /// A button press: open a Ctrl+clicked (Cmd+clicked on macOS) link, report it to the program, or start a selection.
     fn on_press(&mut self, pos: Pos2, button: PointerButton, modifiers: Modifiers) {
+        // The keyboard button floats over the terminal: its taps are its own.
+        if self.keyboard_button.rect.is_some_and(|r| r.contains(pos)) {
+            return;
+        }
         let Some((id, rect)) = self.terminal_at(pos) else { return };
         if modifiers.command && button == PointerButton::Primary
             && let Some((link_pane, link)) = &self.hover_link

@@ -91,7 +91,8 @@ cargo apk run -p nex-android --release
      line. Hosts with OpenSSH older than 8.7 get the line without `expiry-time`.
 2. **Typing.** Tapping the terminal brings up the keyboard, and what you type reaches the
    shell. The keyboard covers the bottom of the screen for now, and there's no Ctrl or Esc key
-   yet (milestone 3, on hold).
+   yet (milestone 3, on hold). Put the keyboard away (back gesture or its hide key) and it
+   stays down, with a round keyboard button in the bottom-right corner that brings it back.
 3. **Next launch.** Close the app from the recents screen and open it again. It connects
    without asking for anything, and the shell you left open comes back as it was.
 4. **Switching away.** Leave the app for a few minutes, or turn Wi-Fi off and on, then go back.
