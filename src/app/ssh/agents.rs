@@ -1,6 +1,6 @@
 //! Agents on ssh hosts (see `remote::host`): which hosts are watched, remembering the ones
 //! with agents between runs, putting `nex-host`'s shim on them (see `nex-host/src/shim.rs`),
-//! and stopping an agent.
+//! offering connection sharing for hosts that want a password, and stopping an agent.
 //!
 //! A host is watched while a pane is connected to it, or while it has agents. Hosts with
 //! agents, and hosts where the shim was declined, are saved next to the session file
@@ -14,8 +14,9 @@ use std::sync::{Arc, Mutex};
 use egui::Id;
 use serde_json::{Value, json};
 
+use crate::app::ssh::upload::SharingPrompt;
 use crate::config::AgentShim;
-use crate::remote::SshTarget;
+use crate::remote::{self, SshTarget};
 use crate::remote::host::{self, HostError, Snapshot, State, Watch};
 use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
 use crate::ui::theme::Theme;
@@ -49,6 +50,8 @@ pub(in crate::app) struct Hosts {
     declined: Vec<SshTarget>,
     /// Hosts the shim was offered on (or is going on) this run.
     offered: HashSet<SshTarget>,
+    /// Connection sharing was offered for a host that wanted a password, this run.
+    sharing_offered: bool,
     loaded: bool,
     /// Finished background jobs, taken each frame.
     done: Arc<Mutex<Vec<Done>>>,
@@ -131,6 +134,11 @@ impl Hosts {
             .map(|(t, _)| t.clone())
     }
 
+    /// A host a pane is on that nex can't log into without a password.
+    fn needs_login(&self, panes: &HashSet<SshTarget>) -> Option<&SshTarget> {
+        self.watches.iter().find(|(t, w)| panes.contains(*t) && w.snapshot().state == State::Failed(HostError::NeedsLogin)).map(|(t, _)| t)
+    }
+
     fn decline(&mut self, target: SshTarget) {
         if !self.declined.contains(&target) {
             self.declined.push(target);
@@ -180,6 +188,20 @@ impl App {
                 self.remote_hosts.offered.insert(target.clone());
                 self.agent_prompt = Some(AgentPrompt::Shim(target));
             }
+        }
+    }
+
+    /// A host a pane is on wants a password, so its agents can't be seen: offer connection
+    /// sharing (once a run), which lets nex ride the login typed into that pane. The prompt
+    /// then says to log in once more, since the pane's session started before sharing did.
+    pub(in crate::app) fn offer_sharing(&mut self, panes: &HashSet<SshTarget>) {
+        if !remote::SHARING_SUPPORTED || self.remote_hosts.sharing_offered || self.sharing_declined || self.sharing_prompt.is_some() || self.agent_prompt.is_some() {
+            return;
+        }
+        let Some(host) = self.remote_hosts.needs_login(panes).map(|t| t.host().to_string()) else { return };
+        self.remote_hosts.sharing_offered = true;
+        if !remote::sharing_enabled() {
+            self.sharing_prompt = Some(SharingPrompt::Offer(host, "Its agents show up in Agents a moment later"));
         }
     }
 
@@ -251,10 +273,16 @@ impl App {
 
     /// One line per watched host that isn't working, for the top of the Agents pane.
     pub(in crate::app) fn host_notes(&self) -> Vec<String> {
-        self.remote_hosts
-            .snapshots()
+        let snapshots = self.remote_hosts.snapshots();
+        // Read only when it matters: a host wants a password.
+        let sharing = snapshots.iter().any(|(_, s)| s.state == State::Failed(HostError::NeedsLogin)) && remote::sharing_enabled();
+        snapshots
             .into_iter()
             .filter_map(|(t, s)| match s.state {
+                // Sharing is on, but the pane's login started before it was.
+                State::Failed(HostError::NeedsLogin) if sharing => {
+                    Some(format!("{} needs a password: log out of it (exit) and ssh back in, and nex shares that login", t.host()))
+                }
                 State::Failed(HostError::NeedsLogin) => Some(format!("{} needs a password, so nex can't see its agents", t.host())),
                 State::Failed(HostError::Unsupported(system)) => Some(format!("{}: nex has no helper for {system}", t.host())),
                 State::Failed(HostError::Other(e)) => Some(format!("{}: can't connect ({e}), retrying", t.host())),
@@ -319,6 +347,18 @@ fn from_json(text: &str) -> (Vec<SshTarget>, Vec<SshTarget>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_a_pane_host_that_wants_a_password() {
+        let (devbox, prod) = (SshTarget { opts: vec![], destination: "devbox".into() }, SshTarget { opts: vec![], destination: "prod".into() });
+        let mut hosts = Hosts::default();
+        let failed = Snapshot { state: State::Failed(HostError::NeedsLogin), ..Default::default() };
+        hosts.watches.insert(devbox.clone(), Watch::fake(failed.clone()));
+        hosts.watches.insert(prod.clone(), Watch::fake(Snapshot { state: State::Live, ..Default::default() }));
+        assert_eq!(hosts.needs_login(&HashSet::from([devbox.clone(), prod.clone()])), Some(&devbox));
+        // Only hosts a pane is on: that pane's login is the one to share.
+        assert_eq!(hosts.needs_login(&HashSet::from([prod])), None);
+    }
 
     #[test]
     fn remembered_hosts_round_trip() {
