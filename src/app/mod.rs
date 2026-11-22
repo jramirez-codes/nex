@@ -22,6 +22,7 @@ use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, Vec2, ViewportCommand};
 
 use crate::config::{self, Config};
 use crate::file_explorer::{self, FileExplorer};
+use crate::git_diff::{self, GitDiff};
 use crate::render::fonts;
 use crate::render::glyphs::GlyphCache;
 use crate::layout::PaneId;
@@ -121,6 +122,10 @@ pub struct App {
     /// What explorers asked for while painting (a terminal in some folder), applied with
     /// the pending actions.
     explorer_requests: Vec<(PaneId, file_explorer::Request)>,
+    /// Changes (git diff) panes, in the same pane id space and split tree.
+    diffs: HashMap<PaneId, GitDiff>,
+    /// What Changes panes asked for while painting (show a file in Files).
+    diff_requests: Vec<(PaneId, git_diff::Request)>,
     /// The Files tab. It lives outside `tabs`: the title-bar directory label is its tab.
     explorer_tab: Option<Tab>,
     /// Whether the Files tab is showing (`active` keeps the last terminal tab).
@@ -229,6 +234,8 @@ impl App {
             switch: TabSwitch::default(),
             explorers: HashMap::new(),
             explorer_requests: Vec::new(),
+            diffs: HashMap::new(),
+            diff_requests: Vec::new(),
             explorer_tab: None,
             explorer_active: false,
             last_pointer: None,
@@ -324,6 +331,7 @@ impl eframe::App for App {
 
         self.handle_keyboard(ctx);
         self.drain_pending(ctx);
+        self.follow_focus();
         if self.close_if_empty(ctx) {
             return;
         }
@@ -450,6 +458,13 @@ impl App {
         for b in self.explorers.values_mut() {
             b.refresh_if_stale();
         }
+        // Only Changes panes on screen keep running git.
+        let shown = self.cur_tab().map(|t| t.root.panes()).unwrap_or_default();
+        for id in shown {
+            if let Some(d) = self.diffs.get_mut(&id) {
+                d.refresh_if_stale();
+            }
+        }
         self.autosave_session();
     }
 
@@ -460,6 +475,11 @@ impl App {
         for (pane, request) in std::mem::take(&mut self.explorer_requests) {
             match request {
                 file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, crate::layout::Axis::Horizontal, Some(dir), None),
+            }
+        }
+        for (pane, request) in std::mem::take(&mut self.diff_requests) {
+            match request {
+                git_diff::Request::Reveal(path) => self.reveal_from_diff(ctx, pane, &path),
             }
         }
     }

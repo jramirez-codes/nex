@@ -10,12 +10,17 @@ use super::paint::{bold, top_radius};
 
 /// Pseudo process name for file-explorer panes, so they get a folder tile and header glyph.
 pub const EXPLORER_PROCESS: &str = "files";
+/// Pseudo process name for Changes (git diff) panes.
+pub const DIFF_PROCESS: &str = "changes";
+/// The Git logo (Devicons' "git"), for Changes panes.
+const GIT_LOGO: char = '\u{e702}';
 
 #[derive(Clone, Copy)]
 enum Kind {
     Shell,
     Node,
     Folder,
+    Diff,
     Other,
 }
 
@@ -24,6 +29,7 @@ fn kind(process: &str) -> Kind {
         "bash" | "zsh" | "fish" | "sh" | "dash" | "nu" | "ksh" | "tcsh" | "elvish" | "xonsh" | "" => Kind::Shell,
         "node" | "nodejs" | "npm" | "npx" | "pnpm" | "yarn" | "deno" => Kind::Node,
         EXPLORER_PROCESS => Kind::Folder,
+        DIFF_PROCESS => Kind::Diff,
         _ => Kind::Other,
     }
 }
@@ -36,7 +42,7 @@ fn tile_color(process: &str) -> Color32 {
         "bun" => Color32::from_rgb(0xf4, 0xe6, 0xc9),
         "python" | "python3" | "ipython" => Color32::from_rgb(0x35, 0x72, 0xa5),
         "nvim" | "vim" | "vi" => Color32::from_rgb(0x4e, 0x9a, 0x3e),
-        "git" | "lazygit" | "tig" | "gitui" => Color32::from_rgb(0xe8, 0x4e, 0x31),
+        "git" | "lazygit" | "tig" | "gitui" | DIFF_PROCESS => Color32::from_rgb(0xe8, 0x4e, 0x31),
         "claude" => Color32::from_rgb(0xd9, 0x77, 0x57),
         "codex" => Color32::from_rgb(0xf2, 0xf2, 0xf2),
         "cargo" | "rustc" => Color32::from_rgb(0xb7, 0x41, 0x0e),
@@ -77,7 +83,7 @@ fn extends_icon(c: char) -> bool {
 /// icon takes the place of the tile's own glyph, animating as the program rewrites its title;
 /// a title without one leaves the tile as it was. File explorers keep their folder.
 pub fn title_mark<'a>(process: &str, title: &'a str) -> (Option<&'a str>, &'a str) {
-    if matches!(kind(process), Kind::Folder) {
+    if matches!(kind(process), Kind::Folder | Kind::Diff) {
         return (None, title);
     }
     let mut it = title.char_indices();
@@ -156,6 +162,7 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>) {
         }
         Kind::Node => hexagon(&p, r.center(), r.width() * 0.3, Stroke::new((r.width() * 0.08).max(1.2), fg), None),
         Kind::Folder => icon_folder(&p, Rect::from_center_size(r.center(), Vec2::new(r.width() * 0.6, r.height() * 0.48)), fg),
+        Kind::Diff => paint_glyph(&p, r.center(), r.width() * 0.56, GIT_LOGO, fg),
         Kind::Other => {
             p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, initial(process), bold(r.height() * 0.58), fg);
         }
@@ -237,6 +244,7 @@ pub fn header_glyph(p: &Painter, r: Rect, process: &str, mark: Option<&str>, col
     match kind(process) {
         Kind::Node => hexagon(p, r.center(), r.width() * 0.48, Stroke::NONE, Some(color)),
         Kind::Folder => icon_folder(p, Rect::from_center_size(r.center(), Vec2::new(r.width(), r.height() * 0.82)), color),
+        Kind::Diff => paint_glyph(p, r.center(), r.width() * 1.05, GIT_LOGO, color),
         Kind::Shell => {
             let rr = Rect::from_center_size(r.center(), Vec2::new(r.width(), r.height() * 0.82));
             p.rect_filled(rr, 3, color);

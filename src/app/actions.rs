@@ -58,6 +58,8 @@ pub(super) enum Action {
     /// Split a file explorer off the focused pane, showing its directory.
     ExploreHere,
     CloseExplorer,
+    /// Open a Changes (git diff) pane beside the focused pane, or close the tab's one.
+    ToggleGitDiff,
     /// Share this machine's microphone with a pane's ssh host, or stop; `ToggleMic(0)` means
     /// the focused pane (see `ssh/mic.rs`).
     ToggleMic(PaneId),
@@ -135,6 +137,7 @@ impl App {
                 self.scroll_focused(action)
             }
             Action::ToggleExplorer => self.toggle_explorer(),
+            Action::ToggleGitDiff => self.toggle_git_diff(ctx),
             Action::ToggleMic(0) => {
                 if let Some(id) = focused {
                     self.toggle_mic(ctx, id)
@@ -250,6 +253,15 @@ impl App {
             }
             return;
         }
+        if self.diffs.contains_key(&id) {
+            let size = self.pane_font(id);
+            match action {
+                Action::FontBigger => self.pane_fonts.insert(id, (size + 1.0).min(72.0)),
+                Action::FontSmaller => self.pane_fonts.insert(id, (size - 1.0).max(6.0)),
+                _ => self.pane_fonts.remove(&id),
+            };
+            return;
+        }
         let size = self.pane_font(id);
         let size = match action {
             Action::FontBigger => Some(size + 1.0),
@@ -273,7 +285,7 @@ impl App {
     /// in another pane, moves it there.
     fn toggle_search(&mut self) {
         // Nothing to search in a file explorer.
-        let focused = self.focused_pane().filter(|id| !self.explorers.contains_key(id));
+        let focused = self.focused_pane().filter(|id| self.panes.contains_key(id));
         self.search = match (self.search.take(), focused) {
             (Some(s), Some(id)) if s.pane != id => Some(Search::new(id)),
             (Some(_), _) => None,

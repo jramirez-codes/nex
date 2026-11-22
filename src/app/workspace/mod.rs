@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use egui::{Pos2, Rect};
 
 use crate::file_explorer::FileExplorer;
+use crate::git_diff::GitDiff;
 use crate::layout::{Axis, Direction, Node, PaneId};
 use crate::terminal::Terminal;
 use crate::ui::icons;
@@ -34,6 +35,7 @@ impl App {
         self.panes.remove(&id);
         self.pane_fonts.remove(&id);
         self.explorers.remove(&id);
+        self.diffs.remove(&id);
     }
 
     /// Spawn a shell sized for `card`, so its first output is already laid out correctly.
@@ -99,6 +101,9 @@ impl App {
 
     /// Working directory of a pane: the shell's cwd, or the folder a explorer is showing.
     pub(in crate::app) fn pane_cwd(&self, id: PaneId) -> Option<PathBuf> {
+        if let Some(d) = self.diffs.get(&id) {
+            return Some(d.dir.clone());
+        }
         match self.explorers.get(&id) {
             Some(b) => Some(b.dir.clone()),
             None => self.panes.get(&id).and_then(|t| t.cwd.clone()),
@@ -109,6 +114,9 @@ impl App {
     pub(in crate::app) fn pane_label(&self, id: PaneId) -> (String, String) {
         if let Some(b) = self.explorers.get(&id) {
             return (b.title(), icons::EXPLORER_PROCESS.into());
+        }
+        if let Some(d) = self.diffs.get(&id) {
+            return (d.title(), icons::DIFF_PROCESS.into());
         }
         self.panes.get(&id).map(|t| (t.title(), t.process.clone())).unwrap_or_default()
     }
@@ -189,6 +197,72 @@ impl App {
         let new = self.alloc_pane_id();
         self.explorers.insert(new, self.new_explorer(dir));
         self.attach_split(ctx, target, axis, new);
+    }
+
+    /// Ctrl+G: close the shown tab's Changes pane if it has one (focus goes back to the pane
+    /// it was opened from), else split one off the focused pane, showing its repository.
+    pub(in crate::app) fn toggle_git_diff(&mut self, ctx: &egui::Context) {
+        let Some(tab) = self.cur_tab() else { return };
+        if let Some(id) = tab.root.panes().into_iter().find(|id| self.diffs.contains_key(id)) {
+            let origin = self.diffs.get(&id).and_then(|d| d.origin);
+            self.close_pane(ctx, id);
+            if let Some(origin) = origin
+                && let Some(tab) = self.tab_with(origin)
+            {
+                tab.focused = origin;
+            }
+            return;
+        }
+        let Some(from) = self.focused_pane() else { return };
+        self.split_diff(ctx, from, Axis::Horizontal);
+    }
+
+    /// Split a Changes pane off `target`, showing the repository of `target`'s directory.
+    pub(in crate::app) fn split_diff(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
+        let dir = self
+            .pane_cwd(target)
+            .or_else(crate::platform::home_dir)
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let new = self.alloc_pane_id();
+        let mut d = GitDiff::new(ctx, dir);
+        d.origin = Some(target);
+        self.diffs.insert(new, d);
+        // The diff starts at the zoom level of the pane it was opened from.
+        if let Some(&fs) = self.pane_fonts.get(&target) {
+            self.pane_fonts.insert(new, fs);
+        }
+        self.attach_split(ctx, target, axis, new);
+    }
+
+    /// Changes panes follow their tab's focus: focusing a terminal (or a Files pane) shows
+    /// its directory's repository. Run every frame; it only reloads when the folder changes.
+    pub(in crate::app) fn follow_focus(&mut self) {
+        if self.diffs.is_empty() {
+            return;
+        }
+        let tabs: Vec<(Vec<PaneId>, PaneId)> = self.explorer_tab.iter().chain(&self.tabs).map(|t| (t.root.panes(), t.focused)).collect();
+        for (panes, focused) in tabs {
+            if self.diffs.contains_key(&focused) {
+                continue;
+            }
+            let Some(dir) = self.pane_cwd(focused) else { continue };
+            for id in panes {
+                if let Some(d) = self.diffs.get_mut(&id) {
+                    d.follow(dir.clone());
+                    d.origin = Some(focused);
+                }
+            }
+        }
+    }
+
+    /// Show `path` (picked in Changes pane `pane`) in a Files pane split off it.
+    pub(in crate::app) fn reveal_from_diff(&mut self, ctx: &egui::Context, pane: PaneId, path: &Path) {
+        let Some(dir) = path.parent().map(Path::to_path_buf) else { return };
+        let new = self.alloc_pane_id();
+        let mut b = self.new_explorer(dir);
+        b.reveal_item(path);
+        self.explorers.insert(new, b);
+        self.attach_split(ctx, pane, Axis::Vertical, new);
     }
 
     /// Where a pane split off `target` will land: the half of its card on the new side.

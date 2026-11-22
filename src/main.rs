@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod config;
 mod file_explorer;
+mod git_diff;
 mod layout;
 mod platform;
 mod remote;

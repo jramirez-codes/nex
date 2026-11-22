@@ -130,3 +130,52 @@ pub fn is_fullscreen(ctx: &egui::Context) -> bool {
 pub fn pressed_in(ui: &Ui, rect: Rect) -> bool {
     ui.rect_contains_pointer(rect) && ui.input(|i| i.pointer.primary_pressed())
 }
+
+/// Where a scrolled view is: `offset` into `content` points, `view` of them visible.
+#[derive(Clone, Copy)]
+pub struct ScrollSpan {
+    pub offset: f32,
+    pub content: f32,
+    pub view: f32,
+}
+
+/// A thin macOS-style overlay scrollbar along the right edge of `track`, for a view at `span`. It fades in while the pointer is over the
+/// view or it was scrolled in the last second (`active_at`, the last time it was), and widens
+/// when hovered. Dragging the thumb returns the new offset.
+pub fn overlay_scrollbar(ui: &Ui, painter: &Painter, track: Rect, id: Id, span: ScrollSpan, active_at: &mut f64) -> Option<f32> {
+    use egui::{Pos2, Vec2};
+    let ScrollSpan { offset, content, view } = span;
+    if content <= view + 0.5 || track.height() < 24.0 {
+        return None;
+    }
+    let ctx = ui.ctx();
+    let now = ui.input(|i| i.time);
+    let hit = Rect::from_min_max(Pos2::new(track.right() - 14.0, track.top()), track.max);
+    let resp = ui.interact(hit, id, Sense::drag());
+    let near = resp.hovered() || resp.dragged();
+    if near || ui.rect_contains_pointer(track) {
+        *active_at = now;
+    }
+    let idle = (now - *active_at) as f32;
+    let target = if idle < 0.9 { 1.0 } else { 0.0 };
+    let alpha = ctx.animate_value_with_time(id.with("alpha"), target, if target > 0.5 { 0.12 } else { 0.35 });
+    let width = ctx.animate_value_with_time(id.with("width"), if near { 9.0 } else { 6.0 }, 0.12);
+    if idle < 1.4 {
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+    let inner = track.shrink2(Vec2::new(0.0, 4.0));
+    let thumb_h = (inner.height() * view / content).max(28.0).min(inner.height());
+    let max_offset = content - view;
+    let t = (offset / max_offset).clamp(0.0, 1.0);
+    let top = inner.top() + (inner.height() - thumb_h) * t;
+    let thumb = Rect::from_min_size(Pos2::new(track.right() - width - 3.0, top), Vec2::new(width, thumb_h));
+    if alpha > 0.01 {
+        let fill = if near { Color32::from_white_alpha(110) } else { Color32::from_white_alpha(70) };
+        painter.rect_filled(thumb, (width / 2.0) as u8, fill.gamma_multiply(alpha));
+    }
+    if resp.dragged() {
+        let per_point = max_offset / (inner.height() - thumb_h).max(1.0);
+        return Some((offset + resp.drag_delta().y * per_point).clamp(0.0, max_offset));
+    }
+    None
+}

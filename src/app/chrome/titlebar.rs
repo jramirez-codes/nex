@@ -454,10 +454,12 @@ impl App {
     fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect, step: Vec2, center: bool) -> f32 {
         let (title, process) = self.pane_label(self.tabs[i].focused);
         let mark = icons::title_mark(&process, &title).0.map(str::to_string);
-        let (panes, explorers) = (&self.panes, &self.explorers);
+        let (panes, explorers, diffs) = (&self.panes, &self.explorers, &self.diffs);
         let cards = self.tabs[i].deck_cards(ctx, |id| {
             if explorers.contains_key(&id) {
                 (icons::EXPLORER_PROCESS.to_string(), None)
+            } else if diffs.contains_key(&id) {
+                (icons::DIFF_PROCESS.to_string(), None)
             } else {
                 panes
                     .get(&id)
