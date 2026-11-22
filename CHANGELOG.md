@@ -114,6 +114,10 @@ All notable changes to nex are documented here. The format follows
   from the Agents pane came back as an empty local shell, and an ssh pane running `claude`
   through the shim came back logged in but with the agent left detached.
 
+- A crash in one agent on an ssh host no longer takes down the others. `nex-host` kept going
+  only until another agent or pane touched the shared agent list, then stopped too, ending
+  every agent on the host.
+
 ## [0.11.0] - 2026-11-17
 
 ### Added

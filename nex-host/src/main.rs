@@ -22,6 +22,8 @@ mod client;
 #[cfg(unix)]
 mod daemon;
 #[cfg(unix)]
+mod locked;
+#[cfg(unix)]
 mod redraw;
 #[cfg(unix)]
 mod shim;

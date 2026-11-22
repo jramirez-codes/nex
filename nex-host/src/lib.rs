@@ -13,6 +13,7 @@
 //!   redraw.rs   that screen as escape sequences, for a pane attaching to it
 //!   attach.rs   `nex-host attach`: a pane's view of one agent
 //!   client.rs   talking to the daemon (starting it when it isn't running)
+//!   locked.rs   taking a lock a panicked thread left poisoned
 //! ```
 //!
 //! Without the default `daemon` feature only `proto`, `claude` and `paths` are built: that's
