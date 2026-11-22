@@ -30,6 +30,16 @@ pub(in crate::app) struct Upload {
     rx: Receiver<Result<Vec<String>, UploadError>>,
 }
 
+/// What nex can do when a host wants a password (see [`App::login_help`]).
+pub(in crate::app) enum LoginHelp {
+    /// Connection sharing is on: logging in to the host again (in its pane) shares the login.
+    LogInAgain,
+    /// The connection-sharing dialog is now open; it says what to do.
+    Offered,
+    /// Sharing isn't available (or the user turned it down): nothing to do.
+    None,
+}
+
 impl App {
     /// The host pane `id` is connected to with `ssh`, if uploads are on and it is.
     pub(in crate::app) fn ssh_target(&mut self, id: PaneId) -> Option<SshTarget> {
@@ -121,17 +131,30 @@ impl App {
     fn upload_failed(&mut self, ctx: &egui::Context, host: &str, e: UploadError) {
         let msg = match e {
             UploadError::Other(e) => format!("Couldn't upload to {host}: {e}"),
-            // Sharing is on, but this session started before it was (or outside nex).
-            UploadError::NeedsLogin if remote::sharing_enabled() => {
-                format!("Couldn't upload: log out of {host} (type exit) and ssh back in, then drop the file again.")
-            }
-            UploadError::NeedsLogin if remote::SHARING_SUPPORTED && !self.sharing_declined => {
-                self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string(), "Drop the file again"));
-                return;
-            }
-            UploadError::NeedsLogin => format!("Couldn't upload: {host} needs a password, and the upload can't type one."),
+            UploadError::NeedsLogin => match self.login_help(host, "Drop the file again") {
+                LoginHelp::LogInAgain => {
+                    format!("Couldn't upload: log out of {host} (type exit) and ssh back in, then drop the file again.")
+                }
+                LoginHelp::Offered => return,
+                LoginHelp::None => format!("Couldn't upload: {host} needs a password, and the upload can't type one."),
+            },
         };
         self.toast = Some(Toast::long(ctx, msg));
+    }
+
+    /// `host` wants a password one of nex's own connections (an upload, the mic) can't type:
+    /// what nex can do about it. Offering connection sharing shows the dialog, whose button
+    /// says `retry` once sharing is on.
+    pub(in crate::app) fn login_help(&mut self, host: &str, retry: &'static str) -> LoginHelp {
+        if remote::sharing_enabled() {
+            // Sharing is on, but this session started before it was (or outside nex).
+            LoginHelp::LogInAgain
+        } else if remote::SHARING_SUPPORTED && !self.sharing_declined {
+            self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string(), retry));
+            LoginHelp::Offered
+        } else {
+            LoginHelp::None
+        }
     }
 
     /// A modal dialog is open over the terminals and takes the keyboard.

@@ -12,10 +12,7 @@ use std::time::{Duration, Instant};
 use crate::layout::PaneId;
 
 /// Output this recent (and not just the echo of typing) counts as working.
-const BUSY_WINDOW: Duration = Duration::from_millis(1500);
-/// Claude Code's title glyph while it waits at its prompt; spinner frames replace it while
-/// it works.
-const CLAUDE_IDLE_MARK: &str = "✳";
+const BUSY_WINDOW: Duration = Duration::from_millis(nex_host::proto::BUSY_WINDOW_MS);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AgentKind {
@@ -98,18 +95,9 @@ impl Status {
     }
 
     /// Claude Code's own word for its state (the session file's `status`), if nex knows it.
+    /// The words are `nex-host`'s, so local and remote agents read them the same way.
     pub fn from_claude(status: &str) -> Option<Status> {
-        let s = status.to_ascii_lowercase();
-        let has = |words: &[&str]| words.iter().any(|w| s.contains(w));
-        if has(&["wait", "permission", "input", "blocked", "attention", "approval"]) {
-            Some(Status::NeedsYou)
-        } else if has(&["busy", "running", "working", "thinking", "active", "streaming", "tool"]) {
-            Some(Status::Working)
-        } else if has(&["idle", "ready", "done", "complete"]) {
-            Some(Status::Idle)
-        } else {
-            None
-        }
+        nex_host::proto::Status::from_claude(status).and_then(Status::from_host)
     }
 }
 
@@ -171,7 +159,8 @@ pub struct Probe {
 
 impl Probe {
     /// The best guess at what it's doing: Claude Code's own word first, then the bell, then
-    /// its title spinner, then whether it's been printing on its own.
+    /// its title spinner, then whether it's been printing on its own. The same rules as
+    /// `nex_host::proto::Session::compute_status` uses for remote agents; keep them in step.
     pub fn status(&self, now: Instant) -> Status {
         if let Some(s) = self.reported {
             // A bell the pane showing it heard counts too.
@@ -187,7 +176,8 @@ impl Probe {
         if self.kind == AgentKind::Claude
             && let Some(mark) = &self.mark
         {
-            return if mark == CLAUDE_IDLE_MARK { Status::Idle } else { Status::Working };
+            let idle = mark.chars().eq([nex_host::proto::CLAUDE_IDLE_MARK]);
+            return if idle { Status::Idle } else { Status::Working };
         }
         let recent = |t: Instant| now.saturating_duration_since(t) < BUSY_WINDOW;
         if recent(self.last_output) && !recent(self.last_input) { Status::Working } else { Status::Idle }

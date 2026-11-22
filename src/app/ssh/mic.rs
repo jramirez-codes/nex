@@ -16,7 +16,7 @@ use crate::remote::{self, SshTarget};
 use crate::ui::toast::Toast;
 
 use crate::app::App;
-use crate::app::ssh::upload::SharingPrompt;
+use crate::app::ssh::upload::LoginHelp;
 
 /// How often panes are checked for hosts to share with or stop sharing with.
 const CHECK_INTERVAL: Duration = Duration::from_millis(750);
@@ -178,14 +178,13 @@ impl App {
             // Shared automatically: these hosts just can't, and saying so for every pane on one
             // would be noise.
             MicError::NeedsLogin | MicError::NotLinux | MicError::NoAlsa if !asked => return,
-            MicError::NeedsLogin if remote::sharing_enabled() => {
-                format!("Couldn't share the microphone: log out of {host} (type exit) and ssh back in, then share it again.")
-            }
-            MicError::NeedsLogin if remote::SHARING_SUPPORTED && !self.sharing_declined => {
-                self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string(), "Share the microphone again"));
-                return;
-            }
-            MicError::NeedsLogin => format!("Couldn't share the microphone: {host} needs a password, and nex can't type one."),
+            MicError::NeedsLogin => match self.login_help(host, "Share the microphone again") {
+                LoginHelp::LogInAgain => {
+                    format!("Couldn't share the microphone: log out of {host} (type exit) and ssh back in, then share it again.")
+                }
+                LoginHelp::Offered => return,
+                LoginHelp::None => format!("Couldn't share the microphone: {host} needs a password, and nex can't type one."),
+            },
             e => format!("Couldn't share the microphone with {host}: {e}"),
         };
         self.toast = Some(Toast::long(ctx, msg));

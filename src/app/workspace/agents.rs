@@ -9,7 +9,6 @@ use std::time::Instant;
 use crate::agents::AgentsPane;
 use crate::agents::model::{AgentKind, Probe, Source, Status, is_remote_key, remote_key};
 use crate::layout::{Axis, PaneId};
-use crate::remote::SshTarget;
 use crate::session::claude;
 use crate::ui::icons;
 
@@ -40,8 +39,7 @@ impl App {
                 let Some(t) = self.panes.get(&id) else { continue };
                 if let Some(target) = t.last_ssh_target() {
                     hosts.insert(target.normalized());
-                    let session = t.agent_session().or_else(|| t.foreground_job().and_then(|(_, argv)| SshTarget::attach_id(argv)));
-                    if let Some(session) = session {
+                    if let Some(session) = t.remote_agent() {
                         showing.entry(session).or_insert((id, index, t.attention));
                     }
                     continue;
@@ -204,7 +202,7 @@ impl App {
     pub(in crate::app) fn detach_notice(&self, id: PaneId) -> Option<String> {
         let t = self.panes.get(&id)?;
         let target = t.last_ssh_target()?;
-        let session = t.agent_session().or_else(|| t.foreground_job().and_then(|(_, argv)| SshTarget::attach_id(argv)))?;
+        let session = t.remote_agent()?;
         let host = target.host().to_string();
         let agent = self.agent_tracker.agents().iter().find(|a| a.pane == remote_key(&host, &session));
         let what = agent.map_or("The agent", |a| a.kind.label());

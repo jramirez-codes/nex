@@ -20,7 +20,7 @@ pub use dnd::Dnd;
 pub use file_manager::file_manager_service;
 pub use fonts::{FALLBACK_FAMILIES, find_font, nerd_mono_families};
 pub use memory::{trim_heap, tune_allocator};
-pub use proc::proc_info;
+pub use proc::{proc_info, process_start};
 pub use watch::{DirWatch, on_dir_change};
 
 use super::{ShortcutStyle, WindowDefaults};

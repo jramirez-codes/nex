@@ -20,7 +20,7 @@ pub use apps::{apps_for, mime_type, open_with};
 pub use clipboard::clipboard_files;
 pub use launch::{opened_from_desktop, shell_env};
 pub use memory::{trim_heap, tune_allocator};
-pub use proc::proc_info;
+pub use proc::{proc_info, process_start};
 pub use window::{align_window_buttons, set_window_title};
 
 use super::{ShortcutStyle, WindowDefaults};

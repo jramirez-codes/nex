@@ -202,6 +202,7 @@ fn only_close_actions_count_as_the_user_closing() {
 }
 
 /// Run frames until `done` holds (the shell and its programs run in real time), or panic.
+#[cfg(unix)]
 fn frames_until(ctx: &egui::Context, app: &mut App, what: &str, mut done: impl FnMut(&mut App) -> bool) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     while !done(app) {

@@ -92,4 +92,34 @@ mod tests {
         assert_eq!(parse(text, 7, None).unwrap().session_id, None);
         assert_eq!(parse("not json", 7, None), None);
     }
+
+    #[test]
+    fn reads_the_session_file() {
+        let dir = std::env::temp_dir().join(format!("nex-claude-sessions-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = format!(r#"{{"pid":4242,"sessionId":"{ID}","procStart":"3887066"}}"#);
+        std::fs::write(dir.join("4242.json"), file).unwrap();
+        let id = |pid, start| read_in(&dir, pid, start).and_then(|c| c.session_id);
+        assert_eq!(id(4242, Some("3887066")).as_deref(), Some(ID));
+        assert_eq!(id(4242, None).as_deref(), Some(ID));
+        // Another process that reused the pid.
+        assert_eq!(id(4242, Some("99")), None);
+        assert_eq!(id(4243, None), None);
+        std::fs::write(dir.join("4244.json"), r#"{"pid":1,"sessionId":"abc"}"#).unwrap();
+        assert_eq!(id(4244, None), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_bad_id_keeps_the_rest() {
+        let text = r#"{"pid":78,"sessionId":"nope!","name":"nex-2e","status":"busy"}"#;
+        let c = parse(text, 78, None).unwrap();
+        assert_eq!((c.session_id, c.name.as_deref(), c.status.as_deref()), (None, Some("nex-2e"), Some("busy")));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reads_own_start_time() {
+        assert!(proc_start(std::process::id()).is_some_and(|s| s.parse::<u64>().is_ok()));
+    }
 }
