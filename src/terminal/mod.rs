@@ -552,10 +552,13 @@ impl Terminal {
     /// `user@host: dir` title. `None` when the remote side says neither.
     pub fn remote_cwd(&self) -> Option<String> {
         let report = self.osc7.lock().ok().and_then(|r| r.clone());
-        if let Some(r) = report.filter(|r| !is_local_host(&r.host)) {
+        // A pane whose shell is on a host nex connects to itself: every report is from there
+        // (that host may well be this one).
+        let remote = self.remote.is_some();
+        if let Some(r) = report.filter(|r| remote || !is_local_host(&r.host)) {
             return Some(r.path);
         }
-        if self.osc_title_owner != "ssh" {
+        if !remote && self.osc_title_owner != "ssh" {
             return None;
         }
         self.osc_title.as_deref().and_then(osc7::title_dir).map(str::to_string)

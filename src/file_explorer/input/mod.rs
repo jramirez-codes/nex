@@ -22,6 +22,8 @@ pub(super) const DOUBLE_CLICK: f64 = 0.4;
 /// Drag-and-drop payload for files dragged out of an explorer.
 pub struct ExplorerDrag {
     pub paths: Vec<PathBuf>,
+    /// The machine they're on (see `FileExplorer::origin`; `None`: this one).
+    pub origin: Option<String>,
     /// How the dragged files look under the pointer.
     pub(super) ghost: Ghost,
 }
@@ -361,7 +363,7 @@ impl FileExplorer {
         let Some(ghost) = self.ghost(i, paths.len()) else { return };
         if !paths.is_empty() {
             crate::platform::dnd_log(format_args!("explorer drag started: {} path(s)", paths.len()));
-            DragAndDrop::set_payload(ctx, ExplorerDrag { paths, ghost });
+            DragAndDrop::set_payload(ctx, ExplorerDrag { paths, ghost, origin: self.origin() });
         }
     }
 
@@ -377,7 +379,7 @@ impl FileExplorer {
         // Held where it was pressed; a press beside the icon (on the name) holds its edge.
         let origin = self.press.as_ref().map_or(icon.center(), |p| p.origin);
         let grab = icon.clamp(origin) - icon.min;
-        let in_home = crate::platform::home_dir().is_some_and(|h| h == self.dir);
+        let in_home = self.home().is_some_and(|h| h == self.dir);
         Some(Ghost { lead, count, size: icon.size(), grab, large: self.view == View::Grid, in_home, scale: s.scale })
     }
 

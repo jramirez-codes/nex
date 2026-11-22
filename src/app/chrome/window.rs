@@ -35,7 +35,9 @@ impl App {
         // (another nex, a file manager, a browser) can take the drop.
         if let (Some(dnd), Some(p)) = (&mut self.dnd, pos)
             && !released && !ctx.content_rect().contains(p)
-                && let Some(drag) = egui::DragAndDrop::payload::<file_explorer::ExplorerDrag>(ctx) {
+                && let Some(drag) = egui::DragAndDrop::payload::<file_explorer::ExplorerDrag>(ctx)
+                // Files on an ssh host aren't files other apps here can open.
+                && drag.origin.is_none() {
                     crate::platform::dnd_log(format_args!("explorer drag left the window at {p:?} (window {:?})", ctx.content_rect()));
                     // The compositor draws the icon from here on (nex can't draw outside its window).
                     if dnd.start_drag(&drag.paths, p, file_explorer::drag_image(ctx, theme, &drag)) {
@@ -56,7 +58,12 @@ impl App {
             && let Some((id, card)) = pos.and_then(|p| self.terminal_card_at(p)) {
                 if released {
                     if let Some(drag) = egui::DragAndDrop::take_payload::<file_explorer::ExplorerDrag>(ctx) {
-                        self.insert_or_upload(ctx, id, drag.paths.clone());
+                        if drag.origin.is_some() {
+                            // Already on a host: their paths are only typed in.
+                            self.insert_paths(id, &drag.paths);
+                        } else {
+                            self.insert_or_upload(ctx, id, drag.paths.clone());
+                        }
                         self.pending.push(Action::FocusPane(id));
                     }
                 } else {

@@ -76,6 +76,7 @@ impl FileExplorer {
     /// scrolling and drops.
     pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: PaneId, c: &Theme) {
         let ctx = ui.ctx().clone();
+        self.poll_listing();
         self.poll_jobs(&ctx);
         self.expire_find(&ctx);
         let input = PointerInput::read(ui, &mut self.last_pos);
@@ -119,7 +120,11 @@ impl FileExplorer {
         let Some(paths) = &self.confirm_delete else { return };
         let s = sizes(self.touch, 1.0);
         let name = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.display().to_string());
-        let has_folder = paths.iter().any(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir()));
+        let has_folder = if self.remote.is_some() {
+            self.entries.iter().any(|e| e.is_dir && !e.is_symlink && paths.contains(&e.path))
+        } else {
+            paths.iter().any(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir()))
+        };
         let title = match paths.as_slice() {
             [one] => format!("Permanently delete “{}”?", name(one)),
             many => format!("Permanently delete {}?", count(many.len())),
@@ -263,7 +268,7 @@ impl FileExplorer {
         let (ui, painter, c, pane) = (f.ui, f.painter, f.c, f.pane);
         let k = f.s.scale;
         let (pad, sep) = (7.0 * k, 12.0 * k);
-        let home = crate::platform::home_dir();
+        let home = self.home();
         let all = crumbs(&self.dir, home.as_deref());
         let width = |label: &str| painter.layout_no_wrap(label.to_string(), font.clone(), c.text).size().x + pad * 2.0;
         let widths: Vec<f32> = all.iter().map(|(l, _)| width(l)).collect();
@@ -304,7 +309,7 @@ impl FileExplorer {
             }
             let col = if current { c.text_bright } else if resp.hovered() { c.text } else { c.text_dim };
             paint::faded_text(painter, Pos2::new(r.left() + pad, r.center().y), label, font.clone(), col, r.width() - pad * 2.0, 14.0);
-            let resp = resp.on_hover_text(crate::terminal::tilde(path));
+            let resp = resp.on_hover_text(self.shown_path(path));
             if resp.clicked() && !current {
                 go = Some(path.clone());
             }
@@ -359,8 +364,10 @@ impl FileExplorer {
         if resp.secondary_clicked() {
             let item = f.input.pos.and_then(|p| layout.item_at(p, self.scroll, self.entries.len()));
             self.right_click_select(item);
-            // Look up "Open With" apps while the menu opens.
+            // Look up "Open With" apps while the menu opens (this machine's apps open only
+            // this machine's files).
             if let [one] = self.targets().as_slice()
+                && self.remote.is_none()
                 && self.menu_on_item && !one.is_dir() {
                     let one = one.clone();
                     self.load_open_with(f.ui.ctx(), one);
@@ -422,6 +429,14 @@ impl FileExplorer {
     /// moving. Returns the folder that would receive a drop now, for highlighting.
     fn handle_drop(&mut self, f: &Frame, list: Rect, bar_drop: Option<PathBuf>) -> Option<PathBuf> {
         let (Some(drag), Some(p)) = (&f.drag, f.input.pos) else { return None };
+        // Files from another machine can't land here.
+        if drag.origin != self.origin() {
+            if f.input.released && list.contains(p) {
+                let origin = drag.origin.clone();
+                self.accepts_from(&origin);
+            }
+            return None;
+        }
         let target = if bar_drop.is_some() {
             bar_drop
         } else if list.contains(p) {
@@ -453,7 +468,8 @@ impl FileExplorer {
         if let Some(err) = &self.error {
             painter.text(list.center_top() + Vec2::new(0.0, 24.0), Align2::CENTER_CENTER, err, message, ERROR);
         } else if len == 0 {
-            painter.text(list.center_top() + Vec2::new(0.0, 24.0), Align2::CENTER_CENTER, "Empty folder", message, c.text_dim);
+            let text = if self.loading() { "Loading…" } else { "Empty folder" };
+            painter.text(list.center_top() + Vec2::new(0.0, 24.0), Align2::CENTER_CENTER, text, message, c.text_dim);
         }
 
         let clip_p = painter.with_clip_rect(list);
@@ -465,7 +481,7 @@ impl FileExplorer {
         let first_row = (self.scroll / layout.item.y).floor() as usize;
         let last_row = ((self.scroll + list.height()) / layout.item.y).ceil() as usize;
         let cut_paths: &[PathBuf] = clip.filter(|c| c.cut).map(|c| c.paths.as_slice()).unwrap_or(&[]);
-        let in_home = crate::platform::home_dir().is_some_and(|h| h == self.dir);
+        let in_home = self.home().is_some_and(|h| h == self.dir);
         let renaming = self.rename.as_ref().map(|r| r.path.clone());
         let mut rename_at = None;
         for i in (first_row * layout.cols)..((last_row * layout.cols).min(len)) {

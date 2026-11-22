@@ -66,6 +66,38 @@ impl App {
         }
     }
 
+    /// "Open Terminal Here" in Files pane `pane`: a terminal split off it in `dir`, on the
+    /// pane's ssh host when it shows one (a new `ssh` session there, or a new shell on the
+    /// host the window is connected to).
+    pub(in crate::app) fn open_terminal_in(&mut self, ctx: &egui::Context, pane: PaneId, dir: PathBuf) {
+        use crate::remote::exec::Transport;
+        let place = Place::Split(pane, Axis::Horizontal);
+        let Some(t) = self.explorers.get(&pane).and_then(|b| b.transport().cloned()) else {
+            self.open_terminal(ctx, place, Some(dir), None);
+            return;
+        };
+        let dir = dir.to_string_lossy().into_owned();
+        match &*t {
+            Transport::Ssh(target) => self.open_terminal(ctx, place, None, Some(target.session_command(Some(&dir)))),
+            Transport::Nex(_) => {
+                self.next_remote_cwd = Some(dir);
+                self.open_terminal(ctx, place, None, None);
+                self.next_remote_cwd = None;
+            }
+        }
+    }
+
+    /// A Files or Changes pane on `host` couldn't log in there: what nex can do about it.
+    pub(in crate::app) fn remote_pane_login_failed(&mut self, ctx: &egui::Context, host: &str) {
+        use crate::app::ssh::sharing::LoginHelp;
+        let msg = match self.login_help(host, "Done") {
+            LoginHelp::LogInAgain => format!("{host} needs a password: log out of it (type exit) and ssh back in, and the pane will catch up."),
+            LoginHelp::Offered => return,
+            LoginHelp::None => format!("{host} needs a password, and nex's own connection can't type one."),
+        };
+        self.toast = Some(crate::ui::toast::Toast::long(ctx, msg));
+    }
+
     /// The command line for another session on the host pane `id` is connected to with
     /// `ssh`, in the remote directory it's in, if following is on and it is.
     fn ssh_session(&mut self, id: PaneId) -> Option<(Vec<String>, remote::SshTarget)> {

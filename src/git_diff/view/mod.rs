@@ -160,6 +160,11 @@ impl GitDiff {
                 message(painter, body, c, Glyph::Branch, "Not a Git Repository", &crate::terminal::tilde(&self.dir));
                 return;
             }
+            Some(Status::NeedsLogin) => {
+                let host = self.remote.as_ref().map_or_else(|| "the host".into(), |t| t.label());
+                message(painter, body, c, Glyph::Warning, "Couldn't Log In", &format!("nex can't log in to {host} without a password."));
+                return;
+            }
             Some(Status::NoGit) => {
                 message(painter, body, c, Glyph::Branch, "Git Not Found", "Install git to see your changes here.");
                 return;

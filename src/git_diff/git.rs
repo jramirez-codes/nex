@@ -1,12 +1,18 @@
 //! Running `git` and reading what it prints: the working tree's status (with per-file line
 //! counts) and one file's unified diff, parsed into hunks with word-level highlights.
 //! Everything here is blocking; `GitDiff` runs it on a background thread.
+//!
+//! For a folder on an ssh host the same `git` commands run there (`*_remote`, see
+//! `remote::exec`), batched so a status is one trip; their output is parsed the same way.
 
 use std::io::Read;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+
+use crate::remote::exec::{ExecError, Transport, cd_word};
+use crate::remote::posix_quote;
 
 /// Longest a single `git` call may take before it is killed (a huge repo, a hung hook).
 const GIT_TIMEOUT: Duration = Duration::from_secs(8);
@@ -165,6 +171,8 @@ pub enum Status {
     NotRepo,
     NoGit,
     Failed(String),
+    /// The folder is on an ssh host nex can't log in to without a password.
+    NeedsLogin,
 }
 
 /// `git status` (and line counts) for the repository holding `dir`.
@@ -289,6 +297,38 @@ pub fn parse_numstat(out: &str) -> Vec<(String, Option<(u32, u32)>)> {
     result
 }
 
+#[cfg(test)]
+mod remote_tests {
+    use super::*;
+
+    #[test]
+    fn remote_git_commands() {
+        assert_eq!(
+            remote_git("~/my repo", &["diff", "--", "a b.txt"]),
+            "cd -- ~/'my repo' 2>/dev/null || exit 3; GIT_PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 LC_ALL=C git diff -- 'a b.txt'"
+        );
+    }
+
+    #[test]
+    fn counts_lines_like_here() {
+        let dir = std::env::temp_dir().join(format!("nex-remote-counts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("two"), "a\nb\n").unwrap();
+        std::fs::write(dir.join("no newline"), "a\nb").unwrap();
+        std::fs::write(dir.join("bin"), b"a\0b").unwrap();
+        let files = ["two", "no newline", "bin", "missing"];
+        // The same script as on a host, run here by `sh`.
+        let script = count_script(&dir.to_string_lossy(), &files.map(String::from));
+        let out = std::process::Command::new("sh").arg("-c").arg(script).output().unwrap();
+        let counts = parse_counts(&String::from_utf8_lossy(&out.stdout));
+        assert_eq!(counts, [Some(2), Some(2), None, None]);
+        for f in ["two", "no newline"] {
+            assert_eq!(counts[files.iter().position(|x| *x == f).unwrap()], count_lines(&dir.join(f)));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 /// Lines in a text file, or `None` for a binary (or very big, or unreadable) one.
 fn count_lines(path: &Path) -> Option<u32> {
     let meta = std::fs::metadata(path).ok()?;
@@ -365,9 +405,21 @@ impl FileDiff {
 /// The diff of `file`: the index against `HEAD` when staged, else the work tree against the
 /// index (an untracked file against nothing).
 pub fn load_diff(root: &Path, file: &FileChange) -> Result<FileDiff, String> {
+    let args = diff_args(file, null_device());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    // `--no-index` exits with 1 when the files differ, which they always do here.
+    match run(root, &args) {
+        Ok((_, out)) => Ok(parse_diff(&String::from_utf8_lossy(&out))),
+        Err(RunError::NotFound) => Err("git not found".into()),
+        Err(RunError::Timeout) => Err("git diff took too long".into()),
+        Err(RunError::Io(e)) => Err(e),
+    }
+}
+
+/// `git diff …` for `file` (see [`load_diff`]), with `null` the null device.
+fn diff_args(file: &FileChange, null: &str) -> Vec<String> {
     let base = ["--no-color", "--no-ext-diff", "--no-textconv", "-U3"];
     let mut args: Vec<&str> = vec!["diff"];
-    let null = null_device();
     match (file.staged, file.change) {
         (_, Change::Untracked) => {
             args.extend(["--no-index"]);
@@ -388,12 +440,122 @@ pub fn load_diff(root: &Path, file: &FileChange) -> Result<FileDiff, String> {
             args.extend(["--", file.path.as_str()]);
         }
     }
-    // `--no-index` exits with 1 when the files differ, which they always do here.
-    match run(root, &args) {
-        Ok((_, out)) => Ok(parse_diff(&String::from_utf8_lossy(&out))),
-        Err(RunError::NotFound) => Err("git not found".into()),
-        Err(RunError::Timeout) => Err("git diff took too long".into()),
-        Err(RunError::Io(e)) => Err(e),
+    args.into_iter().map(String::from).collect()
+}
+
+/// Exit status of a remote script whose `cd` into the folder failed.
+const NO_FOLDER: i32 = 3;
+
+/// A command for the host's shell: `git args…` in `dir` (which may start with `~`), with
+/// the same environment as [`run`] gives it here.
+fn remote_git(dir: &str, args: &[&str]) -> String {
+    let args: Vec<String> = args.iter().map(|a| posix_quote(a)).collect();
+    format!(
+        "cd -- {} 2>/dev/null || exit {NO_FOLDER}; GIT_PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 LC_ALL=C git {}",
+        cd_word(dir),
+        args.join(" ")
+    )
+}
+
+/// What a remote failure looks like in the pane.
+fn remote_failure(e: ExecError) -> Status {
+    match e {
+        ExecError::NeedsLogin => Status::NeedsLogin,
+        other => Status::Failed(other.to_string()),
+    }
+}
+
+/// [`load_status`] for `dir` on the host `t` reaches: one trip for the status and the
+/// counts, and one more for untracked files' line counts.
+pub fn load_status_remote(t: &Transport, dir: &Path) -> Status {
+    let dir = dir.to_string_lossy();
+    let commands: Vec<String> = [
+        &["rev-parse", "--show-toplevel"][..],
+        &["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"],
+        &["diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv"],
+        &["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv"],
+    ]
+    .iter()
+    .map(|args| remote_git(&dir, args))
+    .collect();
+    let outs = match t.run_many(&commands) {
+        Ok(outs) => outs,
+        Err(e) => return remote_failure(e),
+    };
+    let [top, status, staged, unstaged] = outs.as_slice() else { return Status::Failed("The host's answer was cut short".into()) };
+    match top.code {
+        0 => {}
+        127 => return Status::NoGit,
+        NO_FOLDER => return Status::Failed(format!("{dir} isn't there any more")),
+        _ => return Status::NotRepo,
+    }
+    if !status.ok() {
+        return Status::Failed("git status failed".into());
+    }
+    let root = PathBuf::from(top.text().trim());
+    let mut snap = parse_status(&status.text());
+    snap.root = root.clone();
+    let numstat = |o: &crate::remote::exec::Output| if o.ok() { parse_numstat(&o.text()) } else { Vec::new() };
+    let (staged, unstaged) = (numstat(staged), numstat(unstaged));
+    for f in &mut snap.staged {
+        f.counts = staged.iter().find(|(p, _)| *p == f.path).and_then(|(_, c)| *c);
+    }
+    let untracked: Vec<String> = snap.unstaged.iter().filter(|f| f.change == Change::Untracked).map(|f| f.path.clone()).take(MAX_REMOTE_COUNTS).collect();
+    let counts = count_lines_remote(t, &root, &untracked);
+    for f in &mut snap.unstaged {
+        f.counts = match f.change {
+            Change::Untracked => untracked.iter().position(|p| *p == f.path).and_then(|i| counts.get(i).copied().flatten()).map(|n| (n, 0)),
+            _ => unstaged.iter().find(|(p, _)| *p == f.path).and_then(|(_, c)| *c),
+        };
+    }
+    Status::Ready(snap)
+}
+
+/// Untracked files on a host whose lines are counted (more would make one huge command).
+const MAX_REMOTE_COUNTS: usize = 500;
+
+/// [`count_lines`] for each of `files` (relative to `root`) on the host, in one trip.
+fn count_lines_remote(t: &Transport, root: &Path, files: &[String]) -> Vec<Option<u32>> {
+    if files.is_empty() {
+        return Vec::new();
+    }
+    let script = count_script(&root.to_string_lossy(), files);
+    let Ok(out) = t.run(&script) else { return Vec::new() };
+    parse_counts(&out.text())
+}
+
+/// A script printing [`count_lines`]'s answer for each of `files` in the folder `root`, one
+/// line each: the count, or `-`.
+fn count_script(root: &str, files: &[String]) -> String {
+    let quoted: Vec<String> = files.iter().map(|f| posix_quote(f)).collect();
+    format!(
+        r#"cd -- {root} 2>/dev/null || exit {NO_FOLDER}
+for f in {files}; do
+  if [ -f "$f" ] && [ "$(wc -c <"$f" | tr -d ' ')" -le {MAX_COUNT_BYTES} ] && [ "$(head -c 8000 "$f" | tr -cd '\000' | wc -c | tr -d ' ')" = 0 ]; then
+    n=$(wc -l <"$f" | tr -d ' '); [ -n "$(tail -c 1 "$f")" ] && n=$((n+1)); printf '%s\n' "$n"
+  else echo -; fi
+done"#,
+        root = posix_quote(root),
+        files = quoted.join(" "),
+    )
+}
+
+/// One line per file: its line count, or `-` (binary, too big, not a file).
+fn parse_counts(text: &str) -> Vec<Option<u32>> {
+    text.lines().map(|l| l.trim().parse().ok()).collect()
+}
+
+/// [`load_diff`] for a file in the repository at `root` on the host `t` reaches.
+pub fn load_diff_remote(t: &Transport, root: &Path, file: &FileChange) -> Result<FileDiff, String> {
+    let args = diff_args(file, "/dev/null");
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out = t.run(&remote_git(&root.to_string_lossy(), &args)).map_err(|e| e.to_string())?;
+    match out.code {
+        // `--no-index` exits with 1 when the files differ, which they always do here.
+        0 | 1 => Ok(parse_diff(&out.text())),
+        127 => Err("git not found on the host".into()),
+        NO_FOLDER => Err("The repository isn't there any more".into()),
+        code => Err(format!("git diff failed (exit status {code})")),
     }
 }
 

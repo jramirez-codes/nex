@@ -6,6 +6,8 @@
 //!              own connections use, and connection sharing in ~/.ssh/config
 //!   mux.rs     one shared connection per host for all of nex's own, so only one logs in
 //!   upload.rs  files dropped or pasted into an ssh pane, copied to the remote host
+//!   exec.rs    shell scripts run on the host, for Files and Changes panes opened from an
+//!              ssh pane (with `ssh`, or over nex's own connection)
 //!   host.rs    nex-host on the host: installing it, watching the agents it keeps running there
 //!   mic.rs     the local microphone shared with the remote host, as its default mic
 //!   audio.rs   recording from this machine's default microphone (cpal), for mic.rs
@@ -21,6 +23,7 @@
 //! its connection, so nex's connections ride on the login typed into the pane.
 
 pub mod audio;
+pub mod exec;
 pub mod host;
 pub mod mic;
 mod mux;
@@ -328,7 +331,7 @@ pub(super) fn last_line(s: &str) -> Option<String> {
 }
 
 /// Quote for a POSIX shell (only when needed).
-pub(super) fn posix_quote(s: &str) -> String {
+pub(crate) fn posix_quote(s: &str) -> String {
     let safe = |c: char| c.is_ascii_alphanumeric() || "_./-+:,@%=~".contains(c);
     if !s.is_empty() && s.chars().all(safe) { s.to_string() } else { format!("'{}'", s.replace('\'', r"'\''")) }
 }

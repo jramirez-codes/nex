@@ -38,7 +38,7 @@ fn ctrl_g_toggles_a_changes_pane_that_draws_and_restores() {
     let id = *app.diffs.keys().next().unwrap();
     assert_eq!(app.focused_pane(), Some(id));
     // Point it at the repository (the shell's own cwd is wherever the tests run).
-    app.diffs.get_mut(&id).unwrap().follow(dir.clone());
+    app.diffs.get_mut(&id).unwrap().follow(None, dir.clone());
 
     // Draw until git has answered, wide (list beside diff) and narrow (one at a time).
     let deadline = Instant::now() + Duration::from_secs(10);

@@ -27,6 +27,14 @@ All notable changes to nex are documented here. The format follows
 - Android: a round glass keyboard button in the bottom-right corner while the on-screen
   keyboard is down. Tap it to bring the keyboard back. Putting the keyboard away (the back
   gesture or its hide key) now keeps it down, so you can read and scroll a full screen.
+- Files and Changes panes on ssh hosts. Ctrl+E or Ctrl+G in a terminal that's ssh'd into a
+  host opens the explorer or the Changes pane in the session's folder **on that host**. This
+  works for panes running `ssh` and for panes on a host the window is connected to itself
+  (`--remote`, the Android app). The explorer browses, renames, creates, copies, moves and
+  deletes there, and shows Properties. "Open Terminal Here" opens another session on the host.
+  git runs on the host, and the Changes pane follows the focused ssh pane like a local one.
+  Files can't yet be copied between the host and this machine or opened with a local app,
+  and these panes aren't restored at startup.
 - A **Done** section in the Agents pane: an agent that finishes while you're not looking at
   its pane moves there, in blue, instead of going straight to Idle. It becomes Idle once you
   look at its pane. The title bar shows "1 done" too.
