@@ -2,6 +2,12 @@
 
 use crate::platform::ProcInfo;
 
+/// When process `pid` started, as Claude Code records it in its session file
+/// (`/proc/<pid>/stat` field 22, clock ticks since boot).
+pub fn process_start(pid: u32) -> Option<String> {
+    nex_host::claude::proc_start(pid)
+}
+
 /// We look at the *foreground* process group of the shell's controlling terminal, so running
 /// `node` shows "node" rather than "bash".
 pub fn proc_info(pid: u32) -> ProcInfo {

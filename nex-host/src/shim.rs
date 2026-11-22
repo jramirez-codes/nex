@@ -147,6 +147,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn calls_the_installed_program() {
+        let program = format!("\"$HOME/{}\"", nex_host::paths::INSTALL_PATH);
+        assert!(sh_block().contains(&format!("-x {program}")));
+        assert!(fish_file().contains(&format!("-x {program}")));
+    }
+
+    #[test]
     fn the_block_goes_at_the_end_once_and_comes_back_out() {
         let mine = "export PATH=$HOME/bin:$PATH\nalias ll='ls -l'\n";
         let added = with_block(mine);

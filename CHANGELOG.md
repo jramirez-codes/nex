@@ -82,6 +82,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- The `mobile` setting is now `tab-bar = top | sidebar`: `mobile = true` is `tab-bar = sidebar`.
+  `mobile` is still read, so existing configs keep working.
+
 - When the Agents pane can't see a host's agents because it wants a password, nex offers to
   share the ssh connection (once a run), so it reuses the login typed into the pane. If sharing
   is on but that pane logged in before it was, the note says to log out and ssh back in.

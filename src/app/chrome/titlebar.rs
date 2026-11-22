@@ -1,17 +1,21 @@
 //! The title bar: window buttons, the workspace (Files) label and the tab strip.
 
+use std::collections::HashMap;
+
 use egui::emath::TSTransform;
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
+use crate::layout::{PaneId, PaneKind};
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
+use crate::ui::glide::Glide;
 use crate::ui::{dog, glide, icons, paint};
 
 use crate::app::App;
 use crate::app::actions::Action;
 use crate::app::workspace::pane_drag::{DropTarget, SPRING_DELAY};
-use crate::app::animation::tab_close::{GLYPH, TabDrawn};
+use crate::app::animation::tab_close::{GLYPH, TabDrawn, TabGhost};
 
 const TAB_HEIGHT: f32 = 30.0;
 /// Padding between the tab track's edge and the tabs inside it.
@@ -76,7 +80,7 @@ pub(in crate::app) fn toggle_maximized(ctx: &egui::Context) {
 }
 
 /// Where the tabs sit this frame: `shown` slots of `size`, starting at `origin` and running
-/// right (title bar) or down (mobile sidebar).
+/// right (title bar) or down (sidebar).
 pub(in crate::app) struct TabSlots {
     origin: Pos2,
     size: Vec2,
@@ -124,12 +128,36 @@ impl TabSlots {
     }
 }
 
+/// The tab strip (title bar or sidebar) between frames: where each tab was drawn, the
+/// active-tab pill and closing tabs animating, and the Files tab's dog. Kept by `App` as `strip`.
+pub(in crate::app) struct TabStrip {
+    /// Animated position of the active-tab highlight, in tab slots.
+    pub(in crate::app) pill_glide: Glide,
+    /// Where each title-bar tab was drawn last frame, by tab uid (closes start from there).
+    pub(in crate::app) tab_rects: HashMap<u64, TabDrawn>,
+    /// Closed tabs still folding away.
+    pub(in crate::app) tab_ghosts: Vec<TabGhost>,
+    /// Where the Files tab (the directory label, or the sidebar tile) was drawn this frame.
+    pub(in crate::app) files_rect: Option<Rect>,
+    /// Where the Files tab's dog is in its intro, as the time the intro would have started
+    /// (set at launch; moved so the blep plays each time Files is shown), and whether Files
+    /// was showing last frame.
+    pub(in crate::app) dog_wake: Option<f64>,
+    pub(in crate::app) dog_was_active: bool,
+    /// Where each visible tab was drawn this frame (title bar or sidebar), by tab uid: where
+    /// a dragged pane can be dropped into another tab.
+    pub(in crate::app) tab_hits: Vec<(u64, Rect)>,
+    /// The title bar or sidebar this frame: dropping a pane on its empty space gives the
+    /// pane a tab of its own.
+    pub(in crate::app) strip_rect: Option<Rect>,
+}
+
 impl App {
     /// Widgets are laid out left to right and registered in that order (later ones win hit
     /// tests), starting with the background drag area.
     pub(in crate::app) fn titlebar(&mut self, ui: &mut Ui, rect: Rect, theme: &Theme) {
         let ctx = ui.ctx().clone();
-        self.strip_rect = Some(rect);
+        self.strip.strip_rect = Some(rect);
         let drag = ui.interact(rect, Id::new("titlebar"), Sense::click_and_drag());
         if drag.drag_started_by(PointerButton::Primary) {
             ctx.send_viewport_cmd(ViewportCommand::StartDrag);
@@ -153,7 +181,7 @@ impl App {
         // between them. While the active tab closes it folds into that tab's × and grows
         // back out onto the tab now showing.
         let target = slots.pill_rect(label_r);
-        let pill = match self.tab_ghosts.iter().rev().find(|g| g.drawn.active) {
+        let pill = match self.strip.tab_ghosts.iter().rev().find(|g| g.drawn.active) {
             Some(g) => g.pill(now, target),
             None => target.map(|r| (r, 8.0)),
         };
@@ -171,14 +199,14 @@ impl App {
     /// Start closed tabs' animations on their first frame and drop finished ones.
     fn advance_tab_ghosts(&mut self, ctx: &egui::Context, now: f64) {
         if !glide::animations(ctx) {
-            self.tab_ghosts.clear();
+            self.strip.tab_ghosts.clear();
             return;
         }
-        for g in &mut self.tab_ghosts {
+        for g in &mut self.strip.tab_ghosts {
             g.start.get_or_insert(now);
         }
-        self.tab_ghosts.retain(|g| !g.done(now));
-        if !self.tab_ghosts.is_empty() {
+        self.strip.tab_ghosts.retain(|g| !g.done(now));
+        if !self.strip.tab_ghosts.is_empty() {
             ctx.request_repaint();
         }
     }
@@ -188,7 +216,7 @@ impl App {
     /// icon fade under the folding pill (painted already). The × itself goes last.
     fn paint_tab_ghosts(&self, ui: &Ui, now: f64, theme: &Theme) {
         let painter = ui.painter();
-        for g in &self.tab_ghosts {
+        for g in &self.strip.tab_ghosts {
             let (f, d) = (g.frame(now), &g.drawn);
             if f.scale > 0.0 && (f.content > 0.0 || f.tint > 0.0) {
                 let start = painter.add(Shape::Noop);
@@ -224,11 +252,11 @@ impl App {
     /// directory name and hostname. Clicking it toggles the tab, and the glass pill glides
     /// onto it while the tab is showing.
     fn workspace_label(&mut self, ui: &Ui, label_r: Rect, theme: &Theme) {
-        self.files_rect = Some(label_r);
+        self.strip.files_rect = Some(label_r);
         let painter = ui.painter();
         let (x, cy) = (label_r.left() + 7.0, label_r.center().y);
         let label = ui.interact(label_r, Id::new("workspace-label"), Sense::click());
-        let active = self.explorer_active;
+        let active = self.home_active;
         if !active && label.hovered() {
             painter.rect_filled(label_r, 8, HOVER);
         }
@@ -268,18 +296,18 @@ impl App {
     /// is hidden.
     pub(in crate::app) fn files_dog(&mut self, ctx: &egui::Context, painter: &egui::Painter, r: Rect, theme: &Theme) {
         let now = ctx.input(|i| i.time);
-        let active = self.explorer_active;
-        match self.dog_wake {
-            None => self.dog_wake = Some(now),
+        let active = self.home_active;
+        match self.strip.dog_wake {
+            None => self.strip.dog_wake = Some(now),
             // Switching to Files plays just the blep, unless the launch intro hasn't reached
             // it yet (it's on its way).
-            Some(start) if active && !self.dog_was_active && now - start >= dog::BLEP_START as f64 => {
-                self.dog_wake = Some(now - dog::BLEP_START as f64);
+            Some(start) if active && !self.strip.dog_was_active && now - start >= dog::BLEP_START as f64 => {
+                self.strip.dog_wake = Some(now - dog::BLEP_START as f64);
             }
             Some(_) => {}
         }
-        self.dog_was_active = active;
-        let t = if glide::animations(ctx) { (now - self.dog_wake.unwrap_or(now)) as f32 } else { dog::INTRO };
+        self.strip.dog_was_active = active;
+        let t = if glide::animations(ctx) { (now - self.strip.dog_wake.unwrap_or(now)) as f32 } else { dog::INTRO };
         if t < dog::INTRO {
             ctx.request_repaint();
         }
@@ -293,7 +321,7 @@ impl App {
     /// widen and the track narrows smoothly.
     fn horizontal_tab_slots(&mut self, ui: &Ui, x: f32, right: f32, cy: f32, now: f64) -> TabSlots {
         let gaps: Vec<(usize, f32)> =
-            self.tab_ghosts.iter().map(|g| (g.index, g.frame(now).gap)).filter(|&(_, f)| f > 0.0).collect();
+            self.strip.tab_ghosts.iter().map(|g| (g.index, g.frame(now).gap)).filter(|&(_, f)| f > 0.0).collect();
         let held: f32 = gaps.iter().map(|&(_, f)| f).sum();
         let n = self.tabs.len();
         let avail = (right - x - 2.0 * TRACK_PAD).max(MIN_TAB_WIDTH);
@@ -315,16 +343,16 @@ impl App {
         let ctx = ui.ctx().clone();
         paint::tab_track(ui.painter(), track);
         let shown = visible.min(self.tabs.len());
-        let target = if self.explorer_active { Some(-1.0) } else { (self.active < shown).then_some(self.active as f32) };
+        let target = if self.home_active { Some(-1.0) } else { (self.active < shown).then_some(self.active as f32) };
         // While the active tab closes, the pill's path is the close animation's: be at the
         // new tab already when it hands back.
-        let folding = self.tab_ghosts.iter().any(|g| g.drawn.active);
+        let folding = self.strip.tab_ghosts.iter().any(|g| g.drawn.active);
         let pill = target.map(|t| {
             if folding {
-                self.pill_glide.snap(&ctx, t);
+                self.strip.pill_glide.snap(&ctx, t);
                 t
             } else {
-                self.pill_glide.value(&ctx, t)
+                self.strip.pill_glide.value(&ctx, t)
             }
         });
         let origin = track.min + Vec2::splat(TRACK_PAD);
@@ -333,8 +361,8 @@ impl App {
 
     /// The terminal tabs, drawn into `slots` over the track and pill.
     pub(in crate::app) fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
-        self.tab_rects.clear();
-        self.tab_hits.clear();
+        self.strip.tab_rects.clear();
+        self.strip.tab_hits.clear();
         for i in 0..slots.shown {
             if self.tab_item(ui, slots, i, theme) {
                 break;
@@ -344,7 +372,7 @@ impl App {
         // past the last one (or, with no room, around the whole track).
         if self.pane_drag.as_ref().is_some_and(|d| d.over == Some(DropTarget::NewTab)) && slots.shown > 0 {
             let next = slots.rect(slots.shown as f32).shrink(1.0);
-            let r = match self.strip_rect {
+            let r = match self.strip.strip_rect {
                 Some(strip) if strip.contains_rect(next) => next,
                 _ => slots.rect(0.0).union(slots.rect(slots.shown as f32 - 1.0)),
             };
@@ -367,7 +395,7 @@ impl App {
     }
 
     /// One tab: icon (or pane deck), title, hover close button; click to show, drag to reorder.
-    /// In the vertical (mobile) strip a tab is just a large icon, its title a tooltip.
+    /// In the vertical (sidebar) strip a tab is just a large icon, its title a tooltip.
     /// Returns `true` if the tabs were reordered (the rest of the strip is drawn next frame).
     fn tab_item(&mut self, ui: &Ui, slots: &TabSlots, i: usize, theme: &Theme) -> bool {
         let ctx = ui.ctx().clone();
@@ -389,8 +417,8 @@ impl App {
         if resp.drag_started_by(PointerButton::Primary) {
             self.show_tab(i);
         }
-        self.tab_hits.push((uid, r));
-        let active = i == self.active && !self.explorer_active;
+        self.strip.tab_hits.push((uid, r));
+        let active = i == self.active && !self.home_active;
         let hovered = resp.hovered();
         if !active && hovered {
             painter.rect_filled(r.shrink(1.0), 8, TAB_HOVER);
@@ -438,7 +466,7 @@ impl App {
         let (title, process) = self.pane_label(self.tabs[i].focused);
         let title = icons::title_mark(&process, &title).1;
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
-        self.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
+        self.strip.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
         let text_right = if hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
         let title_color = if active { theme.text_bright } else { theme.text_dim };
         paint::faded_text(painter, Pos2::new(text_left, r.center().y), title, FontId::proportional(13.5), title_color, text_right - text_left, 26.0);
@@ -461,6 +489,21 @@ impl App {
         false
     }
 
+    /// The app tile pane `id` shows in its tab's icon deck: its process and title mark.
+    fn deck_card(&self, id: PaneId) -> (String, Option<String>) {
+        match self.pane_kind(id) {
+            Some(PaneKind::Terminal) => {
+                let t = &self.panes[&id];
+                let title = t.title();
+                (t.process.clone(), icons::title_mark(&t.process, &title).0.map(str::to_string))
+            }
+            Some(PaneKind::Explorer) => (icons::EXPLORER_PROCESS.to_string(), None),
+            Some(PaneKind::Diff) => (icons::DIFF_PROCESS.to_string(), None),
+            Some(PaneKind::Agents) => (icons::AGENTS_PROCESS.to_string(), None),
+            None => Default::default(),
+        }
+    }
+
     /// The tab's icon: the focused pane's app tile, or a deck with one card per pane (focused
     /// on top, up to 3 peeking out behind, each `step` further). With `center`, the whole deck
     /// is centered on `icon` rather than fanning out from it. Returns where the title text
@@ -468,24 +511,9 @@ impl App {
     fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect, step: Vec2, center: bool) -> f32 {
         let (title, process) = self.pane_label(self.tabs[i].focused);
         let mark = icons::title_mark(&process, &title).0.map(str::to_string);
-        let (panes, explorers, diffs, agents) = (&self.panes, &self.explorers, &self.diffs, &self.agents);
-        let cards = self.tabs[i].deck_cards(ctx, |id| {
-            if explorers.contains_key(&id) {
-                (icons::EXPLORER_PROCESS.to_string(), None)
-            } else if diffs.contains_key(&id) {
-                (icons::DIFF_PROCESS.to_string(), None)
-            } else if agents.contains_key(&id) {
-                (icons::AGENTS_PROCESS.to_string(), None)
-            } else {
-                panes
-                    .get(&id)
-                    .map(|t| {
-                        let title = t.title();
-                        (t.process.clone(), icons::title_mark(&t.process, &title).0.map(str::to_string))
-                    })
-                    .unwrap_or_default()
-            }
-        });
+        let card_of: HashMap<PaneId, (String, Option<String>)> =
+            self.tabs[i].root.panes().into_iter().map(|id| (id, self.deck_card(id))).collect();
+        let cards = self.tabs[i].deck_cards(ctx, |id| card_of.get(&id).cloned().unwrap_or_default());
         let mut text_left = icon.right() + 9.0;
         if cards.len() > 1 {
             let cards: Vec<(&str, Option<&str>, f32)> = cards.iter().map(|((p, m), d)| (p.as_str(), m.as_deref(), *d)).collect();
@@ -547,7 +575,7 @@ fn dashed_slot(painter: &egui::Painter, r: Rect, theme: &Theme) {
     painter.extend(Shape::dashed_line(&outline, stroke, 4.0, 3.0));
 }
 
-/// Splits a mobile-sidebar tile into its icon square and the caption line below it.
+/// Splits a sidebar tile into its icon square and the caption line below it.
 pub(in crate::app) fn sidebar_tile_parts(r: Rect) -> (Rect, Rect) {
     let side = (r.height() - 26.0).min(r.width() - 16.0).max(8.0);
     let icon = Rect::from_center_size(Pos2::new(r.center().x, r.top() + 5.0 + side / 2.0), Vec2::splat(side));

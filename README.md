@@ -361,7 +361,7 @@ ssh-follow = false                           # splits of an ssh pane open a loca
 animations = false                           # turn off pane and tab animations
 tab-animation = ink                          # switching tabs: glide (default) | ink | none
 explorer-view = grid                         # file explorers open as a grid (default: list)
-mobile = false                               # phone-sized touch screens: tabs in a left sidebar
+tab-bar = sidebar                            # tabs in a left sidebar, for touch screens (default: top)
 restore-session = false                      # start with one fresh shell instead of the last window
 command = fish                               # defaults to your login shell
 ```

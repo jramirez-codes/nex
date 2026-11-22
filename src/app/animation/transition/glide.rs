@@ -12,7 +12,7 @@ use egui::epaint::{ClippedShape, Tessellator};
 use egui::layers::{PaintList, ShapeIdx};
 use egui::{Painter, Rect, Shape, Vec2};
 
-use crate::ui::glide::ease_out;
+use crate::ui::glide::{ease_out, smoothstep};
 
 use super::{Switch, Transition};
 
@@ -95,11 +95,6 @@ impl Transition for GlideSwitch {
     }
 }
 
-fn smoothstep(x: f32) -> f32 {
-    let x = x.clamp(0.0, 1.0);
-    x * x * (3.0 - 2.0 * x)
-}
-
 /// Scale every color of `shape` to `alpha` opacity.
 fn fade(shape: &mut Shape, alpha: f32) {
     if alpha < 1.0 {
@@ -131,7 +126,7 @@ mod tests {
 
     #[test]
     fn the_drift_follows_the_strip_and_stays_small() {
-        // Vertical strip (mobile): along y, capped on a tall area.
+        // Vertical strip (the sidebar): along y, capped on a tall area.
         let g = glide(Vec2::new(0.0, 1.0));
         assert_eq!(g.drift, Vec2::new(0.0, MAX_DRIFT));
     }

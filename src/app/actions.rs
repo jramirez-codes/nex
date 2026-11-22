@@ -4,7 +4,8 @@
 use alacritty_terminal::grid::Scroll;
 use egui::ViewportCommand;
 
-use crate::layout::{self, Axis, Direction, PaneId};
+use crate::config::{FONT_MAX, FONT_MIN};
+use crate::layout::{self, Axis, Direction, PaneId, PaneKind};
 use crate::terminal::search::Search;
 
 use crate::app::App;
@@ -232,12 +233,12 @@ impl App {
     fn cycle_tab(&mut self, forward: bool) {
         let n = self.tabs.len();
         let at_edge = if forward { self.active + 1 == n } else { self.active == 0 };
-        if self.explorer_active {
+        if self.home_active {
             if n > 0 {
                 self.show_tab(if forward { 0 } else { n - 1 });
             }
-        } else if at_edge && self.explorer_tab.is_some() {
-            self.explorer_active = true;
+        } else if at_edge && self.home_tab.is_some() {
+            self.home_active = true;
         } else if n > 0 {
             self.show_tab(if forward { (self.active + 1) % n } else { (self.active + n - 1) % n });
         }
@@ -256,33 +257,34 @@ impl App {
     /// zooms its whole listing instead.
     fn change_font(&mut self, ctx: &egui::Context, action: Action) {
         let Some(id) = self.focused_pane() else { return };
-        if let Some(explorer) = self.explorers.get_mut(&id) {
-            match action {
-                Action::FontBigger => explorer.zoom_by(EXPLORER_ZOOM_STEP, None),
-                Action::FontSmaller => explorer.zoom_by(1.0 / EXPLORER_ZOOM_STEP, None),
-                _ => explorer.reset_zoom(),
+        match self.pane_kind(id) {
+            Some(PaneKind::Explorer) => {
+                let explorer = self.explorers.get_mut(&id).unwrap();
+                match action {
+                    Action::FontBigger => explorer.zoom_by(EXPLORER_ZOOM_STEP, None),
+                    Action::FontSmaller => explorer.zoom_by(1.0 / EXPLORER_ZOOM_STEP, None),
+                    _ => explorer.reset_zoom(),
+                }
             }
-            return;
+            Some(PaneKind::Agents) => {}
+            Some(PaneKind::Diff) => {
+                let size = self.pane_font(id);
+                match action {
+                    Action::FontBigger => self.pane_fonts.insert(id, (size + 1.0).min(FONT_MAX)),
+                    Action::FontSmaller => self.pane_fonts.insert(id, (size - 1.0).max(FONT_MIN)),
+                    _ => self.pane_fonts.remove(&id),
+                };
+            }
+            Some(PaneKind::Terminal) | None => {
+                let size = self.pane_font(id);
+                let size = match action {
+                    Action::FontBigger => Some(size + 1.0),
+                    Action::FontSmaller => Some(size - 1.0),
+                    _ => None,
+                };
+                self.set_pane_font(ctx, id, size);
+            }
         }
-        if self.agents.contains_key(&id) {
-            return;
-        }
-        if self.diffs.contains_key(&id) {
-            let size = self.pane_font(id);
-            match action {
-                Action::FontBigger => self.pane_fonts.insert(id, (size + 1.0).min(72.0)),
-                Action::FontSmaller => self.pane_fonts.insert(id, (size - 1.0).max(6.0)),
-                _ => self.pane_fonts.remove(&id),
-            };
-            return;
-        }
-        let size = self.pane_font(id);
-        let size = match action {
-            Action::FontBigger => Some(size + 1.0),
-            Action::FontSmaller => Some(size - 1.0),
-            _ => None,
-        };
-        self.set_pane_font(ctx, id, size);
     }
 
     fn scroll_focused(&mut self, action: Action) {

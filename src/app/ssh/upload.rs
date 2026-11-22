@@ -1,22 +1,19 @@
 //! Files dropped or pasted into a pane running `ssh`: copied to the remote host on a worker
 //! thread (see `crate::remote`), then their remote paths typed into the pane. When the host
-//! wants a password, nex offers once to turn on connection sharing, so later uploads reuse
-//! the pane's login.
+//! wants a password, nex offers once to turn on connection sharing (see `sharing`), so later
+//! uploads reuse the pane's login.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
-use egui::Id;
-
 use crate::layout::PaneId;
 use crate::platform::ClipboardFiles;
 use crate::remote::{self, SshTarget, UploadError};
-use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
-use crate::ui::theme::Theme;
 use crate::ui::toast::Toast;
 
 use crate::app::App;
+use crate::app::ssh::sharing::LoginHelp;
 
 /// An upload on its way to a pane's remote host.
 pub(in crate::app) struct Upload {
@@ -76,17 +73,17 @@ impl App {
                 repaint.request_repaint();
             })
             .ok();
-        self.uploads.push(Upload { pane, host, fallback, temp, rx });
+        self.ssh.uploads.push(Upload { pane, host, fallback, temp, rx });
     }
 
     /// Type the remote paths of finished uploads into their panes.
     pub(in crate::app) fn poll_uploads(&mut self, ctx: &egui::Context) {
-        if self.uploads.is_empty() {
+        if self.ssh.uploads.is_empty() {
             return;
         }
         let mut i = 0;
-        while i < self.uploads.len() {
-            let result = match self.uploads[i].rx.try_recv() {
+        while i < self.ssh.uploads.len() {
+            let result = match self.ssh.uploads[i].rx.try_recv() {
                 Ok(r) => r,
                 Err(TryRecvError::Empty) => {
                     i += 1;
@@ -94,7 +91,7 @@ impl App {
                 }
                 Err(TryRecvError::Disconnected) => Err("the upload stopped".into()),
             };
-            let up = self.uploads.remove(i);
+            let up = self.ssh.uploads.remove(i);
             if let Some(temp) = &up.temp {
                 remote::remove_saved(temp);
             }
@@ -113,7 +110,7 @@ impl App {
                 }
             }
         }
-        if !self.uploads.is_empty() {
+        if !self.ssh.uploads.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(200));
         }
     }
@@ -121,104 +118,15 @@ impl App {
     fn upload_failed(&mut self, ctx: &egui::Context, host: &str, e: UploadError) {
         let msg = match e {
             UploadError::Other(e) => format!("Couldn't upload to {host}: {e}"),
-            // Sharing is on, but this session started before it was (or outside nex).
-            UploadError::NeedsLogin if remote::sharing_enabled() => {
-                format!("Couldn't upload: log out of {host} (type exit) and ssh back in, then drop the file again.")
-            }
-            UploadError::NeedsLogin if remote::SHARING_SUPPORTED && !self.sharing_declined => {
-                self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string(), "Drop the file again"));
-                return;
-            }
-            UploadError::NeedsLogin => format!("Couldn't upload: {host} needs a password, and the upload can't type one."),
+            UploadError::NeedsLogin => match self.login_help(host, "Drop the file again") {
+                LoginHelp::LogInAgain => {
+                    format!("Couldn't upload: log out of {host} (type exit) and ssh back in, then drop the file again.")
+                }
+                LoginHelp::Offered => return,
+                LoginHelp::None => format!("Couldn't upload: {host} needs a password, and the upload can't type one."),
+            },
         };
         self.toast = Some(Toast::long(ctx, msg));
     }
 
-    /// A modal dialog is open over the terminals and takes the keyboard.
-    pub(in crate::app) fn upload_modal_open(&self) -> bool {
-        self.sharing_prompt.is_some() || self.agent_prompt.is_some()
-    }
-
-    /// Offered when an upload needed a password: Turn On adds the sharing block to
-    /// `~/.ssh/config`, then the alert stays up to say the session must be logged into again
-    /// (a session already open can't start sharing). Not Now isn't asked again this run.
-    pub(in crate::app) fn sharing_dialog(&mut self, ctx: &egui::Context, theme: &Theme) {
-        let Some(prompt) = self.sharing_prompt.clone() else { return };
-        let (icon, title, body, steps, primary, secondary) = match &prompt {
-            SharingPrompt::Offer(host, _) => (
-                AlertIcon::Lock,
-                format!("{host} needs a password"),
-                "nex can share your ssh connection, so uploads, the shared microphone and the \
-                 Agents pane reuse the login you already typed. It adds a small nex-only block \
-                 to ~/.ssh/config."
-                    .to_string(),
-                Vec::new(),
-                "Turn On",
-                Some("Not Now"),
-            ),
-            SharingPrompt::OfferSession(host) => (
-                AlertIcon::Lock,
-                format!("{host} needs a password"),
-                "nex can share your ssh connection, so new panes on this host reuse one login \
-                 instead of asking again. It adds a small nex-only block to ~/.ssh/config."
-                    .to_string(),
-                Vec::new(),
-                "Turn On",
-                Some("Not Now"),
-            ),
-            SharingPrompt::Reconnect(host, again) => (
-                AlertIcon::Done,
-                "Sharing is on".to_string(),
-                "Log in once more to start sharing.".to_string(),
-                vec![
-                    format!("Type `exit` to log out of {host}"),
-                    "ssh back in with your password".to_string(),
-                    again.to_string(),
-                ],
-                "Got It",
-                None,
-            ),
-            SharingPrompt::Failed(e) => (
-                AlertIcon::Warning,
-                "Couldn't turn on sharing".to_string(),
-                format!("~/.ssh/config couldn't be updated: {e}"),
-                Vec::new(),
-                "OK",
-                None,
-            ),
-        };
-        let alert = Alert { id: Id::new("nex-ssh-sharing"), icon, title: &title, body: &body, steps: &steps, primary, secondary, touch: self.cfg.mobile };
-        let Some(choice) = alert.show(ctx, theme) else { return };
-        self.sharing_prompt = match (prompt, choice) {
-            (SharingPrompt::Offer(host, again), AlertChoice::Primary) => Some(match remote::enable_sharing() {
-                Ok(()) => SharingPrompt::Reconnect(host, again),
-                Err(e) => SharingPrompt::Failed(e.to_string()),
-            }),
-            // The new pane is the fresh login, so there's nothing to reconnect.
-            (SharingPrompt::OfferSession(_), AlertChoice::Primary) => remote::enable_sharing().err().map(|e| SharingPrompt::Failed(e.to_string())),
-            (SharingPrompt::Offer(..) | SharingPrompt::OfferSession(_), AlertChoice::Secondary) => {
-                self.sharing_declined = true;
-                None
-            }
-            _ => None,
-        };
-        // A split or tab waiting on the answer opens either way: with sharing on, its login
-        // is the one later panes share.
-        self.open_pending(ctx);
-    }
-}
-
-/// What the connection-sharing dialog is showing.
-#[derive(Clone)]
-pub(in crate::app) enum SharingPrompt {
-    /// An upload to this host (sharing the microphone with it, or watching its agents) needed
-    /// a password: offer to turn sharing on. Then the last step of logging in again ("Drop the file again").
-    Offer(String, &'static str),
-    /// A split or new tab of an ssh session to this host would log in again: offer to turn
-    /// sharing on first (see `follow`).
-    OfferSession(String),
-    /// Sharing was just turned on: the open session has to be logged into again.
-    Reconnect(String, &'static str),
-    /// `~/.ssh/config` couldn't be written.
-    Failed(String),
 }

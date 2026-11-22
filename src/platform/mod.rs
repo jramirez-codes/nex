@@ -30,6 +30,7 @@
 //! | `WINDOW` | the [`WindowDefaults`] for the window and its title bar |
 //! | `FALLBACK_FAMILIES` | system fonts tried for glyphs the grid font lacks |
 //! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |
+//! | `process_start(pid)` | when a process started, as Claude Code's session file records it |
 //! | `clipboard_files()` | an image or copied files on the clipboard ([`ClipboardFiles`]), where `Dnd` can't read it |
 //! | `pty_options(..)` / `pty_pid(..)` | build the PTY options, read the child's pid |
 //! | `shell_env()` | variables the shell needs but may not inherit (`LANG` on macOS) |
@@ -41,6 +42,7 @@
 //! | `file_mode(meta)` / `is_executable(meta)` / `owner_names(meta)` | permission bits and owner |
 //! | `format_local_time(t)` | a timestamp as local `YYYY-MM-DD HH:MM` |
 //! | `config_dir()` / `home_dir()` / `hostname()` | where things are, who we are |
+//! | `FileLock` / `lock_file(path)` | an exclusive advisory lock on a file, held until dropped ([`LockFailed`]) |
 //! | `symlink(src, dst)` / `shell_quote(path)` | file explorer helpers |
 //! | `find_font(..)` / `nerd_mono_families()` | system font lookup ([`FontFace`]) |
 //! | `Dnd` | drag and drop with other apps, where winit doesn't do it |
@@ -91,6 +93,18 @@ use windows as backend;
 compile_error!("nex has no platform backend for this OS yet: add one under src/platform/");
 
 pub use backend::*;
+
+/// Why [`lock_file`] didn't take its lock.
+#[derive(Debug)]
+#[cfg_attr(not(unix), allow(dead_code))] // Windows grants every lock
+pub enum LockFailed {
+    /// Another process holds it.
+    Held,
+    /// The lock file (or its folder) couldn't be created or opened.
+    Open(std::io::Error),
+    /// The file opened but locking it failed for another reason.
+    Lock(std::io::Error),
+}
 
 /// What a terminal's shell is running right now, for pane headers and new-pane cwd.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

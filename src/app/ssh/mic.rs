@@ -16,7 +16,7 @@ use crate::remote::{self, SshTarget};
 use crate::ui::toast::Toast;
 
 use crate::app::App;
-use crate::app::ssh::upload::SharingPrompt;
+use crate::app::ssh::sharing::LoginHelp;
 
 /// How often panes are checked for hosts to share with or stop sharing with.
 const CHECK_INTERVAL: Duration = Duration::from_millis(750);
@@ -61,7 +61,7 @@ impl App {
             return None;
         }
         let target = self.panes.get(&id)?.last_ssh_target()?;
-        Some(match self.mics.shares.get(&target) {
+        Some(match self.ssh.mics.shares.get(&target) {
             None => MicState::Off,
             Some(s) if s.live => MicState::Live,
             Some(_) => MicState::Shared,
@@ -83,12 +83,12 @@ impl App {
             return;
         };
         let host = target.host().to_string();
-        if self.mics.shares.remove(&target).is_some() {
-            self.mics.skip.insert(target);
+        if self.ssh.mics.shares.remove(&target).is_some() {
+            self.ssh.mics.skip.insert(target);
             self.toast = Some(Toast::new(ctx, format!("Stopped sharing the microphone with {host}")));
             return;
         }
-        self.mics.skip.remove(&target);
+        self.ssh.mics.skip.remove(&target);
         self.toast = Some(Toast::new(ctx, format!("Sharing the microphone with {host}…")));
         self.start_mic(ctx, target, true);
     }
@@ -97,14 +97,14 @@ impl App {
         let repaint = ctx.clone();
         let host = target.host().to_string();
         let share = Share::start(target.clone(), move || repaint.request_repaint());
-        self.mics.shares.insert(target, MicShare { host, share, live: false, announced: false, asked });
+        self.ssh.mics.shares.insert(target, MicShare { host, share, live: false, announced: false, asked });
     }
 
     /// Read what the shares report, and start or stop shares as panes come and go.
     pub(in crate::app) fn poll_mics(&mut self, ctx: &egui::Context) {
         let mut failed = Vec::new();
         let mut toasts = Vec::new();
-        for (target, s) in &mut self.mics.shares {
+        for (target, s) in &mut self.ssh.mics.shares {
             while let Ok(event) = s.share.events.try_recv() {
                 match event {
                     Event::Waiting => {
@@ -123,27 +123,27 @@ impl App {
             self.toast = Some(Toast::new(ctx, t));
         }
         for (target, e) in failed {
-            if let Some(s) = self.mics.shares.remove(&target) {
+            if let Some(s) = self.ssh.mics.shares.remove(&target) {
                 self.mic_failed(ctx, &s.host, s.asked, e);
             }
-            self.mics.skip.insert(target);
+            self.ssh.mics.skip.insert(target);
         }
 
-        if self.mics.last_check.is_some_and(|t| t.elapsed() < CHECK_INTERVAL) {
+        if self.ssh.mics.last_check.is_some_and(|t| t.elapsed() < CHECK_INTERVAL) {
             return;
         }
-        self.mics.last_check = Some(Instant::now());
+        self.ssh.mics.last_check = Some(Instant::now());
         if self.cfg.ssh_mic == SshMic::Off {
-            self.mics.shares.clear();
+            self.ssh.mics.shares.clear();
             return;
         }
         let present: HashSet<SshTarget> = self.panes.values().filter_map(|t| t.last_ssh_target()).collect();
         // No pane on the host any more: dropping the share stops it.
-        self.mics.shares.retain(|t, _| present.contains(t));
-        self.mics.skip.retain(|t| present.contains(t));
+        self.ssh.mics.shares.retain(|t, _| present.contains(t));
+        self.ssh.mics.skip.retain(|t| present.contains(t));
         if self.cfg.ssh_mic == SshMic::Auto {
             for target in present {
-                if self.mics.shares.contains_key(&target) || self.mics.skip.contains(&target) {
+                if self.ssh.mics.shares.contains_key(&target) || self.ssh.mics.skip.contains(&target) {
                     continue;
                 }
                 // With sharing on, wait for the pane's login to finish (its connection is the
@@ -159,7 +159,7 @@ impl App {
     /// Quitting: stop every share and give the hosts a moment to take nex's block back out
     /// of their `~/.asoundrc`.
     pub(in crate::app) fn stop_mics(&mut self) {
-        let shares: Vec<MicShare> = self.mics.shares.drain().map(|(_, s)| s).collect();
+        let shares: Vec<MicShare> = self.ssh.mics.shares.drain().map(|(_, s)| s).collect();
         for s in &shares {
             s.share.halt();
         }
@@ -178,14 +178,13 @@ impl App {
             // Shared automatically: these hosts just can't, and saying so for every pane on one
             // would be noise.
             MicError::NeedsLogin | MicError::NotLinux | MicError::NoAlsa if !asked => return,
-            MicError::NeedsLogin if remote::sharing_enabled() => {
-                format!("Couldn't share the microphone: log out of {host} (type exit) and ssh back in, then share it again.")
-            }
-            MicError::NeedsLogin if remote::SHARING_SUPPORTED && !self.sharing_declined => {
-                self.sharing_prompt = Some(SharingPrompt::Offer(host.to_string(), "Share the microphone again"));
-                return;
-            }
-            MicError::NeedsLogin => format!("Couldn't share the microphone: {host} needs a password, and nex can't type one."),
+            MicError::NeedsLogin => match self.login_help(host, "Share the microphone again") {
+                LoginHelp::LogInAgain => {
+                    format!("Couldn't share the microphone: log out of {host} (type exit) and ssh back in, then share it again.")
+                }
+                LoginHelp::Offered => return,
+                LoginHelp::None => format!("Couldn't share the microphone: {host} needs a password, and nex can't type one."),
+            },
             e => format!("Couldn't share the microphone with {host}: {e}"),
         };
         self.toast = Some(Toast::long(ctx, msg));

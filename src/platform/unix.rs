@@ -173,6 +173,30 @@ pub(super) fn output_within(program: &str, args: &[&str], timeout: std::time::Du
     status.success().then_some(out)
 }
 
+/// An exclusive advisory `flock` on a file, released when dropped (closing the file).
+pub struct FileLock {
+    _file: std::fs::File,
+}
+
+/// Lock the file at `path` (created, with its folder, if missing) without waiting.
+pub fn lock_file(path: &Path) -> Result<FileLock, super::LockFailed> {
+    use std::os::fd::AsRawFd;
+    let file = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| {
+            // std opens with O_CLOEXEC, so shells nex spawns don't inherit the lock.
+            std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)
+        })
+        .map_err(super::LockFailed::Open)?;
+    // SAFETY: flock on a file descriptor we own for the duration of the call.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(FileLock { _file: file });
+    }
+    let e = std::io::Error::last_os_error();
+    Err(if e.kind() == std::io::ErrorKind::WouldBlock { super::LockFailed::Held } else { super::LockFailed::Lock(e) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

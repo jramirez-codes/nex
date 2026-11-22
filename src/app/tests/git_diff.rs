@@ -4,20 +4,11 @@
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use egui::{Pos2, RawInput, Rect, Vec2};
-
-use crate::app::App;
 use crate::app::actions::Action;
 use crate::config::Config;
 use crate::session::PaneKind;
 
-fn run(app: &mut App, ctx: &egui::Context, width: f32) {
-    let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 800.0))), ..Default::default() };
-    let _ = ctx.run(input, |ctx| {
-        let mut frame = eframe::Frame::_new_kittest();
-        eframe::App::update(app, ctx, &mut frame);
-    });
-}
+use super::{new_app, run};
 
 /// A repository with a modified, a staged and an untracked file, or `None` without git.
 fn repo() -> Option<std::path::PathBuf> {
@@ -40,8 +31,7 @@ fn repo() -> Option<std::path::PathBuf> {
 fn ctrl_g_toggles_a_changes_pane_that_draws_and_restores() {
     let Some(dir) = repo() else { return };
     let ctx = egui::Context::default();
-    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
-    let mut app = App::new(&cc, Config::default(), crate::cli::Args { no_restore: true, ..Default::default() }, None, None, None);
+    let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1400.0);
     let shell = app.focused_pane().unwrap();
     app.split_diff(&ctx, shell, crate::layout::Axis::Horizontal);

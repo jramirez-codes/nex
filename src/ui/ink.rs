@@ -7,6 +7,8 @@
 use egui::epaint::{Mesh, Tessellator, Vertex};
 use egui::{Color32, Pos2, Rect, Shape};
 
+use crate::ui::glide::smoothstep;
+
 /// Length of a bleed, in seconds.
 pub const INK_ANIM: f64 = 0.5;
 /// Width of the soft front, in points.
@@ -120,10 +122,6 @@ impl Bleed {
             v.color = fade(v.color, alpha, dark);
         }
     }
-}
-
-fn smoothstep(x: f32) -> f32 {
-    x * x * (3.0 - 2.0 * x)
 }
 
 /// Premultiplied `c` at `alpha` opacity, its color darkened by `dark`.

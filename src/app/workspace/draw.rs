@@ -6,7 +6,7 @@ use egui::emath::TSTransform;
 use egui::epaint::Shadow;
 use egui::{Color32, CursorIcon, FontId, Id, Painter, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::layout::{Axis, Divider, PaneId};
+use crate::layout::{Axis, Divider, PaneId, PaneKind};
 use crate::render::{self, FrameKey, PaintOptions};
 use crate::terminal::search::Search;
 use crate::terminal::GridSize;
@@ -64,10 +64,10 @@ impl App {
         // A newly shown tab takes over from the last one (`tab-animation`).
         let shown = Shown {
             uid: tab_uid,
-            pos: if self.explorer_active { -1 } else { self.active as isize },
+            pos: if self.home_active { -1 } else { self.active as isize },
             area,
             origin: self.drop_origin(tab_uid, area),
-            vertical: self.cfg.mobile,
+            vertical: self.cfg.sidebar(),
             style: self.cfg.tab_animation,
         };
         let sheet = self.switch.begin(ui, &shown);
@@ -159,18 +159,19 @@ impl App {
 
     /// One pane of the shown tab: a terminal, a file explorer, a Changes or an Agents pane.
     fn draw_pane(&mut self, ui: &mut Ui, pane: &PaneView, theme: &Theme, blink_on: bool) {
-        if self.agents.contains_key(&pane.id) {
-            self.agents_pane(ui, pane, theme);
-        } else if self.diffs.contains_key(&pane.id) {
-            self.diff_pane(ui, pane, theme);
-        } else if self.explorers.contains_key(&pane.id) {
-            self.explorer_pane(ui, pane, theme);
-        } else if self.panes.contains_key(&pane.id) {
-            self.terminal_pane(ui, pane, theme, blink_on);
-        } else {
-            return;
-        }
+        let Some(kind) = self.pane_kind(pane.id) else { return };
+        self.draw_content(ui, kind, pane, theme, blink_on);
         self.card_rects.push((pane.id, pane.target));
+    }
+
+    /// The card of pane `pane`, a `kind` pane: its header and what it shows.
+    fn draw_content(&mut self, ui: &mut Ui, kind: PaneKind, pane: &PaneView, theme: &Theme, blink_on: bool) {
+        match kind {
+            PaneKind::Terminal => self.terminal_pane(ui, pane, theme, blink_on),
+            PaneKind::Explorer => self.explorer_pane(ui, pane, theme),
+            PaneKind::Diff => self.diff_pane(ui, pane, theme),
+            PaneKind::Agents => self.agents_pane(ui, pane, theme),
+        }
     }
 
     /// A pane dragged here from another tab, held at `card`. Its terminal keeps the size of
@@ -189,22 +190,16 @@ impl App {
             on_top: true,
             scale_content: mini,
         };
-        if self.agents.contains_key(&id) {
-            self.agents_pane(ui, &pane, theme);
-        } else if self.diffs.contains_key(&id) {
-            self.diff_pane(ui, &pane, theme);
-        } else if self.explorers.contains_key(&id) {
-            self.explorer_pane(ui, &pane, theme);
-        } else if self.panes.contains_key(&id) {
-            self.terminal_pane(ui, &pane, theme, blink_on);
-            self.term_rects.retain(|(p, _)| *p != id);
-        }
+        let Some(kind) = self.pane_kind(id) else { return };
+        self.draw_content(ui, kind, &pane, theme, blink_on);
+        // It takes no part in this tab's mouse hit-testing.
+        self.term_rects.retain(|(p, _)| *p != id);
     }
 
     /// Where tab `uid` is in the strip (its tab, or the Files label), brought onto the
     /// nearest edge of the pane area: where the ink drops when it is shown.
     fn drop_origin(&self, uid: u64, area: Rect) -> Pos2 {
-        let at = if self.explorer_active { self.files_rect } else { self.tab_rects.get(&uid).map(|d| d.rect) };
+        let at = if self.home_active { self.strip.files_rect } else { self.strip.tab_rects.get(&uid).map(|d| d.rect) };
         at.map_or(area.center_top(), |r| area.clamp(r.center()))
     }
 
@@ -406,8 +401,8 @@ impl App {
         }
         if let Some(a) = self.agents.get_mut(&pane.id) {
             let painter = pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0));
-            let shown_tab = (!self.explorer_active).then_some(self.active);
-            a.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, theme, self.agent_tracker.agents(), &self.agent_notes, shown_tab);
+            let shown_tab = (!self.home_active).then_some(self.active);
+            a.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, theme, self.agent_tracker.agents(), &self.ssh.agent_notes, shown_tab);
             let requests: Vec<_> = a.requests.drain(..).map(|r| (pane.id, r)).collect();
             self.agent_requests.extend(requests);
         }
@@ -428,7 +423,7 @@ impl App {
         // (see `pane_drag`). It is registered before the buttons, so they stay on top and
         // keep their clicks. A tab's only pane can still be dragged to another tab.
         let handle = ui.interact(header, Id::new(("pane-drag", id)), Sense::click_and_drag());
-        if pane.multi || (self.tabs.len() > 1 && !self.explorer_active) {
+        if pane.multi || (self.tabs.len() > 1 && !self.home_active) {
             if handle.hovered() && !handle.dragged() {
                 ui.ctx().set_cursor_icon(CursorIcon::Grab);
             }
@@ -444,8 +439,8 @@ impl App {
 
         // Buttons, laid out right to left: 28px buttons like the tab bar's +, with smaller (~12px)
         // glyphs so the header stays quiet. Mobile mode makes them finger-sized.
-        let (size, step, inset) = if self.cfg.mobile { (36.0, 38.0, 7.0) } else { (28.0, 30.0, 4.5) };
-        let mut bx = header.right() - if self.cfg.mobile { 26.0 } else { 22.0 };
+        let (size, step, inset) = if self.cfg.sidebar() { (36.0, 38.0, 7.0) } else { (28.0, 30.0, 4.5) };
+        let mut bx = header.right() - if self.cfg.sidebar() { 26.0 } else { 22.0 };
         let pinned = self.is_sticky(id);
         // Holding Shift turns the × into a pin: the pane follows the user to every tab. On
         // the pinned pane that slot is the pin (click to unpin, back to the ×), and Shift
@@ -518,7 +513,7 @@ impl App {
             }
         }
 
-        let font = if self.cfg.mobile { 15.0 } else { 13.5 };
+        let font = if self.cfg.sidebar() { 15.0 } else { 13.5 };
         header_label(painter, header, &process, &title, title_color, bx - 4.0, font);
         if pressed_in(ui, header) {
             self.pending.push(Action::FocusPane(id));

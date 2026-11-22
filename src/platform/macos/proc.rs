@@ -6,6 +6,12 @@ use std::path::PathBuf;
 
 use crate::platform::ProcInfo;
 
+/// When process `pid` started, as Claude Code records it in its session file. Claude Code
+/// only records it where there is a `/proc`, so here the pid alone has to match.
+pub fn process_start(_pid: u32) -> Option<String> {
+    None
+}
+
 /// The foreground process group of the shell's terminal (so running `node` shows "node"
 /// rather than "zsh"), its name and its working directory.
 ///

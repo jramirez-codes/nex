@@ -9,7 +9,7 @@ mod animation;
 mod chrome;
 mod input;
 mod reload;
-pub mod session;
+pub mod restore;
 mod ssh;
 mod workspace;
 #[cfg(test)]
@@ -40,11 +40,10 @@ use input::keymap::{Binding, keybindings};
 use input::mouse::MouseState;
 use workspace::tab::Tab;
 use animation::tab_switch::TabSwitch;
-use animation::tab_close::{TabDrawn, TabGhost};
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;
-/// Pane headers in mobile mode, tall enough for touch-sized buttons.
+/// Pane headers with the sidebar tab bar, tall enough for touch-sized buttons.
 const MOBILE_HEADER_HEIGHT: f32 = 44.0;
 const PANE_GAP: f32 = 8.0;
 const WINDOW_RADIUS: u8 = 14;
@@ -94,25 +93,6 @@ pub struct App {
     links: LinkFinder,
     /// Link under the pointer while Ctrl is held.
     hover_link: Option<(PaneId, Link)>,
-    /// Animated position of the active-tab highlight, in tab slots.
-    pill_glide: Glide,
-    /// Where each title-bar tab was drawn last frame, by tab uid (closes start from there).
-    tab_rects: HashMap<u64, TabDrawn>,
-    /// Closed tabs still folding away.
-    tab_ghosts: Vec<TabGhost>,
-    /// Where the Files tab (the directory label, or the sidebar tile) was drawn this frame.
-    files_rect: Option<Rect>,
-    /// Where the Files tab's dog is in its intro, as the time the intro would have started
-    /// (set at launch; moved so the blep plays each time Files is shown), and whether Files
-    /// was showing last frame.
-    dog_wake: Option<f64>,
-    dog_was_active: bool,
-    /// Where each visible tab was drawn this frame (title bar or sidebar), by tab uid: where
-    /// a dragged pane can be dropped into another tab.
-    tab_hits: Vec<(u64, Rect)>,
-    /// The title bar or sidebar this frame: dropping a pane on its empty space gives the
-    /// pane a tab of its own.
-    strip_rect: Option<Rect>,
     /// A pane being dragged by its header, if any (it can be carried to another tab).
     pane_drag: Option<workspace::pane_drag::PaneDrag>,
     /// The tab-switch transition (`tab-animation`): the old tab's panes giving way to the new.
@@ -134,10 +114,12 @@ pub struct App {
     /// Every agent running in a pane and what it's doing, as of the last process poll; what
     /// Agents panes and the title bar's Agents label show.
     agent_tracker: agents::model::Tracker,
-    /// The Files tab. It lives outside `tabs`: the title-bar directory label is its tab.
-    explorer_tab: Option<Tab>,
-    /// Whether the Files tab is showing (`active` keeps the last terminal tab).
-    explorer_active: bool,
+    /// The home tab, outside `tabs`: the Files tab (the title-bar directory label is its
+    /// tab), or the Agents tab when it holds an Agents pane (see `home_is_files`). Saved in
+    /// the session as `explorer`.
+    home_tab: Option<Tab>,
+    /// Whether the home tab is showing (`active` keeps the last terminal tab).
+    home_active: bool,
     /// The sticky pane: it follows the user from tab to tab, a leaf in every tab's split
     /// tree (each tab keeps its own place and size for it). See `workspace/sticky.rs`.
     sticky: Option<PaneId>,
@@ -160,44 +142,14 @@ pub struct App {
     dnd: Option<crate::platform::Dnd>,
     /// The "Copied …" / "Pasted …" message currently on screen.
     toast: Option<Toast>,
-    /// Files on their way to an `ssh` pane's remote host.
-    uploads: Vec<ssh::upload::Upload>,
-    /// The connection-sharing dialog, after an upload couldn't log in.
-    sharing_prompt: Option<ssh::upload::SharingPrompt>,
-    /// Not Now was picked in that offer: don't ask again this run.
-    sharing_declined: bool,
-    /// A split or tab into an ssh session, waiting on the sharing alert (see `follow`).
-    pending_pane: Option<ssh::follow::PendingPane>,
-    /// Hosts this machine's microphone is shared with (see `ssh/mic.rs`).
-    mics: ssh::mic::Mics,
-    /// The ssh hosts whose agents the Agents pane shows (see `ssh/agents.rs`).
-    remote_hosts: ssh::agents::Hosts,
     /// A toast to show on the next frame, from code without the egui context.
     notice: Option<String>,
-    /// An alert about agents on a host: the shim offer, stopping one (see `ssh/agents.rs`).
-    agent_prompt: Option<ssh::agents::AgentPrompt>,
-    /// Hosts the Agents pane can't watch, one line each, for the top of the pane.
-    agent_notes: Vec<String>,
-    /// The last session, to bring back on the first frame (see `session.rs`).
-    restore_at_start: Option<crate::session::Session>,
-    /// This window keeps the session file: a plain launch holding the session lock (not a
-    /// second window, `-e`, or another nex already running).
-    save_session: bool,
-    /// The session lock, held for the window's lifetime (see `session::try_lock`).
-    _session_lock: Option<crate::session::Lock>,
-    /// A tab was open at some point (a window that never opened one leaves the file alone).
-    had_tabs: bool,
-    /// The last close was the user's: a close action, or a shell exiting right after the user
-    /// typed into it (`exit`, Ctrl+D).
-    closed_by_user: bool,
-    /// A shell exited without the user (logout's SIGHUP, a killed shell, a program ending):
-    /// the session file is left as it was (no autosave, save on exit or clear) until the
-    /// user next types, clicks or closes something.
-    session_suspended: bool,
-    /// When the user last pressed a key, clicked or typed into the window.
-    last_user_input: Option<Instant>,
-    /// The session as last written, so unchanged polls don't touch the disk.
-    saved_session: Option<String>,
+    /// Uploads, the shared mic, watched agents and their dialogs (see `ssh/`).
+    ssh: ssh::SshState,
+    /// Restoring the last session and keeping the session file (see `restore.rs`).
+    session: restore::SessionState,
+    /// Where the tabs were drawn and how they are animating (see `chrome/titlebar.rs`).
+    strip: chrome::titlebar::TabStrip,
 }
 
 impl App {
@@ -217,6 +169,8 @@ impl App {
 
         let hostname = crate::platform::hostname();
 
+        // Read before the literal moves `args.command` out.
+        let save_session = args.restores_session() && session_lock.is_some();
         Self {
             cfg,
             config_mtime: config::modified(),
@@ -243,14 +197,6 @@ impl App {
             glyphs: GlyphCache::default(),
             links: LinkFinder::new(),
             hover_link: None,
-            pill_glide: Glide::new(0.2),
-            tab_rects: HashMap::new(),
-            tab_ghosts: Vec::new(),
-            files_rect: None,
-            dog_wake: None,
-            dog_was_active: false,
-            tab_hits: Vec::new(),
-            strip_rect: None,
             pane_drag: None,
             switch: TabSwitch::default(),
             explorers: HashMap::new(),
@@ -260,18 +206,12 @@ impl App {
             agents: HashMap::new(),
             agent_requests: Vec::new(),
             agent_tracker: agents::model::Tracker::default(),
-            explorer_tab: None,
-            explorer_active: false,
+            home_tab: None,
+            home_active: false,
             sticky: None,
             sticky_glide: Default::default(),
             last_pointer: None,
             new_window_args: args.for_new_window(),
-            save_session: args.restores_session() && session_lock.is_some(),
-            _session_lock: session_lock,
-            had_tabs: false,
-            closed_by_user: false,
-            last_user_input: None,
-            session_suspended: false,
             open_explorer: args.explorer,
             select_at_start: args.select.clone(),
             // An early terminal already runs the `-e` command.
@@ -279,17 +219,37 @@ impl App {
             early_terminal,
             dnd: crate::platform::Dnd::new(cc),
             toast: None,
-            uploads: Vec::new(),
-            sharing_prompt: None,
-            sharing_declined: false,
-            mics: ssh::mic::Mics::default(),
-            remote_hosts: ssh::agents::Hosts::default(),
             notice: None,
-            agent_prompt: None,
-            agent_notes: Vec::new(),
-            pending_pane: None,
-            restore_at_start: session,
-            saved_session: None,
+            ssh: ssh::SshState {
+                uploads: Vec::new(),
+                sharing_prompt: None,
+                sharing_declined: false,
+                pending_pane: None,
+                mics: ssh::mic::Mics::default(),
+                remote_hosts: ssh::hosts::Hosts::default(),
+                agent_prompt: None,
+                agent_notes: Vec::new(),
+            },
+            session: restore::SessionState {
+                restore_at_start: session,
+                save_session,
+                _session_lock: session_lock,
+                had_tabs: false,
+                closed_by_user: false,
+                session_suspended: false,
+                last_user_input: None,
+                saved_session: None,
+            },
+            strip: chrome::titlebar::TabStrip {
+                pill_glide: Glide::new(0.2),
+                tab_rects: HashMap::new(),
+                tab_ghosts: Vec::new(),
+                files_rect: None,
+                dog_wake: None,
+                dog_was_active: false,
+                tab_hits: Vec::new(),
+                strip_rect: None,
+            },
         }
     }
 }
@@ -323,7 +283,7 @@ impl eframe::App for App {
         if !self.started {
             // The first shell is spawned on the first frame, once the window size is known.
             self.started = true;
-            let restored = self.restore_at_start.take().is_some_and(|s| self.restore_session(ctx, s));
+            let restored = self.session.restore_at_start.take().is_some_and(|s| self.restore_session(ctx, s));
             if !restored {
                 let cwd = std::env::current_dir().ok();
                 self.new_tab(ctx, cwd, None);
@@ -338,13 +298,13 @@ impl eframe::App for App {
         }
 
         if ctx.input(|i| i.events.iter().any(is_user_input)) {
-            self.last_user_input = Some(Instant::now());
-            self.session_suspended = false;
+            self.session.last_user_input = Some(Instant::now());
+            self.session.session_suspended = false;
         }
         self.poll_ptys(ctx);
         self.poll_uploads(ctx);
         self.poll_mics(ctx);
-        self.remote_hosts.set_ctx(ctx);
+        self.ssh.remote_hosts.set_ctx(ctx);
         self.poll_agent_jobs(ctx);
         if let Some(n) = self.notice.take() {
             self.toast = Some(Toast::new(ctx, n));
@@ -392,10 +352,10 @@ impl eframe::App for App {
 }
 
 impl App {
-    /// The area below the title bar (or right of the mobile sidebar) where panes go.
+    /// The area below the title bar (or right of the sidebar) where panes go.
     fn update_content_area(&mut self, ctx: &egui::Context) {
         let full = ctx.content_rect();
-        let min = if self.cfg.mobile {
+        let min = if self.cfg.sidebar() {
             Pos2::new(full.left() + chrome::sidebar::SIDEBAR_WIDTH, full.top() + PANE_GAP)
         } else {
             Pos2::new(full.left() + PANE_GAP, full.top() + TITLEBAR_HEIGHT)
@@ -403,9 +363,9 @@ impl App {
         self.content_area = Rect::from_min_max(min, Pos2::new(full.right() - PANE_GAP, full.bottom() - PANE_GAP));
     }
 
-    /// Height of a pane's header (taller in mobile mode).
+    /// Height of a pane's header (taller with the sidebar tab bar).
     fn header_height(&self) -> f32 {
-        if self.cfg.mobile { MOBILE_HEADER_HEIGHT } else { HEADER_HEIGHT }
+        if self.cfg.sidebar() { MOBILE_HEADER_HEIGHT } else { HEADER_HEIGHT }
     }
 
     /// Read PTY events; panes whose shell exited are closed (like Ghostty).
@@ -430,10 +390,10 @@ impl App {
         }
         for id in &exited {
             if self.exit_by_user(*id) {
-                self.closed_by_user = true;
+                self.session.closed_by_user = true;
             } else {
-                self.closed_by_user = false;
-                self.session_suspended = true;
+                self.session.closed_by_user = false;
+                self.session.session_suspended = true;
             }
         }
         for id in exited {
@@ -463,9 +423,9 @@ impl App {
             ctx.send_viewport_cmd(ViewportCommand::Close);
             return true;
         }
-        self.had_tabs = true;
+        self.session.had_tabs = true;
         if self.tabs.is_empty() {
-            self.explorer_active = true;
+            self.home_active = true;
         }
         false
     }
@@ -538,7 +498,7 @@ impl App {
             ui.painter().rect_stroke(full, radius, Stroke::new(1.0_f32, WINDOW_BORDER), StrokeKind::Inside);
         }
 
-        if self.cfg.mobile {
+        if self.cfg.sidebar() {
             let sidebar = Rect::from_min_size(full.min, Vec2::new(chrome::sidebar::SIDEBAR_WIDTH, full.height()));
             self.sidebar(ui, sidebar, &theme);
         } else {

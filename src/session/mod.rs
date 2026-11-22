@@ -16,8 +16,6 @@ pub const VERSION: u32 = 1;
 
 const RATIO_MIN: f32 = 0.05;
 const RATIO_MAX: f32 = 0.95;
-const FONT_MIN: f32 = 6.0;
-const FONT_MAX: f32 = 72.0;
 /// Most arguments, and bytes in all, a saved command may have; a real one is far smaller.
 const COMMAND_MAX_ARGS: usize = 256;
 const COMMAND_MAX_BYTES: usize = 16 * 1024;
@@ -67,15 +65,7 @@ pub struct PaneState {
     pub sticky: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PaneKind {
-    Terminal,
-    Explorer,
-    /// A Changes (git diff) pane; `cwd` is the folder whose repository it shows.
-    Diff,
-    /// An Agents pane (`cwd` is unused).
-    Agents,
-}
+pub use crate::layout::PaneKind;
 
 impl Session {
     /// The session as JSON, including `"version"`.
@@ -213,7 +203,7 @@ fn node_from_value(v: &Value, depth: usize) -> Option<PaneNode> {
             None | Some(Value::Null) => None,
             Some(f) => {
                 let f = f.as_f64()? as f32;
-                f.is_finite().then(|| f.clamp(FONT_MIN, FONT_MAX))
+                f.is_finite().then(|| f.clamp(crate::config::FONT_MIN, crate::config::FONT_MAX))
             }
         };
         let command = obj.get("command").filter(|_| kind == PaneKind::Terminal).and_then(command_from_value);
@@ -307,55 +297,36 @@ fn save_to(path: &Path, s: &Session) -> std::io::Result<()> {
     written
 }
 
-/// Held by the one nex window that owns the session file (restores, autosaves, clears it);
-/// an advisory `flock` on `session.json.lock`, released on drop.
+/// Held by the one nex window that owns the session file (restores, autosaves, clears it):
+/// a lock on `session.json.lock` (see [`crate::platform::lock_file`]), released on drop.
 pub struct Lock {
-    #[cfg(unix)]
-    _file: Option<std::fs::File>,
+    _file: Option<crate::platform::FileLock>,
 }
 
 /// Takes the session lock; `None` if another nex holds it. If the lock file can't be opened
-/// (no home, unwritable state dir) the lock is a no-op, as on non-unix targets.
+/// (no home, unwritable state dir) the lock is a no-op, as where the OS has no file locks.
 pub fn try_lock() -> Option<Lock> {
     match path() {
         Some(p) => try_lock_at(&p),
-        #[cfg(unix)]
         None => Some(Lock { _file: None }),
-        #[cfg(not(unix))]
-        None => Some(Lock {}),
     }
 }
 
-#[cfg(unix)]
 fn try_lock_at(path: &Path) -> Option<Lock> {
-    use std::os::fd::AsRawFd;
+    use crate::platform::LockFailed;
     let lock = path.with_extension("json.lock");
-    let opened = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| {
-        // std opens with O_CLOEXEC, so shells nex spawns don't inherit the lock.
-        std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&lock)
-    });
-    let file = match opened {
-        Ok(f) => f,
-        Err(e) => {
+    match crate::platform::lock_file(&lock) {
+        Ok(file) => Some(Lock { _file: Some(file) }),
+        Err(LockFailed::Held) => None,
+        Err(LockFailed::Open(e)) => {
             eprintln!("nex: session: can't open {}: {e}", lock.display());
-            return Some(Lock { _file: None });
+            Some(Lock { _file: None })
         }
-    };
-    // SAFETY: flock on a file descriptor we own for the duration of the call.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-        return Some(Lock { _file: Some(file) });
+        Err(LockFailed::Lock(e)) => {
+            eprintln!("nex: session: can't lock {}: {e}", lock.display());
+            Some(Lock { _file: None })
+        }
     }
-    let e = std::io::Error::last_os_error();
-    if e.kind() == std::io::ErrorKind::WouldBlock {
-        return None;
-    }
-    eprintln!("nex: session: can't lock {}: {e}", lock.display());
-    Some(Lock { _file: None })
-}
-
-#[cfg(not(unix))]
-fn try_lock_at(_path: &Path) -> Option<Lock> {
-    Some(Lock {})
 }
 
 /// Deletes the session file, so the next launch starts fresh.

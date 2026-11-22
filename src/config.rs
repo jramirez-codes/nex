@@ -10,11 +10,26 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::SystemTime;
 
+/// The smallest and largest font size, in points: for the config, zooming a pane and a
+/// saved session alike.
+pub const FONT_MIN: f32 = 6.0;
+pub const FONT_MAX: f32 = 72.0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CursorStyle {
     Block,
     Bar,
     Underline,
+}
+
+/// Where the tabs are (`tab-bar`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabBar {
+    /// In the title bar across the top.
+    Top,
+    /// A left sidebar of large icon tiles, with touch-sized pane-header buttons and dialogs:
+    /// for phone-sized touch screens.
+    Sidebar,
 }
 
 /// How switching tabs animates (`tab-animation`).
@@ -80,9 +95,8 @@ pub struct Config {
     pub tab_animation: TabAnimation,
     /// How new file explorers lay out their folder (`explorer-view = list | grid`).
     pub explorer_view: crate::file_explorer::View,
-    /// Phone-sized touch screens: the title bar becomes a left sidebar of large icon tiles,
-    /// and pane headers get bigger buttons.
-    pub mobile: bool,
+    /// Where the tabs are (`tab-bar = top | sidebar`; the old `mobile = true` means sidebar).
+    pub tab_bar: TabBar,
 
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
@@ -151,7 +165,7 @@ impl Default for Config {
             animations: true,
             tab_animation: TabAnimation::Glide,
             explorer_view: crate::file_explorer::View::List,
-            mobile: false,
+            tab_bar: TabBar::Top,
 
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
@@ -190,6 +204,11 @@ pub fn modified() -> Option<SystemTime> {
 }
 
 impl Config {
+    /// Tabs in the left sidebar (`tab-bar = sidebar`), with touch-sized controls.
+    pub fn sidebar(&self) -> bool {
+        self.tab_bar == TabBar::Sidebar
+    }
+
     /// The tab attention dot's color (`tab-attention-color`, else palette 3).
     pub fn attention_color(&self) -> Color32 {
         self.tab_attention_color.unwrap_or(self.palette[3])
@@ -226,7 +245,7 @@ impl Config {
         };
         match key {
             "font-family" => self.font_family = value.to_string(),
-            "font-size" => self.font_size = float(value)?.clamp(6.0, 72.0),
+            "font-size" => self.font_size = float(value)?.clamp(FONT_MIN, FONT_MAX),
             "adjust-cell-height" => {
                 // Accept "10%" or a fraction like "0.1".
                 let v = value.trim_end_matches('%');
@@ -272,7 +291,15 @@ impl Config {
                     _ => return Err(format!("invalid explorer-view `{value}`")),
                 }
             }
-            "mobile" => self.mobile = boolean(value)?,
+            "tab-bar" => {
+                self.tab_bar = match value {
+                    "top" => TabBar::Top,
+                    "sidebar" => TabBar::Sidebar,
+                    _ => return Err(format!("invalid tab-bar `{value}`")),
+                }
+            }
+            // The old name of `tab-bar`, still read so existing configs keep working.
+            "mobile" => self.tab_bar = if boolean(value)? { TabBar::Sidebar } else { TabBar::Top },
             "cursor-style" => {
                 self.cursor_style = match value {
                     "block" => CursorStyle::Block,
@@ -365,11 +392,24 @@ mod tests {
     }
 
     #[test]
-    fn mobile_is_a_boolean() {
+    fn tab_bar_is_top_or_sidebar() {
         let mut cfg = Config::default();
-        assert!(!cfg.mobile);
+        assert_eq!(cfg.tab_bar, TabBar::Top);
+        assert!(!cfg.sidebar());
+        cfg.apply("tab-bar", "sidebar").unwrap();
+        assert!(cfg.sidebar());
+        cfg.apply("tab-bar", "top").unwrap();
+        assert_eq!(cfg.tab_bar, TabBar::Top);
+        assert!(cfg.apply("tab-bar", "left").is_err());
+    }
+
+    #[test]
+    fn mobile_still_picks_the_tab_bar() {
+        let mut cfg = Config::default();
         cfg.apply("mobile", "true").unwrap();
-        assert!(cfg.mobile);
+        assert_eq!(cfg.tab_bar, TabBar::Sidebar);
+        cfg.apply("mobile", "false").unwrap();
+        assert_eq!(cfg.tab_bar, TabBar::Top);
         assert!(cfg.apply("mobile", "yes").is_err());
     }
 

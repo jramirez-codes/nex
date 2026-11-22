@@ -19,6 +19,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const HEARTBEAT_SECS: u64 = 15;
 /// Output this recent (and not just the echo of typing) counts as working.
 pub const BUSY_WINDOW_MS: u64 = 1500;
+/// Claude Code's title glyph while it waits at its prompt; spinner frames replace it while
+/// it works.
+pub const CLAUDE_IDLE_MARK: char = '✳';
 
 /// What `nex-host --version` prints: `nex-host 0.11.0 (protocol 1)`.
 pub fn version_line() -> String {
@@ -38,6 +41,7 @@ pub enum Status {
 
 impl Status {
     /// Claude Code's own word for its state (its session file's `status`), if it's one nex knows.
+    /// Never [`Status::Exited`]. nex uses this for its local agents too.
     pub fn from_claude(status: &str) -> Option<Status> {
         let s = status.to_ascii_lowercase();
         let has = |words: &[&str]| words.iter().any(|w| s.contains(w));
@@ -110,7 +114,8 @@ pub struct Session {
 impl Session {
     /// The best guess at what it's doing at `now` (unix ms): ended, then Claude Code's own
     /// word, then the bell, then Claude's title mark (✳ waiting, a spinner frame working),
-    /// then whether it has been printing on its own.
+    /// then whether it has been printing on its own. nex's `agents::model::Probe::status`
+    /// applies the same rules to its local panes; keep the two in step.
     pub fn compute_status(&self, now: u64) -> Status {
         if self.exit.is_some() {
             return Status::Exited;
@@ -125,7 +130,7 @@ impl Session {
         if self.kind == "claude"
             && let Some(mark) = self.title.as_deref().and_then(title_mark)
         {
-            return if mark == '✳' { Status::Idle } else { Status::Working };
+            return if mark == CLAUDE_IDLE_MARK { Status::Idle } else { Status::Working };
         }
         let recent = |t: u64| now.saturating_sub(t) < BUSY_WINDOW_MS;
         if recent(self.last_output) && !recent(self.last_input) { Status::Working } else { Status::Idle }

@@ -5,26 +5,12 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use egui::{Pos2, RawInput, Rect, Vec2};
-
 use crate::agents::model::{AgentKind, Probe, Source, Status, remote_key};
-use crate::app::App;
 use crate::app::actions::Action;
 use crate::config::Config;
 use crate::session::PaneKind;
 
-fn run(app: &mut App, ctx: &egui::Context, width: f32) {
-    let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 800.0))), ..Default::default() };
-    let _ = ctx.run(input, |ctx| {
-        let mut frame = eframe::Frame::_new_kittest();
-        eframe::App::update(app, ctx, &mut frame);
-    });
-}
-
-fn new_app(ctx: &egui::Context) -> App {
-    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
-    App::new(&cc, Config::default(), crate::cli::Args { no_restore: true, ..Default::default() }, None, None, None)
-}
+use super::{new_app, run};
 
 fn probe(pane: u64, tab: Option<usize>, kind: AgentKind, status: &str) -> Probe {
     let now = Instant::now();
@@ -48,7 +34,7 @@ fn probe(pane: u64, tab: Option<usize>, kind: AgentKind, status: &str) -> Probe 
 #[test]
 fn ctrl_shift_a_toggles_an_agents_pane_that_draws_jumps_and_restores() {
     let ctx = egui::Context::default();
-    let mut app = new_app(&ctx);
+    let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1400.0);
     let shell = app.focused_pane().unwrap();
     app.pending.push(Action::NewTab);
@@ -102,12 +88,12 @@ fn ctrl_shift_a_toggles_an_agents_pane_that_draws_jumps_and_restores() {
 #[test]
 fn the_title_bar_label_opens_the_agents_tab() {
     let ctx = egui::Context::default();
-    let mut app = new_app(&ctx);
+    let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1200.0);
     assert!(app.shows_agents_label());
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1200.0);
-    assert!(app.explorer_active);
+    assert!(app.home_active);
     let id = app.focused_pane().unwrap();
     assert!(app.agents.contains_key(&id), "the Agents tab holds an Agents pane");
     assert!(app.explorers.is_empty());
@@ -117,7 +103,7 @@ fn the_title_bar_label_opens_the_agents_tab() {
     // Clicking it again goes back to the terminal.
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1200.0);
-    assert!(!app.explorer_active);
+    assert!(!app.home_active);
     assert!(app.panes.contains_key(&app.focused_pane().unwrap()));
     // An Agents tab on its own doesn't keep the window open.
     assert!(!app.home_keeps_window());
@@ -126,7 +112,7 @@ fn the_title_bar_label_opens_the_agents_tab() {
 #[test]
 fn explorer_mode_still_opens_files() {
     let ctx = egui::Context::default();
-    let mut app = new_app(&ctx);
+    let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1200.0);
     app.toggle_explorer();
     run(&mut app, &ctx, 1200.0);
@@ -139,7 +125,7 @@ fn explorer_mode_still_opens_files() {
 #[test]
 fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
     let ctx = egui::Context::default();
-    let mut app = new_app(&ctx);
+    let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1400.0);
     app.pending.push(Action::ToggleAgents);
     run(&mut app, &ctx, 1400.0);
@@ -173,13 +159,13 @@ fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
         run(&mut app, &ctx, 1400.0);
     }
     assert_eq!(app.active, tabs, "and shows it");
-    assert!(!app.explorer_active);
+    assert!(!app.home_active);
 }
 
 #[test]
 fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
     let ctx = egui::Context::default();
-    let mut app = new_app(&ctx);
+    let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1400.0);
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let target = crate::remote::SshTarget { opts: vec![], destination: "nex-test.invalid".into() };
@@ -195,14 +181,14 @@ fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
 
     app.agent_tracker.update(vec![remote(Status::Working)], Instant::now());
     app.dismiss_agent(key);
-    match &app.agent_prompt {
-        Some(crate::app::ssh::agents::AgentPrompt::Stop { session, what, .. }) => {
+    match &app.ssh.agent_prompt {
+        Some(crate::app::ssh::hosts::AgentPrompt::Stop { session, what, .. }) => {
             assert_eq!(session, "3fa91c0e");
             assert!(what.contains("Fix the tests"), "{what}");
         }
         other => panic!("expected the stop alert, got {other:?}"),
     }
-    assert!(app.upload_modal_open(), "the alert takes the keyboard");
+    assert!(app.ssh_modal_open(), "the alert takes the keyboard");
     run(&mut app, &ctx, 1400.0);
-    assert!(app.agent_prompt.is_some(), "and stays up until answered");
+    assert!(app.ssh.agent_prompt.is_some(), "and stays up until answered");
 }

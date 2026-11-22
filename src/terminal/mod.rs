@@ -505,6 +505,12 @@ impl Terminal {
         self.agent_tag.lock().ok().and_then(|t| t.clone())
     }
 
+    /// The `nex-host` session this pane shows: the one `nex-host attach` reported (see
+    /// [`agent_session`](Self::agent_session)), else the one its `ssh` command line attaches to.
+    pub fn remote_agent(&self) -> Option<String> {
+        self.agent_session().or_else(|| self.foreground_job().and_then(|(_, argv)| crate::remote::SshTarget::attach_id(argv)))
+    }
+
     /// The label shown in pane headers, e.g. "Node ~/Sites/rex-snake".
     pub fn title(&self) -> String {
         if let Some(t) = self.osc_title.as_deref().filter(|t| !t.trim().is_empty())

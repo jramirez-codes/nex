@@ -16,7 +16,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::{SshTarget, last_line, needs_login, posix_quote};
+use super::{SshFailure, SshTarget, last_line, posix_quote};
 
 /// Why an upload failed.
 #[derive(Debug, PartialEq, Eq)]
@@ -24,6 +24,15 @@ pub enum UploadError {
     /// The host wants a password (or another prompt) the upload can't answer.
     NeedsLogin,
     Other(String),
+}
+
+impl From<SshFailure> for UploadError {
+    fn from(f: SshFailure) -> Self {
+        match f {
+            SshFailure::NeedsLogin => UploadError::NeedsLogin,
+            SshFailure::Other(e) => UploadError::Other(e),
+        }
+    }
 }
 
 impl From<String> for UploadError {
@@ -133,12 +142,8 @@ pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, Uplo
     }
     let tar_ok = tar.wait().is_ok_and(|s| s.success());
 
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        if needs_login(&err) {
-            return Err(UploadError::NeedsLogin);
-        }
-        return Err(last_line(&err).unwrap_or_else(|| format!("ssh exited with {}", out.status)).into());
+    if let Some(failure) = SshFailure::of(out.status, &String::from_utf8_lossy(&out.stderr)) {
+        return Err(failure.into());
     }
     if !tar_ok {
         return Err(last_line(&tar_err).unwrap_or_else(|| "tar failed".into()).into());

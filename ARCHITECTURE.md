@@ -16,19 +16,20 @@ src/
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
 ├── layout.rs         binary split tree + directional focus (PaneId, Axis)
-├── session.rs        the saved window layout (session.json): format, saving, the single-writer lock
-├── session/
+├── session/          the saved window layout (session.json)
+│   ├── mod.rs            its format, saving and loading, the single-writer lock
 │   └── claude.rs         restored Claude Code panes resume their conversation
 ├── app/              the application: state and frame loop (mod.rs), plus
 │   ├── actions.rs        the actions and carrying them out
 │   ├── reload.rs         live config reload
-│   ├── session.rs        saving the window into a session and restoring one at launch
+│   ├── restore.rs        saving the window into a session and restoring one at launch
 │   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
 │   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
 │   ├── workspace/        tabs, splits, opening and closing panes, drawing panes, pane drag,
 │   │                     the sticky pane, and keeping Agents panes up to date
 │   ├── animation/        pane motion, tab close, tab-switch transitions, sticky glide
-│   ├── ssh/              following ssh sessions, uploads, mic button, remote agent hosts
+│   ├── ssh/              following ssh sessions (follow), uploads, the mic button, the hosts
+│   │                     whose agents the Agents pane shows (hosts), connection sharing (sharing)
 │   └── tests/            whole-App tests driven through egui
 ├── terminal/         one terminal per pane
 │   ├── mod.rs            PTY + VT state, title and cwd
@@ -51,7 +52,7 @@ src/
 │   ├── mod.rs            state, background loading, keys
 │   ├── git.rs            running git, parsing status and diffs
 │   ├── syntax.rs         syntax colors (syntect with bat's grammars)
-│   └── view.rs           drawing and the mouse
+│   └── view/             drawing and the mouse: the layout, toolbar, file list and diff
 ├── agents/           the Agents pane: every Claude Code / Codex agent at a glance
 │   ├── mod.rs            the pane's state and keys
 │   ├── model.rs          which panes are agents and what they're doing (Tracker)
@@ -92,20 +93,22 @@ Outside the Rust code:
 - **Nothing outside `platform/` checks the OS.** Porting nex to another OS means adding a folder
   there that provides the same items (`platform/mod.rs` lists them).
 - **Panes live in the split tree** (`layout.rs`), keyed by `PaneId`. A pane is a terminal, a file
-  explorer, a Changes pane or an Agents pane; `App` keeps each kind in its own map, and
-  `app/workspace/draw.rs` (`draw_pane`) picks the one to draw.
-- **`ui/` is stateless and shared.** Colors belong in `ui/theme.rs`, easing and fades in
-  `ui/glide.rs` / `ui/ink.rs`.
+  explorer, a Changes pane or an Agents pane (`layout::PaneKind`); `App` keeps each kind's state
+  in its own map. Code that treats kinds differently matches on `App::pane_kind(id)` rather
+  than probing the maps, so the compiler finds every place a new kind needs handling.
+- **`ui/` is stateless and shared.** Colors shared across the chrome belong in `ui/theme.rs`;
+  easing curves, `smoothstep` and `Lerp` in `ui/glide.rs`; font size limits in `config.rs`.
 - **Background work never blocks a frame.** Git, file copies, ssh jobs and process polls run on
   threads and hand results back; the frame loop picks them up (`App::poll_background`).
 
 ## Where to start for common changes
 
 - **A new action or shortcut:** `app/actions.rs` (the action), `app/input/keymap.rs` (the key).
-- **A new pane kind:** follow how the Changes pane (`git_diff/`) is wired in: its map on `App`
-  (`app/mod.rs`), opening it (`app/workspace/`), drawing it (`app/workspace/draw.rs`), forgetting
-  it (`forget_pane`), its zoom (`app/input/zoom.rs`, `app/actions.rs`) and saving it
-  (`session.rs` `PaneKind`, `app/session.rs`).
+- **A new pane kind:** add it to `layout::PaneKind` and give it a map on `App` (`app/mod.rs`),
+  then follow the compiler through every `match` on `App::pane_kind` (drawing, labels, keys,
+  zoom, the title-bar deck). Beyond those: `pane_kind` and `forget_pane`
+  (`app/workspace/mod.rs`), opening it (`app/workspace/`), and reading it back from a session
+  (`session/mod.rs`, `app/restore.rs`). The Changes pane (`git_diff/`) is a compact example.
 - **Something on an ssh host:** the work goes in `remote/` (no UI), the buttons, dialogs and
   toasts in `app/ssh/`.
 - **A config option:** `config.rs`, then document it in `config.example` and the README.

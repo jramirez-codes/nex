@@ -179,7 +179,7 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>) {
 pub const STACK_DEPTH: f32 = 3.0;
 /// How far each card behind the top one peeks out (right and up), in the title bar.
 pub const STACK_STEP: Vec2 = Vec2::new(3.0, -1.5);
-/// The same in the mobile sidebar: fanned out wider, so the deck's shuffle reads at a glance.
+/// The same in the sidebar: fanned out wider, so the deck's shuffle reads at a glance.
 pub const SIDEBAR_STACK_STEP: Vec2 = Vec2::new(9.0, -6.0);
 
 /// Placement of a resting card at fractional depth `t` (0 = top): (offset, scale, opacity).

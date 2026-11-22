@@ -3,6 +3,7 @@
 use egui::{Event, Key, Modifiers};
 
 use crate::file_explorer::FileExplorer;
+use crate::layout::PaneKind;
 use crate::platform;
 use crate::terminal::input;
 use crate::terminal::Terminal;
@@ -16,7 +17,7 @@ impl App {
         let paste_key = platform::take_paste_key();
         // Explorer dialogs (delete confirmation, Properties) read the keyboard themselves; no
         // key may reach a shell or run a shortcut behind them.
-        if self.explorers.values().any(|b| b.modal_open()) || self.upload_modal_open() {
+        if self.explorers.values().any(|b| b.modal_open()) || self.ssh_modal_open() {
             return;
         }
         let (events, mods) = ctx.input(|i| (i.events.clone(), i.modifiers));
@@ -91,18 +92,25 @@ impl App {
             self.pending.push(action);
             return true;
         }
-        if let Some(a) = self.focused_pane().and_then(|id| self.agents.get_mut(&id)) {
-            a.key(key, modifiers);
-        } else if let Some(d) = self.focused_pane().and_then(|id| self.diffs.get_mut(&id)) {
-            d.key(key, modifiers);
-        } else if let Some(b) = self.focused_explorer() {
-            b.key(key, modifiers);
-        } else if self.search.is_some() {
-            self.search_key(key, modifiers);
-        } else if let Some(t) = self.focused_terminal() {
-            let mode = *t.term.lock().mode();
-            if let Some(bytes) = input::encode_key(key, modifiers, mode) {
-                t.input(bytes);
+        let focused = self.focused_pane();
+        match focused.and_then(|id| self.pane_kind(id).map(|kind| (id, kind))) {
+            Some((id, PaneKind::Agents)) => {
+                self.agents.get_mut(&id).unwrap().key(key, modifiers);
+            }
+            Some((id, PaneKind::Diff)) => {
+                self.diffs.get_mut(&id).unwrap().key(key, modifiers);
+            }
+            Some((id, PaneKind::Explorer)) => {
+                self.explorers.get_mut(&id).unwrap().key(key, modifiers);
+            }
+            Some((_, PaneKind::Terminal)) | None if self.search.is_some() => self.search_key(key, modifiers),
+            Some((_, PaneKind::Terminal)) | None => {
+                if let Some(t) = self.focused_terminal() {
+                    let mode = *t.term.lock().mode();
+                    if let Some(bytes) = input::encode_key(key, modifiers, mode) {
+                        t.input(bytes);
+                    }
+                }
             }
         }
         false

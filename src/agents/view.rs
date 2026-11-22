@@ -113,28 +113,8 @@ impl AgentsPane {
             return;
         }
 
-        // Lay the sections and cards out in content coordinates.
         let width = body.width() - 2.0 * SIDE;
-        let columns = (((width + GAP) / (MIN_CARD_W + GAP)).floor() as usize).clamp(1, MAX_COLUMNS);
-        let card_w = (width - GAP * (columns as f32 - 1.0)) / columns as f32;
-        let mut sections: Vec<(Status, usize, Rect)> = Vec::new();
-        let mut cards: Vec<(&Agent, Rect)> = Vec::new();
-        let mut y = 4.0;
-        for status in Status::ALL {
-            let group: Vec<&Agent> = agents.iter().filter(|a| a.status == status).collect();
-            if group.is_empty() {
-                continue;
-            }
-            sections.push((status, group.len(), Rect::from_min_size(Pos2::new(SIDE, y), Vec2::new(width, SECTION_H))));
-            y += SECTION_H;
-            for (i, agent) in group.iter().enumerate() {
-                let (row, col) = (i / columns, i % columns);
-                let at = Pos2::new(SIDE + col as f32 * (card_w + GAP), y + row as f32 * (CARD_H + GAP));
-                cards.push((agent, Rect::from_min_size(at, Vec2::new(card_w, CARD_H))));
-            }
-            y += group.len().div_ceil(columns) as f32 * (CARD_H + GAP) + 6.0;
-        }
-        let content_h = y + 12.0;
+        let Layout { sections, cards, columns, content_h } = layout(agents, width);
         self.columns = columns;
         self.order = cards.iter().map(|(a, _)| a.pane).collect();
         if self.selected.is_none_or(|p| !self.order.contains(&p)) {
@@ -155,7 +135,27 @@ impl AgentsPane {
             return;
         }
 
-        // Scroll: the wheel, then keep a card moved to with the keyboard in view.
+        self.scroll_to(&f, body, &cards, content_h);
+        let (busy, breathing) = self.paint_cards(&f, painter, body, &mut motion, shown_tab);
+        motion.forget_gone(f.time);
+        self.view.motion = motion;
+        if busy {
+            ui.ctx().request_repaint();
+        }
+
+        let span = ScrollSpan { offset: self.scroll, content: content_h, view: body.height() };
+        if let Some(offset) = overlay_scrollbar(ui, painter, body, f.id("scrollbar"), span, &mut self.view.scroll_active) {
+            self.scroll = offset;
+        }
+
+        // Elapsed times tick by the second; the working dots breathe smoothly.
+        let next = if breathing && f.animate { Duration::from_millis(50) } else { Duration::from_secs(1) };
+        ctx.request_repaint_after(next);
+    }
+
+    /// Scroll with the wheel over `body`, then keep a card moved to with the keyboard in view.
+    fn scroll_to(&mut self, f: &Frame, body: Rect, cards: &[(&Agent, Rect)], content_h: f32) {
+        let ui = f.ui;
         let view_h = body.height();
         if ui.rect_contains_pointer(body) && !ui.input(|i| i.modifiers.command) {
             let d = ui.input(|i| i.smooth_scroll_delta.y);
@@ -176,7 +176,13 @@ impl AgentsPane {
             }
         }
         self.scroll = self.scroll.clamp(0.0, (content_h - view_h).max(0.0));
+    }
 
+    /// The section headers and cards where `motion` has them now, scrolled, with clicks on
+    /// the cards. Returns whether anything is still moving, and whether an agent is working
+    /// (its dots breathe).
+    fn paint_cards(&mut self, f: &Frame, painter: &Painter, body: Rect, motion: &mut Motion, shown_tab: Option<usize>) -> (bool, bool) {
+        let ui = f.ui;
         let now = f.time;
         let origin = body.min.to_vec2() - Vec2::new(0.0, self.scroll);
         let bp = painter.with_clip_rect(body.intersect(f.clip));
@@ -225,23 +231,44 @@ impl AgentsPane {
             let look = Look { hover, lift, border: card.border.get(now), border_width: card.border_width.get(now), tint: card.tint.get(now) };
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
-            agent_card(&f, &p, r, &card.agent, look);
+            agent_card(f, &p, r, &card.agent, look);
         }
-        motion.forget_gone(now);
-        self.view.motion = motion;
-        if busy {
-            ui.ctx().request_repaint();
-        }
-
-        let span = ScrollSpan { offset: self.scroll, content: content_h, view: view_h };
-        if let Some(offset) = overlay_scrollbar(ui, painter, body, f.id("scrollbar"), span, &mut self.view.scroll_active) {
-            self.scroll = offset;
-        }
-
-        // Elapsed times tick by the second; the working dots breathe smoothly.
-        let next = if breathing && f.animate { Duration::from_millis(50) } else { Duration::from_secs(1) };
-        ctx.request_repaint_after(next);
+        (busy, breathing)
     }
+}
+
+/// Where the sections and cards go, in content coordinates (before scrolling).
+struct Layout<'a> {
+    /// Each status with agents: its count and its header's rect.
+    sections: Vec<(Status, usize, Rect)>,
+    cards: Vec<(&'a Agent, Rect)>,
+    columns: usize,
+    content_h: f32,
+}
+
+/// Lay `agents` out `width` wide: a header per status, then its cards in as many columns
+/// as fit.
+fn layout(agents: &[Agent], width: f32) -> Layout<'_> {
+    let columns = (((width + GAP) / (MIN_CARD_W + GAP)).floor() as usize).clamp(1, MAX_COLUMNS);
+    let card_w = (width - GAP * (columns as f32 - 1.0)) / columns as f32;
+    let mut sections: Vec<(Status, usize, Rect)> = Vec::new();
+    let mut cards: Vec<(&Agent, Rect)> = Vec::new();
+    let mut y = 4.0;
+    for status in Status::ALL {
+        let group: Vec<&Agent> = agents.iter().filter(|a| a.status == status).collect();
+        if group.is_empty() {
+            continue;
+        }
+        sections.push((status, group.len(), Rect::from_min_size(Pos2::new(SIDE, y), Vec2::new(width, SECTION_H))));
+        y += SECTION_H;
+        for (i, agent) in group.iter().enumerate() {
+            let (row, col) = (i / columns, i % columns);
+            let at = Pos2::new(SIDE + col as f32 * (card_w + GAP), y + row as f32 * (CARD_H + GAP));
+            cards.push((agent, Rect::from_min_size(at, Vec2::new(card_w, CARD_H))));
+        }
+        y += group.len().div_ceil(columns) as f32 * (CARD_H + GAP) + 6.0;
+    }
+    Layout { sections, cards, columns, content_h: y + 12.0 }
 }
 
 /// A group's caption: "NEEDS YOU  1", small and quiet, like a grouped list's section header.
