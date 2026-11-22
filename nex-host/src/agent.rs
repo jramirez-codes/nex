@@ -16,14 +16,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use alacritty_terminal::event::{Event, EventListener};
+use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::{Column, Line};
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{self, Term};
 use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
 use nex_host::proto::{self, Session, Status};
 
-use crate::redraw;
+use crate::deliver;
 use crate::locked::Locked;
+use crate::redraw;
 
 /// Lines of scrollback kept for a pane that attaches later.
 const HISTORY: usize = 10_000;
@@ -110,6 +114,13 @@ pub struct Agent {
     pub killed: AtomicBool,
     /// When it ended (unix ms), for exited sessions to expire.
     pub ended_at: AtomicU64,
+    /// The agent that spawned it, and what for.
+    pub parent: Option<String>,
+    pub role: Option<String>,
+    /// When it was last sent a message (unix ms).
+    pub last_message: AtomicU64,
+    /// Messages to type in, one after another (see [`Agent::type_in`]).
+    typer: Sender<String>,
     inner: Mutex<Inner>,
 }
 
@@ -123,6 +134,8 @@ pub struct Spec {
     pub rows: u16,
     /// Run with exactly this environment, rather than under the login shell.
     pub env: Option<Vec<(String, String)>>,
+    pub parent: Option<String>,
+    pub role: Option<String>,
 }
 
 impl Agent {
@@ -141,7 +154,7 @@ impl Agent {
         });
         let (cols, rows) = (spec.cols.max(2), spec.rows.max(1));
 
-        let (master, child) = spawn_in_pty(&spec.argv, spec.env.as_deref(), &cwd, cols, rows)?;
+        let (master, child) = spawn_in_pty(&spec.argv, spec.env.as_deref(), &cwd, cols, rows, agent_env(&id, &name))?;
         let pid = child.id();
         let pty = Arc::new(master);
         let meta = Arc::new(Mutex::new(Meta::default()));
@@ -150,6 +163,7 @@ impl Agent {
         let config = term::Config { scrolling_history: HISTORY, kitty_keyboard: true, ..Default::default() };
         let term = Term::new(config, &TermSize::new(cols as usize, rows as usize), listener);
         let now = now_ms();
+        let (typer, typed) = mpsc::channel::<String>();
         let agent = Arc::new(Agent {
             id,
             kind,
@@ -165,8 +179,33 @@ impl Agent {
             last_input: AtomicU64::new(0),
             killed: AtomicBool::new(false),
             ended_at: AtomicU64::new(0),
+            parent: spec.parent,
+            role: spec.role,
+            last_message: AtomicU64::new(0),
+            typer,
             inner: Mutex::new(Inner { screen: Screen { term, parser: Processor::new(), cols, rows }, child: Some(child), client: None, exit: None }),
         });
+
+        // Typing messages in: each one a paste, then Enter a moment later (straight after it,
+        // TUIs such as Codex take the Enter as part of the paste), then a pause so the next
+        // one is a turn of its own.
+        let weak = Arc::downgrade(&agent);
+        std::thread::Builder::new().name(format!("typer-{}", agent.id)).spawn(move || {
+            for text in typed {
+                let Some(agent) = weak.upgrade() else { break };
+                if agent.exited() {
+                    break;
+                }
+                let bracketed = agent.inner.locked().screen.term.mode().contains(term::TermMode::BRACKETED_PASTE);
+                let _ = (&*agent.pty).write_all(&deliver::paste(&text, bracketed));
+                drop(agent);
+                std::thread::sleep(Duration::from_millis(200));
+                let Some(agent) = weak.upgrade() else { break };
+                let _ = (&*agent.pty).write_all(b"\r");
+                drop(agent);
+                std::thread::sleep(Duration::from_millis(300));
+            }
+        })?;
 
         let reader = agent.clone();
         let mut out = pty.try_clone()?;
@@ -255,6 +294,45 @@ impl Agent {
         self.last_input.store(now_ms(), Ordering::Relaxed);
     }
 
+    /// Type `text` in as a message, whoever is attached (it's queued behind any before it).
+    /// It doesn't count as the user typing.
+    pub fn type_in(&self, text: String) {
+        let _ = self.typer.send(text);
+        self.last_message.store(now_ms(), Ordering::Relaxed);
+    }
+
+    /// Its last `lines` lines (scrollback included) as plain text, wrapped lines joined and
+    /// trailing blank lines left off.
+    pub fn text(&self, lines: usize) -> String {
+        let inner = self.inner.locked();
+        let grid = inner.screen.term.grid();
+        let (history, screen, cols) = (grid.history_size() as i32, grid.screen_lines() as i32, grid.columns());
+        let mut out: Vec<String> = Vec::new();
+        let mut joining = false;
+        for line in -history..screen {
+            let row = &grid[Line(line)];
+            let mut s = String::new();
+            for c in 0..cols {
+                let cell = &row[Column(c)];
+                if !cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                    s.push(cell.c);
+                }
+            }
+            let wraps = row[Column(cols - 1)].flags.contains(Flags::WRAPLINE);
+            let s = if wraps { s } else { s.trim_end().to_string() };
+            match out.last_mut() {
+                Some(last) if joining => last.push_str(&s),
+                _ => out.push(s),
+            }
+            joining = wraps;
+        }
+        while out.last().is_some_and(|l| l.trim().is_empty()) {
+            out.pop();
+        }
+        let from = out.len().saturating_sub(lines);
+        out[from..].join("\n")
+    }
+
     pub fn resize(&self, token: u64, cols: u16, rows: u16) {
         let mut inner = self.inner.locked();
         if inner.client.as_ref().is_some_and(|c| c.token == token) {
@@ -316,6 +394,9 @@ impl Agent {
             exit,
             claude,
             status: Status::Idle,
+            parent: self.parent.clone(),
+            role: self.role.clone(),
+            last_message: self.last_message.load(Ordering::Relaxed),
         };
         s.status = s.compute_status(now);
         s
@@ -365,7 +446,14 @@ pub fn quote(word: &str) -> String {
 
 /// Start `argv` in `cwd` under the login shell (which `exec`s it, so the program keeps the
 /// shell's pid), or the login shell itself when `argv` is empty, on a new pty, as the leader of its own session with the pty as its terminal.
-fn spawn_in_pty(argv: &[String], env: Option<&[(String, String)]>, cwd: &std::path::Path, cols: u16, rows: u16) -> io::Result<(File, Child)> {
+fn spawn_in_pty(
+    argv: &[String],
+    env: Option<&[(String, String)]>,
+    cwd: &std::path::Path,
+    cols: u16,
+    rows: u16,
+    own_env: HashMap<&'static str, String>,
+) -> io::Result<(File, Child)> {
     let (mut master, mut slave) = (-1, -1);
     let mut size = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
     // Raw pointers: macOS declares these `*mut`, Linux `*const`.
@@ -412,11 +500,18 @@ fn spawn_in_pty(argv: &[String], env: Option<&[(String, String)]>, cwd: &std::pa
             cmd
         }
     };
+    // `nex-host` itself on the PATH, for the agent's `nex-host done` and friends.
+    let base_path = env.and_then(|e| e.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone())).or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
+    let path = match std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.to_string_lossy().into_owned())) {
+        Some(dir) if !base_path.split(':').any(|p| p == dir) => format!("{dir}:{base_path}"),
+        _ => base_path,
+    };
     cmd.current_dir(cwd)
         .stdin(slave.try_clone()?)
         .stdout(slave.try_clone()?)
         .stderr(slave)
-        .envs(agent_env());
+        .envs(own_env)
+        .env("PATH", path);
     for key in ["SSH_TTY", "TMUX", "TMUX_PANE", "STY"] {
         cmd.env_remove(key);
     }
@@ -442,18 +537,42 @@ fn spawn_in_pty(argv: &[String], env: Option<&[(String, String)]>, cwd: &std::pa
 /// Variables that describe the terminal a command was typed in, not the one the agent will
 /// run in: left out of an environment passed along with `run`.
 pub fn skip_var(key: &str) -> bool {
-    matches!(key, "TERM" | "COLORTERM" | "TERM_PROGRAM" | "TERM_PROGRAM_VERSION" | "COLUMNS" | "LINES" | "SHLVL" | "PWD" | "OLDPWD" | "_" | "TMUX" | "TMUX_PANE" | "STY" | "WINDOWID" | "NEX_HOST")
-        || key.starts_with("SSH_TTY")
+    matches!(
+        key,
+        "TERM"
+            | "COLORTERM"
+            | "TERM_PROGRAM"
+            | "TERM_PROGRAM_VERSION"
+            | "COLUMNS"
+            | "LINES"
+            | "SHLVL"
+            | "PWD"
+            | "OLDPWD"
+            | "_"
+            | "TMUX"
+            | "TMUX_PANE"
+            | "STY"
+            | "WINDOWID"
+            | "NEX_HOST"
+            | "NEX_AGENT_ID"
+            | "NEX_AGENT_NAME"
+            | "NEX_SOCK"
+    ) || key.starts_with("SSH_TTY")
 }
 
-/// What agents see of their terminal: nex's, as in a local pane.
-fn agent_env() -> HashMap<&'static str, String> {
+/// What agents see of their terminal (nex's, as in a local pane), and who they are, for
+/// `nex-host send` / `done` run inside them.
+fn agent_env(id: &str, name: &str) -> HashMap<&'static str, String> {
+    let sock = nex_host::paths::socket().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     HashMap::from([
         ("TERM", "xterm-256color".to_string()),
         ("COLORTERM", "truecolor".to_string()),
         ("TERM_PROGRAM", "nex".to_string()),
         ("TERM_PROGRAM_VERSION", proto::VERSION.to_string()),
         ("NEX_HOST", "1".to_string()),
+        ("NEX_AGENT_ID", id.to_string()),
+        ("NEX_AGENT_NAME", name.to_string()),
+        ("NEX_SOCK", sock),
     ])
 }
 

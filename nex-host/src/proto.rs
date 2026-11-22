@@ -6,7 +6,12 @@
 //!   (and every [`HEARTBEAT_SECS`] regardless), until the client hangs up;
 //! - `attach` turns into a terminal: the daemon sends the agent's screen and then its output
 //!   as raw bytes, and the client sends [`frame`]s (keys, resizes) back;
+//! - `recv` waits (up to its timeout) for a message before it answers;
 //! - everything else is done after its answer.
+//!
+//! Agents talk to each other with [`Message`]s: `send` puts one in the recipient's mailbox
+//! and types it into the recipient's terminal (`nex-host/src/deliver.rs` has the format it
+//! arrives in); `recv` takes one out of the caller's mailbox instead.
 //!
 //! `nex-host connect` passes one such connection through its stdin and stdout, for clients
 //! that reach the host over an ssh channel rather than a terminal (nex's own ssh client).
@@ -14,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped whenever a change here would confuse the other side.
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 /// The `nex-host` version, which nex compares to its own to decide whether to reinstall.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How often `watch` resends the session list when nothing has changed: a client that hears
@@ -24,6 +29,9 @@ pub const HEARTBEAT_SECS: u64 = 15;
 /// opposed to an agent: the Agents pane leaves these out, and the daemon forgets one as soon
 /// as it exits.
 pub const SHELL_KIND: &str = "shell";
+/// The kind of a session running `nex-host pipe`: it takes its messages with `recv`, so
+/// none are typed into it.
+pub const PIPELINE_KIND: &str = "pipeline";
 /// Output this recent (and not just the echo of typing) counts as working.
 pub const BUSY_WINDOW_MS: u64 = 1500;
 /// Claude Code's title glyph while it waits at its prompt; spinner frames replace it while
@@ -116,6 +124,15 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude: Option<Claude>,
     pub status: Status,
+    /// The agent that started it with `spawn` (it ends when that one does).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// What it's for, as `spawn --role` put it (`reviewer`), or its pipeline stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Unix ms of the last message it was sent, 0 if none.
+    #[serde(default)]
+    pub last_message: u64,
 }
 
 impl Session {
@@ -184,6 +201,163 @@ pub enum Request {
     Forget { id: String },
     /// Show a session: the connection becomes its terminal, `cols` by `rows`.
     Attach { id: String, cols: u16, rows: u16 },
+    /// Start an agent to do `task`: a [`Request::Launch`] whose first message is the task.
+    /// Answered with its `id`.
+    Spawn {
+        name: String,
+        /// `claude` (the default), `codex`, or anything else to run `argv`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
+        /// The command; empty: just `kind`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        argv: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        env: Option<Vec<(String, String)>>,
+        /// Who's asking (their `NEX_AGENT_ID`); none when it's someone at a shell.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+        task: String,
+    },
+    /// Send a message. Answered with its `id`, and in `text` when it's waiting to be typed
+    /// in (the recipient is asking the user something).
+    Send {
+        /// The sender's `NEX_AGENT_ID`; none when it's someone at a shell.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
+        /// An id, a name, `@parent`, `@children`, `@task` (whoever gave the sender its current
+        /// task) or `user`.
+        to: String,
+        kind: MessageKind,
+        body: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply_to: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        verdict: Option<Verdict>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<String>,
+        /// Type it in even though the recipient is waiting for the user.
+        #[serde(default)]
+        force: bool,
+    },
+    /// Take the next message for `me` (none: [`USER`]) that matches, waiting up to
+    /// `timeout_ms` for one. Answered with it in `messages`, or an error when time runs out.
+    Recv {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        me: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply_to: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<MessageKind>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+    },
+    /// What a session's screen shows, as plain text: its last `lines` lines (scrollback
+    /// included). Answered in `text`.
+    Read {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lines: Option<usize>,
+    },
+}
+
+/// What a message is for, which tells the agent reading it what's expected of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageKind {
+    /// A job: do it, then report with `done`.
+    Task,
+    /// A question: answer it with `send --reply-to`.
+    Ask,
+    /// The answer to something the recipient asked.
+    Reply,
+    /// The sender finished the task it was given; this is its report.
+    Done,
+    /// For the recipient to take into account; no answer expected.
+    Note,
+}
+
+impl MessageKind {
+    pub const ALL: [MessageKind; 5] = [MessageKind::Task, MessageKind::Ask, MessageKind::Reply, MessageKind::Done, MessageKind::Note];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MessageKind::Task => "task",
+            MessageKind::Ask => "ask",
+            MessageKind::Reply => "reply",
+            MessageKind::Done => "done",
+            MessageKind::Note => "note",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<MessageKind> {
+        Self::ALL.into_iter().find(|k| k.label() == s)
+    }
+}
+
+/// How a `done` turned out: what pipelines branch on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    Approved,
+    Changes,
+    Failed,
+}
+
+impl Verdict {
+    pub const ALL: [Verdict; 3] = [Verdict::Approved, Verdict::Changes, Verdict::Failed];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Verdict::Approved => "approved",
+            Verdict::Changes => "changes",
+            Verdict::Failed => "failed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Verdict> {
+        Self::ALL.into_iter().find(|v| v.label() == s)
+    }
+}
+
+/// The address of someone at a shell rather than an agent: messages to it are only taken
+/// with `recv`.
+pub const USER: &str = "user";
+
+/// One message, as kept in its recipient's mailbox.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Message {
+    /// `m` and a number.
+    pub id: String,
+    /// The sender's session id, or [`USER`].
+    pub from: String,
+    pub from_name: String,
+    pub to: String,
+    pub to_name: String,
+    pub kind: MessageKind,
+    /// Its text, cut short when it was long (the whole of it is in the file at `more`).
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    /// The first line of the message it answers, so it makes sense on its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub re: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<Verdict>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+    /// Where the whole text is when `body` was cut short, and how many lines it has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more_lines: Option<usize>,
+    /// Unix ms.
+    pub sent: u64,
 }
 
 /// The daemon's answer.
@@ -199,6 +373,12 @@ pub struct Response {
     /// The host's home folder, with `list` and `watch`, for showing folders as `~/…`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<String>,
+    /// With `recv`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<Message>>,
+    /// With `read`: the screen. With `send`: something the sender should know.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 impl Response {
@@ -271,7 +451,27 @@ mod tests {
             exit: None,
             claude: None,
             status: Status::Idle,
+            parent: None,
+            role: None,
+            last_message: 0,
         }
+    }
+
+    #[test]
+    fn protocol_2_sessions_still_parse() {
+        let old = r#"{"id":"a","kind":"claude","name":"n","cwd":"/","argv":[],"pid":1,"started":0,"last_output":0,"last_input":0,"status":"idle"}"#;
+        let s: Session = serde_json::from_str(old).unwrap();
+        assert_eq!((s.parent, s.role, s.last_message), (None, None, 0));
+    }
+
+    #[test]
+    fn message_requests_are_tagged_json() {
+        let r: Request = serde_json::from_str(r#"{"op":"send","to":"@parent","kind":"done","body":"ok","verdict":"approved"}"#).unwrap();
+        assert!(matches!(r, Request::Send { kind: MessageKind::Done, verdict: Some(Verdict::Approved), force: false, .. }));
+        let r: Request = serde_json::from_str(r#"{"op":"recv","from":"build","timeout_ms":5}"#).unwrap();
+        assert!(matches!(r, Request::Recv { me: None, timeout_ms: Some(5), .. }));
+        assert_eq!(MessageKind::parse("ask"), Some(MessageKind::Ask));
+        assert_eq!(Verdict::parse("changes"), Some(Verdict::Changes));
     }
 
     #[test]

@@ -71,9 +71,14 @@ fn home() -> io::Result<PathBuf> {
 
 /// `text` without the block (and the blank line before it, if nex-host added one).
 fn without_block(text: &str) -> String {
-    let Some(start) = text.find(BEGIN) else { return text.to_string() };
-    let end = text[start..].find(END).map_or(text.len(), |e| {
-        let e = start + e + END.len();
+    without_marked(text, BEGIN, END)
+}
+
+/// `text` without the lines from `begin` to `end` (and the blank line before them).
+pub fn without_marked(text: &str, begin: &str, end_mark: &str) -> String {
+    let Some(start) = text.find(begin) else { return text.to_string() };
+    let end = text[start..].find(end_mark).map_or(text.len(), |e| {
+        let e = start + e + end_mark.len();
         if text[e..].starts_with('\n') { e + 1 } else { e }
     });
     let mut before = text[..start].to_string();
@@ -85,14 +90,20 @@ fn without_block(text: &str) -> String {
 
 /// `text` with the block at its end (replacing an older one).
 fn with_block(text: &str) -> String {
-    let mut out = without_block(text);
+    with_marked(text, BEGIN, END, &sh_block())
+}
+
+/// `text` with `block` (which starts with `begin` and ends with `end`) at its end, in place
+/// of an older one.
+pub fn with_marked(text: &str, begin: &str, end: &str, block: &str) -> String {
+    let mut out = without_marked(text, begin, end);
     if !out.is_empty() {
         if !out.ends_with('\n') {
             out.push('\n');
         }
         out.push('\n');
     }
-    out + &sh_block()
+    out + block
 }
 
 pub fn install() -> io::Result<Vec<PathBuf>> {
