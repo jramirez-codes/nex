@@ -7,10 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::platform::AppChoice;
-use crate::terminal::tilde;
 
-use crate::file_explorer::FileExplorer;
-use crate::file_explorer::fs::ops::{complete_location, create_new, expand_location, rename_path};
+use crate::file_explorer::{After, FileExplorer};
+use crate::file_explorer::fs::ops::{complete_location, create_new, expand_location, invalid_name, rename_path};
+use crate::file_explorer::fs::remote;
 use crate::file_explorer::input::line_edit::LineEdit;
 use crate::file_explorer::fs::transfer::{FS_GENERATION, clipboard, set_clipboard};
 
@@ -84,6 +84,9 @@ impl FileExplorer {
     /// Rename `path`, then show and select it under its new name. Used by the rename field
     /// and the Properties dialog.
     pub(in crate::file_explorer) fn rename_item(&mut self, path: &Path, new_name: &str) -> Result<PathBuf, String> {
+        if self.remote.is_some() {
+            return self.rename_remote(path, new_name);
+        }
         let new = rename_path(path, new_name)?;
         // Cut or copied files keep pointing at the right file.
         if let Some(mut clip) = clipboard() {
@@ -98,6 +101,22 @@ impl FileExplorer {
         Ok(new)
     }
 
+    /// Rename on the ssh host, in the background: the new name is selected once the folder
+    /// has been read again. Only a bad name fails right away.
+    fn rename_remote(&mut self, path: &Path, new_name: &str) -> Result<PathBuf, String> {
+        if let Some(why) = invalid_name(new_name) {
+            return Err(why.into());
+        }
+        let Some(t) = self.transport().cloned() else { return Err("Not on a host".into()) };
+        let (path, new_name) = (path.to_path_buf(), new_name.to_string());
+        let new = path.with_file_name(&new_name);
+        self.spawn_job_then(&self.ctx_for_jobs(), format!("Renaming to “{new_name}”"), false, move |_| {
+            let new = remote::rename_path(&t, &path, &new_name)?;
+            Ok((format!("Renamed to “{new_name}”"), Some(After::Select(new))))
+        });
+        Ok(new)
+    }
+
     pub(in crate::file_explorer) fn select_path(&mut self, path: &Path) {
         if let Some(i) = self.entries.iter().position(|e| e.path == path) {
             self.marked.clear();
@@ -108,24 +127,43 @@ impl FileExplorer {
 
     /// Make "New Folder" (or an empty "Untitled" file) here and start naming it.
     pub fn create_item(&mut self, folder: bool) {
+        if let Some(t) = self.transport().cloned() {
+            // On an ssh host, in the background; naming starts once the folder is read again.
+            let dest = self.dir.clone();
+            let what = if folder { "folder" } else { "file" };
+            self.spawn_job_then(&self.ctx_for_jobs(), format!("Creating a {what}"), false, move |_| {
+                let path = remote::create_new(&t, &dest, folder)?;
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                Ok((format!("Created “{name}”"), Some(After::Rename(path))))
+            });
+            return;
+        }
         match create_new(&self.dir, folder) {
             Ok(path) => {
                 FS_GENERATION.fetch_add(1, Ordering::Relaxed);
                 self.refresh();
-                self.select_path(&path);
-                self.start_rename();
-                // A new item's whole name is the placeholder: select all of it.
-                if let Some(r) = self.rename.as_mut() {
-                    r.field = LineEdit::new(r.field.text.clone());
-                }
+                self.select_and_name(&path);
             }
             Err(e) => self.set_status(e, true),
         }
     }
 
+    /// Select a new item and start naming it.
+    pub(in crate::file_explorer) fn select_and_name(&mut self, path: &Path) {
+        if !self.entries.iter().any(|e| e.path == path) {
+            return;
+        }
+        self.select_path(path);
+        self.start_rename();
+        // A new item's whole name is the placeholder: select all of it.
+        if let Some(r) = self.rename.as_mut() {
+            r.field = LineEdit::new(r.field.text.clone());
+        }
+    }
+
     /// Type a location instead of clicking breadcrumbs (Ctrl+L).
     pub fn edit_location(&mut self) {
-        let mut text = tilde(&self.dir);
+        let mut text = self.shown_path(&self.dir);
         if !text.ends_with('/') {
             text.push('/');
         }
@@ -137,6 +175,12 @@ impl FileExplorer {
     /// Go to the typed folder, or open the typed file. Unknown paths keep the field open.
     pub(in crate::file_explorer) fn commit_location(&mut self) {
         let Some(field) = self.location.take() else { return };
+        if self.remote.is_some() {
+            // Nothing to check here: the host says if it isn't a folder.
+            let path = expand_remote(&field.text, &self.dir, self.home().as_deref());
+            self.navigate(path);
+            return;
+        }
         let path = expand_location(&field.text, &self.dir);
         if path.is_dir() {
             self.navigate(path);
@@ -153,11 +197,39 @@ impl FileExplorer {
     }
 
     pub(in crate::file_explorer) fn complete_location(&mut self) {
+        if self.remote.is_some() {
+            self.complete_from_listing();
+            return;
+        }
         let dir = self.dir.clone();
         if let Some(field) = self.location.as_mut()
             && let Some(text) = complete_location(&field.text, &dir) {
                 field.set_text(text);
             }
+    }
+
+    /// Tab completion on an ssh host: a name in the folder being shown, from its listing
+    /// (reading other folders there would mean a trip per key).
+    fn complete_from_listing(&mut self) {
+        let Some(field) = self.location.as_ref() else { return };
+        let shown = self.shown_path(&self.dir);
+        let head = if shown.ends_with('/') { shown } else { format!("{shown}/") };
+        let Some(prefix) = field.text.strip_prefix(head.as_str()).filter(|p| !p.contains('/')) else { return };
+        let matches: Vec<(&str, bool)> = self.entries.iter().filter(|e| e.name.starts_with(prefix)).map(|e| (e.name.as_str(), e.is_dir)).collect();
+        let Some(&(first, _)) = matches.first() else { return };
+        let common = matches.iter().fold(first, |acc, (name, _)| {
+            let n = acc.char_indices().zip(name.chars()).take_while(|((_, a), b)| a == b).last().map_or(0, |((i, c), _)| i + c.len_utf8());
+            &acc[..n]
+        });
+        let mut text = format!("{head}{common}");
+        if matches.len() == 1 && matches[0].1 {
+            text.push('/');
+        }
+        if let Some(field) = self.location.as_mut()
+            && text != field.text
+        {
+            field.set_text(text);
+        }
     }
 
     /// Add typed text to the find query and select the first matching name.
@@ -235,6 +307,31 @@ impl FileExplorer {
     }
 }
 
+/// A location typed for a folder on an ssh host: `~` is the home folder there, and relative
+/// paths start at `cwd`. `.` and `..` are worked out here (the host isn't asked).
+fn expand_remote(text: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
+    let text = text.trim();
+    let home = home.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("/"));
+    let path = if text == "~" {
+        home
+    } else if let Some(rest) = text.strip_prefix("~/") {
+        home.join(rest)
+    } else {
+        cwd.join(text)
+    };
+    let mut out = PathBuf::from("/");
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::Normal(p) => out.push(p),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// The index of the name matching `query` (case-insensitive): names starting with it win
 /// over names containing it. Searches from `from` (`step` 0) or the item after / before it
 /// (`step` 1 / -1), wrapping around.
@@ -299,6 +396,16 @@ mod tests {
         b.commit_rename();
         assert!(b.rename.is_some() && dir.join("zeta.txt").exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn remote_locations() {
+        let (cwd, home) = (Path::new("/srv/app"), Some(Path::new("/home/me")));
+        assert_eq!(expand_remote("~", cwd, home), PathBuf::from("/home/me"));
+        assert_eq!(expand_remote("~/src/", cwd, home), PathBuf::from("/home/me/src"));
+        assert_eq!(expand_remote("../logs", cwd, home), PathBuf::from("/srv/logs"));
+        assert_eq!(expand_remote("/etc/./nginx", cwd, home), PathBuf::from("/etc/nginx"));
+        assert_eq!(expand_remote("/..", cwd, home), PathBuf::from("/"));
     }
 
     #[test]

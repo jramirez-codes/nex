@@ -37,7 +37,7 @@ impl App {
         }
         let now = Instant::now();
         let LocalScan { mut probes, hosts, showing } = self.scan_panes();
-        self.ssh.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
+        self.ssh.remote_hosts.sync(&hosts, self.connect.host.as_ref(), self.cfg.ssh_agents);
         self.offer_shim(&hosts);
         self.offer_sharing(&hosts);
         self.ssh.agent_notes = self.host_notes();
@@ -58,6 +58,13 @@ impl App {
                     continue;
                 }
                 let Some(t) = self.panes.get(&id) else { continue };
+                // A pane on the host the window is connected to itself: the session it shows.
+                if let Some(remote) = &t.remote {
+                    if let Some(session) = remote.session.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+                        scan.showing.entry(session).or_insert((id, index, t.attention));
+                    }
+                    continue;
+                }
                 if let Some(target) = t.last_ssh_target() {
                     scan.hosts.insert(target.normalized());
                     if let Some(session) = t.remote_agent() {
@@ -206,6 +213,14 @@ impl App {
         let Source::Remote { target, session, pane, .. } = agent.source.clone() else { return };
         match pane {
             Some(p) => self.focus_pane(p),
+            None if self.connect.active => {
+                // On the host the window is connected to: a pane attached to the session,
+                // which closing only detaches.
+                self.attach_next = Some(session);
+                self.new_tab(ctx, None, None);
+                self.attach_next = None;
+                self.track_agents();
+            }
             None => {
                 self.new_tab(ctx, None, Some(target.attach_command(&session)));
                 self.track_agents();
@@ -225,9 +240,14 @@ impl App {
     /// keeps running there.
     pub(in crate::app) fn detach_notice(&self, id: PaneId) -> Option<String> {
         let t = self.panes.get(&id)?;
-        let target = t.last_ssh_target()?;
-        let session = t.remote_agent()?;
-        let host = target.host().to_string();
+        let (host, session) = match &t.remote {
+            Some(remote) if remote.keep => {
+                let session = remote.session.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+                (crate::app::ssh::hosts::direct_target(&remote.host).host().to_string(), session)
+            }
+            Some(_) => return None,
+            None => (t.last_ssh_target()?.host().to_string(), t.remote_agent()?),
+        };
         let agent = self.agent_tracker.agents().iter().find(|a| a.pane == remote_key(&host, &session));
         let what = agent.map_or("The agent", |a| a.kind.label());
         Some(format!("{what} keeps running on {host} \u{00b7} reopen it from Agents"))

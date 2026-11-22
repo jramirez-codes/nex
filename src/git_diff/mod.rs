@@ -1,7 +1,8 @@
 //! The Changes pane: a read-only `git diff` viewer that lives in the split tree beside
 //! terminals. A list of changed files (staged and not) on the left, the selected file's
 //! unified diff on the right. It follows the pane it was opened from: focusing another
-//! terminal shows that terminal's repository.
+//! terminal shows that terminal's repository. Opened from a terminal in an `ssh` session, it
+//! shows the repository there (git runs on the host).
 //!
 //! `git` (running it, parsing status and diffs), `view` (drawing and the mouse), and here:
 //! the state, background loading and keys.
@@ -21,6 +22,7 @@ use std::time::{Duration, Instant};
 use egui::{Key, Modifiers};
 
 use crate::layout::PaneId;
+use crate::remote::exec::Transport;
 
 use git::{FileChange, FileDiff, Status};
 
@@ -43,12 +45,16 @@ const FIRST_PAINT_BUDGET: Duration = Duration::from_millis(40);
 
 /// How often the status is re-read while the pane is on screen.
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+/// The same for a repository on an ssh host (each read is a trip there).
+const REMOTE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 /// What the pane asks the app for (it can't open panes itself).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
-    /// Show this file in a Files pane split off this one.
+    /// Show this file in a Files pane split off this one (on the pane's host, if it's on one).
     Reveal(PathBuf),
+    /// The ssh host wants a password nex's own connections can't type (its name).
+    NeedsLogin(String),
 }
 
 /// Which changes the list shows.
@@ -121,6 +127,10 @@ pub struct GitDiff {
     pub dir: PathBuf,
     /// The pane this was opened from; closing returns focus there.
     pub origin: Option<PaneId>,
+    /// The ssh host `dir` is on (`None`: this machine).
+    pub remote: Option<Arc<Transport>>,
+    /// A login failure was reported to the app (once until a status works again).
+    told_login: bool,
     ctx: egui::Context,
     status: Option<Arc<Status>>,
     status_job: Option<Receiver<(u64, Status)>>,
@@ -152,9 +162,16 @@ pub struct GitDiff {
 
 impl GitDiff {
     pub fn new(ctx: &egui::Context, dir: PathBuf) -> GitDiff {
+        Self::new_at(ctx, None, dir)
+    }
+
+    /// A Changes pane for `dir` on the host `remote` reaches (this machine for `None`).
+    pub fn new_at(ctx: &egui::Context, remote: Option<Arc<Transport>>, dir: PathBuf) -> GitDiff {
         let mut d = GitDiff {
             dir,
             origin: None,
+            remote,
+            told_login: false,
             ctx: ctx.clone(),
             status: None,
             status_job: None,
@@ -187,14 +204,18 @@ impl GitDiff {
             _ => self.dir.as_path(),
         };
         let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| root.display().to_string());
-        format!("{name} · Changes")
+        match &self.remote {
+            Some(t) => format!("{name} · Changes on {}", t.label()),
+            None => format!("{name} · Changes"),
+        }
     }
 
     /// Show the repository holding `dir` instead (the followed pane moved, or another pane
     /// was focused). The current view stays up until the new status arrives.
-    pub fn follow(&mut self, dir: PathBuf) {
-        if dir != self.dir {
+    pub fn follow(&mut self, remote: Option<Arc<Transport>>, dir: PathBuf) {
+        if dir != self.dir || remote != self.remote {
             self.dir = dir;
+            self.remote = remote;
             self.refresh();
         }
     }
@@ -202,7 +223,8 @@ impl GitDiff {
     /// Re-read the status if it's due (called every poll while the pane is on screen).
     pub fn refresh_if_stale(&mut self) {
         // Not while a diff is still being colored: a re-read would start it over.
-        if self.status_job.is_none() && self.diff_job.is_none() && self.last_status.is_none_or(|t| t.elapsed() >= REFRESH_INTERVAL) {
+        let interval = if self.remote.is_some() { REMOTE_REFRESH_INTERVAL } else { REFRESH_INTERVAL };
+        if self.status_job.is_none() && self.diff_job.is_none() && self.last_status.is_none_or(|t| t.elapsed() >= interval) {
             self.refresh();
         }
     }
@@ -213,10 +235,14 @@ impl GitDiff {
         let generation = self.status_gen;
         let dir = self.dir.clone();
         let ctx = self.ctx.clone();
+        let remote = self.remote.clone();
         let (tx, rx) = mpsc::channel();
         self.status_job = Some(rx);
         std::thread::spawn(move || {
-            let status = git::load_status(&dir);
+            let status = match &remote {
+                Some(t) => git::load_status_remote(t, &dir),
+                None => git::load_status(&dir),
+            };
             let _ = tx.send((generation, status));
             ctx.request_repaint();
         });
@@ -237,6 +263,7 @@ impl GitDiff {
         let generation = self.diff_gen;
         let root = snap.root.clone();
         let ctx = self.ctx.clone();
+        let remote = self.remote.clone();
         // The diff on screen, when it's this file's: its colors are reused where it's unchanged.
         let prev = self.diff.as_ref().filter(|(s, _)| *s == sel).map(|(_, d)| Arc::clone(d));
         if prev.is_none() {
@@ -253,7 +280,11 @@ impl GitDiff {
                 ctx.request_repaint();
                 ok
             };
-            let mut d = match git::load_diff(&root, &file) {
+            let loaded = match &remote {
+                Some(t) => git::load_diff_remote(t, &root, &file),
+                None => git::load_diff(&root, &file),
+            };
+            let mut d = match loaded {
                 Ok(d) if !d.binary => d,
                 other => {
                     send(DiffMsg::Diff(other));
@@ -351,6 +382,15 @@ impl GitDiff {
     }
 
     fn set_status(&mut self, status: Status) {
+        if status == Status::NeedsLogin {
+            if let Some(t) = &self.remote
+                && !std::mem::replace(&mut self.told_login, true)
+            {
+                self.requests.push(Request::NeedsLogin(t.label()));
+            }
+        } else {
+            self.told_login = false;
+        }
         let new_repo = match (self.status.as_deref(), &status) {
             (Some(Status::Ready(a)), Status::Ready(b)) => a.root != b.root,
             _ => true,
@@ -455,7 +495,8 @@ impl GitDiff {
     }
 
     fn reveal_selected(&mut self) {
-        if let Some(path) = self.selected_path().filter(|p| p.exists()) {
+        // A file on a host can't be checked from here; the explorer says if it's gone.
+        if let Some(path) = self.selected_path().filter(|p| self.remote.is_some() || p.exists()) {
             self.requests.push(Request::Reveal(path));
         }
     }

@@ -4,11 +4,14 @@
 //! app's private storage, and sends stdout and stderr to logcat (see `log.rs`).
 
 mod clipboard;
+mod keyboard;
 mod log;
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 pub use clipboard::{clipboard_text, mirror_copies};
+pub use keyboard::{soft_keyboard_visible, sync_soft_keyboard, typed_text};
 pub use super::fontdb::{find_font, nerd_mono_families};
 pub use super::no_dnd::Dnd;
 pub use super::no_watch::{DirWatch, on_dir_change};
@@ -27,13 +30,15 @@ pub const SOFT_KEYBOARD: bool = true;
 
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
-/// Full screen: no OS decorations, no window buttons, and any size the screen is.
+/// Full screen: no OS decorations, no window buttons, any size the screen is, and tabs
+/// two and a half to a screen that swipe sideways.
 pub const WINDOW: WindowDefaults = WindowDefaults {
     decorations: false,
     controls: false,
     titlebar_inset: 0.0,
     min_size: [0.0, 0.0],
     transparent: false,
+    scroll_tabs: true,
 };
 
 /// Android's own fonts cover symbols, emoji and CJK.
@@ -44,9 +49,14 @@ pub(super) const MONOSPACE: &str = "Droid Sans Mono";
 /// fontdb has no list of Android's font folders.
 pub(super) const FONT_DIRS: &[&str] = &["/system/fonts", "/product/fonts"];
 
+/// The activity, for the screen area the system bars leave free ([`content_rect_px`]).
+static APP: OnceLock<winit::platform::android::activity::AndroidApp> = OnceLock::new();
+
 /// Run once by `android_main`, before anything reads a path or spawns a thread of its own.
 pub fn android_setup(app: &winit::platform::android::activity::AndroidApp) {
     log::to_logcat();
+    let _ = APP.set(app.clone());
+    keyboard::install();
     let Some(data) = app.internal_data_path() else {
         eprintln!("nex: Android gave the app no data folder; nothing will be saved");
         return;
@@ -61,6 +71,13 @@ pub fn android_setup(app: &winit::platform::android::activity::AndroidApp) {
         std::env::set_var("XDG_CONFIG_HOME", data.join("config"));
         std::env::set_var("XDG_STATE_HOME", data.join("state"));
     }
+}
+
+/// The part of the window, in pixels, that the status bar, navigation bar and keyboard leave
+/// free: `[left, top, right, bottom]`. The window itself covers the whole screen.
+pub fn content_rect_px() -> Option<[f32; 4]> {
+    let r = APP.get()?.content_rect();
+    (r.right > r.left && r.bottom > r.top).then_some([r.left as f32, r.top as f32, r.right as f32, r.bottom as f32])
 }
 
 /// The window keeps eframe's default icon; the launcher icon comes from the APK.

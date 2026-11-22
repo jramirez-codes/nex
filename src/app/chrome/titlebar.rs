@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use egui::emath::TSTransform;
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
+use crate::config::AgentsTab;
 use crate::layout::{PaneId, PaneKind};
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
@@ -24,6 +25,12 @@ const MIN_TAB_WIDTH: f32 = 80.0;
 const MAX_TAB_WIDTH: f32 = 232.0;
 const PLUS_SIZE: f32 = 28.0;
 const LABEL_WIDTH: f32 = 96.0;
+/// Tabs across the track when they keep one width and swipe ([`TabScroll`]): the half tab
+/// peeking out at the edge shows there are more.
+const SCROLL_TABS_ACROSS: f32 = 2.5;
+/// Holding a tab this long (seconds) before moving makes the drag reorder it instead of
+/// swiping the strip.
+const LONG_PRESS: f64 = 0.35;
 const TAB_HOVER: Color32 = white_alpha(10);
 const TAB_SEPARATOR: Color32 = white_alpha(24);
 
@@ -94,6 +101,8 @@ pub(in crate::app) struct TabSlots {
     gaps: Vec<(usize, f32)>,
     /// The pill as painted this frame, if it is somewhere other than `pill` (mid close).
     pill_shape: Option<Rect>,
+    /// The track, when the tabs scroll inside it: tabs are painted and hit only within it.
+    clip: Option<Rect>,
 }
 
 impl TabSlots {
@@ -150,6 +159,94 @@ pub(in crate::app) struct TabStrip {
     /// The title bar or sidebar this frame: dropping a pane on its empty space gives the
     /// pane a tab of its own.
     pub(in crate::app) strip_rect: Option<Rect>,
+    /// The title-bar tabs' sideways scroll, on phones.
+    pub(in crate::app) scroll: TabScroll,
+}
+
+/// Title-bar tabs that keep one width, [`SCROLL_TABS_ACROSS`] to the track, and swipe
+/// sideways like a scroll view with no scroll bar (`platform::WINDOW.scroll_tabs`). A swipe
+/// flings on after the finger lifts; a long press then drag reorders instead; and a newly
+/// shown tab scrolls into view.
+pub(in crate::app) struct TabScroll {
+    pub(in crate::app) on: bool,
+    /// How far the tabs are scrolled, in points from the first tab.
+    pub(in crate::app) offset: f32,
+    /// Fling speed after a swipe, in points a second (positive scrolls toward later tabs).
+    velocity: f32,
+    /// Easing toward this offset to bring the active tab into view.
+    target: Option<f32>,
+    /// A swipe is underway (the finger is down and moved off a tab).
+    swiping: bool,
+    /// The drag under way began with a long press: it moves the tab instead.
+    reordering: bool,
+    /// The tab last brought into view (by uid), and the layout it was brought into view in
+    /// (tab count, tab width): a new tab, or the strip laid out again (the window reaching
+    /// its size at launch), brings the active tab into view again.
+    revealed: Option<(u64, usize, u32)>,
+}
+
+impl TabScroll {
+    pub(in crate::app) fn new(on: bool) -> Self {
+        TabScroll { on, offset: 0.0, velocity: 0.0, target: None, swiping: false, reordering: false, revealed: None }
+    }
+
+    /// Advances the scroll one frame, with slots `width` apart, `max` the furthest it goes
+    /// and `view` the track's inner width, and returns the offset. `active` is the shown
+    /// tab's slot and uid.
+    fn advance(&mut self, ctx: &egui::Context, width: f32, view: f32, max: f32, tabs: usize, active: Option<(usize, u64)>) -> f32 {
+        let animate = glide::animations(ctx);
+        let (down, delta, speed, dt) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.delta().x, i.pointer.velocity().x, i.stable_dt.min(0.1)));
+        if let Some((slot, uid)) = active
+            && self.revealed != Some((uid, tabs, width.to_bits())) {
+                self.revealed = Some((uid, tabs, width.to_bits()));
+                let left = slot as f32 * width;
+                let to = if left < self.offset {
+                    Some(left)
+                } else if left + width > self.offset + view {
+                    Some(left + width - view)
+                } else {
+                    None
+                };
+                if let Some(to) = to {
+                    self.velocity = 0.0;
+                    if animate { self.target = Some(to) } else { self.offset = to }
+                }
+            }
+        if self.swiping {
+            if down {
+                self.offset -= delta;
+                self.velocity = -speed;
+                self.target = None;
+            } else {
+                self.swiping = false;
+                if !animate {
+                    self.velocity = 0.0;
+                }
+            }
+        } else if let Some(to) = self.target {
+            self.offset += (to - self.offset) * (dt * 14.0).min(1.0);
+            if (to - self.offset).abs() < 0.5 {
+                self.offset = to;
+                self.target = None;
+            }
+            ctx.request_repaint();
+        } else if self.velocity.abs() > 5.0 {
+            self.offset += self.velocity * dt;
+            self.velocity *= (-dt * 4.0).exp();
+            ctx.request_repaint();
+        } else {
+            self.velocity = 0.0;
+        }
+        if !down {
+            self.reordering = false;
+        }
+        let clamped = self.offset.clamp(0.0, max);
+        if clamped != self.offset {
+            self.offset = clamped;
+            self.velocity = 0.0;
+        }
+        self.offset
+    }
 }
 
 impl App {
@@ -173,7 +270,8 @@ impl App {
         let inset = if overlaid { platform::WINDOW.titlebar_inset } else { 0.0 };
         let left = rect.left() + 18.0 + inset;
         let x = if self.cfg.window_controls { window_controls(ui, left, cy) } else { left };
-        let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(x + 30.0 + LABEL_WIDTH, cy + 15.0));
+        let label_right = if self.agents_tab_icon_only() { x + 25.0 } else { x + 30.0 + LABEL_WIDTH };
+        let label_r = Rect::from_min_max(Pos2::new(x - 7.0, cy - 15.0), Pos2::new(label_right, cy + 15.0));
         let now = ctx.input(|i| i.time);
         self.advance_tab_ghosts(&ctx, now);
         let mut slots = self.horizontal_tab_slots(ui, label_r.right() + 6.0, rect.right() - PLUS_SIZE - 22.0, cy, now);
@@ -186,13 +284,26 @@ impl App {
             None => target.map(|r| (r, 8.0)),
         };
         slots.pill_shape = pill.map(|(r, _)| r);
+        // Scrolling tabs show only inside the track; the pill too, unless it is on (or
+        // gliding from) the Agents label.
+        let clipped = |clip: Rect| {
+            let mut child = ui.new_child(egui::UiBuilder::new());
+            child.set_clip_rect(clip.intersect(ui.clip_rect()));
+            child
+        };
+        let tabs_ui = slots.clip.map(clipped);
+        let tabs_ui = tabs_ui.as_ref().unwrap_or(ui);
         if let Some((r, radius)) = pill {
             let radius = radius.min(r.width().min(r.height()) / 2.0).max(0.0);
-            paint::glass_pill(ui.painter(), r, radius.round() as u8);
+            let painter = match slots.clip {
+                Some(clip) if slots.pill.is_some_and(|p| p < 0.0) => ui.painter().with_clip_rect(clip.union(label_r)),
+                _ => tabs_ui.painter().clone(),
+            };
+            paint::glass_pill(&painter, r, radius.round() as u8);
         }
         self.workspace_label(ui, label_r, theme);
-        self.tab_strip(ui, &slots, theme);
-        self.paint_tab_ghosts(ui, now, theme);
+        self.tab_strip(tabs_ui, &slots, theme);
+        self.paint_tab_ghosts(tabs_ui, now, theme);
         self.new_tab_button(ui, rect, cy, theme);
     }
 
@@ -273,7 +384,12 @@ impl App {
             self.pending.push(if files { Action::ToggleExplorer } else { Action::ToggleAgentsTab });
         }
 
-        self.files_dog(ui.ctx(), painter, Rect::from_center_size(Pos2::new(x + 9.0, cy), Vec2::splat(21.0)), theme);
+        let dog = Rect::from_center_size(Pos2::new(x + 9.0, cy), Vec2::splat(21.0));
+        self.files_dog(ui.ctx(), painter, dog, theme);
+        if self.agents_tab_icon_only() {
+            self.agents_bubble(ui.ctx(), painter, dog.left_top() + Vec2::new(1.0, 1.0), theme);
+            return;
+        }
         let x = x + 26.0;
         let title_color = if active { theme.text_bright } else { theme.text };
         let (title, detail, detail_color) = if files {
@@ -295,6 +411,37 @@ impl App {
         };
         paint::faded_text(painter, Pos2::new(x, cy - 7.0), &title, paint::bold(13.0), title_color, LABEL_WIDTH, 16.0);
         paint::faded_text(painter, Pos2::new(x, cy + 8.0), &detail, FontId::proportional(11.0), detail_color, LABEL_WIDTH, 16.0);
+    }
+
+    /// Whether the Agents tab is the dog alone (`agents-tab = icon`). A Files tab keeps its
+    /// folder and host name.
+    fn agents_tab_icon_only(&self) -> bool {
+        self.cfg.agents_tab == AgentsTab::Icon && !self.home_is_files()
+    }
+
+    /// The bubble on the icon-only Agents tab, counting the agents that need you or are done:
+    /// amber (and pulsing) while any needs you, else blue; none while there are none.
+    fn agents_bubble(&self, ctx: &egui::Context, painter: &egui::Painter, center: Pos2, theme: &Theme) {
+        let counts = self.agent_tracker.counts();
+        let n = counts.needs_you + counts.done;
+        if n == 0 {
+            return;
+        }
+        let urgent = counts.needs_you > 0;
+        let color = if urgent { theme.yellow } else { theme.blue };
+        let text = if n > 9 { "9+".to_string() } else { n.to_string() };
+        let font = paint::bold(9.5);
+        let galley = painter.layout_no_wrap(text, font, theme.window);
+        let height = 14.0;
+        let width = (galley.size().x + 7.0).max(height);
+        let r = Rect::from_center_size(center, Vec2::new(width, height));
+        if urgent && self.cfg.animations {
+            let phase = (ctx.input(|i| i.time) % ATTENTION_PULSE / ATTENTION_PULSE) as f32;
+            painter.rect_filled(r.expand(5.0 * phase), 12, color.gamma_multiply(0.4 * (1.0 - phase)));
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        }
+        painter.rect(r, 7, color, Stroke::new(1.5_f32, theme.window), StrokeKind::Outside);
+        painter.galley(r.center() - galley.size() / 2.0, galley, theme.window);
     }
 
     /// The nex dog marking the Files tab (title-bar label or sidebar tile). It wakes up at
@@ -331,6 +478,9 @@ impl App {
         let held: f32 = gaps.iter().map(|&(_, f)| f).sum();
         let n = self.tabs.len();
         let avail = (right - x - 2.0 * TRACK_PAD).max(MIN_TAB_WIDTH);
+        if self.strip.scroll.on {
+            return self.scrolling_tab_slots(ui, x, cy, avail, held, gaps);
+        }
         let width = (avail / (n as f32 + held).max(1.0)).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH);
         let visible = ((avail / width - held).floor() as usize).clamp(1, n.max(1));
         let across = (visible.min(n) as f32 + held).max(1.0).min(avail / width);
@@ -340,6 +490,26 @@ impl App {
         );
         let mut slots = self.tab_track(ui, track, Vec2::new(width, TAB_HEIGHT), visible, false);
         slots.gaps = gaps;
+        slots
+    }
+
+    /// [`horizontal_tab_slots`](Self::horizontal_tab_slots) with tabs of one width, two and a
+    /// half to the `avail`-wide track, all of them laid out and scrolled by [`TabScroll`].
+    fn scrolling_tab_slots(&mut self, ui: &Ui, x: f32, cy: f32, avail: f32, held: f32, gaps: Vec<(usize, f32)>) -> TabSlots {
+        let n = self.tabs.len();
+        let width = avail / SCROLL_TABS_ACROSS;
+        let max = (width * (n as f32 + held) - avail).max(0.0);
+        let active = (!self.home_active && self.active < n).then(|| (self.active, self.tabs[self.active].uid));
+        let offset = self.strip.scroll.advance(ui.ctx(), width, avail, max, n, active);
+        let across = (n as f32 + held).clamp(1.0, SCROLL_TABS_ACROSS);
+        let track = Rect::from_min_size(
+            Pos2::new(x, cy - TAB_HEIGHT / 2.0 - TRACK_PAD),
+            Vec2::new(width * across + 2.0 * TRACK_PAD, TAB_HEIGHT + 2.0 * TRACK_PAD),
+        );
+        let mut slots = self.tab_track(ui, track, Vec2::new(width, TAB_HEIGHT), n, false);
+        slots.origin.x -= offset;
+        slots.gaps = gaps;
+        slots.clip = Some(track.shrink(1.0));
         slots
     }
 
@@ -362,7 +532,7 @@ impl App {
             }
         });
         let origin = track.min + Vec2::splat(TRACK_PAD);
-        TabSlots { origin, size, vertical, shown, pill, gaps: Vec::new(), pill_shape: None }
+        TabSlots { origin, size, vertical, shown, pill, gaps: Vec::new(), pill_shape: None, clip: None }
     }
 
     /// The terminal tabs, drawn into `slots` over the track and pill.
@@ -409,7 +579,17 @@ impl App {
         let r = slots.rect(i as f32);
         let uid = self.tabs[i].uid;
         let resp = ui.interact(r, Id::new(("tab", uid)), Sense::click_and_drag());
-        if resp.dragged_by(PointerButton::Primary)
+        // Scrolling tabs swipe the strip when dragged, unless held a moment first.
+        let scroll = slots.clip.is_some();
+        if scroll && resp.drag_started_by(PointerButton::Primary) {
+            let now = ctx.input(|i| i.time);
+            let held = ctx.input(|i| i.pointer.press_start_time()).is_some_and(|t| now - t >= LONG_PRESS);
+            self.strip.scroll.reordering = held;
+            self.strip.scroll.swiping = !held;
+        }
+        let reorders = !scroll || self.strip.scroll.reordering;
+        if reorders
+            && resp.dragged_by(PointerButton::Primary)
             && let Some(pos) = resp.interact_pointer_pos() {
                 let target = slots.slot_at(pos);
                 if target != i {
@@ -420,10 +600,10 @@ impl App {
                     return true;
                 }
             }
-        if resp.drag_started_by(PointerButton::Primary) {
+        if reorders && resp.drag_started_by(PointerButton::Primary) {
             self.show_tab(i);
         }
-        self.strip.tab_hits.push((uid, r));
+        self.strip.tab_hits.push((uid, slots.clip.map_or(r, |c| r.intersect(c))));
         let active = i == self.active && !self.home_active;
         let hovered = resp.hovered();
         if !active && hovered {
@@ -626,7 +806,7 @@ mod tests {
     use super::*;
 
     fn slots(gaps: Vec<(usize, f32)>) -> TabSlots {
-        TabSlots { origin: Pos2::ZERO, size: Vec2::new(100.0, 30.0), vertical: false, shown: 3, pill: None, gaps, pill_shape: None }
+        TabSlots { origin: Pos2::ZERO, size: Vec2::new(100.0, 30.0), vertical: false, shown: 3, pill: None, gaps, pill_shape: None, clip: None }
     }
 
     #[test]

@@ -8,6 +8,35 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Touch screens: the Changes pane (its file list and its diff) and the Agents pane scroll
+  with a finger too, flinging on after a quick swipe.
+- Touch screens: a finger on a terminal no longer only selects text. Swipe up or down to
+  scroll (through the scrollback, or as the wheel in `less`, tmux and other programs), and
+  a quick swipe flings on. Swipe sideways on any pane (a terminal, Files, Changes, Agents)
+  to go to the next or previous tab; the home tab comes first, and the ends don't wrap.
+  On Android the tabs follow the finger (swipe right for the next tab); elsewhere a left
+  swipe turns to the next tab, as pages do.
+  Long-press to
+  select a word, then drag to extend the selection. A tap focuses the pane (and clicks, in
+  programs that take the mouse).
+- Android: the Agents pane lists the agents on the server the app is connected to, watched
+  over the app's own connection. Opening one attaches a pane to it, and closing that pane
+  only detaches (the agent keeps running); stopping one goes over the same connection. A
+  server with a `nex-host` from before `connect` gets this one installed.
+- Android: the title-bar tabs keep one width, two and a half to the screen, and the strip
+  swipes sideways (with a fling) instead of squeezing every tab in. Long-press a tab, then
+  drag, to reorder it; a new or newly shown tab scrolls into view.
+- Android: a round glass keyboard button in the bottom-right corner while the on-screen
+  keyboard is down. Tap it to bring the keyboard back. Putting the keyboard away (the back
+  gesture or its hide key) now keeps it down, so you can read and scroll a full screen.
+- Files and Changes panes on ssh hosts. Ctrl+E or Ctrl+G in a terminal that's ssh'd into a
+  host opens the explorer or the Changes pane in the session's folder **on that host**. This
+  works for panes running `ssh` and for panes on a host the window is connected to itself
+  (`--remote`, the Android app). The explorer browses, renames, creates, copies, moves and
+  deletes there, and shows Properties. "Open Terminal Here" opens another session on the host.
+  git runs on the host, and the Changes pane follows the focused ssh pane like a local one.
+  Files can't yet be copied between the host and this machine or opened with a local app,
+  and these panes aren't restored at startup.
 - A **Done** section in the Agents pane: an agent that finishes while you're not looking at
   its pane moves there, in blue, instead of going straight to Idle. It becomes Idle once you
   look at its pane. The title bar shows "1 done" too.

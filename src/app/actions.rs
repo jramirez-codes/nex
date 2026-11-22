@@ -41,6 +41,8 @@ pub(super) enum Action {
     Equalize,
     NextTab,
     PrevTab,
+    /// A sideways swipe on a pane: the next tab (`true`) or the previous, without wrapping.
+    SwipeTab(bool),
     GotoTab(usize),
     Copy,
     FontBigger,
@@ -132,6 +134,7 @@ impl App {
             }
             Action::NextTab => self.cycle_tab(true),
             Action::PrevTab => self.cycle_tab(false),
+            Action::SwipeTab(forward) => self.swipe_tab(forward),
             Action::GotoTab(i) => self.goto_tab(i),
             Action::Copy => {
                 if let Some(text) = focused.and_then(|id| self.panes.get(&id)).and_then(|t| t.selection_text()) {

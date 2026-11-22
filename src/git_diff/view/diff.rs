@@ -155,7 +155,15 @@ impl GitDiff {
                 self.view.diff_active = ui.input(|i| i.time);
             }
         }
+        let pan = self.view.diff_pan.delta(ui, view);
+        if pan != 0.0 {
+            self.diff_scroll.by(pan);
+            self.view.diff_active = ui.input(|i| i.time);
+        }
         let max = (content_h - view.height()).max(0.0);
+        if self.diff_scroll.target < 0.0 || self.diff_scroll.target > max {
+            self.view.diff_pan.stop();
+        }
         self.diff_scroll.clamp(max);
         if self.diff_scroll.step(&ctx) {
             self.view.diff_active = ui.input(|i| i.time);

@@ -32,6 +32,16 @@ pub enum TabBar {
     Sidebar,
 }
 
+/// How the Agents tab at the start of the tab strip looks (`agents-tab`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentsTab {
+    /// The dog, "Agents" and a summary under it ("1 needs you").
+    Full,
+    /// Just the dog, with a bubble counting the agents that need you or are done: for narrow
+    /// screens. The default on Android.
+    Icon,
+}
+
 /// How switching tabs animates (`tab-animation`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TabAnimation {
@@ -97,6 +107,8 @@ pub struct Config {
     pub explorer_view: crate::file_explorer::View,
     /// Where the tabs are (`tab-bar = top | sidebar`; the old `mobile = true` means sidebar).
     pub tab_bar: TabBar,
+    /// The Agents tab as the dog with a summary, or the dog alone (`agents-tab = full | icon`).
+    pub agents_tab: AgentsTab,
 
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
@@ -169,6 +181,7 @@ impl Default for Config {
             tab_animation: TabAnimation::Glide,
             explorer_view: crate::file_explorer::View::List,
             tab_bar: TabBar::Top,
+            agents_tab: if cfg!(target_os = "android") { AgentsTab::Icon } else { AgentsTab::Full },
 
             cursor_style: CursorStyle::Block,
             cursor_blink: true,
@@ -302,6 +315,13 @@ impl Config {
                     _ => return Err(format!("invalid tab-bar `{value}`")),
                 }
             }
+            "agents-tab" => {
+                self.agents_tab = match value {
+                    "full" => AgentsTab::Full,
+                    "icon" => AgentsTab::Icon,
+                    _ => return Err(format!("invalid agents-tab `{value}`")),
+                }
+            }
             // The old name of `tab-bar`, still read so existing configs keep working.
             "mobile" => self.tab_bar = if boolean(value)? { TabBar::Sidebar } else { TabBar::Top },
             "cursor-style" => {
@@ -408,6 +428,17 @@ mod tests {
         cfg.apply("tab-bar", "top").unwrap();
         assert_eq!(cfg.tab_bar, TabBar::Top);
         assert!(cfg.apply("tab-bar", "left").is_err());
+    }
+
+    #[test]
+    fn agents_tab_is_full_or_icon() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.agents_tab, AgentsTab::Full);
+        cfg.apply("agents-tab", "icon").unwrap();
+        assert_eq!(cfg.agents_tab, AgentsTab::Icon);
+        cfg.apply("agents-tab", "full").unwrap();
+        assert_eq!(cfg.agents_tab, AgentsTab::Full);
+        assert!(cfg.apply("agents-tab", "small").is_err());
     }
 
     #[test]

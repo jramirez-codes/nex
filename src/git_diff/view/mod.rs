@@ -16,6 +16,7 @@ use crate::render::FONT_REGULAR;
 use crate::ui::file_icons::{file_glyph, paint_glyph};
 use crate::ui::glide::Glide;
 use crate::ui::theme::{ACCENT, HAIRLINE, HOVER, Theme, white_alpha};
+use crate::ui::touch_pan::TouchPan;
 use crate::ui::widgets::{HoverShape, IconButton, ScrollSpan, overlay_scrollbar};
 use crate::ui::{icons, paint};
 
@@ -58,6 +59,9 @@ pub(super) struct ViewState {
     pub narrow: bool,
     list_active: f64,
     diff_active: f64,
+    /// Scrolling the file list, and the diff, with a finger.
+    list_pan: TouchPan,
+    diff_pan: TouchPan,
     /// Longest line of the diff on screen, in chars, keyed by the diff's address.
     widest: Option<(usize, usize)>,
 }
@@ -75,6 +79,8 @@ impl ViewState {
             narrow: false,
             list_active: -10.0,
             diff_active: -10.0,
+            list_pan: TouchPan::default(),
+            diff_pan: TouchPan::default(),
             widest: None,
         }
     }
@@ -152,6 +158,11 @@ impl GitDiff {
             }
             Some(Status::NotRepo) => {
                 message(painter, body, c, Glyph::Branch, "Not a Git Repository", &crate::terminal::tilde(&self.dir));
+                return;
+            }
+            Some(Status::NeedsLogin) => {
+                let host = self.remote.as_ref().map_or_else(|| "the host".into(), |t| t.label());
+                message(painter, body, c, Glyph::Warning, "Couldn't Log In", &format!("nex can't log in to {host} without a password."));
                 return;
             }
             Some(Status::NoGit) => {

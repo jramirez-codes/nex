@@ -33,6 +33,7 @@ animations = true           # pane splits / closes, focus fades, title-bar tabs
 tab-animation = glide       # switching tabs: glide | ink | none
 explorer-view = list        # file explorer layout: list | grid
 tab-bar = top               # top | sidebar (phone-sized touch screens: a left sidebar, bigger buttons)
+agents-tab = full           # full | icon (just the dog, with a bubble counting agents that need you or are done; Android's default)
 
 cursor-style = block        # block | bar | underline
 cursor-style-blink = true

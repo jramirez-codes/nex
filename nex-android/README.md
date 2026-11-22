@@ -35,6 +35,8 @@ You need:
   export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.3.11579264
   ```
 - cargo-apk: `cargo install cargo-apk`
+- A JDK (`javac`): `build.rs` compiles the app's bit of Java (the view the on-screen keyboard
+  types into, `src/platform/android/java/`) with it and the SDK's `d8`.
 
 The app installs `nex-host` on the server itself, so it has to carry a build of it for your
 server's kind of machine. Build that first. `build.rs` picks it up, and the APK build warns if
@@ -51,6 +53,9 @@ If the server already has the same nex-host in `~/.nex/bin` (version and protoco
 Then, from the repository root, with the phone plugged in and USB debugging on:
 
 ```sh
+# Newer phones use 16 KB memory pages and warn about a library linked for 4 KB ones.
+# cargo-apk ignores target-specific rustflags, so this has to be plain RUSTFLAGS.
+export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
 cargo apk run -p nex-android          # build, install and start a debug build
 adb logcat -s nex RustStdoutStderr    # nex's messages and any panic
 ```
@@ -86,7 +91,8 @@ cargo apk run -p nex-android --release
      line. Hosts with OpenSSH older than 8.7 get the line without `expiry-time`.
 2. **Typing.** Tapping the terminal brings up the keyboard, and what you type reaches the
    shell. The keyboard covers the bottom of the screen for now, and there's no Ctrl or Esc key
-   yet (milestone 3, on hold).
+   yet (milestone 3, on hold). Put the keyboard away (back gesture or its hide key) and it
+   stays down, with a round keyboard button in the bottom-right corner that brings it back.
 3. **Next launch.** Close the app from the recents screen and open it again. It connects
    without asking for anything, and the shell you left open comes back as it was.
 4. **Switching away.** Leave the app for a few minutes, or turn Wi-Fi off and on, then go back.

@@ -236,7 +236,10 @@ ssh-mic = off        # no mic button in ssh panes
   the dock or taskbar flags it too. For Claude Code, see the [FAQ](#faq).
 - **Touch and zoom.** Pinch (touchscreen or touchpad) or Ctrl+wheel zooms a terminal's font or
   an explorer's listing. In an explorer, drag to scroll, long-press to select, and drag the
-  selection into another folder, explorer or terminal pane.
+  selection into another folder, explorer or terminal pane. In a terminal, swipe up or down to
+  scroll (a quick swipe flings on), long-press to select a word and drag to extend it, and tap
+  to focus. The Changes and Agents panes scroll with a finger too. Swipe sideways on any pane
+  to go to the next or previous tab.
 - **Native-feeling chrome.** Tabs sit in a segmented track with a raised "glass" active pill,
   glossy per-app icons and titles that fade out instead of being cut off.
 - **Smart titles.** Every tab and pane shows the foreground program and its directory, such as
@@ -362,6 +365,7 @@ animations = false                           # turn off pane and tab animations
 tab-animation = ink                          # switching tabs: glide (default) | ink | none
 explorer-view = grid                         # file explorers open as a grid (default: list)
 tab-bar = sidebar                            # tabs in a left sidebar, for touch screens (default: top)
+agents-tab = icon                            # the Agents tab as just the dog, with a count bubble (default: full; icon on Android)
 restore-session = false                      # start with one fresh shell instead of the last window
 command = fish                               # defaults to your login shell
 ```

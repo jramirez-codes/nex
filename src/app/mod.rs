@@ -72,6 +72,8 @@ pub struct App {
     /// Cell metrics for every font size in use this frame, keyed by `f32::to_bits`.
     metrics: HashMap<u32, CellMetrics>,
     mouse: MouseState,
+    /// A finger on a pane that may become a sideways swipe to the next or previous tab.
+    tab_swipe: Option<input::swipe::TabSwipe>,
     /// Pinch zoom of a terminal not yet applied (font sizes change in whole points).
     pinch_accum: f32,
     pending: Vec<Action>,
@@ -143,6 +145,10 @@ pub struct App {
     dnd: Option<crate::platform::Dnd>,
     /// The "Copied …" / "Pasted …" message currently on screen.
     toast: Option<Toast>,
+    /// Typing goes through an on-screen keyboard (`platform::SOFT_KEYBOARD`; tests turn it on).
+    soft_keyboard: bool,
+    /// The floating button that shows or hides the on-screen keyboard.
+    keyboard_button: chrome::keyboard_button::KeyboardButton,
     /// A toast to show on the next frame, from code without the egui context.
     notice: Option<String>,
     /// Uploads, the shared mic, watched agents and their dialogs (see `ssh/`).
@@ -157,6 +163,11 @@ pub struct App {
     /// Shells already on that host that the next panes opened attach to, instead of starting
     /// new ones (the ones this device left open there).
     adopt: Vec<String>,
+    /// The agent session the next remote pane attaches to (picked in the Agents pane).
+    attach_next: Option<String>,
+    /// The folder on the host the next pane opened there starts in, when it isn't the
+    /// focused pane's (a Files pane's "Open Terminal Here").
+    next_remote_cwd: Option<String>,
 }
 
 impl App {
@@ -191,6 +202,7 @@ impl App {
             zoom_font: None,
             metrics: HashMap::new(),
             mouse: MouseState::default(),
+            tab_swipe: None,
             pinch_accum: 1.0,
             pending: Vec::new(),
             term_rects: Vec::new(),
@@ -228,6 +240,8 @@ impl App {
             early_terminal,
             dnd: crate::platform::Dnd::new(cc),
             toast: None,
+            soft_keyboard: crate::platform::SOFT_KEYBOARD,
+            keyboard_button: Default::default(),
             notice: None,
             ssh: ssh::SshState {
                 uploads: Vec::new(),
@@ -258,9 +272,12 @@ impl App {
                 dog_was_active: false,
                 tab_hits: Vec::new(),
                 strip_rect: None,
+                scroll: chrome::titlebar::TabScroll::new(crate::platform::WINDOW.scroll_tabs),
             },
             connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
             adopt: Vec::new(),
+            attach_next: None,
+            next_remote_cwd: None,
         }
     }
 }
@@ -279,6 +296,22 @@ impl eframe::App for App {
         raw_input.max_texture_side = raw_input.max_texture_side.map(|side| side.min(MAX_ATLAS_SIDE));
         if let Some(dnd) = &mut self.dnd {
             dnd.feed(ctx, raw_input);
+        }
+        // Android: the window covers the whole screen; keep nex out from under the status bar
+        // and navigation bar.
+        if let (Some([l, t, r, b]), Some(screen)) = (crate::platform::content_rect_px(), raw_input.screen_rect) {
+            let ppp = ctx.pixels_per_point();
+            let free = Rect::from_min_max(Pos2::new(l / ppp, t / ppp), Pos2::new(r / ppp, b / ppp)).intersect(screen);
+            if free.is_positive() {
+                raw_input.screen_rect = Some(free);
+            }
+        }
+        // The connect screen's text fields take what the on-screen keyboard committed (a paste
+        // from its clipboard history) as typed text; terminals take it in `handle_keyboard`.
+        if self.connect.active && self.tabs.is_empty() {
+            for text in crate::platform::typed_text() {
+                raw_input.events.push(egui::Event::Text(text));
+            }
         }
     }
 
@@ -355,11 +388,14 @@ impl eframe::App for App {
         self.glyphs.end_frame(ctx);
 
         self.handle_pinch(ctx);
+        self.keyboard_button(ctx);
+        self.handle_tab_swipe(ctx);
         self.handle_mouse(ctx);
-        if crate::platform::SOFT_KEYBOARD {
+        if self.soft_keyboard {
             self.ask_for_keyboard(ctx);
         }
         crate::platform::mirror_copies(ctx);
+        crate::platform::sync_soft_keyboard(ctx);
         if !self.pending.is_empty() {
             self.drain_pending(ctx);
             ctx.request_repaint();
@@ -394,11 +430,16 @@ impl App {
         let theme = Theme::from_config(&self.cfg);
         self.connect.show(ctx, &theme, self.cfg.device_key_days);
         crate::platform::mirror_copies(ctx);
+        crate::platform::sync_soft_keyboard(ctx);
     }
 
     /// Keep the on-screen keyboard up while a terminal has focus: egui shows it for as long as
     /// a frame says where text goes (here, the terminal's last line).
     fn ask_for_keyboard(&self, ctx: &egui::Context) {
+        // Put away with the keyboard button: it stays down until the button brings it back.
+        if self.keyboard_button.hidden {
+            return;
+        }
         let Some(id) = self.focused_pane().filter(|id| self.panes.contains_key(id)) else { return };
         let Some(&(_, rect)) = self.term_rects.iter().find(|(p, _)| *p == id) else { return };
         let cursor_rect = Rect::from_min_size(rect.left_bottom() - Vec2::new(0.0, 2.0), Vec2::new(1.0, 2.0));
@@ -510,11 +551,13 @@ impl App {
         for t in self.panes.values_mut() {
             t.refresh_process_info();
         }
-        for b in self.explorers.values_mut() {
-            b.refresh_if_stale();
-        }
-        // Only Changes panes on screen keep running git.
+        // Only Changes panes (and Files panes on ssh hosts) on screen keep asking.
         let shown = self.cur_tab().map(|t| t.root.panes()).unwrap_or_default();
+        for (id, b) in self.explorers.iter_mut() {
+            if b.transport().is_none() || shown.contains(id) {
+                b.refresh_if_stale();
+            }
+        }
         for id in shown {
             if let Some(d) = self.diffs.get_mut(&id) {
                 d.refresh_if_stale();
@@ -530,12 +573,14 @@ impl App {
         }
         for (pane, request) in std::mem::take(&mut self.explorer_requests) {
             match request {
-                file_explorer::Request::OpenTerminal(dir) => self.split_at(ctx, pane, crate::layout::Axis::Horizontal, Some(dir), None),
+                file_explorer::Request::OpenTerminal(dir) => self.open_terminal_in(ctx, pane, dir),
+                file_explorer::Request::NeedsLogin(host) => self.remote_pane_login_failed(ctx, &host),
             }
         }
         for (pane, request) in std::mem::take(&mut self.diff_requests) {
             match request {
                 git_diff::Request::Reveal(path) => self.reveal_from_diff(ctx, pane, &path),
+                git_diff::Request::NeedsLogin(host) => self.remote_pane_login_failed(ctx, &host),
             }
         }
         for (_, request) in std::mem::take(&mut self.agent_requests) {

@@ -152,11 +152,15 @@ pub struct Terminal {
 }
 
 /// A pane whose shell is a `nex-host` session on a host nex is connected to itself.
+// Remote panes open on unix only (see `App::spawn_remote_pane`).
+#[cfg_attr(not(unix), allow(dead_code))]
 #[derive(Clone)]
 pub struct RemotePane {
     pub host: Arc<crate::remote::ssh::host::RemoteHost>,
     /// The session's id, once the host has started it.
     pub session: Arc<std::sync::Mutex<Option<String>>>,
+    /// Closing the pane only detaches from the session (an agent), instead of ending it.
+    pub keep: bool,
 }
 
 impl Terminal {
@@ -245,7 +249,7 @@ impl Terminal {
         ctx: &egui::Context,
     ) -> std::io::Result<Self> {
         let scan = Scan::default();
-        let start = remote::Start { host: remote.host.clone(), session: remote.session.clone(), cwd, cols: size.cols as u16, rows: size.lines as u16 };
+        let start = remote::Start { host: remote.host.clone(), session: remote.session.clone(), keep: remote.keep, cwd, cols: size.cols as u16, rows: size.lines as u16 };
         let pty = remote::open(start, scan.osc7.clone(), scan.alert.clone(), scan.agent_tag.clone())?;
         let mut t = Self::start(cfg, pty, scan, 0, size, cell_px, None, Some(remote))?;
         t.process = "shell".into();
@@ -548,10 +552,13 @@ impl Terminal {
     /// `user@host: dir` title. `None` when the remote side says neither.
     pub fn remote_cwd(&self) -> Option<String> {
         let report = self.osc7.lock().ok().and_then(|r| r.clone());
-        if let Some(r) = report.filter(|r| !is_local_host(&r.host)) {
+        // A pane whose shell is on a host nex connects to itself: every report is from there
+        // (that host may well be this one).
+        let remote = self.remote.is_some();
+        if let Some(r) = report.filter(|r| remote || !is_local_host(&r.host)) {
             return Some(r.path);
         }
-        if self.osc_title_owner != "ssh" {
+        if !remote && self.osc_title_owner != "ssh" {
             return None;
         }
         self.osc_title.as_deref().and_then(osc7::title_dir).map(str::to_string)

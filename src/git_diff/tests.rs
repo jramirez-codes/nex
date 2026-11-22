@@ -203,6 +203,7 @@ fn folders_outside_a_repository() {
     match git::load_status(&dir) {
         Status::NotRepo | Status::NoGit | Status::Ready(_) => {}
         Status::Failed(e) => panic!("{e}"),
+        Status::NeedsLogin => panic!("a local folder needs no login"),
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

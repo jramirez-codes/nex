@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use nex_host::proto::{self, Response, Session};
 
+use super::ssh::host::RemoteHost;
 use super::{SshFailure, SshTarget, last_line, needs_login, posix_quote};
 
 /// Where the program goes on the host, for the remote shell (which expands `~`). This and
@@ -166,14 +167,20 @@ pub fn ensure(target: &SshTarget) -> Result<HostInfo, HostError> {
 }
 
 /// [`ensure`] over any connection: `run` runs a script on the host (feeding it the bytes
-/// given) and returns what it printed. nex's own ssh client uses this (see `ssh/host.rs`).
+/// given) and returns what it printed. Checks for `nex-host connect` too, which nex's own ssh
+/// client (Android, `--remote`) needs: a build from before `connect` can carry the same version
+/// line, so it's asked for by name, and replaced when it's missing.
 pub fn ensure_with(mut run: impl FnMut(&str, Option<&[u8]>) -> Result<String, HostError>) -> Result<HostInfo, HostError> {
-    let info = HostInfo::parse(&run(CHECK_SCRIPT, None)?);
-    if info.current() {
+    let out = run(&format!("{CHECK_SCRIPT}; {CONNECT_CHECK}"), None)?;
+    let info = HostInfo::parse(&out);
+    if info.current() && out.lines().any(|l| l == "connect yes") {
         return Ok(info);
     }
     install(run, info)
 }
+
+/// Prints `connect yes` when the installed nex-host has `connect`.
+const CONNECT_CHECK: &str = r#""$HOME/.nex/bin/nex-host" help 2>/dev/null | grep -q "nex-host connect" && echo "connect yes"; true"#;
 
 /// The `nex-host` program for `triple`: built into the app where there is no folder of
 /// builds beside it (Android, see `build.rs`), else from [`local_binary`].
@@ -345,6 +352,16 @@ impl Watch {
         w
     }
 
+    /// Watch the host the window is connected to itself (Android, `--remote`), over that
+    /// connection: there's no `ssh` program to run, and login already put this nex's
+    /// `nex-host` there.
+    pub fn start_direct(host: Arc<RemoteHost>, wake: impl Fn() + Send + 'static) -> Self {
+        let w = Watch { snapshot: Arc::default(), stop: Arc::default(), child: Arc::default() };
+        let (snapshot, stop) = (w.snapshot.clone(), w.stop.clone());
+        let _ = std::thread::Builder::new().name("nex-host-watch".into()).spawn(move || watch_direct(&host, &snapshot, &stop, &wake));
+        w
+    }
+
     /// A watch that connects nowhere, showing `snapshot`, for tests.
     #[cfg(test)]
     pub fn fake(snapshot: Snapshot) -> Self {
@@ -459,6 +476,58 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
     }
 }
 
+/// What [`Watch::start_direct`]'s thread runs: `nex-host watch` on the connection, again
+/// whenever it ends, until told to stop.
+fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, wake: &dyn Fn()) {
+    let fail = |why: String| {
+        if let Ok(mut s) = snapshot.lock() {
+            s.state = State::Failed(HostError::Other(why));
+        }
+        wake();
+    };
+    let mut retry = RETRY_MIN;
+    while !stop.load(Ordering::Relaxed) {
+        let exec = match host.client() {
+            Ok(client) => client.exec(DIRECT_WATCH),
+            Err(e) => Err(std::io::Error::other(e.to_string())),
+        };
+        let exec = match exec {
+            Ok(e) => e,
+            Err(e) => {
+                fail(e.to_string());
+                sleep(stop, retry);
+                retry = (retry * 2).min(RETRY_MAX);
+                continue;
+            }
+        };
+        let mut lines = 0;
+        for line in BufReader::new(exec.reader).lines() {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            let Ok(line) = line else { break };
+            let Ok(r) = serde_json::from_str::<Response>(&line) else { continue };
+            lines += 1;
+            if let Ok(mut s) = snapshot.lock() {
+                s.state = State::Live;
+                s.sessions = r.sessions.unwrap_or_default();
+                s.home = r.home.or(s.home.take());
+                s.updated = Some(Instant::now());
+            }
+            wake();
+        }
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        fail("connection lost".into());
+        retry = if lines > 0 { RETRY_MIN } else { (retry * 2).min(RETRY_MAX) };
+        sleep(stop, retry);
+    }
+}
+
+/// The watch, on a host the window is connected to itself.
+const DIRECT_WATCH: &str = "exec \"$HOME/.nex/bin/nex-host\" watch";
+
 /// Sleep `d`, waking early when told to stop.
 fn sleep(stop: &AtomicBool, d: Duration) {
     let end = Instant::now() + d;
@@ -536,6 +605,25 @@ mod tests {
         let info = HostInfo::parse(&String::from_utf8_lossy(&out.stdout));
         assert_eq!((info.version.as_deref(), info.shim), (Some("nex-host test"), Some(false)));
         std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    /// A nex-host from before `connect` (same version line) is caught by name.
+    #[test]
+    #[cfg(unix)]
+    fn connect_check_finds_a_nex_host_without_connect() {
+        use std::os::unix::fs::PermissionsExt;
+        for (help, expect) in [("  nex-host connect   one connection", true), ("  nex-host watch", false)] {
+            let home = std::env::temp_dir().join(format!("nex-connect-check-{}-{expect}", std::process::id()));
+            let bin = home.join(".nex/bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            let p = bin.join("nex-host");
+            std::fs::write(&p, format!("#!/bin/sh\necho '{help}'\n")).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let out = std::process::Command::new("sh").args(["-c", CONNECT_CHECK]).env("HOME", &home).output().unwrap();
+            assert!(out.status.success());
+            assert_eq!(String::from_utf8_lossy(&out.stdout).lines().any(|l| l == "connect yes"), expect);
+            let _ = std::fs::remove_dir_all(&home);
+        }
     }
 
     /// The watch's script on a host without nex-host: the install check, and the exit code

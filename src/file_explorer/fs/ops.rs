@@ -187,7 +187,7 @@ pub(in crate::file_explorer) fn move_path(src: &Path, dst: &Path, progress: &Pro
 }
 
 /// Why `name` can't be a file name, if it can't.
-fn invalid_name(name: &str) -> Option<&'static str> {
+pub(in crate::file_explorer) fn invalid_name(name: &str) -> Option<&'static str> {
     if name.trim().is_empty() {
         Some("A name can't be empty")
     } else if name == "." || name == ".." {

@@ -16,6 +16,7 @@ use egui::{Align2, Color32, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, Stro
 
 use crate::layout::PaneId;
 use crate::ui::glide::animations;
+use crate::ui::touch_pan::TouchPan;
 use crate::ui::theme::{ACCENT, Theme, white_alpha};
 use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
 use crate::ui::{icons, paint};
@@ -48,6 +49,8 @@ pub(super) struct ViewState {
     /// Scroll so the highlighted card is in view on the next frame (after a key moved it).
     pub reveal_selection: bool,
     scroll_active: f64,
+    /// Scrolling the cards with a finger.
+    pan: TouchPan,
     /// Where each card and section header is on its way to.
     motion: Motion,
     /// The terminal tab shown when it was last drawn (`None` inside: the Agents / Files
@@ -59,7 +62,7 @@ pub(super) struct ViewState {
 
 impl ViewState {
     pub(super) fn new() -> ViewState {
-        ViewState { reveal_selection: false, scroll_active: -10.0, motion: Motion::new(), shown_tab: None, teams: HashMap::new() }
+        ViewState { reveal_selection: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new() }
     }
 }
 
@@ -236,7 +239,8 @@ impl AgentsPane {
         }
     }
 
-    /// Scroll with the wheel over `body`, then keep a card moved to with the keyboard in view.
+    /// Scroll with the wheel or a finger over `body`, then keep a card moved to with the
+    /// keyboard in view.
     fn scroll_to(&mut self, f: &Frame, body: Rect, content_h: f32) {
         let ui = f.ui;
         let view_h = body.height();
@@ -246,6 +250,11 @@ impl AgentsPane {
                 self.scroll -= d;
                 self.view.scroll_active = f.time;
             }
+        }
+        let d = self.view.pan.delta(ui, body);
+        if d != 0.0 {
+            self.scroll += d;
+            self.view.scroll_active = f.time;
         }
         if std::mem::take(&mut self.view.reveal_selection)
             && let Some(&(id, r)) = self.targets.iter().find(|(t, _)| Some(*t) == self.selected)
@@ -258,7 +267,11 @@ impl AgentsPane {
                 self.scroll = r.bottom() + GAP - view_h;
             }
         }
-        self.scroll = self.scroll.clamp(0.0, (content_h - view_h).max(0.0));
+        let clamped = self.scroll.clamp(0.0, (content_h - view_h).max(0.0));
+        if clamped != self.scroll {
+            self.view.pan.stop();
+        }
+        self.scroll = clamped;
     }
 
     /// The section headers and cards where `motion` has them now, scrolled, with clicks on
