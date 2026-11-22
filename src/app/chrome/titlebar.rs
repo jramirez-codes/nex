@@ -531,7 +531,7 @@ fn paint_attention(ctx: &egui::Context, painter: &egui::Painter, center: Pos2, c
         // ~30 fps is plenty for a slow pulse, and only while a dot is showing.
         ctx.request_repaint_after(std::time::Duration::from_millis(33));
     }
-    painter.circle(center, radius, color, Stroke::new(1.5, theme.window));
+    painter.circle(center, radius, color, Stroke::new(1.5_f32, theme.window));
 }
 
 /// Where a pane dropped on the tab strip's empty space would open: a faint, dashed slot.
