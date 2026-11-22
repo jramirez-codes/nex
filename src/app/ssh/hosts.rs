@@ -257,7 +257,7 @@ impl App {
             ),
             AgentPrompt::Failed(title, e) => (AlertIcon::Warning, title.clone(), e.clone(), "OK", None),
         };
-        let alert = Alert { id: Id::new("nex-agents-alert"), icon, title: &title, body: &body, steps: &[], primary, secondary, touch: self.cfg.mobile };
+        let alert = Alert { id: Id::new("nex-agents-alert"), icon, title: &title, body: &body, steps: &[], primary, secondary, touch: self.cfg.sidebar() };
         let Some(choice) = alert.show(ctx, theme) else { return };
         self.ssh.agent_prompt = None;
         match (prompt, choice) {

@@ -80,7 +80,7 @@ pub(in crate::app) fn toggle_maximized(ctx: &egui::Context) {
 }
 
 /// Where the tabs sit this frame: `shown` slots of `size`, starting at `origin` and running
-/// right (title bar) or down (mobile sidebar).
+/// right (title bar) or down (sidebar).
 pub(in crate::app) struct TabSlots {
     origin: Pos2,
     size: Vec2,
@@ -395,7 +395,7 @@ impl App {
     }
 
     /// One tab: icon (or pane deck), title, hover close button; click to show, drag to reorder.
-    /// In the vertical (mobile) strip a tab is just a large icon, its title a tooltip.
+    /// In the vertical (sidebar) strip a tab is just a large icon, its title a tooltip.
     /// Returns `true` if the tabs were reordered (the rest of the strip is drawn next frame).
     fn tab_item(&mut self, ui: &Ui, slots: &TabSlots, i: usize, theme: &Theme) -> bool {
         let ctx = ui.ctx().clone();
@@ -575,7 +575,7 @@ fn dashed_slot(painter: &egui::Painter, r: Rect, theme: &Theme) {
     painter.extend(Shape::dashed_line(&outline, stroke, 4.0, 3.0));
 }
 
-/// Splits a mobile-sidebar tile into its icon square and the caption line below it.
+/// Splits a sidebar tile into its icon square and the caption line below it.
 pub(in crate::app) fn sidebar_tile_parts(r: Rect) -> (Rect, Rect) {
     let side = (r.height() - 26.0).min(r.width() - 16.0).max(8.0);
     let icon = Rect::from_center_size(Pos2::new(r.center().x, r.top() + 5.0 + side / 2.0), Vec2::splat(side));
