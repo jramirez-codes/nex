@@ -2,6 +2,7 @@
 
 use egui::{FontFamily, FontId, Pos2, Rect};
 
+use crate::config::{FONT_MAX, FONT_MIN};
 use crate::layout::PaneId;
 use crate::render::{CellMetrics, FONT_REGULAR};
 use crate::terminal::GridSize;
@@ -48,7 +49,7 @@ impl App {
     /// Set the zoomed pane's font: its own size scaled by `scale` (in half points, so resizing
     /// the window doesn't build a glyph atlas per frame), or `None` when nothing is zoomed.
     pub(in crate::app) fn set_zoom_font(&mut self, ctx: &egui::Context, zoom: Option<(PaneId, f32)>) {
-        self.zoom_font = zoom.map(|(id, scale)| (id, ((self.pane_font(id) * scale * 2.0).round() / 2.0).clamp(6.0, 72.0)));
+        self.zoom_font = zoom.map(|(id, scale)| (id, ((self.pane_font(id) * scale * 2.0).round() / 2.0).clamp(FONT_MIN, FONT_MAX)));
         if let Some((_, size)) = self.zoom_font
             && !self.metrics.contains_key(&size.to_bits())
         {
@@ -59,7 +60,7 @@ impl App {
 
     /// Zoom only pane `id`; `None` resets it to the config size.
     pub(in crate::app) fn set_pane_font(&mut self, ctx: &egui::Context, id: PaneId, size: Option<f32>) {
-        match size.map(|s| s.clamp(6.0, 72.0)) {
+        match size.map(|s| s.clamp(FONT_MIN, FONT_MAX)) {
             Some(s) if s != self.cfg.font_size => {
                 self.pane_fonts.insert(id, s);
             }

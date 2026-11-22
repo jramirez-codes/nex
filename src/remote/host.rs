@@ -17,9 +17,11 @@ use std::time::{Duration, Instant};
 
 use nex_host::proto::{self, Response, Session};
 
-use super::{SshTarget, last_line, needs_login, posix_quote};
+use super::{SshFailure, SshTarget, last_line, needs_login, posix_quote};
 
-/// Where the program goes on the host, for the remote shell (which expands `~`).
+/// Where the program goes on the host, for the remote shell (which expands `~`). This and
+/// the scripts below spell out [`nex_host::paths::INSTALL_PATH`] so they read as plain shell;
+/// `install_paths_agree` checks they all name it.
 const REMOTE_BIN: &str = "~/.nex/bin/nex-host";
 /// The same, for `sh` scripts.
 const REMOTE_BIN_SH: &str = "\"$HOME/.nex/bin/nex-host\"";
@@ -35,6 +37,15 @@ pub enum HostError {
     /// nex has no `nex-host` built for it (`uname -sm` said this).
     Unsupported(String),
     Other(String),
+}
+
+impl From<SshFailure> for HostError {
+    fn from(f: SshFailure) -> Self {
+        match f {
+            SshFailure::NeedsLogin => HostError::NeedsLogin,
+            SshFailure::Other(e) => HostError::Other(e),
+        }
+    }
 }
 
 impl std::fmt::Display for HostError {
@@ -148,8 +159,8 @@ impl HostInfo {
 }
 
 /// Make sure the host has this nex's `nex-host`, installing it if not. Blocks. The watch does
-/// the same, folded into starting up (see [`watch_script`]).
-#[cfg(test)]
+/// the same, folded into starting up (see [`watch_script`]). Only the install test uses it.
+#[cfg(all(test, target_os = "linux"))]
 pub fn ensure(target: &SshTarget) -> Result<HostInfo, HostError> {
     let info = HostInfo::parse(&run(target, CHECK_SCRIPT, None)?);
     if info.current() {
@@ -197,11 +208,12 @@ fn run(target: &SshTarget, script: &str, stdin: Option<&[u8]>) -> Result<String,
     }
     let out = child.wait_with_output().map_err(|e| HostError::Other(e.to_string()))?;
     let stderr = String::from_utf8_lossy(&out.stderr);
+    // A login prompt counts even when ssh exits 0 (unlike `SshFailure::of`).
     if needs_login(&stderr) {
         return Err(HostError::NeedsLogin);
     }
-    if !out.status.success() {
-        return Err(HostError::Other(last_line(&stderr).unwrap_or_else(|| format!("ssh exited with {}", out.status))));
+    if let Some(failure) = SshFailure::of(out.status, &stderr) {
+        return Err(failure.into());
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -427,6 +439,18 @@ fn sleep(stop: &AtomicBool, d: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_paths_agree() {
+        let path = nex_host::paths::INSTALL_PATH;
+        assert_eq!(REMOTE_BIN, format!("~/{path}"));
+        assert_eq!(REMOTE_BIN_SH, format!("\"$HOME/{path}\""));
+        assert!(CHECK_SCRIPT.contains(&format!("p=\"$HOME/{path}\"")));
+        assert!(watch_script().contains(&format!("p=\"$HOME/{path}\"")));
+        let (dir, file) = path.rsplit_once('/').unwrap();
+        assert!(INSTALL_SCRIPT.starts_with(&format!("d=\"$HOME/{dir}\"")));
+        assert!(INSTALL_SCRIPT.contains(&format!("\"$d/{file}\"")));
+    }
 
     fn target(dest: &str) -> SshTarget {
         SshTarget { opts: vec!["-p".into(), "2222".into()], destination: dest.into() }

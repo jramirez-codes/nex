@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::layout::{Node, PaneId};
-use crate::session::{self, PaneKind, PaneNode, PaneState, Session, TabState};
+use crate::layout::{Node, PaneId, PaneKind};
+use crate::session::{self, PaneNode, PaneState, Session, TabState};
 
 use crate::app::workspace::tab::Tab;
 use crate::app::{App, PANE_GAP};
@@ -71,15 +71,40 @@ pub fn first_shell_dir(s: &Session) -> Option<PathBuf> {
         .map(|p| restore_dir(p.cwd.as_ref()))
 }
 
+/// What the window knows about the session file: the session to restore, whether this window
+/// keeps the file, and what decides when it's saved. Kept by `App` as `session`.
+pub(in crate::app) struct SessionState {
+    /// The last session, to bring back on the first frame (see `crate::session`).
+    pub(in crate::app) restore_at_start: Option<crate::session::Session>,
+    /// This window keeps the session file: a plain launch holding the session lock (not a
+    /// second window, `-e`, or another nex already running).
+    pub(in crate::app) save_session: bool,
+    /// The session lock, held for the window's lifetime (see `session::try_lock`).
+    pub(in crate::app) _session_lock: Option<crate::session::Lock>,
+    /// A tab was open at some point (a window that never opened one leaves the file alone).
+    pub(in crate::app) had_tabs: bool,
+    /// The last close was the user's: a close action, or a shell exiting right after the user
+    /// typed into it (`exit`, Ctrl+D).
+    pub(in crate::app) closed_by_user: bool,
+    /// A shell exited without the user (logout's SIGHUP, a killed shell, a program ending):
+    /// the session file is left as it was (no autosave, save on exit or clear) until the
+    /// user next types, clicks or closes something.
+    pub(in crate::app) session_suspended: bool,
+    /// When the user last pressed a key, clicked or typed into the window.
+    pub(in crate::app) last_user_input: Option<Instant>,
+    /// The session as last written, so unchanged polls don't touch the disk.
+    pub(in crate::app) saved_session: Option<String>,
+}
+
 impl App {
     /// The window as it is now, or `None` once every tab is closed.
     pub(in crate::app) fn snapshot_session(&self) -> Option<Session> {
         let tabs: Vec<TabState> = self.tabs.iter().map(|t| self.tab_state(t)).collect();
-        let explorer = self.explorer_tab.as_ref().map(|t| self.tab_state(t));
+        let explorer = self.home_tab.as_ref().map(|t| self.tab_state(t));
         if tabs.is_empty() && explorer.is_none() {
             return None;
         }
-        Some(Session { tabs, active: self.active, explorer, explorer_active: self.explorer_active })
+        Some(Session { tabs, active: self.active, explorer, explorer_active: self.home_active })
     }
 
     fn tab_state(&self, tab: &Tab) -> TabState {
@@ -90,15 +115,7 @@ impl App {
     fn pane_node(&self, node: &Node) -> PaneNode {
         match node {
             Node::Leaf(id) => PaneNode::Leaf(PaneState {
-                kind: if self.explorers.contains_key(id) {
-                    PaneKind::Explorer
-                } else if self.diffs.contains_key(id) {
-                    PaneKind::Diff
-                } else if self.agents.contains_key(id) {
-                    PaneKind::Agents
-                } else {
-                    PaneKind::Terminal
-                },
+                kind: self.pane_kind(*id).unwrap_or(PaneKind::Terminal),
                 cwd: self.pane_cwd(*id),
                 font_size: self.pane_fonts.get(id).copied(),
                 command: self.panes.get(id).and_then(|t| t.running_command()),
@@ -126,7 +143,7 @@ impl App {
             }
         }
         if let Some(t) = &s.explorer {
-            self.explorer_tab = self.restore_tab(ctx, t);
+            self.home_tab = self.restore_tab(ctx, t);
         }
         // Only an Agents tab came back: there's nothing to watch without a terminal, so start
         // a fresh one beside it.
@@ -134,7 +151,7 @@ impl App {
             return false;
         }
         self.active = active.unwrap_or(0);
-        self.explorer_active = self.explorer_tab.is_some() && (s.explorer_active || self.tabs.is_empty());
+        self.home_active = self.home_tab.is_some() && (s.explorer_active || self.tabs.is_empty());
         self.prune_sticky_tabs();
         true
     }
@@ -212,27 +229,27 @@ impl App {
     /// on (off, the file is neither written nor removed), and no burst of shell exits has
     /// suspended it.
     pub(in crate::app) fn keeps_session(&self) -> bool {
-        self.save_session && self.cfg.restore_session && !self.session_suspended
+        self.session.save_session && self.cfg.restore_session && !self.session.session_suspended
     }
 
     /// Whether the window emptying now means the next launch should start fresh: the user
     /// closed the last tab (not a logout killing the shells, nor a first frame that never
     /// opened a tab).
     pub(in crate::app) fn forgets_session_when_empty(&self) -> bool {
-        self.keeps_session() && self.had_tabs && self.closed_by_user
+        self.keeps_session() && self.session.had_tabs && self.session.closed_by_user
     }
 
     /// Whether pane `id`'s shell exiting was the user's doing: they typed into it (and into
     /// the window) in the last few seconds, as with `exit` or Ctrl+D.
     pub(in crate::app) fn exit_by_user(&self, id: PaneId) -> bool {
         let recent = |at: Instant| at.elapsed() < USER_EXIT_WINDOW;
-        self.last_user_input.is_some_and(recent) && self.panes.get(&id).is_some_and(|t| recent(t.last_input))
+        self.session.last_user_input.is_some_and(recent) && self.panes.get(&id).is_some_and(|t| recent(t.last_input))
     }
 
     /// The user closed a pane or tab (a close action or button): the session follows again.
     pub(in crate::app) fn user_closing(&mut self) {
-        self.closed_by_user = true;
-        self.session_suspended = false;
+        self.session.closed_by_user = true;
+        self.session.session_suspended = false;
     }
 
     /// Write the session if it changed since the last write (called every process poll).
@@ -242,14 +259,14 @@ impl App {
         }
         let Some(s) = self.snapshot_session() else { return };
         let json = s.to_json();
-        if self.saved_session.as_deref() == Some(json.as_str()) {
+        if self.session.saved_session.as_deref() == Some(json.as_str()) {
             return;
         }
         if let Err(e) = session::save(&s) {
             eprintln!("nex: session: {e}");
         }
         // Remembered even on failure, so a broken disk isn't retried (and reported) every poll.
-        self.saved_session = Some(json);
+        self.session.saved_session = Some(json);
     }
 
     /// Quitting with tabs open: save them. (A window that emptied already decided in
@@ -272,7 +289,7 @@ impl App {
     /// The user closed the last tab: the next launch starts fresh.
     pub(in crate::app) fn forget_session(&mut self) {
         session::clear();
-        self.saved_session = None;
+        self.session.saved_session = None;
     }
 }
 

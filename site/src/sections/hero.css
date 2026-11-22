@@ -86,7 +86,7 @@
   border-radius: 50%;
 }
 
-/* A recording of the real app (docs/demo/record.py). */
+/* A recording of the real app (tools/demo/record.py). */
 .hero-shot {
   display: block;
   width: 100%;

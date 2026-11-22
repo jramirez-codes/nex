@@ -16,22 +16,42 @@ use crate::ui::icons;
 use crate::app::App;
 use crate::app::workspace::tab::Tab;
 
+/// What [`App::scan_panes`] found in this machine's panes.
+#[derive(Default)]
+struct LocalScan {
+    /// The agents running in panes here.
+    probes: Vec<Probe>,
+    /// The hosts ssh panes connect to.
+    hosts: HashSet<SshTarget>,
+    /// The `nex-host` session each ssh pane shows: the pane, its tab, and whether it rang.
+    showing: HashMap<String, (PaneId, Option<usize>, bool)>,
+}
+
 impl App {
     /// Re-read what every agent is doing: those running in panes here, and those `nex-host`
-    /// keeps on the ssh hosts panes connect to (see `ssh/agents.rs`). Run with the process
+    /// keeps on the ssh hosts panes connect to (see `ssh/hosts.rs`). Run with the process
     /// poll, and only while something shows it (an Agents pane, or the title bar's label).
     pub(in crate::app) fn track_agents(&mut self) {
         if self.agents.is_empty() && !self.shows_agents_label() {
             return;
         }
         let now = Instant::now();
-        // Each pane once, in tab order (the sticky pane is in every tab: its first one).
+        let LocalScan { mut probes, hosts, showing } = self.scan_panes();
+        self.ssh.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
+        self.offer_shim(&hosts);
+        self.offer_sharing(&hosts);
+        self.ssh.agent_notes = self.host_notes();
+        probes.extend(self.remote_probes(&showing, now));
+        self.agent_tracker.update(probes, now);
+    }
+
+    /// Every pane once, in tab order (the sticky pane is in every tab: its first one): the
+    /// agents running in them, the hosts ssh panes connect to, and which remote agent each
+    /// of those shows.
+    fn scan_panes(&self) -> LocalScan {
         let mut seen = HashSet::new();
-        let mut probes = Vec::new();
-        // The hosts ssh panes connect to, and which remote agent each pane shows.
-        let mut hosts = HashSet::new();
-        let mut showing: HashMap<String, (PaneId, Option<usize>, bool)> = HashMap::new();
-        let tabs = self.tabs.iter().enumerate().map(|(i, t)| (Some(i), t)).chain(self.explorer_tab.iter().map(|t| (None, t)));
+        let mut scan = LocalScan::default();
+        let tabs = self.tabs.iter().enumerate().map(|(i, t)| (Some(i), t)).chain(self.home_tab.iter().map(|t| (None, t)));
         for (index, tab) in tabs {
             for id in tab.root.panes() {
                 if !seen.insert(id) {
@@ -39,10 +59,9 @@ impl App {
                 }
                 let Some(t) = self.panes.get(&id) else { continue };
                 if let Some(target) = t.last_ssh_target() {
-                    hosts.insert(target.normalized());
-                    let session = t.agent_session().or_else(|| t.foreground_job().and_then(|(_, argv)| SshTarget::attach_id(argv)));
-                    if let Some(session) = session {
-                        showing.entry(session).or_insert((id, index, t.attention));
+                    scan.hosts.insert(target.normalized());
+                    if let Some(session) = t.remote_agent() {
+                        scan.showing.entry(session).or_insert((id, index, t.attention));
                     }
                     continue;
                 }
@@ -51,7 +70,7 @@ impl App {
                 let session = (kind == AgentKind::Claude).then(|| claude::session_info(pid)).flatten().unwrap_or_default();
                 let title = t.title();
                 let (mark, rest) = icons::title_mark(&t.process, &title);
-                probes.push(Probe {
+                scan.probes.push(Probe {
                     pane: id,
                     tab: index,
                     kind,
@@ -68,14 +87,15 @@ impl App {
                 });
             }
         }
+        scan
+    }
 
-        self.remote_hosts.sync(&hosts, self.cfg.ssh_agents);
-        self.offer_shim(&hosts);
-        self.offer_sharing(&hosts);
-        self.agent_notes = self.host_notes();
-        // Two panes may reach one host under different names: list each agent once.
+    /// The agents `nex-host` reports on the watched hosts, each once (two panes may reach
+    /// one host under different names), with the pane showing it, if one is (`showing`).
+    fn remote_probes(&self, showing: &HashMap<String, (PaneId, Option<usize>, bool)>, now: Instant) -> Vec<Probe> {
+        let mut probes = Vec::new();
         let mut listed = HashSet::new();
-        for (target, snap) in self.remote_hosts.snapshots() {
+        for (target, snap) in self.ssh.remote_hosts.snapshots() {
             let host = target.host().to_string();
             for s in &snap.sessions {
                 let Some(kind) = AgentKind::from_name(&s.kind) else { continue };
@@ -104,7 +124,7 @@ impl App {
                 });
             }
         }
-        self.agent_tracker.update(probes, now);
+        probes
     }
 
     /// Whether the title bar (or sidebar) label is the Agents one this frame: it is unless
@@ -115,14 +135,14 @@ impl App {
 
     /// Whether the special tab holds a file explorer rather than an Agents pane.
     pub(in crate::app) fn home_is_files(&self) -> bool {
-        self.explorer_tab.as_ref().is_some_and(|t| t.root.panes().iter().any(|id| self.explorers.contains_key(id)) && !t.root.panes().iter().any(|id| self.agents.contains_key(id)))
+        self.home_tab.as_ref().is_some_and(|t| t.root.panes().iter().any(|id| self.explorers.contains_key(id)) && !t.root.panes().iter().any(|id| self.agents.contains_key(id)))
     }
 
     /// Whether the special tab is worth keeping the window open for once the terminal tabs
     /// are gone: it has a terminal or a file explorer (an Agents pane alone has nothing
     /// left to watch).
     pub(in crate::app) fn home_keeps_window(&self) -> bool {
-        self.explorer_tab
+        self.home_tab
             .as_ref()
             .is_some_and(|t| t.root.panes().iter().any(|id| self.panes.contains_key(id) || self.explorers.contains_key(id)))
     }
@@ -158,19 +178,19 @@ impl App {
     /// The title bar's Agents label: show the special tab (opening it on an Agents pane the
     /// first time), or from it, go back to the terminal tab that was showing.
     pub(in crate::app) fn toggle_agents_tab(&mut self) {
-        if self.explorer_active {
+        if self.home_active {
             if !self.tabs.is_empty() {
-                self.explorer_active = false;
+                self.home_active = false;
             }
             return;
         }
-        if self.explorer_tab.is_none() {
+        if self.home_tab.is_none() {
             let id = self.alloc_pane_id();
             self.agents.insert(id, AgentsPane::new());
-            self.explorer_tab = Some(self.with_sticky(Tab::new(id, id)));
+            self.home_tab = Some(self.with_sticky(Tab::new(id, id)));
             self.track_agents();
         }
-        self.explorer_active = true;
+        self.home_active = true;
     }
 
     /// Show the agent behind card `key`: jump to its pane, or, for an agent on an ssh host
@@ -204,7 +224,7 @@ impl App {
     pub(in crate::app) fn detach_notice(&self, id: PaneId) -> Option<String> {
         let t = self.panes.get(&id)?;
         let target = t.last_ssh_target()?;
-        let session = t.agent_session().or_else(|| t.foreground_job().and_then(|(_, argv)| SshTarget::attach_id(argv)))?;
+        let session = t.remote_agent()?;
         let host = target.host().to_string();
         let agent = self.agent_tracker.agents().iter().find(|a| a.pane == remote_key(&host, &session));
         let what = agent.map_or("The agent", |a| a.kind.label());
@@ -212,13 +232,14 @@ impl App {
     }
 
     /// Show pane `pane`: its tab, focused.
-    fn focus_pane(&mut self, pane: PaneId) {        if let Some(i) = self.tabs.iter().position(|t| t.contains(pane)) {
+    fn focus_pane(&mut self, pane: PaneId) {
+        if let Some(i) = self.tabs.iter().position(|t| t.contains(pane)) {
             // The sticky pane is in every tab: stay on the shown one if it can.
             if !self.cur_tab().is_some_and(|t| t.contains(pane)) {
                 self.show_tab(i);
             }
-        } else if self.explorer_tab.as_ref().is_some_and(|t| t.contains(pane)) {
-            self.explorer_active = true;
+        } else if self.home_tab.as_ref().is_some_and(|t| t.contains(pane)) {
+            self.home_active = true;
         } else {
             return;
         }

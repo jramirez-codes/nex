@@ -1,3 +1,7 @@
+//! nex: a GPU-accelerated terminal emulator with tabs, split panes, a file explorer and ssh
+//! that follows you. This file parses the command line, builds the window and hands the frame
+//! loop to [`app::App`]. See ARCHITECTURE.md for the map of the modules below.
+
 mod agents;
 mod app;
 mod cli;
@@ -58,7 +62,7 @@ fn main() -> eframe::Result {
     // The first shell starts now, so it gets going while the window opens: in the last
     // session's first pane when it is coming back (none if that session had no terminals).
     let early_cwd = match &session {
-        Some(s) => app::session::first_shell_dir(s).map(Some),
+        Some(s) => app::restore::first_shell_dir(s).map(Some),
         None => Some(std::env::current_dir().ok()),
     };
     let early = early_cwd.and_then(|cwd| match terminal::Terminal::spawn_early(&cfg, args.command.clone(), cwd) {

@@ -218,8 +218,8 @@ mod tests {
         apply(&shared, "leave\n");
         assert_eq!(shared.lock().unwrap().hover, None);
         let file = std::env::current_exe().unwrap();
-        apply(&shared, &format!("drop 5 6\n{}\r\n", super::super::file_uri(&file)));
-        apply(&shared, &format!("move 7 8\n{}\r\n", super::super::file_uri(&file)));
+        apply(&shared, &format!("drop 5 6\n{}\r\n", crate::platform::linux::dnd::file_uri(&file)));
+        apply(&shared, &format!("move 7 8\n{}\r\n", crate::platform::linux::dnd::file_uri(&file)));
         let s = shared.lock().unwrap();
         assert_eq!(s.dropped, vec![(vec![file.clone()], (5.0, 6.0), false), (vec![file], (7.0, 8.0), true)]);
     }

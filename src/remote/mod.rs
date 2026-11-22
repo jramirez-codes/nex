@@ -295,6 +295,29 @@ fn sharing_addition(existing: &str) -> String {
     format!("{sep}{SHARING_BLOCK}")
 }
 
+/// Why one of nex's short ssh commands failed, read from its exit status and stderr the same
+/// way everywhere; each caller turns it into its own error type.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum SshFailure {
+    /// The host wants a password (or another prompt) nex's connections can't answer.
+    NeedsLogin,
+    /// ssh's last line of complaint, or its exit status.
+    Other(String),
+}
+
+impl SshFailure {
+    /// How ssh failed, or `None` if it succeeded.
+    pub(super) fn of(status: std::process::ExitStatus, stderr: &str) -> Option<SshFailure> {
+        if status.success() {
+            return None;
+        }
+        Some(if needs_login(stderr) {
+            SshFailure::NeedsLogin
+        } else {
+            SshFailure::Other(last_line(stderr).unwrap_or_else(|| format!("ssh exited with {status}")))
+        })
+    }
+}
 
 /// The last non-empty line of an error output.
 pub(super) fn last_line(s: &str) -> Option<String> {
@@ -429,6 +452,19 @@ mod tests {
         assert!(needs_login("jr@10.0.0.2: Permission denied (publickey,password).\n"));
         assert!(!needs_login("ssh: connect to host x port 22: Connection refused\n"));
         assert!(!needs_login("tar: a.txt: Cannot open: Permission denied\n"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reads_how_ssh_failed() {
+        let status = |code: i32| std::process::Command::new("sh").args(["-c", &format!("exit {code}")]).status().unwrap();
+        assert_eq!(SshFailure::of(status(0), "Permission denied (publickey).\n"), None);
+        assert_eq!(SshFailure::of(status(255), "me@x: Permission denied (publickey,password).\n"), Some(SshFailure::NeedsLogin));
+        assert_eq!(
+            SshFailure::of(status(255), "ssh: connect to host x port 22: Connection refused\n\n"),
+            Some(SshFailure::Other("ssh: connect to host x port 22: Connection refused".into()))
+        );
+        assert!(matches!(SshFailure::of(status(1), ""), Some(SshFailure::Other(e)) if e.starts_with("ssh exited with")));
     }
 
     #[test]

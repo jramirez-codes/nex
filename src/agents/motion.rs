@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use egui::{Color32, Rect};
 
 use crate::layout::PaneId;
-use crate::ui::glide::{ease_in_out, ease_out};
+use crate::ui::glide::{Lerp, ease_in_out, ease_out};
 
 use super::model::{Agent, Status};
 
@@ -19,31 +19,6 @@ pub const MOVE: f64 = 0.45;
 pub const FADE: f64 = 0.25;
 /// A border or tint changing color.
 pub const COLOR: f64 = 0.3;
-
-/// Something a [`Tween`] can blend.
-pub trait Lerp: Copy + PartialEq {
-    fn lerp(a: Self, b: Self, t: f32) -> Self;
-}
-
-impl Lerp for f32 {
-    fn lerp(a: f32, b: f32, t: f32) -> f32 {
-        a + (b - a) * t
-    }
-}
-
-impl Lerp for Rect {
-    fn lerp(a: Rect, b: Rect, t: f32) -> Rect {
-        Rect::from_min_max(a.min.lerp(b.min, t), a.max.lerp(b.max, t))
-    }
-}
-
-impl Lerp for Color32 {
-    /// Channel by channel on the premultiplied values, which is how colors blend.
-    fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
-        let ch = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-        Color32::from_rgba_premultiplied(ch(a.r(), b.r()), ch(a.g(), b.g()), ch(a.b(), b.b()), ch(a.a(), b.a()))
-    }
-}
 
 /// A value easing from where it was toward its latest target over `duration` seconds.
 pub struct Tween<T: Lerp> {
@@ -288,7 +263,7 @@ mod tests {
     }
 
     fn agent(pane: PaneId, status: Status) -> Agent {
-        use super::super::model::{AgentKind, Source};
+        use crate::agents::model::{AgentKind, Source};
         Agent { pane, tab: Some(0), kind: AgentKind::Claude, name: "a".into(), mark: None, cwd: None, status, since: std::time::Instant::now(), source: Source::Local }
     }
 

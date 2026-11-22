@@ -8,7 +8,7 @@
 
 use egui::{Rect, Vec2};
 
-use crate::ui::glide::{ease_in_out, ease_out};
+use crate::ui::glide::{Lerp, ease_in_out, ease_out};
 
 /// The active tab's pill folds into the square around the ×, in seconds.
 const FOLD: f64 = 0.14;
@@ -79,10 +79,6 @@ fn phase(t: f64, a: f64, b: f64) -> f32 {
     ((t - a) / (b - a)).clamp(0.0, 1.0) as f32
 }
 
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
-}
-
 fn scaled(r: Rect, s: f32) -> Rect {
     Rect::from_center_size(r.center(), r.size() * s)
 }
@@ -108,7 +104,7 @@ impl TabGhost {
     /// The active tab's pill folding into the square, and its corner radius.
     fn folded(&self, t: f64) -> (Rect, f32) {
         let e = ease_out(phase(t, 0.0, FOLD));
-        (self.drawn.rect.lerp_towards(&self.square(), e), lerp(TAB_RADIUS, SQUARE_RADIUS, e))
+        (self.drawn.rect.lerp_towards(&self.square(), e), f32::lerp(TAB_RADIUS, SQUARE_RADIUS, e))
     }
 
     pub(in crate::app) fn frame(&self, now: f64) -> GhostFrame {
@@ -149,7 +145,7 @@ impl TabGhost {
         }
         let e = ease_out(phase(t, FOLD, RETURN_END));
         match target {
-            Some(to) => Some((self.square().lerp_towards(&to, e), lerp(SQUARE_RADIUS, TAB_RADIUS, e))),
+            Some(to) => Some((self.square().lerp_towards(&to, e), f32::lerp(SQUARE_RADIUS, TAB_RADIUS, e))),
             None if e < 1.0 => Some((scaled(self.square(), 1.0 - e), SQUARE_RADIUS * (1.0 - e))),
             None => None,
         }

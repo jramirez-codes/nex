@@ -39,7 +39,7 @@ pub struct Alert<'a> {
     pub steps: &'a [String],
     pub primary: &'a str,
     pub secondary: Option<&'a str>,
-    /// Touch-sized buttons and text (mobile mode).
+    /// Touch-sized buttons and text (the sidebar tab bar).
     pub touch: bool,
 }
 

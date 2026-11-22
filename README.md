@@ -361,7 +361,7 @@ ssh-follow = false                           # splits of an ssh pane open a loca
 animations = false                           # turn off pane and tab animations
 tab-animation = ink                          # switching tabs: glide (default) | ink | none
 explorer-view = grid                         # file explorers open as a grid (default: list)
-mobile = false                               # phone-sized touch screens: tabs in a left sidebar
+tab-bar = sidebar                            # tabs in a left sidebar, for touch screens (default: top)
 restore-session = false                      # start with one fresh shell instead of the last window
 command = fish                               # defaults to your login shell
 ```
@@ -612,58 +612,9 @@ renderer, tabs, splits, file explorer and window chrome are nex's own.
 
 ## Architecture
 
-```
-src/
-├── main.rs           window setup (eframe / winit)
-├── cli.rs            command-line flags
-├── config.rs         config parsing and reloading
-├── layout.rs         binary split tree + directional focus (PaneId, Axis)
-├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture)
-├── app/              the application: state and frame loop (mod.rs), plus
-│   ├── actions.rs        the actions and carrying them out
-│   ├── reload.rs         live config reload
-│   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
-│   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
-│   ├── workspace/        tabs, splits, opening and closing panes, drawing panes, pane drag
-│   ├── animation/        pane motion, tab close, tab-switch transitions
-│   ├── ssh/              following ssh sessions, uploads, mic button
-│   └── tests/            whole-App tests driven through egui
-├── terminal/         one terminal per pane
-│   ├── mod.rs            PTY + VT state, title and cwd
-│   ├── input.rs          keyboard & mouse → xterm escape sequences
-│   ├── search.rs         scrollback search, URL and OSC 8 link detection
-│   └── snapshot.rs       copy of the visible screen, taken under the lock
-├── render/           drawing the terminal grid
-│   ├── mod.rs            runs, colors, cursor, selection, search highlights
-│   ├── glyphs.rs         glyph cache + per-pane mesh
-│   ├── boxdraw.rs        procedural box / block / braille / Powerline glyphs
-│   └── fonts.rs          font setup + embedded Nerd Font
-├── file_explorer/    the explorer pane
-│   ├── mod.rs            state, navigation, selection
-│   ├── fs/               listing, copying, moving, path quoting; file clipboard and jobs
-│   ├── input/            clicks, touch gestures, drags, keys; renaming, location bar, zoom
-│   ├── view/             path bar, listing rows and tiles, action bar, Properties dialog
-│   └── tests/            the folder fixture, unit tests and egui-driven UI tests
-├── ui/               shared UI kit: theme, glide animation, painting, icons, widgets
-└── platform/         everything OS-specific, behind one API (see platform/mod.rs)
-    ├── mod.rs            the shared types and the per-OS switch
-    ├── unix.rs           POSIX pieces shared by Linux and macOS
-    ├── fontdb.rs         font lookup without fontconfig (macOS, Windows)
-    ├── no_dnd.rs         drag and drop stub where winit handles it
-    ├── linux/            /proc process info, fontconfig, Wayland drag and drop
-    ├── macos/            libproc process info, traffic lights, app menu, starting from nex.app
-    └── windows/          compiles, not supported yet
-```
-
-`packaging/macos/` holds `nex.app`'s `Info.plist`, icon and `make-app.sh`, which wraps a
-binary into the app (used by `install.sh` and the release workflow).
-
-Nothing outside `platform/` checks the OS. Porting nex to another OS means adding a folder
-there that provides the same items (`platform/mod.rs` lists them).
-
-The GIFs in `site/public/demo/` are recordings of the real app: `docs/demo/record.py` plays the
-scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them into clips, and
-`docs/demo/promo.py` puts the promo clip on a backdrop (`--no-captions` makes the README's `hero.gif`).
+How the code is laid out, the rules it follows, and where to start for common changes are in
+[ARCHITECTURE.md](ARCHITECTURE.md). Building, testing, conventions and releasing are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
@@ -681,6 +632,7 @@ scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them i
 - [x] Splits and new tabs that follow `ssh` sessions
 - [x] File manager mode (`nex --explorer`, default handler for folders)
 - [x] Tab dot when a program rings the bell or sends a notification
+- [x] Restore tabs and splits on launch
 
 ### Next
 
@@ -693,7 +645,6 @@ scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them i
 
 ### Later
 
-- [ ] Restore tabs and splits on launch
 - [ ] Quick terminal (drop-down on a global hotkey)
 - [ ] Desktop notifications (OSC 9 / OSC 777) and bell options
 - [ ] Inline images (kitty graphics protocol)
@@ -708,20 +659,6 @@ scenes in `docs/demo/scenes.py` (Hyprland), `docs/demo/make_gifs.py` cuts them i
 - [Ghostty](https://ghostty.org) for the inspiration on defaults, keybindings and config style.
 - [JetBrains Mono](https://www.jetbrains.com/lp/mono/) and [Nerd Fonts](https://www.nerdfonts.com),
   embedded under the [SIL Open Font License](assets/fonts/OFL.txt).
-
-## Releasing
-
-1. Bump `version` in `Cargo.toml`, and move the `Unreleased` notes in
-   [`CHANGELOG.md`](CHANGELOG.md) under the new version.
-2. Commit, then tag and push:
-
-   ```sh
-   git tag v0.11.0 && git push origin v0.11.0
-   ```
-
-The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 Linux binaries
-(tarballs and `.deb`s) and a universal macOS build (`nex.app` zip and a tarball), and publishes a GitHub Release
-with notes taken from the changelog.
 
 ## License
 

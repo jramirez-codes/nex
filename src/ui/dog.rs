@@ -6,6 +6,8 @@
 use egui::epaint::{Mesh, PathShape, PathStroke};
 use egui::{Color32, Painter, Pos2, Rect, Shape, Vec2};
 
+use crate::ui::glide::Lerp;
+
 /// Length of the wake-up intro, in seconds (the SVG's longest animation).
 pub const INTRO: f32 = 3.6;
 /// Where the intro's tongue blep begins (80.56% in the SVG). The dog is in its resting pose
@@ -164,7 +166,7 @@ struct Shade {
 
 impl Shade {
     fn solid(&self, c: Color32) -> Color32 {
-        lerp(c, self.dim.0, self.dim.1)
+        Color32::lerp(c, self.dim.0, self.dim.1)
     }
 
     fn at(&self, fill: Fill, screen: Pos2) -> Color32 {
@@ -174,15 +176,10 @@ impl Shade {
                 let q = self.inverse.apply(screen);
                 let axis = COAT_TO - COAT_FROM;
                 let s = ((q - COAT_FROM).dot(axis) / axis.length_sq()).clamp(0.0, 1.0);
-                self.solid(lerp(COAT_A, COAT_B, s))
+                self.solid(Color32::lerp(COAT_A, COAT_B, s))
             }
         }
     }
-}
-
-fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
-    let mix = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Color32::from_rgba_premultiplied(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()), mix(a.a(), b.a()))
 }
 
 /// A filled polygon with a round-joined outline of `width` (like SVG's `stroke-linejoin:

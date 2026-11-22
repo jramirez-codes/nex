@@ -26,3 +26,6 @@ libc = { version = "0.2", optional = true }
 name = "nex-host"
 path = "src/main.rs"
 required-features = ["daemon"]
+
+[lints]
+workspace = true

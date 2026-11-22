@@ -34,7 +34,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::{SshTarget, last_line, needs_login};
+use super::{SshFailure, SshTarget, last_line, needs_login};
 use super::audio::{self, Capture, CaptureError};
 
 /// The first line of nex's block in `~/.asoundrc`, and the last.
@@ -66,6 +66,15 @@ pub enum MicError {
     /// This machine's microphone couldn't be opened.
     Capture(CaptureError),
     Other(String),
+}
+
+impl From<SshFailure> for MicError {
+    fn from(f: SshFailure) -> Self {
+        match f {
+            SshFailure::NeedsLogin => MicError::NeedsLogin,
+            SshFailure::Other(e) => MicError::Other(e),
+        }
+    }
 }
 
 impl std::fmt::Display for MicError {
@@ -254,12 +263,8 @@ fn run(target: &SshTarget, script: &str) -> Result<String, MicError> {
         .stderr(Stdio::piped())
         .output()
         .map_err(|e| MicError::Other(format!("couldn't run ssh: {e}")))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        if needs_login(&err) {
-            return Err(MicError::NeedsLogin);
-        }
-        return Err(MicError::Other(last_line(&err).unwrap_or_else(|| format!("ssh exited with {}", out.status))));
+    if let Some(failure) = SshFailure::of(out.status, &String::from_utf8_lossy(&out.stderr)) {
+        return Err(failure.into());
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }

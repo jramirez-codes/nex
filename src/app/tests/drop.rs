@@ -75,8 +75,7 @@ fn setup() -> (Sim, TempDir) {
         std::fs::write(dir.join(f), "x").unwrap();
     }
     let ctx = egui::Context::default();
-    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
-    let app = App::new(&cc, crate::config::Config::default(), crate::cli::Args { no_restore: true, ..Default::default() }, None, None, None);
+    let app = super::new_app(&ctx, crate::config::Config::default());
     let mut s = Sim { ctx, app, t: 0.0, mouse: None };
     s.frame(vec![]);
     (s, TempDir(dir))
@@ -272,7 +271,7 @@ impl Sim {
     }
     /// Where tab `uid` is drawn in the title bar.
     fn tab_at(&self, uid: u64) -> Pos2 {
-        self.app.tab_hits.iter().find(|(u, _)| *u == uid).expect("tab not drawn").1.center()
+        self.app.strip.tab_hits.iter().find(|(u, _)| *u == uid).expect("tab not drawn").1.center()
     }
     fn shown_uid(&self) -> u64 {
         self.app.cur_tab().unwrap().uid
