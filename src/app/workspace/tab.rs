@@ -11,6 +11,9 @@ pub(in crate::app) struct Tab {
     pub(in crate::app) root: Node,
     pub(in crate::app) focused: PaneId,
     pub(in crate::app) zoomed: bool,
+    /// The terminal last focused in this tab, which names the tab while an Agents, Files or
+    /// Changes pane has focus (see [`Tab::header_pane`]).
+    pub(in crate::app) last_terminal: Option<PaneId>,
     /// Split / close transitions and focus fades of this tab's panes.
     pub(in crate::app) motion: PaneMotion,
     /// Pane-icon deck in the tab header: rotation (in cards) of the stack, plus the focus and
@@ -22,11 +25,25 @@ pub(in crate::app) struct Tab {
 
 impl Tab {
     pub(in crate::app) fn new(uid: u64, pane: PaneId) -> Self {
-        Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, motion: PaneMotion::default(), deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
+        Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, last_terminal: None, motion: PaneMotion::default(), deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
     }
 
     pub(in crate::app) fn contains(&self, pane: PaneId) -> bool {
         self.root.panes().contains(&pane)
+    }
+
+    /// The pane that names the tab in its header: the focused pane if it's a terminal, else
+    /// the terminal last focused here, else any terminal in the tab. Only a tab without
+    /// terminals is named after its focused Agents, Files or Changes pane.
+    pub(in crate::app) fn header_pane(&self, is_terminal: impl Fn(PaneId) -> bool) -> PaneId {
+        if is_terminal(self.focused) {
+            return self.focused;
+        }
+        let ids = self.root.panes();
+        self.last_terminal
+            .filter(|id| ids.contains(id) && is_terminal(*id))
+            .or_else(|| ids.iter().copied().find(|&id| is_terminal(id)))
+            .unwrap_or(self.focused)
     }
 
     /// Take `pane` out of the split tree, moving focus off it if needed. Returns `false` if it

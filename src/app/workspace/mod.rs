@@ -147,6 +147,21 @@ impl App {
         }
     }
 
+    /// The pane whose label names `tab` in the tab strip (see [`Tab::header_pane`]).
+    pub(in crate::app) fn tab_header_pane(&self, tab: &Tab) -> PaneId {
+        tab.header_pane(|id| self.panes.contains_key(&id))
+    }
+
+    /// Note each tab's focused terminal, so its header keeps that name while another kind
+    /// of pane has focus. Run once a frame, it catches focus however it moved.
+    pub(in crate::app) fn remember_terminal_focus(&mut self) {
+        for tab in &mut self.tabs {
+            if self.panes.contains_key(&tab.focused) {
+                tab.last_terminal = Some(tab.focused);
+            }
+        }
+    }
+
     /// Show the Files tab (opening it at the focused directory the first time), or hide it
     /// again, back to the terminal tab that was showing.
     pub(in crate::app) fn toggle_explorer(&mut self) {
@@ -491,7 +506,7 @@ impl App {
             for g in self.strip.tab_ghosts.iter_mut().filter(|g| g.index > index) {
                 g.index -= 1;
             }
-            let (title, process) = label.unwrap_or_else(|| self.pane_label(tab.focused));
+            let (title, process) = label.unwrap_or_else(|| self.pane_label(self.tab_header_pane(&tab)));
             let (mark, title) = icons::title_mark(&process, &title);
             let (mark, title) = (mark.map(str::to_string), title.to_string());
             let drawn = TabDrawn { active: drawn.active && !self.home_active, ..drawn };
