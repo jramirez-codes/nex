@@ -143,6 +143,12 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Agent teams: a pipeline stage with `worktree = true` no longer quits on start. Claude Code
+  asks whether to trust each new worktree, and nex-host typed the stage's task (or its
+  reminder to report) into that question, answering "No, exit". An agent showing one of
+  Claude Code's prompts (trusting the folder, a new MCP server, a tool's permission) now
+  counts as needing you: messages wait for it, it isn't reminded, and the Agents pane says
+  "Needs you" instead of Idle.
 - Android: panes come back within seconds after the phone sleeps. Waking checks the app's
   connections and reconnects the ones the sleep killed, instead of waiting up to a minute
   for keepalives to give up. Retries right after a wake come every second instead of backing

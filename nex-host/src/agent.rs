@@ -404,8 +404,24 @@ impl Agent {
             last_message: self.last_message.load(Ordering::Relaxed),
         };
         s.status = s.compute_status(now);
+        // Without a session file to say so (before it reaches its prompt, and in versions that
+        // don't write one), Claude Code asking the user something shows only on its screen:
+        // trusting the folder, a new MCP server, a tool's permission. Typing a message in
+        // would answer it (Enter takes the default: "No, exit" when trusting the folder).
+        if s.status != Status::Exited && s.kind == "claude" && s.claude.is_none() && claude_dialog(&self.text(DIALOG_LINES)) {
+            s.status = Status::NeedsYou;
+        }
         s
     }
+}
+
+/// How many lines at the bottom of the screen a Claude Code start-up dialog fits in.
+const DIALOG_LINES: usize = 40;
+
+/// Whether `screen` shows one of Claude Code's dialogs: asking to trust the folder, a choice
+/// confirmed with Enter, or asking permission for a tool.
+fn claude_dialog(screen: &str) -> bool {
+    ["trust this folder", "Enter to confirm", "Do you want to proceed?", "Esc to cancel"].iter().any(|s| screen.contains(s))
 }
 
 /// `claude` or `codex`, when `argv` runs one of them (directly or under node / bun).
@@ -615,6 +631,16 @@ mod tests {
 
     fn v(s: &[&str]) -> Vec<String> {
         s.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn sees_claude_start_up_dialogs() {
+        let trust = " Quick safety check: Is this a project you created or one you trust?\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel";
+        assert!(claude_dialog(trust));
+        assert!(claude_dialog(" New MCP server found in .mcp.json: db\n ❯ Use this server\n Enter to confirm · Esc to cancel"));
+        assert!(claude_dialog(" Bash command\n Do you want to proceed?\n ❯ 1. Yes\n   3. No\n\n Esc to cancel · Tab to amend"));
+        assert!(!claude_dialog("✻ Reading files… (esc to interrupt)"));
+        assert!(!claude_dialog("╭──────╮\n│ > Try \"fix the tests\" │\n╰──────╯\n  ? for shortcuts"));
     }
 
     #[test]
