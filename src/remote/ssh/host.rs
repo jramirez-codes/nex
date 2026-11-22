@@ -106,6 +106,8 @@ impl RemoteHost {
     }
 
     /// The connection is up right now (without trying to bring it back).
+    // Remote panes (its only user) open on unix only.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub fn connected(&self) -> bool {
         self.client.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|c| !c.is_closed())
     }

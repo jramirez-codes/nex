@@ -6,7 +6,7 @@
 //! as key events through winit.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
@@ -34,6 +34,25 @@ static COMMITTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static CTX: OnceLock<egui::Context> = OnceLock::new();
 /// Whether nex last asked for the keyboard to be shown.
 static SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// What the system last said about the keyboard: 0 nothing yet, 1 down, 2 up.
+static VISIBLE: AtomicU8 = AtomicU8::new(0);
+
+/// `NexInput.imeVisible`: the keyboard came up or went away. Called on Android's UI thread.
+extern "system" fn ime_visible(_env: JNIEnv, _class: JClass, visible: jni::sys::jboolean) {
+    VISIBLE.store(if visible != 0 { 2 } else { 1 }, Ordering::Relaxed);
+    if let Some(ctx) = CTX.get() {
+        ctx.request_repaint();
+    }
+}
+
+/// Whether the on-screen keyboard is up, as far as the system has said (`None` before it has).
+pub fn soft_keyboard_visible() -> Option<bool> {
+    match VISIBLE.load(Ordering::Relaxed) {
+        0 => None,
+        v => Some(v == 2),
+    }
+}
 
 /// `NexInput.commit`: the keyboard committed `text`. Called on Android's UI thread.
 extern "system" fn commit(mut env: JNIEnv, _class: JClass, text: JString) {
@@ -70,7 +89,10 @@ pub fn install() {
             .into();
         env.register_native_methods(
             &class,
-            &[NativeMethod { name: "commit".into(), sig: "(Ljava/lang/String;)V".into(), fn_ptr: commit as *mut c_void }],
+            &[
+                NativeMethod { name: "commit".into(), sig: "(Ljava/lang/String;)V".into(), fn_ptr: commit as *mut c_void },
+                NativeMethod { name: "imeVisible".into(), sig: "(Z)V".into(), fn_ptr: ime_visible as *mut c_void },
+            ],
         )?;
         env.call_static_method(&class, "install", "(Landroid/app/Activity;)V", &[JValue::Object(activity)])?;
         let global = env.new_global_ref(&class)?;

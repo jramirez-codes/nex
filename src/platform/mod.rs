@@ -35,7 +35,7 @@
 //! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |
 //! | `process_start(pid)` | when a process started, as Claude Code's session file records it |
 //! | `content_rect_px()` | the part of the window system bars leave free (Android: the window covers the whole screen) |
-//! | `typed_text()` / `sync_soft_keyboard(ctx)` | text the on-screen keyboard committed (a paste, a suggestion), and showing or hiding it |
+//! | `typed_text()` / `sync_soft_keyboard(ctx)` / `soft_keyboard_visible()` | text the on-screen keyboard committed (a paste, a suggestion), showing or hiding it, and whether it's up |
 //! | `clipboard_text()` / `mirror_copies(ctx)` | the system clipboard where egui has none (Android): pasting into text fields, and copies mirrored to it |
 //! | `clipboard_files()` | an image or copied files on the clipboard ([`ClipboardFiles`]), where `Dnd` can't read it |
 //! | `pty_options(..)` / `pty_pid(..)` | build the PTY options, read the child's pid |
@@ -119,6 +119,12 @@ pub fn typed_text() -> Vec<String> {
 
 #[cfg(not(target_os = "android"))]
 pub fn sync_soft_keyboard(_ctx: &egui::Context) {}
+
+/// Whether the on-screen keyboard is up, as far as the system has said.
+#[cfg(not(target_os = "android"))]
+pub fn soft_keyboard_visible() -> Option<bool> {
+    None
+}
 
 /// Why [`lock_file`] didn't take its lock.
 #[derive(Debug)]

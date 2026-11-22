@@ -2,10 +2,12 @@ package io.github.jramirez_codes.nex;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Rect;
 import android.text.InputType;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -26,6 +28,12 @@ public final class NexInput extends View {
 
     /** Text the keyboard committed, for nex to type into whatever has focus. */
     static native void commit(String text);
+
+    /** The on-screen keyboard came up or went away (including by the back gesture). */
+    static native void imeVisible(boolean visible);
+
+    /** What nex was last told about the keyboard, so it hears only of changes. */
+    private static Boolean lastVisible;
 
     private NexInput(Context context) {
         super(context);
@@ -74,6 +82,31 @@ public final class NexInput extends View {
                 view = new NexInput(activity);
                 activity.addContentView(view, new ViewGroup.LayoutParams(1, 1));
                 view.requestFocus();
+                watchKeyboard(activity.getWindow().getDecorView());
+            }
+        });
+    }
+
+    /**
+     * Tell nex when the keyboard comes up or goes away. WindowInsets can say so directly only
+     * from API 30; the visible part of the window works on every version: the keyboard is up
+     * when it covers more than 15% of the screen (the navigation bar alone never does).
+     */
+    private static void watchKeyboard(final View root) {
+        root.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                Rect free = new Rect();
+                root.getWindowVisibleDisplayFrame(free);
+                int height = root.getRootView().getHeight();
+                if (height <= 0) {
+                    return;
+                }
+                boolean visible = height - free.bottom > height * 0.15;
+                if (lastVisible == null || lastVisible != visible) {
+                    lastVisible = visible;
+                    imeVisible(visible);
+                }
             }
         });
     }
