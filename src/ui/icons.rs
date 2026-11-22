@@ -310,7 +310,7 @@ fn hexagon(p: &Painter, c: Pos2, radius: f32, stroke: Stroke, fill: Option<Color
 const GLYPH_SHARE: f32 = 0.64;
 const COD_ADD: char = '\u{ea60}';
 const COD_CLOSE: char = '\u{ea76}';
-const COD_MIC: char = '\u{eb51}';
+const COD_MIC: char = '\u{ec12}';
 const COD_MIC_FILLED: char = '\u{ec1c}';
 /// An upright pin (the sticky pane). Codicons' plain `pin` (U+EB2B) is tilted.
 const COD_PINNED: char = '\u{eba0}';
