@@ -14,8 +14,6 @@ All notable changes to nex are documented here. The format follows
   scroll (through the scrollback, or as the wheel in `less`, tmux and other programs), and
   a quick swipe flings on. Swipe sideways on any pane (a terminal, Files, Changes, Agents)
   to go to the next or previous tab; the home tab comes first, and the ends don't wrap.
-  On Android the tabs follow the finger (swipe right for the next tab); elsewhere a left
-  swipe turns to the next tab, as pages do.
   Long-press to
   select a word, then drag to extend the selection. A tap focuses the pane (and clicks, in
   programs that take the mouse).
