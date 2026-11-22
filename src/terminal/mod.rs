@@ -101,6 +101,9 @@ fn quote_arg(a: &str) -> String {
 pub struct Terminal {
     pub term: Arc<FairMutex<Term<EventProxy>>>,
     notifier: Notifier,
+    /// Every byte written to the shell, for tests to read back.
+    #[cfg(test)]
+    pub written: std::sync::Mutex<Vec<u8>>,
     events: Receiver<Event>,
     pid: u32,
     size: GridSize,
@@ -276,6 +279,8 @@ impl Terminal {
         let t = Self {
             term,
             notifier,
+            #[cfg(test)]
+            written: Default::default(),
             events,
             pid,
             size,
@@ -391,6 +396,9 @@ impl Terminal {
 
     /// Send raw bytes to the child process.
     pub fn write(&self, bytes: impl Into<std::borrow::Cow<'static, [u8]>>) {
+        let bytes = bytes.into();
+        #[cfg(test)]
+        self.written.lock().unwrap().extend_from_slice(&bytes);
         self.notifier.notify(bytes);
     }
 
