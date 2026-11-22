@@ -15,8 +15,8 @@ The port is happening in milestones (see the plan in the PR):
    (`device-key-days`, 30 by default), and logs in with that key from then on. Every pane's
    shell is a `nex-host` session on the server, so it survives switching apps and network
    changes: the pane reconnects and the screen comes back.
-3. Touch typing: the soft keyboard and an extra-keys bar (Esc, Ctrl, Tab, arrows), plus
-   drag to scroll.
+3. *(on hold)* Touch typing: an extra-keys bar (Esc, Ctrl, Tab, arrows), keeping the terminal
+   above the keyboard, and drag to scroll.
 4. The Agents, Changes and Files panes over the same connection.
 
 ## Building
@@ -84,14 +84,15 @@ cargo apk run -p nex-android --release
      line. Hosts with OpenSSH older than 8.7 get the line without `expiry-time`.
 2. **Typing.** Tapping the terminal brings up the keyboard, and what you type reaches the
    shell. The keyboard covers the bottom of the screen for now, and there's no Ctrl or Esc key
-   yet. Both come in milestone 3.
+   yet (milestone 3, on hold).
 3. **Next launch.** Close the app from the recents screen and open it again. It connects
    without asking for anything, and the shell you left open comes back as it was.
 4. **Switching away.** Leave the app for a few minutes, or turn Wi-Fi off and on, then go back.
    - The pane says it lost the connection and is reconnecting.
    - Then the screen comes back.
    - A command that was running (`top`, say) is still running.
-5. **New tabs.** The new-tab button in the sidebar opens another shell. Closing a pane ends its
+5. **New tabs.** The app stays in portrait with the tabs along the top. The new-tab button
+   there opens another shell. Closing a pane ends its
    shell: `~/.nex/bin/nex-host list` on the server no longer shows it.
 6. **No panics.** `adb logcat -s nex` shows none.
 

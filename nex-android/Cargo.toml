@@ -41,7 +41,9 @@ name = "android.permission.INTERNET"
 
 [package.metadata.android.application]
 label = "nex"
-# The app redraws itself on rotation and keyboard changes instead of being restarted.
+# Portrait only, with the tabs along the top as on a desktop. The app redraws itself on
+# keyboard and size changes instead of being restarted.
 [package.metadata.android.application.activity]
+orientation = "portrait"
 config_changes = "orientation|screenSize|screenLayout|keyboard|keyboardHidden|uiMode|density"
 launch_mode = "singleTask"

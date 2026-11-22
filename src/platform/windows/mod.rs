@@ -22,7 +22,7 @@ pub const SOFT_KEYBOARD: bool = false;
 
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true, sidebar_tabs: false };
+pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true };
 
 pub const FALLBACK_FAMILIES: &[&str] = &["Consolas", "Segoe UI Symbol", "Cambria Math", "Microsoft YaHei"];
 

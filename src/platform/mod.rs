@@ -244,8 +244,6 @@ pub struct WindowDefaults {
     pub min_size: [f32; 2],
     /// Ask for a window with an alpha channel (for `background-opacity`).
     pub transparent: bool,
-    /// Tabs go in the touch-sized sidebar unless the config says `tab-bar = top` (phones).
-    pub sidebar_tabs: bool,
 }
 
 impl WindowDefaults {

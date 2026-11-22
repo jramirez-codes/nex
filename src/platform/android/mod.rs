@@ -25,15 +25,13 @@ pub const SOFT_KEYBOARD: bool = true;
 
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
-/// Full screen: no OS decorations, no window buttons, any size the screen is, and the
-/// touch-sized sidebar for tabs.
+/// Full screen: no OS decorations, no window buttons, and any size the screen is.
 pub const WINDOW: WindowDefaults = WindowDefaults {
     decorations: false,
     controls: false,
     titlebar_inset: 0.0,
     min_size: [0.0, 0.0],
     transparent: false,
-    sidebar_tabs: true,
 };
 
 /// Android's own fonts cover symbols, emoji and CJK.
