@@ -152,6 +152,8 @@ pub struct Terminal {
 }
 
 /// A pane whose shell is a `nex-host` session on a host nex is connected to itself.
+// Remote panes open on unix only (see `App::spawn_remote_pane`).
+#[cfg_attr(not(unix), allow(dead_code))]
 #[derive(Clone)]
 pub struct RemotePane {
     pub host: Arc<crate::remote::ssh::host::RemoteHost>,
