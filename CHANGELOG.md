@@ -105,6 +105,12 @@ All notable changes to nex are documented here. The format follows
   sticks its tongue out with a head wiggle each time you switch to Files, and is dimmed
   while another tab is showing. With `animations = false` it stays still.
 
+### Fixed
+
+- Restoring the session reattaches panes that showed an agent on an ssh host. A tab opened
+  from the Agents pane came back as an empty local shell, and an ssh pane running `claude`
+  through the shim came back logged in but with the agent left detached.
+
 ## [0.11.0] - 2026-11-17
 
 ### Added

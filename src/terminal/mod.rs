@@ -408,8 +408,15 @@ impl Terminal {
 
     /// What the shell is running, as of the last process poll, to run again when the session
     /// is restored: the foreground job's command line, or `None` at the prompt. Claude Code
-    /// is rewritten to resume the same conversation.
+    /// is rewritten to resume the same conversation, and an `ssh` showing an agent `nex-host`
+    /// keeps (typed in the pane, or a tab the Agents pane opened, which runs `ssh` itself
+    /// with no shell) to attach to it again.
     pub fn running_command(&self) -> Option<Vec<String>> {
+        if self.process == "ssh"
+            && let Some(cmd) = reattach_command(&self.process_argv, self.agent_session())
+        {
+            return Some(cmd);
+        }
         let job = self.job?;
         let argv = &self.process_argv;
         if argv.first().is_none_or(String::is_empty) {
@@ -564,9 +571,31 @@ fn is_local_host(host: &str) -> bool {
     host.is_empty() || host == "localhost" || short(host) == short(&platform::hostname())
 }
 
+/// The command line that attaches to the `nex-host` agent an `ssh` running `argv` shows
+/// again: the one `nex-host attach` reported (`tagged`), else the one its command line names.
+fn reattach_command(argv: &[String], tagged: Option<String>) -> Option<Vec<String>> {
+    let target = crate::remote::SshTarget::from_argv(argv)?;
+    let session = tagged.or_else(|| crate::remote::SshTarget::attach_id(argv))?;
+    Some(target.normalized().attach_command(&session))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::quote_arg;
+    use super::{quote_arg, reattach_command};
+
+    #[test]
+    fn an_ssh_showing_an_agent_reattaches_to_it() {
+        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let attach = argv(&["ssh", "-t", "-o", "RemoteCommand=none", "--", "me@devbox", "~/.nex/bin/nex-host attach 3fa91c0e"]);
+        // A tab the Agents pane opened: its own command line names the agent.
+        assert_eq!(reattach_command(&attach, None), Some(attach.clone()));
+        // `claude` typed in a plain ssh pane, started through the shim.
+        let plain = argv(&["ssh", "-p", "2222", "me@devbox"]);
+        let expect = argv(&["ssh", "-t", "-o", "RemoteCommand=none", "-p", "2222", "--", "me@devbox", "~/.nex/bin/nex-host attach 3fa91c0e"]);
+        assert_eq!(reattach_command(&plain, Some("3fa91c0e".into())), Some(expect));
+        // A plain ssh session with no agent is left to run as it is.
+        assert_eq!(reattach_command(&plain, None), None);
+    }
 
     #[test]
     fn quotes_only_what_needs_it() {
