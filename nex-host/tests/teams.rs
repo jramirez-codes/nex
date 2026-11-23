@@ -105,6 +105,19 @@ fn parallel_pipeline_stages_get_worktrees_of_their_own() {
 }
 
 #[test]
+fn worktrees_made_in_the_same_second_get_their_own_branches() {
+    // Two features joining a run at once used to collide on the branch name, which ended
+    // the run and left every PR after it unreviewed.
+    let h = Host::new();
+    let repo = h.repo();
+    let cwd = repo.to_string_lossy().into_owned();
+    let dirs: Vec<_> = (0..3).map(|_| h.spawn(&["build", "x", "--worktree", "--cwd", &cwd, "--", "sleep", "60"]).1).collect();
+    assert!(dirs[0] != dirs[1] && dirs[1] != dirs[2] && dirs[0] != dirs[2], "{dirs:?}");
+    let branches: std::collections::HashSet<_> = dirs.iter().map(|d| git(d, &["symbolic-ref", "--short", "HEAD"]).trim().to_string()).collect();
+    assert_eq!(branches.len(), 3, "{branches:?}");
+}
+
+#[test]
 fn prune_removes_only_worktrees_that_cant_lose_work() {
     let h = Host::new();
     let repo = h.repo();

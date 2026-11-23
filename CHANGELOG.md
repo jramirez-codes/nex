@@ -166,6 +166,14 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- `nex-host pipe`: two features joining a run in the same second no longer end it. Their
+  worktrees got the same branch name, the second failed to start, and the run stopped, so
+  nothing reviewed or merged the PRs its builders went on to open. Worktrees made in the
+  same second now get `-2`, `-3`…, and a joined feature that can't start is reported to
+  whoever sent it while the run goes on.
+- The feature pipeline example deletes a merged PR's branch on GitHub with `git push
+  --delete`; `gh pr merge --delete-branch` stopped at the local branch, which the builder's
+  worktree still has checked out.
 - Toasts fit narrow screens: a message wider than the window (a phone held upright) wraps
   onto more lines instead of running off the sides, and a very long one stops at a few
   lines, ending in "…".
