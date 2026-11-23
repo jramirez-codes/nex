@@ -59,6 +59,8 @@ fn tap_and_settle(app: &mut App, ctx: &egui::Context, t: &mut f64, pos: Pos2) ->
 /// type would end a shell still starting up (on a busy machine), closing the pane under
 /// them. It's waited for until it ignores it.
 fn phone(ctx: &egui::Context) -> App {
+    // Only Unix sets the stand-in in it.
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut cfg = crate::config::Config::default();
     #[cfg(unix)]
     let ready = {
