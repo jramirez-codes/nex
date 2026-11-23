@@ -13,6 +13,15 @@ All notable changes to nex are documented here. The format follows
   card's own fill, and the desktop alert's buttons and recessed panels (Cancel beside "Trust
   and Connect"). It sits in the screen's safe area.
 
+### Fixed
+
+- macOS: closing a pane frees its terminal. Closing a terminal hangs its program up and
+  waited for it to exit, but a program that left output unread can't finish exiting on
+  macOS until it's read, so the wait never ended: each closed pane kept a pseudo-terminal,
+  a thread and a half-exited `login`, and a long session could run out of terminals
+  (`failed to spawn shell: Device not configured`). nex now reads what's left while it
+  waits.
+
 ## [0.12.0] - 2026-11-23
 
 ### Added

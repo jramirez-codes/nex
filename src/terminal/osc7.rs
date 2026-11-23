@@ -251,7 +251,9 @@ pub use pty::ScanPty;
 mod pty {
     use std::fs::File;
     use std::io;
+    use std::os::fd::AsRawFd;
     use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     use alacritty_terminal::event::{OnResize, WindowSize};
     use alacritty_terminal::tty::{ChildEvent, EventedPty, EventedReadWrite, Pty};
@@ -308,6 +310,68 @@ mod pty {
     impl OnResize for ScanPty {
         fn on_resize(&mut self, size: WindowSize) {
             self.pty.on_resize(size)
+        }
+    }
+
+    /// How long a closed terminal's program gets to finish exiting before [`Pty`]'s own drop
+    /// takes over.
+    const HANGUP_GRACE: Duration = Duration::from_secs(1);
+
+    impl Drop for ScanPty {
+        /// [`Pty`]'s drop hangs the program up, then waits for it with the PTY still open and
+        /// nothing reading it. A program that exits with output still queued for the terminal
+        /// can't finish exiting until that output is read (macOS drains a terminal on its last
+        /// close), so the wait never ended: every closed pane kept its PTY, its event-loop
+        /// thread and a half-exited `login`. Hang it up here and read what it leaves until its
+        /// side of the PTY closes, so the wait that follows is over at once.
+        fn drop(&mut self) {
+            // SAFETY: plain syscalls on our own child's pid and our own PTY's descriptor.
+            unsafe { libc::kill(self.pty.child().id() as libc::pid_t, libc::SIGHUP) };
+            let fd = self.pty.file().as_raw_fd();
+            let deadline = Instant::now() + HANGUP_GRACE;
+            let mut buf = [0u8; 4096];
+            while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+                let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+                let ms = left.as_millis().clamp(1, i32::MAX as u128) as libc::c_int;
+                // SAFETY: one valid pollfd; `buf` outlives the read.
+                if unsafe { libc::poll(&mut pfd, 1, ms) } <= 0 {
+                    continue;
+                }
+                let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+                // 0 or EIO: every process holding the other side has closed it.
+                if n == 0 || (n < 0 && !matches!(io::Error::last_os_error().kind(), io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock)) {
+                    break;
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::sync::mpsc;
+
+        use alacritty_terminal::tty::{self, Options, Shell};
+
+        use super::*;
+        use crate::terminal::osc7::Alert;
+
+        /// A program that exits (on the hangup) with output nobody has read: dropping its PTY
+        /// used to wait for it forever.
+        #[test]
+        fn dropping_a_pty_with_unread_output_ends_its_program() {
+            let script = "head -c 100000 /dev/zero | tr '\\0' x; exec sleep 600";
+            let options = Options { shell: Some(Shell::new("/bin/sh".into(), vec!["-c".into(), script.into()])), ..Options::default() };
+            let size = WindowSize { num_lines: 24, num_cols: 80, cell_width: 8, cell_height: 16 };
+            let pty = tty::new(&options, size, 0).unwrap();
+            let pid = pty.child().id();
+            let scan = ScanPty::new(pty, Default::default(), Alert::new(Default::default()), Default::default()).unwrap();
+            std::thread::sleep(Duration::from_millis(500));
+            let (done, dropped) = mpsc::channel();
+            std::thread::spawn(move || {
+                drop(scan);
+                let _ = done.send(());
+            });
+            assert!(dropped.recv_timeout(Duration::from_secs(10)).is_ok(), "dropping the PTY hung (pid {pid})");
         }
     }
 }
