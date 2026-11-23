@@ -456,8 +456,8 @@ impl App {
         let shown = if show_buttons { 4 } else if pinned { 1 } else { 0 };
         if shown > 0 {
             let close: (&str, Action, Action, &IconFn<'_>) = match (pinned, shift) {
-                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(id), Action::ToggleSticky(id), &pane_pin),
-                (false, true) => ("Pin to every tab", Action::ToggleSticky(id), Action::ToggleSticky(id), &pane_pin),
+                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(0), Action::ToggleSticky(id), &pane_pin),
+                (false, true) => ("Pin to every tab", Action::ToggleSticky(0), Action::ToggleSticky(id), &pane_pin),
                 _ => ("Close  (Shift: pin to every tab)", Action::ClosePane(0), Action::ClosePane(id), &icons::icon_close),
             };
             // (label, the shortcut's action for the focused pane, this button's action, icon)
@@ -538,7 +538,7 @@ fn pane_pin(p: &Painter, r: Rect, c: Color32) {
 }
 
 /// Process glyph and title at the left of a pane header, the title fading out before `right`.
-fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
+pub(in crate::app) fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
     let cy = header.center().y + 1.0;
     let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));
     let (mark, title) = icons::title_mark(process, title);

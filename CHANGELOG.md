@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The connect screen (Android, iOS, `nex --remote`) is one card drawn like a focused
+  terminal pane: the pane's header with the ssh glyph and the step's title, the fields on the
+  card's own fill, and the desktop alert's buttons and recessed panels (Cancel beside "Trust
+  and Connect"). It sits in the screen's safe area.
+
 ### Fixed
 
 - macOS: closing a pane frees its terminal. Closing a terminal hangs its program up and
@@ -19,6 +26,8 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS) pins the focused pane to every tab, or unpins it,
+  the same as Shift + the pane header's ×.
 - Touch screens: the Changes pane (its file list and its diff) and the Agents pane scroll
   with a finger too, flinging on after a quick swipe.
 - Touch screens: a finger on a terminal no longer only selects text. Swipe up or down to

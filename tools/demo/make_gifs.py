@@ -25,7 +25,9 @@ REPO = Path(__file__).resolve().parents[2]
 FPS = "100/3"
 # Output width per clip: the hero shows up to 1000px wide, feature rows about half a page;
 # a little extra keeps text crisp on HiDPI screens.
-WIDTH = {"tour": 1200}
+WIDTH = {"tour": 1200, "hero": 1200}
+# Clips another script makes from the same markers (promo.py composites `promo`).
+SKIP = {"promo"}
 DEFAULT_WIDTH = 1000
 # Hyprland's window rounding in the take, plus its antialiased fringe, in take pixels.
 CORNER_RADIUS = 13
@@ -38,7 +40,7 @@ def clips(marks: list[dict]) -> dict[str, tuple[float, float]]:
     spans: dict[str, list[float]] = {}
     for m in marks:
         spans.setdefault(m["clip"], [0.0, 0.0])[0 if m["event"] == "start" else 1] = m["t"]
-    return {k: (a, b) for k, (a, b) in spans.items() if b > a}
+    return {k: (a, b) for k, (a, b) in spans.items() if b > a and k not in SKIP}
 
 
 def take_width(take: Path) -> int:

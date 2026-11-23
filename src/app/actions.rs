@@ -72,7 +72,7 @@ pub(super) enum Action {
     /// the focused pane (see `ssh/mic.rs`).
     ToggleMic(PaneId),
     /// Make a pane the sticky one, which follows the user to every tab, or unpin it
-    /// (Shift + the header's ×).
+    /// (Shift + the header's ×, or Ctrl+Shift+P); `ToggleSticky(0)` means the focused pane.
     ToggleSticky(PaneId),
 }
 
@@ -158,6 +158,11 @@ impl App {
                 }
             }
             Action::ToggleMic(id) => self.toggle_mic(ctx, id),
+            Action::ToggleSticky(0) => {
+                if let Some(id) = focused {
+                    self.toggle_sticky(ctx, id)
+                }
+            }
             Action::ToggleSticky(id) => self.toggle_sticky(ctx, id),
             Action::ExploreHere => {
                 if let Some(id) = focused {

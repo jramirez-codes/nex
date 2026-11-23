@@ -183,3 +183,21 @@ fn the_pin_is_the_same_on_mobile_and_desktop() {
     assert_eq!(desktop.family, egui::FontFamily::Name(crate::render::FONT_ICONS.into()));
     assert_eq!(desktop_rect.size(), mobile_rect.size());
 }
+
+#[test]
+fn the_shortcut_pins_and_unpins_the_focused_pane() {
+    let mut s = Sim::new();
+    s.act(Action::Split(Axis::Horizontal));
+    let right = s.focused();
+    s.act(Action::ToggleSticky(0));
+    assert_eq!(s.app.sticky, Some(right));
+    s.act(Action::NewTab);
+    assert!(s.everywhere(right));
+    // From another pane it moves the pin there; from the pinned pane it unpins.
+    s.act(Action::ToggleSticky(0));
+    let other = s.focused();
+    assert_ne!(other, right);
+    assert_eq!(s.app.sticky, Some(other));
+    s.act(Action::ToggleSticky(0));
+    assert_eq!(s.app.sticky, None);
+}

@@ -2,6 +2,7 @@ import BubbleBackground from './components/BubbleBackground'
 import Nav from './components/Nav'
 import Hero from './sections/Hero'
 import Highlights from './sections/Highlights'
+import Agents from './sections/Agents'
 import Ssh from './sections/Ssh'
 import Mac from './sections/Mac'
 import Features from './sections/Features'
@@ -21,6 +22,7 @@ export default function App() {
         <Hero />
         <Highlights />
         <Ssh />
+        <Agents />
         <Mac />
         <Features />
         <Shortcuts />

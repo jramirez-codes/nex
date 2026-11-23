@@ -4,12 +4,14 @@
 nex runs on a throwaway headless Hyprland output, so your own screen and windows are left
 alone. Keystrokes go in through `hyprctl dispatch sendshortcut`, frames come out of `grim`
 and are piped into ffmpeg at a steady frame rate. The scenes themselves live in scenes.py;
-each one leaves a marker in the timeline so make_gifs.sh can cut the take into clips.
+each one leaves a marker in the timeline so make_gifs.py can cut the take into clips.
 
 Needs Hyprland, grim, ffmpeg, plus the programs the scenes run (git, btop, nvim, tree).
+The promo also needs `ssh localhost` to log in with a key (an sshd on this machine): its
+agents run on the "server" through nex-host, as stub agents in a throwaway repo.
 Usage: tools/demo/record.py [OUT_DIR]   (default: target/demo)
        DEMO_SCENES=search,explorer tools/demo/record.py   records only those scenes
-Then:  tools/demo/make_gifs.sh
+Then:  tools/demo/make_gifs.py, tools/demo/promo.py
 """
 
 import json
@@ -30,6 +32,11 @@ W, H = 1440, 900  # window size, in pixels: big enough for btop in half the wind
 # takes ~30 ms, and a few running side by side reach ~47 fps.
 FPS = 50
 GRABBERS = 3
+# The promo's demo repo and the rc of its shell on the "server" (this machine, over ssh).
+PROMO_DIR = Path("/tmp/nex-promo")
+PROMO_RC = PROMO_DIR / "rc"
+PROMO_REPO = PROMO_DIR / "todo"
+NEX_HOST = Path.home() / ".nex" / "bin" / "nex-host"
 
 # Characters that aren't their own key name, as (shift, key).
 CHAR_KEYS = {
@@ -159,6 +166,8 @@ def write_config(tmp: Path) -> None:
         "window-decorations = false\n"
         "cursor-style-blink = false\n"
         "tab-animation = glide\n"
+        # The promo's ssh pane: don't stop to offer the claude/codex shim (a dialog mid-take).
+        "ssh-agent-shim = off\n"
         f"command = bash --rcfile {tmp}/rc\n"
     )
     (tmp / "rc").write_text(
@@ -170,6 +179,65 @@ def write_config(tmp: Path) -> None:
         r"\[\e[0m\] \[\e[1;32m\]❯\[\e[0m\] '" "\n"
         "clear\n"
     )
+
+
+def setup_promo() -> None:
+    """The promo's demo repo (pr-team's todo app with the stub pipeline) and its shell's rc.
+    Fails early if `ssh localhost` can't log in without a prompt."""
+    ok = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
+                         "-o", "StrictHostKeyChecking=accept-new", "localhost", "true"],
+                        capture_output=True)
+    if ok.returncode != 0:
+        raise SystemExit("the promo needs `ssh localhost` to log in with a key: install and start "
+                         "openssh-server, and put your public key in ~/.ssh/authorized_keys\n"
+                         + ok.stderr.decode().strip())
+    shutil.rmtree(PROMO_DIR, ignore_errors=True)
+    PROMO_DIR.mkdir(parents=True)
+    subprocess.run([str(REPO / "tools/demo/agents/setup.sh"), str(PROMO_REPO)], check=True,
+                   capture_output=True)
+    # Something for the Changes pane: an edit and a new file, left uncommitted (the
+    # pipeline's worktrees start from HEAD, so they don't see them).
+    cli = PROMO_REPO / "app" / "cli.py"
+    if cli.exists():
+        text = cli.read_text()
+        cli.write_text(text.rstrip("\n") + '\n\n\ndef version() -> str:\n    """The version `--version` prints."""\n    return "0.2.0"\n')
+    (PROMO_REPO / "NOTES.md").write_text("# Notes\n\n- stats, search and export: one PR each\n"
+                                         "- keep each command in its own file\n")
+    PROMO_RC.write_text(
+        f'cd "{PROMO_REPO}"\n'
+        'export HISTFILE=/dev/null PATH="$HOME/.nex/bin:$PATH"\n'
+        # Say where it is (OSC 7), so tabs and splits opened from it start in the repo too.
+        # As a host other than this machine's name: nex takes a report naming this machine
+        # for a local shell's, and this "server" is this machine.
+        r'''PROMPT_COMMAND='printf "\e]7;file://devbox%s\a" "$PWD"' ''' "\n"
+        r"PS1='\[\e[1;35m\]todo\[\e[0m\] \[\e[2m\]on\[\e[0m\] \[\e[36m\] $(git branch --show-current)"
+        r"\[\e[0m\] \[\e[1;32m\]❯\[\e[0m\] '" "\n"
+        "clear\n"
+    )
+
+
+def cleanup_promo() -> None:
+    """Stop whatever the promo's run left on nex-host, and its worktrees."""
+    if not NEX_HOST.exists():
+        return
+    listing = subprocess.run([str(NEX_HOST), "list", "--json"], capture_output=True, text=True).stdout
+    agents = []
+    for chunk in [listing, *listing.splitlines()]:  # an array, or one object a line
+        try:
+            v = json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(v, dict) and "sessions" in v:  # {"ok": true, "sessions": [...]}
+            v = v["sessions"]
+        agents += v if isinstance(v, list) else [v] if isinstance(v, dict) else []
+    for a in agents:
+        cwd = str(a.get("cwd", ""))
+        if cwd.startswith(str(PROMO_DIR)) or "/worktrees/todo-demo-" in cwd or "stub-agent" in " ".join(a.get("argv", [])):
+            subprocess.run([str(NEX_HOST), "kill", str(a.get("id"))], capture_output=True)
+    subprocess.run([str(NEX_HOST), "worktree", "prune", "--all"], cwd=PROMO_REPO, capture_output=True)
+    shutil.rmtree(PROMO_DIR, ignore_errors=True)
+    for tree in (Path.home() / ".nex" / "worktrees").glob("todo-demo-*"):
+        shutil.rmtree(tree, ignore_errors=True)
 
 
 def add_output() -> tuple[int, int, int]:
@@ -204,6 +272,10 @@ def main() -> None:
     subprocess.run(["cargo", "build", "--release", "-q", "--manifest-path", str(REPO / "Cargo.toml")],
                    check=True)
 
+    only = [s for s in os.environ.get("DEMO_SCENES", "").split(",") if s]
+    promo = not only or "promo" in only
+    if promo:
+        setup_promo()
     tmp = Path(tempfile.mkdtemp(prefix="nex-demo-"))
     write_config(tmp)
     ws, _, _ = add_output()
@@ -214,7 +286,10 @@ def main() -> None:
     try:
         x, y = (1920 - W) // 2, (1080 - H) // 2  # window rules place relative to the monitor
         rules = f"workspace {ws} silent; float; size {W} {H}; move {x} {y}"
-        cmd = f"env XDG_CONFIG_HOME={tmp} {REPO}/target/release/nex"
+        # Its own state folder too: your saved session and remembered ssh hosts (whose
+        # agents would show in the Agents pane) are left out of the take, and alone.
+        (tmp / "state").mkdir()
+        cmd = f"env XDG_CONFIG_HOME={tmp} XDG_STATE_HOME={tmp}/state {REPO}/target/release/nex"
         hypr("dispatch", "exec", f"[{rules}] {cmd}")
         client = None
         for _ in range(50):
@@ -239,7 +314,6 @@ def main() -> None:
         print(f"recording {geometry} → {out_dir / 'take.mkv'}")
         rec.start()
         try:
-            only = [s for s in os.environ.get("DEMO_SCENES", "").split(",") if s]
             for scene in SCENES:
                 if not only or scene.__name__ in only:
                     scene(drv)
@@ -252,6 +326,8 @@ def main() -> None:
         hypr("output", "remove", OUTPUT)
         hypr("keyword", "cursor:no_warps", str(warps))
         shutil.rmtree(tmp, ignore_errors=True)
+        if promo:
+            cleanup_promo()
     print(f"done: {out_dir / 'take.mkv'}, {out_dir / 'timeline.json'}")
 
 

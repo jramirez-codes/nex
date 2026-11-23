@@ -7,7 +7,7 @@
 <p align="center">
   <strong>A fast, GPU-accelerated terminal emulator for Linux and macOS, written in Rust.</strong>
   <br />
-  Tabs, split panes, a file explorer and SSH that follows you, built in. No tmux, no plugins, no setup.
+  Tabs, splits, a file explorer, git changes, agent monitoring and SSH that follows you, built in. No tmux, no plugins, no setup.
   <br /><br />
   <a href="https://jramirez-codes.github.io/nex/"><strong>Website</strong></a>
   ·
@@ -16,6 +16,8 @@
   <a href="#features">Features</a>
   ·
   <a href="#ssh-built-in">SSH</a>
+  ·
+  <a href="#agents">Agents</a>
   ·
   <a href="#how-does-nex-compare">Compare</a>
   ·
@@ -36,7 +38,7 @@
 </p>
 
 <p align="center">
-  <img src="site/public/demo/hero.gif" alt="nex terminal emulator splitting into btop and nvim panes, zooming a pane, opening a tab with a file explorer, gliding back to the first tab, and searching the scrollback" width="900">
+  <img src="site/public/demo/promo.gif" alt="nex over ssh: a pipeline of coding agents starts and the Agents pane is pinned beside it; a new tab opens on the same server with the git Changes pane showing a diff, another with a file explorer, and the pinned Agents pane follows back to the run" width="900">
 </p>
 
 ## About
@@ -44,8 +46,11 @@
 **nex** is a free, open-source terminal emulator for Linux and macOS that looks and feels like a native,
 modern desktop app. Tabs live in the title bar, and every split pane is a rounded card with its
 own header showing what's running and where. A file explorer opens right next to your shell,
-and `ssh` sessions get the same treatment: splits stay on the server, and files you drop or
-paste land on the remote host.
+and a Changes pane shows what git sees as changed. `ssh` sessions get the same treatment:
+splits stay on the server, and files you drop or paste land on the remote host. Running
+Claude Code or Codex? An Agents pane keeps every one in view, says which one needs you, and
+can be pinned to every tab; on a server, agents keep running after their pane closes, and
+pipelines chain them into a plan, build, review and merge run.
 The UI is drawn with the GPU, so typing, scrolling and resizing stay smooth even under heavy
 TUIs like `btop`, `nvim` and `lazygit`.
 
@@ -61,11 +66,14 @@ rendering, input handling, multiplexing and window chrome.
 
 ### Why nex?
 
-- **One window instead of three.** Tabs, split panes and a file explorer replace a terminal +
-  tmux + file manager setup.
+- **One window instead of three.** Tabs, split panes, a file explorer and a git Changes pane
+  replace a terminal + tmux + file manager + diff viewer setup.
 - **SSH without the busywork.** Split an `ssh` pane and you're on the same host, in the same
   folder. Drop a file or paste a screenshot into it and nex uploads it and types the remote
   path, so a remote Claude Code can open it. One login, no `scp`.
+- **Your agents, in view.** One pane lists every Claude Code and Codex agent, in any tab or
+  on any server, and which one needs you. Pin it with `Ctrl+Shift+P` and it follows you to
+  every tab.
 - **Fast.** In [our benchmark](bench/README.md), nex printed 50 MB of output 1.8× faster than
   kitty and launched 25× faster than GNOME Terminal.
 - **Works out of the box.** A Nerd Font is embedded, config applies on save, and the defaults
@@ -432,6 +440,7 @@ nex follows Ghostty's defaults on each OS. Both tables live in
 | Explorer split here    | `Ctrl+E`                                              | `Cmd+E`                                         |
 | Changes (git diff)     | `Ctrl+G`                                              | `Cmd+G`                                         |
 | Agents                 | `Ctrl+Shift+A`                                        | `Cmd+Shift+A`                                   |
+| Pin pane to every tab  | `Ctrl+Shift+P`                                        | `Cmd+Shift+P`                                   |
 | Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn/PgUp`)   | `Cmd+Shift+]` / `Cmd+Shift+[`, `Ctrl+Tab`       |
 | Go to tab *N*          | `Alt+1` … `Alt+8`, `Alt+9` for the last tab           | `Cmd+1` … `Cmd+8`, `Cmd+9` for the last tab     |
 | Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       | `Cmd+C` / `Cmd+V`                               |

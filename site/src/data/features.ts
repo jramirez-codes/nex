@@ -17,8 +17,8 @@ export const SPOTLIGHT: Feature[] = [
   },
   {
     eyebrow: 'Only in nex',
-    title: 'A file explorer, right next to your shell.',
-    body: 'One shortcut and a file explorer splits off the current pane, open at its folder. List or grid view, multi-select, copy, cut and paste. Drag files onto a terminal to type their quoted paths, or split the explorer to start a shell in the folder you are looking at.',
+    title: 'Your files and your changes, next to your shell.',
+    body: 'One shortcut and a file explorer splits off the current pane, open at its folder. List or grid view, multi-select, copy, cut and paste. Drag files onto a terminal to type their quoted paths, or split the explorer to start a shell in the folder you are looking at. Another opens the Changes pane: what git sees as changed, each diff as hunk cards, following the repo you are in. Both work over ssh too.',
     keys: { linux: ['Ctrl+E', 'Ctrl+G', 'Ctrl+H'], mac: ['Cmd+E', 'Cmd+G', 'Cmd+H'] },
     shot: { name: 'explorer', alt: 'Ctrl+E opens a file explorer beside the shell; three files are selected, grid view toggled, and a shell split off in src' },
   },
@@ -33,6 +33,8 @@ export const SPOTLIGHT: Feature[] = [
 
 /** The smaller grid of details. */
 export const DETAILS: { icon: string; title: string; body: string }[] = [
+  { icon: '⛓', title: 'Pipelines', body: 'A TOML file of stages, each an agent with a task: plan, build in parallel worktrees, review, retry, merge. nex-host pipe runs it.' },
+  { icon: '📌', title: 'Pin to every tab', body: 'Ctrl+Shift+P (Cmd+Shift+P) pins a pane, say the Agents pane, so it follows you from tab to tab and glides along.' },
   { icon: '⚡', title: 'Drawn by the GPU', body: 'Each pane is one mesh of cached glyphs, and idle panes reuse their last frame, so btop or nvim stay smooth with CPU to spare.' },
   { icon: '▦', title: 'Pixel-perfect TUIs', body: 'Box-drawing, block, braille and Powerline glyphs are drawn as geometry, so borders and graphs line up exactly.' },
   { icon: 'Aa', title: 'Nerd Font included', body: 'JetBrains Mono Nerd Font is embedded. Icons in nvim, starship and lazygit work with nothing installed.' },
