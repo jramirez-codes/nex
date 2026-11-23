@@ -47,6 +47,72 @@ impl Group {
     pub fn direct(&self) -> impl Iterator<Item = &Member> {
         self.members.iter().filter(|m| m.depth == 1)
     }
+
+    /// Member `i`'s own helpers: the members right after it, deeper down.
+    pub fn under(&self, i: usize) -> impl Iterator<Item = &Member> {
+        let depth = self.members[i].depth;
+        self.members[i + 1..].iter().take_while(move |m| m.depth > depth).filter(move |m| m.depth == depth + 1)
+    }
+
+    /// The closed card's capsule row: the lead's helpers, with a pipeline among them opened
+    /// into its stages (its name first).
+    pub fn strip(&self) -> Vec<Step<'_>> {
+        let mut out = Vec::new();
+        for (i, m) in self.members.iter().enumerate().filter(|(_, m)| m.depth == 1) {
+            let stages: Vec<&Member> = self.under(i).collect();
+            if self.is_pipeline() {
+                out.push(Step::Stage(&m.agent));
+            } else if m.agent.kind == AgentKind::Pipeline && !stages.is_empty() {
+                out.push(Step::Heading(&m.agent.name));
+                out.extend(stages.into_iter().map(|s| Step::Stage(&s.agent)));
+            } else {
+                out.push(Step::Helper(&m.agent));
+            }
+        }
+        out
+    }
+
+    /// The size the card's header gives: `2 stages` for a pipeline, else its helpers and
+    /// pipelines (a nested pipeline counted once, not as its stages).
+    pub fn size(&self) -> String {
+        let n = |k: usize, what: &str| format!("{k} {what}{}", if k == 1 { "" } else { "s" });
+        if self.is_pipeline() {
+            return n(self.members.len(), "stage");
+        }
+        let (pipes, helpers) = self.direct().fold((0, 0), |(p, h), m| if m.agent.kind == AgentKind::Pipeline { (p + 1, h) } else { (p, h + 1) });
+        match (helpers, pipes) {
+            (h, 0) => n(h, "helper"),
+            (0, p) => n(p, "pipeline"),
+            (h, p) => format!("{} · {}", n(h, "helper"), n(p, "pipeline")),
+        }
+    }
+}
+
+/// One thing in a closed team's capsule row.
+#[derive(Clone, Copy, Debug)]
+pub enum Step<'a> {
+    /// A nested pipeline's name, before its stages.
+    Heading(&'a str),
+    /// A pipeline's stage: drawn as steps, joined to the one before unless it's the same
+    /// stage ([`same_step`]).
+    Stage(&'a Agent),
+    Helper(&'a Agent),
+}
+
+impl<'a> Step<'a> {
+    pub fn agent(self) -> Option<&'a Agent> {
+        match self {
+            Step::Heading(_) => None,
+            Step::Stage(a) | Step::Helper(a) => Some(a),
+        }
+    }
+}
+
+/// Whether two helpers side by side in a row are one step (the same stage, like `build`
+/// and `build-2`) rather than one after the other.
+pub fn same_step(a: &Agent, b: &Agent) -> bool {
+    let role = |a: &Agent| a.team.role.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| a.name.clone());
+    role(a) == role(b)
 }
 
 /// `agents` (as the tracker sorted them) as cards: each agent under the one that started
@@ -80,9 +146,10 @@ pub fn groups(agents: &[Agent]) -> Vec<Group> {
                 stack.extend(k.iter().rev().map(|c| (*c, depth + 1)));
             }
         }
-        // A pipeline's own state is its runner's printing; its stages' is what matters.
-        let lead_counts = lead.kind != AgentKind::Pipeline || members.is_empty();
-        let status = members.iter().map(|m| m.agent.status).chain(lead_counts.then_some(lead.status)).min().unwrap_or(lead.status);
+        // A pipeline's own state is its runner's printing; its stages' is what matters (a
+        // pipeline nested in a team too).
+        let counts = |a: &Agent| a.kind != AgentKind::Pipeline || !children.contains_key(&a.pane);
+        let status = members.iter().map(|m| &m.agent).filter(|a| counts(a)).map(|a| a.status).chain(counts(lead).then_some(lead.status)).min().unwrap_or(lead.status);
         Group { lead: Agent { status, ..lead.clone() }, members }
     };
     for a in agents.iter().filter(|a| parent(a).is_none()) {
@@ -158,6 +225,45 @@ mod tests {
         assert_eq!(g[0].lead.status, Status::Idle, "not the runner printing");
         assert!(g[0].is_pipeline());
         assert_eq!(groups(&[pipe])[0].lead.status, Status::Working, "on its own it's its own");
+    }
+
+    #[test]
+    fn a_pipeline_an_agent_asked_for_is_in_its_card_as_steps() {
+        let mut pipe = agent(2, Status::Working, Some(1), 10);
+        pipe.kind = AgentKind::Pipeline;
+        pipe.name = "feature".into();
+        let stage = |pane, name: &str, role: &str, started| {
+            let mut a = agent(pane, Status::Working, Some(2), started);
+            a.name = name.into();
+            a.team.role = Some(role.into());
+            a
+        };
+        let agents = vec![
+            agent(1, Status::Idle, None, 0),
+            pipe,
+            stage(3, "build", "build", 20),
+            stage(4, "build-2", "build", 30),
+            Agent { status: Status::Idle, ..stage(5, "merge", "merge", 40) },
+            agent(6, Status::Idle, Some(1), 50),
+        ];
+        let g = groups(&agents);
+        assert_eq!(g.len(), 1, "one card: the agent, its pipeline and its stages");
+        assert_eq!(g[0].lead.status, Status::Working, "the stages' status counts");
+        let all_idle: Vec<Agent> = agents.iter().map(|a| if a.kind == AgentKind::Pipeline { a.clone() } else { Agent { status: Status::Idle, ..a.clone() } }).collect();
+        assert_eq!(groups(&all_idle)[0].lead.status, Status::Idle, "not the runner printing");
+        assert_eq!(g[0].size(), "1 helper · 1 pipeline");
+
+        let strip: Vec<String> = g[0]
+            .strip()
+            .iter()
+            .map(|s| match s {
+                Step::Heading(n) => format!("{n}:"),
+                Step::Stage(a) => format!("stage {}", a.name),
+                Step::Helper(a) => format!("helper {}", a.name),
+            })
+            .collect();
+        assert_eq!(strip, ["feature:", "stage build", "stage build-2", "stage merge", "helper a6"]);
+        assert!(same_step(&agents[2], &agents[3]) && !same_step(&agents[3], &agents[4]), "build and build-2 are one step");
     }
 
     #[test]

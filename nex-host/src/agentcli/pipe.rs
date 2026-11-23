@@ -61,6 +61,8 @@ pub fn pipe(args: &[String]) -> io::Result<i32> {
                     cols: Some(cols),
                     rows: Some(rows),
                     env: Some(std::env::vars().collect()),
+                    // Shown under the agent that asked for it (if one did).
+                    parent: me(),
                 },
                 true,
             )?;

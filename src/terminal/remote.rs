@@ -277,7 +277,7 @@ fn request(host: &RemoteHost, request: &Request) -> Result<(Response, crate::rem
 
 /// Start a shell on the host; its session id.
 fn launch(host: &RemoteHost, cwd: Option<String>, cols: u16, rows: u16) -> Result<String, Attach> {
-    let shell = |argv: Vec<String>| Request::Launch { argv, kind: Some(proto::SHELL_KIND.into()), name: None, cwd: cwd.clone(), cols: Some(cols), rows: Some(rows), env: None };
+    let shell = |argv: Vec<String>| Request::Launch { argv, kind: Some(proto::SHELL_KIND.into()), name: None, cwd: cwd.clone(), cols: Some(cols), rows: Some(rows), env: None, parent: None };
     let (mut r, _) = request(host, &shell(Vec::new()))?;
     if !r.ok && r.error.as_deref().is_some_and(|e| e.contains("nothing to run")) {
         // A daemon from before plain shells (still running the old nex-host after the new

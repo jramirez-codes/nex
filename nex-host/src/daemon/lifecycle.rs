@@ -56,10 +56,12 @@ pub(super) fn launch(state: &Arc<State>, id: String, spec: Spec) -> io::Result<(
     Ok(())
 }
 
-/// An agent has ended: its children end with it, and whoever gave it a task it hadn't
-/// reported on hears that it won't. Killed sessions and shells are forgotten.
+/// An agent has ended: its children end with it (but not a pipeline it asked for, which
+/// runs until Enter ends it), and whoever gave it a task it hadn't reported on hears that it
+/// won't. Killed sessions and shells are forgotten.
 fn on_end(state: &Arc<State>, a: &Arc<Agent>) {
-    let children: Vec<Arc<Agent>> = state.agents.locked().values().filter(|c| c.parent.as_deref() == Some(&a.id) && !c.exited()).cloned().collect();
+    let mine = |c: &Agent| c.parent.as_deref() == Some(&a.id) && !c.exited() && c.kind != proto::PIPELINE_KIND;
+    let children: Vec<Arc<Agent>> = state.agents.locked().values().filter(|c| mine(c)).cloned().collect();
     for c in children {
         c.kill();
     }

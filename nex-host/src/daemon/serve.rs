@@ -42,7 +42,7 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
         Err(e) => return send(&mut stream, &Response::error(format!("bad request: {e}"))),
     };
     match request {
-        Request::Launch { argv, kind, name, cwd, cols, rows, env } => {
+        Request::Launch { argv, kind, name, cwd, cols, rows, env, parent } => {
             let id = new_id(state);
             let spec = Spec {
                 argv,
@@ -52,7 +52,7 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
                 cols: cols.unwrap_or(120),
                 rows: rows.unwrap_or(40),
                 env,
-                parent: None,
+                parent: parent.and_then(|p| state.get(&p)).map(|p| p.id.clone()),
                 role: None,
             };
             match launch(state, id.clone(), spec) {
