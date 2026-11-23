@@ -1,6 +1,6 @@
 //! Drawing the Agents pane, in the style of a macOS / iOS dashboard: grouped sections of
 //! rounded agent cards (two or three to a row when there's room). Each card has the agent's
-//! app tile, its task and folder, and a status pill whose dot breathes while the agent
+//! app tile, its task over the folder it works in, and a status pill whose dot breathes while the agent
 //! works. Mouse handling lives here too.
 //!
 //! A team (see `group`) is one card the width of the pane. Closed, a row of capsules under
@@ -34,6 +34,9 @@ const SECTION_H: f32 = 34.0;
 const MIN_CARD_W: f32 = 300.0;
 const MAX_COLUMNS: usize = 3;
 const TILE: f32 = 40.0;
+/// A card's title and the quiet line under it, centred together on the tile.
+const TITLE_Y: f32 = 28.0;
+const DETAIL_Y: f32 = 47.0;
 /// A closed team's row of capsules, under its header.
 const STRIP_H: f32 = 40.0;
 const CAPSULE_H: f32 = 24.0;
@@ -538,7 +541,7 @@ fn card_body(p: &Painter, r: Rect, look: &Look) {
         offset: [0, (2.0 + 6.0 * lift) as i8],
         blur: (12.0 + 14.0 * lift) as u8,
         spread: 0,
-        color: Color32::from_black_alpha((40.0 + 30.0 * hover + 50.0 * lift) as u8),
+        color: Color32::from_black_alpha((28.0 + 24.0 * hover + 50.0 * lift) as u8),
     };
     p.add(shadow.as_shape(r, CARD_RADIUS));
     p.rect_filled(r, CARD_RADIUS, white_alpha((8.0 + 7.0 * hover.max(lift)) as u8));
@@ -566,12 +569,12 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
     let pill_font = paint::bold(11.0);
     let label = p.layout_no_wrap(agent.status.label().to_string(), pill_font, color);
     let pill = pill_rect(r, label.size().x);
-    p.rect_filled(pill, 11, color.gamma_multiply(0.15));
-    let dot = Pos2::new(pill.left() + 12.0, pill.center().y);
+    p.rect_filled(pill, 10, color.gamma_multiply(0.12));
+    let dot = Pos2::new(pill.left() + 11.0, pill.center().y);
     status_dot(f, p, dot, agent.status, color);
-    p.galley(Pos2::new(dot.x + 8.0, pill.center().y - label.size().y / 2.0), label, color);
+    p.galley(Pos2::new(dot.x + 7.5, pill.center().y - label.size().y / 2.0), label, color);
     let since = elapsed(f.now.saturating_duration_since(agent.since));
-    let since_y = r.top() + 51.0;
+    let since_y = r.top() + DETAIL_Y;
     let since_w = p.layout_no_wrap(since.clone(), ui_font(11.5), c.text_dim).size().x;
     p.text(Pos2::new(pill.right() - 4.0, since_y), Align2::RIGHT_CENTER, &since, ui_font(11.5), c.text_dim);
 
@@ -583,41 +586,54 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
         title_right = at.x - 12.0;
     }
 
-    // The task, and where it runs.
+    // The task, and the checkout it's working in.
     let x = tile.right() + 13.0;
     let title_room = (title_right - x).max(0.0);
-    paint::faded_text(p, Pos2::new(x, r.top() + 25.0), &agent.name, paint::bold(14.0), c.text_bright, title_room, 18.0);
-    let mut detail = agent.kind.label().to_string();
-    let remote = match &agent.source {
-        Source::Remote { host, pane, .. } => Some((host, pane.is_some())),
-        Source::Local => None,
-    };
-    if let Some((host, _)) = remote {
-        detail.push_str(" · ");
-        detail.push_str(host);
-    }
-    if let Some((size, _)) = team {
-        detail.push_str(" · ");
-        detail.push_str(size);
-    }
-    if let Some(dir) = &agent.cwd {
-        detail.push_str(" · ");
-        // A remote folder comes already shortened with the host's own home.
-        detail.push_str(&if remote.is_some() { dir.to_string_lossy().into_owned() } else { crate::terminal::tilde(dir) });
-    }
-    match (agent.tab, remote) {
-        (Some(tab), _) => detail.push_str(&format!(" · Tab {}", tab + 1)),
-        (None, Some((_, false))) if team.is_none() => detail.push_str(" · Detached"),
-        _ => {}
-    }
+    paint::faded_text(p, Pos2::new(x, r.top() + TITLE_Y), &agent.name, paint::bold(14.0), c.text_bright, title_room, 18.0);
+    let detail = card_detail(agent, team.map(|(size, _)| size));
     let detail_room = (pill.right() - 4.0 - since_w - 12.0 - x).max(0.0);
     paint::faded_text(p, Pos2::new(x, since_y), &detail, ui_font(12.0), c.text_dim, detail_room, 18.0);
     pill
 }
 
+/// The last part of the folder an agent works in (`nex`, or a worktree's own folder), so
+/// which checkout each one is in reads at a glance.
+fn folder(a: &Agent) -> Option<String> {
+    let dir = a.cwd.as_ref()?;
+    let name = dir.file_name().map_or_else(|| dir.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
+    (!name.is_empty()).then_some(name)
+}
+
+/// The quiet line under a card's title: its folder (or, without one, what kind of agent it
+/// is), a team's size, and its tab, or `Detached` for an agent on an ssh host no pane shows.
+fn card_detail(a: &Agent, team_size: Option<&str>) -> String {
+    let mut parts = vec![folder(a).unwrap_or_else(|| a.kind.label().to_string())];
+    parts.extend(team_size.map(str::to_string));
+    match (a.tab, &a.source) {
+        (Some(tab), _) => parts.push(format!("Tab {}", tab + 1)),
+        (None, Source::Remote { pane: None, .. }) if team_size.is_none() => parts.push("Detached".into()),
+        _ => {}
+    }
+    parts.join(" · ")
+}
+
+/// The line under a helper's label: its folder, then its own name when the label is its
+/// role (else what kind of agent it is, when there's no folder).
+fn member_detail(a: &Agent) -> String {
+    let label = member_label(a);
+    let mut parts: Vec<String> = folder(a).into_iter().collect();
+    if a.name != label {
+        parts.push(a.name.clone());
+    }
+    if parts.is_empty() {
+        parts.push(a.kind.label().to_string());
+    }
+    parts.join(" · ")
+}
+
 /// The status pill in header `r`, for a label `label_w` wide: top right.
 fn pill_rect(r: Rect, label_w: f32) -> Rect {
-    Rect::from_min_size(Pos2::new(r.right() - 14.0 - (label_w + 26.0), r.top() + 14.0), Vec2::new(label_w + 26.0, 22.0))
+    Rect::from_min_size(Pos2::new(r.right() - 16.0 - (label_w + 26.0), r.top() + TITLE_Y - 10.0), Vec2::new(label_w + 26.0, 20.0))
 }
 
 /// Where a team's chevron is drawn: just left of its status `pill`.
@@ -701,10 +717,7 @@ fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, rule: bool) {
     let room = (dot.x - 14.0 - x).max(0.0);
     let label = member_label(a);
     paint::faded_text(p, Pos2::new(x, row.top() + 16.0), label, paint::bold(13.0), c.text_bright, room, 16.0);
-    let mut detail = a.kind.label().to_string();
-    if a.name != label {
-        detail = format!("{} · {}", a.name, detail);
-    }
+    let detail = member_detail(a);
     paint::faded_text(p, Pos2::new(x, row.top() + 32.0), &detail, ui_font(11.5), c.text_dim, room, 16.0);
     if rule {
         p.line_segment([Pos2::new(x, row.bottom()), Pos2::new(row.right(), row.bottom())], Stroke::new(1.0_f32, white_alpha(10)));
@@ -869,6 +882,37 @@ mod tests {
         pane.requests.clear();
         click(&ctx, &mut pane, &agents, &mut time, head.left_center() + Vec2::new(30.0, 0.0));
         assert_eq!(pane.requests, vec![super::super::Request::Focus(1)]);
+    }
+
+    #[test]
+    fn a_card_says_which_folder_its_agent_works_in_not_which_host() {
+        let mut a = agent(1, None);
+        assert_eq!(card_detail(&a, None), "Claude Code", "no folder: what it is");
+        a.cwd = Some("/home/me/.nex/worktrees/nex-feature-build-17".into());
+        a.tab = Some(1);
+        assert_eq!(card_detail(&a, None), "nex-feature-build-17 · Tab 2");
+        assert_eq!(card_detail(&a, Some("2 helpers")), "nex-feature-build-17 · 2 helpers · Tab 2");
+
+        // On an ssh host: its folder (already shortened with the host's home), not the host.
+        let target = crate::remote::SshTarget { opts: vec![], destination: "build-box".into() };
+        a.source = Source::Remote { host: "build-box".into(), target, session: "s1".into(), pane: None };
+        a.tab = None;
+        a.cwd = Some("~/Documents/nex".into());
+        let detail = card_detail(&a, None);
+        assert_eq!(detail, "nex · Detached");
+        assert!(!detail.contains("build-box"));
+        a.cwd = Some("~".into());
+        assert_eq!(card_detail(&a, Some("1 helper")), "~ · 1 helper");
+    }
+
+    #[test]
+    fn a_helper_row_says_which_folder_it_works_in() {
+        let mut a = agent(2, Some(1));
+        assert_eq!(member_detail(&a), "Claude Code");
+        a.cwd = Some("/srv/nex-wt-review".into());
+        assert_eq!(member_detail(&a), "nex-wt-review");
+        a.team.role = Some("review".into());
+        assert_eq!(member_detail(&a), "nex-wt-review · a2");
     }
 
     #[test]

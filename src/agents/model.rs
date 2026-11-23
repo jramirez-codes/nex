@@ -130,7 +130,7 @@ pub enum Source {
     /// Held by `nex-host` on an ssh host (see `remote::host`): it keeps running when no pane
     /// shows it.
     Remote {
-        /// The host's name, for the card.
+        /// The host's name (the card shows its folder instead).
         host: String,
         target: crate::remote::SshTarget,
         /// Its `nex-host` session id.
