@@ -2,8 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use super::super::AppChoice;
-use super::super::unix::{file_mime, spawn_detached};
+use crate::platform::AppChoice;
+use crate::platform::unix::{file_mime, spawn_detached};
 
 pub fn mime_type(path: &Path) -> Option<String> {
     file_mime(path)
