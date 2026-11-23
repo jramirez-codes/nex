@@ -48,10 +48,7 @@ impl TabSwitch {
         if !glide::animations(ctx) {
             self.running = None;
         } else if let Some((_, pos)) = previous.filter(|&(uid, _)| uid != tab.uid) {
-            // Content moves the way the pill does: a tab further along pushes the old one
-            // right (or down) and comes in from the left (or above).
-            let axis = if tab.vertical { Vec2::Y } else { Vec2::X };
-            let travel = if tab.pos >= pos { axis } else { -axis };
+            let travel = travel(tab.vertical, tab.pos >= pos, crate::platform::WINDOW.scroll_tabs);
             let old = std::mem::take(&mut self.last);
             self.running = transition::start(tab.style, Switch { old, area: tab.area, origin: tab.origin, travel, start: now });
         }
@@ -85,9 +82,34 @@ impl TabSwitch {
     }
 }
 
+/// Which way a switch moves the content. By default it moves the way the pill does: a tab
+/// further along (`forward`) pushes the old one right (or down) and comes in from the left
+/// (or above). With `follow_swipe` (the phone's scrolling tab strip, where a left swipe goes
+/// to the next tab) a horizontal strip goes the other way, following the finger: the next
+/// tab comes in from the right and the old one leaves to the left.
+fn travel(vertical: bool, forward: bool, follow_swipe: bool) -> Vec2 {
+    let axis = if vertical { Vec2::Y } else if follow_swipe { -Vec2::X } else { Vec2::X };
+    if forward { axis } else { -axis }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn travel_follows_the_swipe_only_on_the_phone_strip() {
+        // Desktop: the next tab pushes the old one right; the previous one, left.
+        assert_eq!(travel(false, true, false), Vec2::X);
+        assert_eq!(travel(false, false, false), -Vec2::X);
+        // Android: a left swipe brings the next tab in from the right, the old one leaving left.
+        assert_eq!(travel(false, true, true), -Vec2::X);
+        assert_eq!(travel(false, false, true), Vec2::X);
+        // The vertical sidebar keeps its direction everywhere.
+        for follow_swipe in [false, true] {
+            assert_eq!(travel(true, true, follow_swipe), Vec2::Y);
+            assert_eq!(travel(true, false, follow_swipe), -Vec2::Y);
+        }
+    }
 
     /// Run one frame that paints a rect for tab `uid` at strip position `pos`; returns the
     /// panes' shapes after it.

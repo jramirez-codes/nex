@@ -134,6 +134,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- Android: switching tabs slides the way the swipe goes: the next tab comes in from the
+  right and the old one leaves to the left (the previous tab, the reverse). Desktops and the
+  sidebar keep their direction.
 - Agents pane: each card and helper row shows the folder its agent works in (`nex`, or a
   worktree's own folder) instead of the host it runs on, so you can see which checkout each
   is in. The cards are calmer too: the title and folder sit together beside the tile, with a
