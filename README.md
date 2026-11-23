@@ -1,13 +1,13 @@
 <!-- LOGO -->
 <h1 align="center">
   <img src="assets/nex-animated.svg" alt="nex terminal emulator logo" width="128">
-  <br>nex
+  <br>nex: GPU terminal emulator with AI agents, SSH, files and git built in
 </h1>
 
 <p align="center">
-  <strong>A fast, GPU-accelerated terminal emulator for Linux and macOS, written in Rust.</strong>
+  <strong>A fast, GPU-accelerated terminal emulator for Linux, macOS and Android (iOS in beta), written in Rust.</strong>
   <br />
-  Tabs, splits, a file explorer, git changes, agent monitoring and SSH that follows you, built in. No tmux, no plugins, no setup.
+  Tabs, splits, a file explorer, git changes, an Agents pane for Claude Code and Codex, agent pipelines and SSH that follows you, built in. No tmux, no plugins, no setup.
   <br /><br />
   <a href="https://jramirez-codes.github.io/nex/"><strong>Website</strong></a>
   ·
@@ -18,6 +18,10 @@
   <a href="#ssh-built-in">SSH</a>
   ·
   <a href="#agents">Agents</a>
+  ·
+  <a href="#nex-host-and-pipelines">Pipelines</a>
+  ·
+  <a href="#phone-apps">Phone apps</a>
   ·
   <a href="#how-does-nex-compare">Compare</a>
   ·
@@ -34,7 +38,7 @@
   <a href="https://github.com/jramirez-codes/nex/stargazers"><img src="https://img.shields.io/github/stars/jramirez-codes/nex?style=flat" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange.svg?logo=rust" alt="Rust 1.88+">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg" alt="Platform: Linux (Wayland and X11) and macOS">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Android%20%7C%20iOS%20(beta)-lightgrey.svg" alt="Platform: Linux (Wayland and X11), macOS, Android and iOS (beta)">
 </p>
 
 <p align="center">
@@ -43,7 +47,8 @@
 
 ## About
 
-**nex** is a free, open-source terminal emulator for Linux and macOS that looks and feels like a native,
+**nex** is a free, open-source terminal emulator for Linux, macOS and
+[Android](#phone-apps) (with an iPhone app in beta) that looks and feels like a native,
 modern desktop app. Tabs live in the title bar, and every split pane is a rounded card with its
 own header showing what's running and where. A file explorer opens right next to your shell,
 and a Changes pane shows what git sees as changed. `ssh` sessions get the same treatment:
@@ -51,18 +56,34 @@ splits stay on the server, and files you drop or paste land on the remote host. 
 Claude Code or Codex? An Agents pane keeps every one in view, says which one needs you, and
 can be pinned to every tab; on a server, agents keep running after their pane closes, and
 pipelines chain them into a plan, build, review and merge run.
+On a phone, the same window runs with every pane on your server.
 The UI is drawn with the GPU, so typing, scrolling and resizing stay smooth even under heavy
 TUIs like `btop`, `nvim` and `lazygit`.
 
 It is built on [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal), the same
 battle-tested VT engine behind Alacritty and Zed's terminal. nex's own code covers the
-rendering, input handling, multiplexing and window chrome.
+rendering, input handling, multiplexing and window chrome. Demos and a feature tour are on
+the [website](https://jramirez-codes.github.io/nex/).
 
 > [!NOTE]
-> nex is young. It runs on Linux (X11 and Wayland) and macOS; macOS support is newer.
-> Expect rough edges, and please
+> nex is young. It runs on Linux (X11 and Wayland), macOS and Android; macOS support is
+> newer, and the iPhone app is a beta you build yourself. Expect rough edges, and please
 > [open an issue](https://github.com/jramirez-codes/nex/issues) when you hit one. If nex is
 > useful to you, a ⭐ helps other people find it.
+
+### Quick install
+
+Grab a build from the [latest release](https://github.com/jramirez-codes/nex/releases/latest)
+(full steps in [Installation](#installation)):
+
+```sh
+sudo apt install ./nex_*_amd64.deb                                       # Debian / Ubuntu
+tar xzf nex-v*-x86_64-linux.tar.gz && ./nex-v*-x86_64-linux/install.sh   # any Linux
+```
+
+- **macOS:** unzip `nex-v*-macos-app.zip` and drag `nex.app` to Applications
+  (see [macOS](#prebuilt-releases) for the one-time quarantine step).
+- **Android:** install `nex-v*-android-arm64.apk` on the phone.
 
 ### Why nex?
 
@@ -74,6 +95,11 @@ rendering, input handling, multiplexing and window chrome.
 - **Your agents, in view.** One pane lists every Claude Code and Codex agent, in any tab or
   on any server, and which one needs you. Pin it with `Ctrl+Shift+P` and it follows you to
   every tab.
+- **Agents that work together.** On a server, `nex-host` keeps agents running after their pane
+  closes, lets them message each other, and runs [pipelines](#nex-host-and-pipelines) that
+  build features in worktrees and merge the PRs one at a time.
+- **Your terminal on your phone.** The [Android app](#phone-apps) puts nex's window on your
+  phone with every pane on your server, and panes survive network drops.
 - **Fast.** In [our benchmark](bench/README.md), nex printed 50 MB of output 1.8× faster than
   kitty and launched 25× faster than GNOME Terminal.
 - **Works out of the box.** A Nerd Font is embedded, config applies on save, and the defaults
@@ -88,6 +114,9 @@ rendering, input handling, multiplexing and window chrome.
 | GPU-rendered                            | ✅  | ✅        | ✅       | ✅       | ❌             |
 | Tabs                                    | ✅  | ❌        | ✅       | ✅       | ✅             |
 | Split panes                             | ✅  | ❌        | ✅       | ✅       | ❌             |
+| Agents pane (Claude Code, Codex)        | ✅  | ❌        | ❌       | ❌       | ❌             |
+| Agent pipelines and teams               | ✅  | ❌        | ❌       | ❌       | ❌             |
+| Pin a pane to every tab                 | ✅  | ❌        | ❌       | ❌       | ❌             |
 | Built-in file explorer                  | ✅  | ❌        | ❌       | ❌       | ❌             |
 | Splits and tabs follow `ssh` sessions   | ✅  | ❌        | Kitten¹  | ❌       | ❌             |
 | Drop / paste files into `ssh` sessions  | ✅  | ❌        | ❌       | ❌       | ❌             |
@@ -115,7 +144,9 @@ the window is; the first frame appears about 120 ms after launch.
 ## SSH, built in
 
 nex notices when a pane is running `ssh` and makes the rest of the window work with it. There
-is nothing to install on the server and no wrapper command: run `ssh` the way you always do.
+is no wrapper command: run `ssh` the way you always do. Following, uploads and the mic need
+nothing installed on the server; for [agents](#agents-on-ssh-hosts) nex puts a small helper in
+`~/.nex` there.
 
 | You do this in an `ssh` pane                       | nex does this                                                                 |
 | -------------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -123,6 +154,7 @@ is nothing to install on the server and no wrapper command: run `ssh` the way yo
 | Drop files or folders onto it                      | Copies them to a fresh temp folder on the host and **types the remote paths** |
 | Paste a copied image or files (`Ctrl+V` / `Cmd+V`) | The same: uploads them and types the remote paths                             |
 | Type `exit` in a followed split                    | Drops back to a local shell, just like the original pane                      |
+| Press `Ctrl+E` / `Ctrl+G` in it                    | Opens Files / Changes **on the host**, in the session's folder                |
 | Click its header's mic button (`Ctrl/Cmd+Shift+M`) | Makes **your microphone the host's default mic** (experimental)               |
 
 This is what makes a remote [Claude Code](https://claude.com/claude-code) (or any program
@@ -219,20 +251,27 @@ ssh-mic = off        # no mic button in ssh panes
   it its own tab, or over another tab to move it there. Each pane's header has split, zoom
   and close buttons. You don't need tmux for layout.
 - **File explorer, built in.** `Ctrl+E` splits a file explorer off the current pane, open at
-  that pane's folder (`nex --explorer` opens nex as a file manager, on a Files tab).
+  that pane's folder (`nex --explorer` opens nex as a file manager, on a Files tab). In a pane
+  that's ssh'd into a host, it browses that host instead.
   Folders open in place, files open in their default app (or any app from Open With), and
   splitting an explorer starts a terminal in the folder you're looking at. Back / Forward,
   clickable breadcrumbs and a typed location bar with Tab completion get you around, and
   typing a name jumps to it.
 - **Changes, built in.** `Ctrl+G` opens a Changes pane beside the current one: the files
   `git` sees as changed (staged and not) in a sidebar, and the selected file's diff as
-  hunk cards with line numbers and word-level highlights. It follows the pane you're on, so
+  hunk cards with line numbers, word-level highlights and syntax colors taken from your
+  palette. It works on ssh hosts too (git runs there). It follows the pane you're on, so
   focusing a terminal in another repository shows that one, and it refreshes as you work.
   `Ctrl+G` again closes it.
 - **Agents at a glance.** Running Claude Code or Codex in a few panes? `Ctrl+Shift+A` opens an
   Agents pane: one card per agent with its task, folder and tab, and whether it needs you, is
-  working or is idle (and for how long). The label in the title bar opens it as a tab of its
-  own and tells you at a glance when an agent is waiting. Click a card to jump to its pane.
+  working, done or idle (and for how long). The label in the title bar opens it as a tab of
+  its own and tells you at a glance when an agent is waiting. Click a card to jump to its pane.
+- **Pin a pane to every tab.** `Ctrl+Shift+P` (or Shift + the header's ×) pins the focused
+  pane, such as the Agents pane, so it shows beside whatever tab you switch to.
+- **Agent pipelines.** `nex-host pipe feature "add a stats command"` starts builders in their
+  own git worktrees and a reviewer that merges their PRs one at a time. See
+  [nex-host and pipelines](#nex-host-and-pipelines).
 - **Real file management.** List or grid view with icons for each kind of file, multi-select,
   and copy, cut and paste between explorers, with a right-click menu and an action bar. Rename
   in place, create folders and files, and see a file's Properties. Copies and moves show a
@@ -276,6 +315,10 @@ ssh-mic = off        # no mic button in ssh panes
 - **Simple config.** Ghostty-style `key = value` file that applies as soon as you save it.
 
 <p align="center">
+  <img src="site/public/demo/splits.gif" alt="nex terminal splitting a tab right and down beside nvim, zooming the nvim pane, then resizing and equalizing the splits" width="900">
+</p>
+
+<p align="center">
   <img src="site/public/demo/explorer.gif" alt="nex terminal opening a built-in file explorer split, selecting three files, switching to grid view, and splitting a terminal off the explorer" width="900">
 </p>
 
@@ -283,7 +326,131 @@ ssh-mic = off        # no mic button in ssh panes
   <img src="site/public/demo/search.gif" alt="nex terminal scrollback search highlighting every match and stepping through them" width="900">
 </p>
 
+## nex-host and pipelines
+
+`nex-host` is nex's small helper on a server (nex installs it in `~/.nex/bin` on the hosts you
+ssh into; see [Agents on ssh hosts](#agents-on-ssh-hosts)). Besides keeping agents running
+after their pane closes, it lets Claude Code and Codex agents hand each other work and report
+back, and runs **pipelines**: a plan, build, review and merge run made of agents, defined in a
+TOML file. Everything shows up in the Agents pane, grouped by pipeline.
+
+| Command                                         | What it does                                                    |
+| ----------------------------------------------- | --------------------------------------------------------------- |
+| `nex-host spawn NAME [--kind claude\|codex] [--worktree] TASK` | Start an agent on a task; it reports back with `done` |
+| `nex-host send TO TEXT [--ask \| --task]`        | Message an agent; it's typed into its input                     |
+| `nex-host done TEXT [--verdict approved\|changes\|failed] [--pr N]` | Report on your task to whoever gave it        |
+| `nex-host recv [--from WHO] [--timeout 10m]`    | Wait for a message (for scripts)                                |
+| `nex-host read WHO [--lines N]`                 | An agent's screen as text                                       |
+| `nex-host ls`                                   | What's running                                                  |
+| `nex-host pipe NAME "TASK" [--bg]`, `pipe ls`   | Run a pipeline, or list the ones there are                      |
+| `nex-host worktree ls`, `worktree prune [--all] [--dry-run]` | The worktrees agents made; prune removes the unused, clean ones whose branch is merged |
+| `nex-host skill`, `skill install`               | Print the manual for agents, or install it for Claude Code and Codex |
+
+`TO` and `WHO` are an agent's id or name, `@parent`, `@children`, `@task` or `user`. Messages
+arrive in the agent's input as a `<nex-message>` block that says who sent it and how to reply.
+Run `nex-host help` for every option.
+
+### Pipelines
+
+A pipeline is a file at `.nex/pipelines/NAME.toml` in the repository (or a folder above it),
+or `~/.config/nex/pipelines/NAME.toml` for every repository. Run it from the repository (here
+`review-loop` is the example below, and `feature` is
+[the one in `nex-host/examples`](nex-host/examples/feature/pipeline.toml)):
+
+```sh
+nex-host pipe review-loop "add a --json flag to the list command"
+nex-host pipe feature "add a stats command" --bg    # in the background; watch it in the Agents pane
+nex-host pipe ls                                    # the pipelines it can find
+```
+
+Stages run in order, each an agent that finishes with `nex-host done`. A stage's task can use
+`{task}`, and an earlier stage's report as `{stage}`, `{stage.verdict}`, `{stage.files}` or
+`{stage.pr}`:
+
+```toml
+timeout = "90m"                  # how long a stage may take (default 2h)
+
+[[stage]]
+name = "plan"
+task = "Plan this, without writing code: {task}"
+
+[[stage]]
+name = "build"
+worktree = true                  # a git worktree and branch of its own
+task = """
+Build this: {task}
+The plan: {plan}
+Commit, open a PR, and finish with nex-host done "<what you built>" --pr <its number>
+"""
+
+[[stage]]
+name = "tests"
+parallel = true                  # runs at the same time as "build"
+kind = "codex"
+task = "Write tests for this, in their own files: {task}"
+
+[[stage]]
+name = "review"
+task = """
+Review PR {build.pr}. Finish with
+nex-host done "<what to fix, or why it's good>" --verdict approved|changes
+"""
+retry = { stage = "build", max = 3 }   # back to "build" unless approved
+```
+
+- `parallel = true` runs a stage alongside the one before it.
+- `retry` sends the run back to an earlier stage (or this one) unless this stage's verdict is
+  `unless` (default `approved`), at most `max` times (default 3).
+- `each = true` on the last stage makes it a **merge queue**: one agent takes every report
+  from the stages before it, first come first served, one at a time. Running the same
+  pipeline again from the repository joins the run instead of starting another, so several
+  features share one reviewer and one line of PRs.
+- `command = ["claude", "--dangerously-skip-permissions"]` runs a stage with your own program
+  and flags; `kind` (`claude` or `codex`) picks the agent otherwise.
+
+Two ready-made examples: [`nex-host/examples/feature`](nex-host/examples/feature/pipeline.toml)
+builds each feature in a worktree, opens a PR and has one reviewer merge them one at a time;
+[`nex-host/examples/pr-team`](nex-host/examples/pr-team/README.md) sets up a toy repository
+with three builders and a merger to try it end to end.
+
+## Phone apps
+
+### Android
+
+The Android app runs only nex's window on the phone; every pane works on an ssh host, such as
+your home server, and nothing else runs on the device.
+
+- **Connect screen.** Enter the host, user and password once and trust the host's key. The
+  app then adds a key for this device to the host's `~/.ssh/authorized_keys`, set to expire
+  after `device-key-days` (30 by default), and logs in with it from then on.
+- **Panes survive network drops.** Each pane's shell is a `nex-host` session on the host, so
+  switching apps or networks loses nothing: the pane reconnects and the screen comes back.
+- **A keyboard button made for terminals.** The round button in the bottom-right corner
+  hides or shows the keyboard. Drag it as a joystick for the arrow keys (they repeat faster
+  the further you push), double-tap it to arm Ctrl for the next key (double-tap, then `c`, is
+  `^C`), and feel a light haptic tick on taps, arrows and Ctrl.
+- **Talk to Claude Code.** Hold the keyboard button to use Claude Code's voice mode: the
+  phone's microphone is shared with the host while Space is held for you (see
+  [Sharing your microphone](#sharing-your-microphone-experimental)).
+- **Swipe typing** on the on-screen keyboard types into the terminal, with corrections.
+- **Tabs for a small screen.** The tab strip scrolls sideways; long-press a tab, then drag,
+  to reorder it. Swipe sideways on a pane for the next or previous tab.
+- **Agents, Files and Changes.** The Agents pane lists the agents on the server over the
+  app's own connection; opening one attaches to it, and closing it only detaches. Files and
+  Changes open on the server too.
+
+Get the APK from [Releases](#android-apk) or build it from source: see
+[`nex-android/README.md`](nex-android/README.md).
+
+### iPhone (beta)
+
+The iPhone app works the same way: nex's window on the phone, every pane on an ssh host. It
+draws with wgpu on Metal. There is no download yet; you build and sign it yourself (see
+[iOS (beta)](#ios-beta)). Some things don't work yet, such as opening links in Safari.
+
 ## Installation
+
+Downloads, release notes and a tour are also on the [website](https://jramirez-codes.github.io/nex/).
 
 ### Prebuilt releases
 
@@ -319,6 +486,28 @@ xattr -dr com.apple.quarantine nex-v*-universal-macos
 ```
 
 Each release includes a `SHA256SUMS.txt` you can verify the downloads against.
+
+### Android APK
+
+Download `nex-v*-android-arm64.apk` from the
+[Releases page](https://github.com/jramirez-codes/nex/releases/latest) and open it on the
+phone (allow installs from your browser or file manager when Android asks), or from a computer
+with the phone plugged in:
+
+```sh
+adb install -r nex-v*-android-arm64.apk
+```
+
+To build it yourself, see [`nex-android/README.md`](nex-android/README.md). See
+[Phone apps](#phone-apps) for what it does.
+
+### iOS (beta)
+
+There's no download yet. Build it yourself with
+[`nex-ios/build-ipa.sh`](nex-ios/build-ipa.sh) on a Mac with Xcode 15 or newer; installing on
+a real iPhone needs an Apple Developer Program membership. Steps, the Simulator and TestFlight
+are in [`nex-ios/README.md`](nex-ios/README.md). It's a beta: links don't open in Safari yet,
+among other gaps listed there.
 
 ### From source
 
@@ -397,10 +586,11 @@ nex --working-directory ~/code     # where the first shell starts
 nex -e htop                        # run a program instead of the shell (the rest of the line)
 nex --explorer                     # open on the Files tab
 nex ~/Downloads                    # open the Files tab in a folder (a path or file:// URI)
+nex --select=~/Downloads/a.pdf     # open the Files tab in its folder, with it selected
 nex --remote=me@home.lan           # every pane on that host, with nex's own ssh client
 ```
 
-`--remote` is what the Android app does (see [`nex-android/`](nex-android/README.md)). The first
+`--remote` is what the phone apps do (see [Phone apps](#phone-apps)). The first
 time, you type your password once. nex then adds a key for this device to the host's
 `~/.ssh/authorized_keys`, set to expire after `device-key-days` (30 by default), and logs in
 with that key from then on. Each pane's shell is a `nex-host` session on the host, so a dropped
@@ -441,7 +631,7 @@ nex follows Ghostty's defaults on each OS. Both tables live in
 | Changes (git diff)     | `Ctrl+G`                                              | `Cmd+G`                                         |
 | Agents                 | `Ctrl+Shift+A`                                        | `Cmd+Shift+A`                                   |
 | Pin pane to every tab  | `Ctrl+Shift+P`                                        | `Cmd+Shift+P`                                   |
-| Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn/PgUp`)   | `Cmd+Shift+]` / `Cmd+Shift+[`, `Ctrl+Tab`       |
+| Next / previous tab    | `Ctrl+Tab` / `Ctrl+Shift+Tab`, `Ctrl+PgDn/PgUp`, `Ctrl+Shift+Right/Left` | `Cmd+Shift+]` / `Cmd+Shift+[`, `Ctrl+Tab`       |
 | Go to tab *N*          | `Alt+1` … `Alt+8`, `Alt+9` for the last tab           | `Cmd+1` … `Cmd+8`, `Cmd+9` for the last tab     |
 | Copy / paste           | `Ctrl+Shift+C` / `Ctrl+Shift+V`, `Shift+Insert`       | `Cmd+C` / `Cmd+V`                               |
 | Search scrollback      | `Ctrl+Shift+F`, then `Enter` / `Shift+Enter`, `Esc`   | `Cmd+F`, then `Enter` / `Shift+Enter`, `Esc`    |
@@ -497,6 +687,7 @@ in any tab, most urgent first:
 - **Needs you**: it rang the bell or sent a notification you haven't looked at, or Claude
   Code says it is waiting on you (a permission prompt).
 - **Working**: Claude Code says it's busy (or its title spinner is turning); Codex is printing.
+- **Done**: it finished while you weren't looking at its pane. It becomes Idle once you look.
 - **Idle**: waiting at its prompt.
 
 Claude Code's status and session name come from its own session file
@@ -581,8 +772,10 @@ On macOS, use Cmd where this table says Ctrl.
 **Is nex a tmux alternative?**
 For layout, yes: split panes, zoom, resize and keyboard focus between splits are built in, and
 every pane shows its program and folder. Splits of an `ssh` pane open on the same server, so
-you don't need tmux on the remote side just to get a second shell there. nex doesn't detach
-sessions, so keep tmux if you need work to survive a dropped connection.
+you don't need tmux on the remote side just to get a second shell there. Agents started
+through `nex-host` keep running when the connection drops or the pane closes, and panes of
+`nex --remote` and the phone apps reconnect to the same session. Plain `ssh` panes don't
+detach, so keep tmux if you need other work to survive a dropped connection.
 
 **How do I get a tab dot when Claude Code asks for input?**
 You don't need to set anything. When an agent nex is tracking finishes or starts needing
@@ -595,7 +788,10 @@ under Notifications in `/config`). `iterm2` (OSC 9) works too. Any other program
 the bell, such as `make; printf '\a'`, gets the same dot.
 
 **Does nex need anything installed on my servers?**
-No. nex uses the `ssh` on your machine and plain `sh` and `tar` on the server. For splits to
+Not for ssh itself: following, uploads and the mic use the `ssh` on your machine and plain
+`sh` and `tar` on the server. For agents (`ssh-agents = true`, the default), nex installs its
+small helper, `nex-host`, in `~/.nex` on hosts you ssh into: no root, and `rm -rf ~/.nex`
+removes it. Set `ssh-agents = false` to skip that. For splits to
 open in your current remote folder, the remote shell should report it (fish and Debian/Ubuntu
 bash already do; see [Following your remote folder](#following-your-remote-folder)).
 
@@ -613,10 +809,12 @@ tarballs are available for x86_64 and aarch64.
 No. JetBrains Mono Nerd Font is embedded, so icons in Neovim, starship and lazygit work out of
 the box. An installed Nerd Font Mono is used instead if you have one.
 
-**Is nex available on macOS or Windows?**
+**Is nex available on macOS, Windows or phones?**
 macOS, yes: releases include `nex.app`, a universal build for Apple Silicon and Intel Macs
-(see [Installation](#installation)). Signing and notarization are on the [roadmap](#roadmap). Windows isn't supported yet, but the platform
-layer (`src/platform/`) is set up for it.
+(see [Installation](#installation)). Signing and notarization are on the [roadmap](#roadmap).
+Android, yes: releases include an APK, and the iPhone app is a beta you build yourself (see
+[Phone apps](#phone-apps)). Windows isn't supported yet, but the platform layer
+(`src/platform/`) is set up for it.
 
 **Can nex be my file manager?**
 Yes. Installing nex (`install.sh` or the `.deb`) adds a hidden `nex-files.desktop` entry that
@@ -664,7 +862,17 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [x] Splits and new tabs that follow `ssh` sessions
 - [x] File manager mode (`nex --explorer`, default handler for folders)
 - [x] Tab dot when a program rings the bell or sends a notification
+- [x] Desktop notifications (OSC 9 / OSC 99 / OSC 777) light the tab dot
 - [x] Restore tabs and splits on launch
+- [x] Agents pane for Claude Code and Codex, with agents on ssh hosts that keep running
+- [x] Changes pane (git diff) with syntax colors
+- [x] Files and Changes panes on ssh hosts
+- [x] `nex-host`: agents that message each other and report back
+- [x] Agent pipelines, with worktrees and a merge queue
+- [x] Pin a pane to every tab
+- [x] Share your microphone with an ssh session
+- [x] Android app
+- [x] iPhone app (beta)
 
 ### Next
 
@@ -678,7 +886,7 @@ How the code is laid out, the rules it follows, and where to start for common ch
 ### Later
 
 - [ ] Quick terminal (drop-down on a global hotkey)
-- [ ] Desktop notifications (OSC 9 / OSC 777) and bell options
+- [ ] Bell options
 - [ ] Inline images (kitty graphics protocol)
 - [ ] Drag files out to Finder
 - [ ] Windows support
