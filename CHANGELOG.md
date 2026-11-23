@@ -30,6 +30,14 @@ All notable changes to nex are documented here. The format follows
   pane's, the sidebar and tabs rise in around it, and the terminal shows through, while the dog
   slides over to the Files tile with a blep (skipped with `animations = false`).
 
+### Changed
+
+- Agents pane: the helpers inside a team or pipeline card are sorted by status, like the
+  cards are (needs you, done, working, idle; each in the order they started), and glide to
+  their new place when one changes: its row in the open list slides over the others, its
+  capsule along the closed card's strip. A pipeline's steps keep their order (build before
+  merge); only the agents of one step change places. They jump with `animations = false`.
+
 ### Fixed
 
 - Updating nex now updates the nex-host daemon on ssh hosts too, not just the program on
