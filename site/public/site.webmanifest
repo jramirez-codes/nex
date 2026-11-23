@@ -1,0 +1,15 @@
+{
+  "name": "nex terminal",
+  "short_name": "nex",
+  "description": "A fast GPU terminal in Rust with AI agents, SSH, files and git built in.",
+  "start_url": "/nex/",
+  "scope": "/nex/",
+  "display": "browser",
+  "theme_color": "#0b0a0d",
+  "background_color": "#0b0a0d",
+  "icons": [
+    { "src": "/nex/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/nex/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/nex/nex.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

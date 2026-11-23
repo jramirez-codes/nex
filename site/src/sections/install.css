@@ -44,7 +44,7 @@
   .install { padding: 16px; border-radius: 18px; }
   .install-os { flex-direction: column; align-items: stretch; text-align: center; }
   .install-os .seg { width: 100%; }
-  .install-os .seg button { flex: 1; }
+  .install-os .seg button { flex: 1; padding-left: 4px; padding-right: 4px; font-size: 13px; }
   .install > .seg button { font-size: 13px; padding: 9px 4px; }
   /* The copy button moves to its own row so long commands get the full width. */
   .cmd pre { padding: 14px 14px 8px; font-size: 13px; }

@@ -58,6 +58,7 @@ impl App {
     pub(in crate::app) fn panes_area(&mut self, ui: &mut Ui, area: Rect, theme: &Theme) {
         self.term_rects.clear();
         self.card_rects.clear();
+        self.focused_card = None;
         let ctx = ui.ctx().clone();
         let headers = self.cfg.pane_headers.then(|| self.header_height());
         let ppp = ctx.pixels_per_point();
@@ -134,6 +135,9 @@ impl App {
             let ms = ui.input(|i| i.time * 1000.0) as u128;
             (ms / BLINK_INTERVAL.as_millis()).is_multiple_of(2)
         };
+        // Where the connect screen's card lands (`animation/handoff.rs`): the layout's rect,
+        // not where the card is drawn mid-animation.
+        self.focused_card = views.iter().find(|v| v.focused).map(|v| v.target);
         for pane in &views {
             self.draw_pane(ui, pane, theme, blink_on);
         }
@@ -539,13 +543,22 @@ fn pane_pin(p: &Painter, r: Rect, c: Color32) {
 
 /// Process glyph and title at the left of a pane header, the title fading out before `right`.
 pub(in crate::app) fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
-    let cy = header.center().y + 1.0;
-    let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));
     let (mark, title) = icons::title_mark(process, title);
-    icons::header_glyph(painter, glyph, process, mark, color);
+    icons::header_glyph(painter, header_glyph_rect(header), process, mark, color);
+    header_title(painter, header, title, color, right, font);
+}
+
+/// Where a pane header's process glyph goes (the connect card puts the dog there).
+pub(in crate::app) fn header_glyph_rect(header: Rect) -> Rect {
+    Rect::from_center_size(Pos2::new(header.left() + 20.0, header.center().y + 1.0), Vec2::splat(13.0))
+}
+
+/// A pane header's title, after the glyph, faded out before `right`.
+pub(in crate::app) fn header_title(painter: &Painter, header: Rect, title: &str, color: Color32, right: f32, font: f32) {
+    let glyph = header_glyph_rect(header);
     let text_left = glyph.right() + 8.0;
     if right > text_left {
-        paint::faded_text(painter, Pos2::new(text_left, cy), title, paint::bold(font), color, right - text_left, 24.0);
+        paint::faded_text(painter, Pos2::new(text_left, glyph.center().y), title, paint::bold(font), color, right - text_left, 24.0);
     }
 }
 

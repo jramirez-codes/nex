@@ -14,6 +14,16 @@ All notable changes to nex are documented here. The format follows
   click jumps to its agent's pane. A pipeline stage's sub-agents sit under that stage, with a
   count on its capsule. It works over ssh too: `nex-host list --json` reports each session's
   `subagents`. Codex support reads its rollout files and is untested.
+- The phone apps' connect screen (and `nex --remote`'s) shows the nex dog in its card's
+  header, waking up as the screen appears. Once connected, the card glides into the first
+  pane while the dog slides over to the Files tile with a blep, and the workspace fades in
+  (skipped with `animations = false`).
+
+### Fixed
+
+- Ctrl+G in a pane ssh'd into a host opens the Changes pane in the folder the remote shell is
+  in, not the remote home, while a program there (Claude Code, vim, tmux) has set its own
+  window title. Titles like oh-my-zsh's `user@host:~/src` count too.
 
 ## [0.12.2] - 2026-11-23
 

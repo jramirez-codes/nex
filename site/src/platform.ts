@@ -1,34 +1,61 @@
 import { useSyncExternalStore } from 'react'
+import { RELEASES, REPO } from './links'
 
 /**
  * Which OS the page is written for: shortcuts, install steps and the download button.
  * Guessed from the browser, overridable with any PlatformToggle, and remembered per visitor.
  * One store, so every toggle on the page moves together.
  */
-export type Platform = 'mac' | 'linux'
+export type Platform = 'mac' | 'linux' | 'android' | 'ios'
+/** The desktop OSes, the ones with keyboard shortcuts. */
+export type Desktop = 'mac' | 'linux'
 
-export const PLATFORMS: { id: Platform; label: string }[] = [
-  { id: 'mac', label: 'macOS' },
-  { id: 'linux', label: 'Linux' },
+/** Every platform, for the Install section's OS switch. */
+export const ALL_PLATFORMS: { id: Platform; label: string; icon: string }[] = [
+  { id: 'mac', label: 'macOS', icon: '⌘' },
+  { id: 'linux', label: 'Linux', icon: '🐧' },
+  { id: 'android', label: 'Android', icon: '🤖' },
+  { id: 'ios', label: 'iOS', icon: '📱' },
 ]
 
-export const platformName = (p: Platform) => (p === 'mac' ? 'macOS' : 'Linux')
+/** The desktop platforms, for the shortcut switches (PlatformToggle). */
+export const PLATFORMS = ALL_PLATFORMS.filter(p => p.id === 'mac' || p.id === 'linux') as { id: Desktop; label: string; icon: string }[]
+
+export const platformName = (p: Platform) => ALL_PLATFORMS.find(x => x.id === p)!.label
+
+/** Whose shortcuts to show: a phone visitor is shown the desktop they most likely use. */
+export const desktopOf = (p: Platform): Desktop => (p === 'mac' || p === 'ios' ? 'mac' : 'linux')
+
+/** The iPhone app has no download yet: it is built from source. */
+export const IOS_SRC = `${REPO}/tree/main/nex-ios`
+
+/** The main download button for a platform. */
+export const download = (p: Platform) =>
+  p === 'ios'
+    ? { href: IOS_SRC, label: 'Build the iPhone beta', short: 'iPhone beta' }
+    : { href: RELEASES, label: `Download for ${platformName(p)}`, short: platformName(p) }
 
 const KEY = 'nex-platform'
 const listeners = new Set<() => void>()
 let current: Platform | null = null
 
+const isPlatform = (v: unknown): v is Platform => ALL_PLATFORMS.some(p => p.id === v)
+
 function detect(): Platform {
   try {
     const saved = localStorage.getItem(KEY)
-    if (saved === 'mac' || saved === 'linux') return saved
+    if (isPlatform(saved)) return saved
   } catch {
     // Storage can be blocked; fall through to the guess.
   }
   const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
-  const hint = nav.userAgentData?.platform || navigator.platform || navigator.userAgent
-  // iPhone and iPad visitors are most likely Mac users browsing on the go.
-  return /mac|iphone|ipad|ipod/i.test(hint) ? 'mac' : 'linux'
+  const ua = navigator.userAgent
+  const hint = `${nav.userAgentData?.platform ?? ''} ${navigator.platform} ${ua}`
+  if (/android/i.test(hint)) return 'android'
+  if (/iphone|ipad|ipod/i.test(hint)) return 'ios'
+  // iPadOS asks for desktop sites with a Mac user agent; a touch screen gives it away.
+  if (/mac/i.test(hint)) return navigator.maxTouchPoints > 1 ? 'ios' : 'mac'
+  return 'linux'
 }
 
 function subscribe(fn: () => void) {

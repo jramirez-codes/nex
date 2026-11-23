@@ -1,5 +1,5 @@
 import Reveal from '../components/Reveal'
-import { usePlatform } from '../platform'
+import { desktopOf, usePlatform } from '../platform'
 import './agents.css'
 
 /** Copy follows the README's "Agents" section and nex-host/README.md's "Pipelines". */
@@ -15,6 +15,14 @@ const POINTS = [
   {
     title: 'Teams and pipelines',
     body: 'An agent that starts helpers, or a pipeline, shows up as one team card with its stages. Open it to see who is on what.',
+  },
+  {
+    title: 'Agents that talk to each other',
+    body: 'nex-host spawn starts a helper, send asks it something, read shows its screen, done reports back and ls draws the tree. Every message lands in the agent’s input.',
+  },
+  {
+    title: 'Worktrees and skills',
+    body: 'nex-host worktree ls and prune keep agents’ git worktrees tidy. nex-host skill install teaches Claude Code and Codex all of this on their own.',
   },
   {
     title: 'Agents outlive the pane',
@@ -62,7 +70,7 @@ const STAGES: { name: string; state: 'done' | 'working' | 'needs' | 'waiting' }[
 ]
 
 export default function Agents() {
-  const platform = usePlatform()
+  const platform = desktopOf(usePlatform())
   const mod = platform === 'mac' ? 'Cmd' : 'Ctrl'
   return (
     <section className="section agents" id="agents">
@@ -125,6 +133,11 @@ export default function Agents() {
           </p>
           <pre className="agents-code"><code>{PIPELINE}</code></pre>
           <p className="agents-run"><code>nex-host pipe feature "add --json to ls"</code></p>
+          <p className="agents-examples">
+            Two examples ship with nex-host: <code>feature</code> builds a feature in a worktree,
+            opens a PR, reviews and merges it; <code>pr-team</code> lines three builders up behind
+            one merger.
+          </p>
         </div>
       </Reveal>
 

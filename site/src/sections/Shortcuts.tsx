@@ -3,11 +3,11 @@ import PlatformToggle from '../components/PlatformToggle'
 import Reveal from '../components/Reveal'
 import { SHORTCUTS } from '../data/shortcuts'
 import { REPO } from '../links'
-import { usePlatform } from '../platform'
+import { desktopOf, usePlatform } from '../platform'
 import './shortcuts.css'
 
 export default function Shortcuts() {
-  const platform = usePlatform()
+  const platform = desktopOf(usePlatform())
   return (
     <section className="section" id="shortcuts">
       <Reveal className="section-head">

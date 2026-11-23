@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { REPO, RELEASES } from '../links'
-import { platformName, usePlatform } from '../platform'
+import { REPO } from '../links'
+import { download, usePlatform } from '../platform'
 import AnimatedLogo from './AnimatedLogo'
 import './nav.css'
 
@@ -8,6 +8,7 @@ const LINKS = [
   ['SSH', '#ssh'],
   ['Agents', '#agents'],
   ['macOS', '#mac'],
+  ['Mobile', '#mobile'],
   ['Features', '#features'],
   ['Shortcuts', '#shortcuts'],
   ['Performance', '#performance'],
@@ -55,8 +56,8 @@ export default function Nav() {
           {LINKS.map(([label, href]) => <a key={href} href={href}>{label}</a>)}
           <a href={REPO}>GitHub</a>
         </div>
-        <a className="nav-cta" href={RELEASES}>
-          Download<span className="nav-cta-os"> for {platformName(platform)}</span>
+        <a className="nav-cta" href={download(platform).href}>
+          {platform === 'ios' ? 'Build' : 'Download'}<span className="nav-cta-os"> for {download(platform).short}</span>
         </a>
         <button
           type="button"
