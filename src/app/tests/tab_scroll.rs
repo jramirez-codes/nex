@@ -1,5 +1,5 @@
 //! Phone title-bar tabs (`platform::WINDOW.scroll_tabs`): one width, two and a half to the track, and
-//! a strip that swipes sideways.
+//! a strip that swipes sideways, and no hover × on the tabs.
 
 use egui::{Event, PointerButton, Pos2, RawInput, Rect, Vec2};
 
@@ -14,9 +14,13 @@ struct Sim {
 
 impl Sim {
     fn new(tabs: usize) -> Self {
+        Self::with(tabs, true)
+    }
+    /// `scroll` is `platform::WINDOW.scroll_tabs`: phone tabs, or desktop ones.
+    fn with(tabs: usize, scroll: bool) -> Self {
         let ctx = egui::Context::default();
         let mut app = super::new_app(&ctx, crate::config::Config::default());
-        app.strip.scroll = crate::app::chrome::titlebar::TabScroll::new(true);
+        app.strip.scroll = crate::app::chrome::titlebar::TabScroll::new(scroll);
         let mut s = Sim { ctx, app, t: 0.0, width: 420.0 };
         s.settle();
         let c = s.ctx.clone();
@@ -143,4 +147,36 @@ fn long_press_then_drag_reorders() {
     // Held ~0.5 s before moving: the tab is picked up rather than the strip swiped.
     s.drag(rects[0].center(), rects[2].center(), 10, 30);
     assert_eq!(s.app.tabs[2].uid, first);
+}
+
+/// Taps the × spot on the active tab and reports whether its close button was there.
+fn tap_close_spot(s: &mut Sim) -> bool {
+    let uid = s.app.tabs[s.app.active].uid;
+    let at = s.app.strip.tab_rects[&uid].close.center();
+    s.frame(vec![Event::PointerMoved(at)]);
+    s.frame(vec![]);
+    let registered = s.ctx.read_response(egui::Id::new(("tab-close", uid))).is_some();
+    s.frame(vec![btn(at, true)]);
+    s.frame(vec![btn(at, false)]);
+    s.settle();
+    registered
+}
+
+#[test]
+fn phone_tabs_have_no_close_button() {
+    let mut s = Sim::with(2, true);
+    s.width = 1000.0;
+    s.settle();
+    assert!(!tap_close_spot(&mut s), "no × registered on phone tabs");
+    assert_eq!(s.app.tabs.len(), 2, "a tap where the × would be doesn't close the tab");
+}
+
+#[test]
+fn desktop_hover_close_still_closes() {
+    let mut s = Sim::with(2, false);
+    // Wide enough for both desktop tabs.
+    s.width = 1000.0;
+    s.settle();
+    assert!(tap_close_spot(&mut s), "the × shows on hover");
+    assert_eq!(s.app.tabs.len(), 1, "clicking it closes the tab");
 }
