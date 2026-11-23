@@ -1,8 +1,8 @@
 import Reveal from '../components/Reveal'
-import { usePlatform } from '../platform'
+import { desktopOf, usePlatform } from '../platform'
 import './ssh.css'
 
-/** Copy follows the README's "SSH, built in" section and CHANGELOG.md 0.10.0. */
+/** Copy follows the README's "SSH, built in" and "Agents on ssh hosts" sections, and CHANGELOG.md 0.10.0–0.12.0. */
 const POINTS = [
   {
     title: 'Splits stay on the server',
@@ -13,12 +13,20 @@ const POINTS = [
     body: 'Files dropped or pasted into an ssh pane are uploaded to a fresh temp folder on the host, and nex types the remote paths. Folders work too.',
   },
   {
+    title: 'Files and Changes on the host',
+    body: 'Ctrl+E or Ctrl+G (Cmd on a Mac) in an ssh pane opens the file explorer or the git Changes pane in that session’s folder on the host. git runs there, too.',
+  },
+  {
+    title: 'Your mic, on the server',
+    body: 'Click a pane header’s mic button and the host’s default microphone becomes yours, so Claude Code’s voice mode works over ssh. Experimental.',
+  },
+  {
     title: 'One login',
     body: 'Keys and agents just work. For password hosts, nex offers to turn on connection sharing once, and everything after rides on the login you typed.',
   },
   {
-    title: 'Plain ssh, nothing to install',
-    body: 'No wrapper command, no server agent. nex reuses the pane’s own ssh options, with sh and tar on the other end.',
+    title: 'Plain ssh, one small helper',
+    body: 'No wrapper command. nex reuses the pane’s own ssh options, and installs its helper, nex-host, in ~/.nex on the host (no root) so agents outlive the pane. With ssh-agents = false, nothing is installed and plain ssh still works.',
   },
 ]
 
@@ -29,13 +37,13 @@ Match exec "test x$TERM_PROGRAM = xnex"
   ControlPersist 60`
 
 export default function Ssh() {
-  const platform = usePlatform()
+  const platform = desktopOf(usePlatform())
   const paste = platform === 'mac' ? 'Cmd+V' : 'Ctrl+V'
   return (
     <section className="section ssh" id="ssh">
       <Reveal className="glass ssh-card">
         <div className="ssh-intro">
-          <p className="eyebrow">New in 0.10 · SSH</p>
+          <p className="eyebrow">Built in · SSH</p>
           <h2 className="title">SSH that{' '}<br />follows you.</h2>
           <p className="lede">
             Run plain <code>ssh</code> and the rest of nex comes with you: splits open on the same

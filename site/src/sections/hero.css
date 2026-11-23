@@ -11,6 +11,17 @@
   letter-spacing: -0.045em;
   margin: 0 0 24px;
 }
+/* The h1's first line: what nex is, in words people search for. */
+.hero-kicker {
+  display: block;
+  margin: 0 auto 18px;
+  max-width: 560px;
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
 .hero .hero-sub { max-width: 620px; margin: 0 auto; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 36px 0 20px; }
 
