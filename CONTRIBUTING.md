@@ -14,9 +14,9 @@ sudo apt-get install libxkbcommon-dev libwayland-dev libgl1-mesa-dev libx11-dev 
 The checks CI runs (`.github/workflows/ci.yml`):
 
 ```sh
-cargo build --locked
-cargo test --locked --workspace
+cargo test --locked --workspace --exclude nex-ios --exclude nex-android
 cargo clippy --locked --workspace --all-targets -- -D warnings
+shellcheck install.sh bench/*.sh packaging/macos/*.sh
 # nex-host ships to servers as a static binary:
 cargo build --locked -p nex-host --release --target x86_64-unknown-linux-musl
 ```
