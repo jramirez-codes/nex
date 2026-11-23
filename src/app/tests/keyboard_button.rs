@@ -6,6 +6,8 @@ use egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
 use crate::app::App;
 use crate::app::chrome::keyboard_button::DOUBLE_TAP;
+use crate::app::input::keymap;
+use crate::platform::ShortcutStyle;
 
 const STEP: f64 = 0.016;
 
@@ -50,9 +52,12 @@ fn tap_and_settle(app: &mut App, ctx: &egui::Context, t: &mut f64, pos: Pos2) ->
     wait(app, ctx, t, DOUBLE_TAP + 0.05)
 }
 
+/// An app as on a phone: an on-screen keyboard, and Android's shortcuts (Ctrl+E, not the
+/// Cmd+E nex uses on macOS), whatever OS the tests run on.
 fn phone(ctx: &egui::Context) -> App {
     let mut app = super::new_app(ctx, crate::config::Config::default());
     app.soft_keyboard = true;
+    app.bindings = keymap::bindings_for(ShortcutStyle::Ctrl);
     app
 }
 
