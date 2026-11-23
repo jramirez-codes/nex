@@ -310,8 +310,9 @@ impl eframe::App for App {
         // egui makes its font atlas as wide as the GPU allows (16384 px), most of it empty,
         // in memory and again on the GPU. A narrower atlas grows taller only as glyphs need it.
         raw_input.max_texture_side = raw_input.max_texture_side.map(|side| side.min(MAX_ATLAS_SIDE));
-        if let Some(dnd) = &mut self.dnd {
-            dnd.feed(ctx, raw_input);
+        if let Some(mut dnd) = self.dnd.take() {
+            dnd.feed(ctx, raw_input, || self.paste_uploads_files());
+            self.dnd = Some(dnd);
         }
         // Android: the window covers the whole screen; keep nex out from under the status bar
         // and navigation bar.
