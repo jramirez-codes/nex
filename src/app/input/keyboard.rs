@@ -154,13 +154,20 @@ impl App {
     /// to the remote host (their remote paths are typed once there). Returns whether it did.
     fn upload_pasted_files(&mut self, ctx: &egui::Context, id: crate::layout::PaneId) -> bool {
         let Some(target) = self.ssh_target(id) else { return false };
-        let files = match &self.dnd {
+        let files = match &mut self.dnd {
             Some(dnd) => dnd.clipboard_files(),
             None => platform::clipboard_files(),
         };
         let Some(files) = files else { return false };
         self.upload_clipboard(ctx, id, target, files);
         true
+    }
+
+    /// Whether a paste now would upload the clipboard's files or image (see
+    /// `upload_pasted_files`): asked when a paste key goes down, by the `Dnd` that reads the
+    /// clipboard off the UI thread, to know what to read for when the paste lands.
+    pub(in crate::app) fn paste_uploads_files(&mut self) -> bool {
+        self.focused_pane().filter(|id| self.panes.contains_key(id)).is_some_and(|id| self.ssh_target(id).is_some())
     }
 
     pub(in crate::app) fn focused_terminal(&mut self) -> Option<&mut Terminal> {

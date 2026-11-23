@@ -39,6 +39,7 @@ impl Dnd {
         false
     }
 
-    /// Add drags reported by the OS to egui's input.
-    pub fn feed(&mut self, _ctx: &egui::Context, _raw: &mut RawInput) {}
+    /// Add drags reported by the OS to egui's input. (`_uploads_files` is for the backend
+    /// that reads the clipboard itself, off the UI thread.)
+    pub fn feed(&mut self, _ctx: &egui::Context, _raw: &mut RawInput, _uploads_files: impl FnOnce() -> bool) {}
 }

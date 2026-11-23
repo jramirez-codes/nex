@@ -396,12 +396,9 @@ impl App {
         }
         let x = x + 26.0;
         let title_color = if active { theme.text_bright } else { theme.text };
-        let (title, detail, detail_color) = if files {
-            let project = self
-                .focused_cwd()
-                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
-                .unwrap_or_else(|| "~".into());
-            (project, self.hostname.clone(), theme.text_dim)
+        let title = self.home_label(files);
+        let (detail, detail_color) = if files {
+            (self.hostname.clone(), theme.text_dim)
         } else {
             let counts = self.agent_tracker.counts();
             let color = if counts.needs_you > 0 {
@@ -411,7 +408,7 @@ impl App {
             } else {
                 theme.text_dim
             };
-            ("Agents".to_string(), counts.headline(), color)
+            (counts.headline(), color)
         };
         paint::faded_text(painter, Pos2::new(x, cy - 7.0), &title, paint::bold(13.0), title_color, LABEL_WIDTH, 16.0);
         paint::faded_text(painter, Pos2::new(x, cy + 8.0), &detail, FontId::proportional(11.0), detail_color, LABEL_WIDTH, 16.0);
@@ -624,6 +621,11 @@ impl App {
             painter.rect_filled(r.shrink(1.0), 8, TAB_HOVER);
         }
         self.paint_tab_drop_hint(ui, uid, r, theme);
+        // The icon deck turns toward the focused pane; the tab's label is then read once, and
+        // borrowed, for its icon and its title.
+        let deck = self.tabs[i].deck_cards(&ctx, |id| id);
+        let (title, process) = self.pane_label(self.tab_header_pane(&self.tabs[i]));
+        let (mark, title) = icons::title_mark(process, &title);
 
         // Hairline separators between neighbours, hidden wherever the pill covers them.
         let boundary = (i + 1) as f32;
@@ -644,14 +646,12 @@ impl App {
             let (icon, text) = sidebar_tile_parts(r);
             // A tad smaller than the tile's icon square, leaving room for the deck to fan out.
             let icon = Rect::from_center_size(icon.center(), icon.size() * 0.84);
-            self.tab_icon(&ctx, painter, i, icon, icons::SIDEBAR_STACK_STEP, true);
+            self.tab_icon(painter, &deck, (process, mark), icon, icons::SIDEBAR_STACK_STEP, true);
             if self.tab_needs_attention(i) {
                 paint_attention(&ctx, painter, icon.left_top() + Vec2::splat(2.0), self.cfg.attention_color(), theme, self.cfg.animations);
             }
-            let (title, process) = self.pane_label(self.tab_header_pane(&self.tabs[i]));
-            let title = icons::title_mark(&process, &title).1.to_string();
             let color = if active { theme.text_bright } else { theme.text_dim };
-            paint::caption(painter, text, &title, FontId::proportional(12.0), color);
+            paint::caption(painter, text, title, FontId::proportional(12.0), color);
             let resp = resp.on_hover_text(title);
             if resp.clicked_by(PointerButton::Middle) {
                 self.pending.push(Action::CloseTab(i));
@@ -662,17 +662,15 @@ impl App {
         }
 
         let icon = Rect::from_center_size(Pos2::new(r.left() + 19.0, r.center().y), Vec2::splat(20.0));
-        let text_left = self.tab_icon(&ctx, painter, i, icon, icons::STACK_STEP, false);
-        let (title, process) = self.pane_label(self.tab_header_pane(&self.tabs[i]));
-        let title = icons::title_mark(&process, &title).1;
+        let text_left = self.tab_icon(painter, &deck, (process, mark), icon, icons::STACK_STEP, false);
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
-        self.strip.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
         // Phones have no hover (a tap counts as one), so no ×: tabs close from the pane
         // header's × instead, and the title gets the whole tab.
         let closable = !self.strip.scroll.on;
         let text_right = if closable && hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
         let title_color = if active { theme.text_bright } else { theme.text_dim };
         paint::faded_text(painter, Pos2::new(text_left, r.center().y), title, FontId::proportional(13.5), title_color, text_right - text_left, 26.0);
+        self.strip.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
 
         if self.tab_needs_attention(i) {
             paint_attention(&ctx, painter, icon.left_top() + Vec2::splat(1.0), self.cfg.attention_color(), theme, self.cfg.animations);
@@ -694,38 +692,40 @@ impl App {
     }
 
     /// The app tile pane `id` shows in its tab's icon deck: its process and title mark.
-    fn deck_card(&self, id: PaneId) -> (String, Option<String>) {
+    fn deck_card(&self, id: PaneId) -> (&str, Option<&str>) {
         match self.pane(id) {
-            Some(PaneRef::Terminal(t)) => {
-                let title = t.title();
-                (t.process.clone(), icons::title_mark(&t.process, &title).0.map(str::to_string))
-            }
-            Some(PaneRef::Explorer(_)) => (icons::EXPLORER_PROCESS.to_string(), None),
-            Some(PaneRef::Diff(_)) => (icons::DIFF_PROCESS.to_string(), None),
-            Some(PaneRef::Agents(_)) => (icons::AGENTS_PROCESS.to_string(), None),
+            Some(PaneRef::Terminal(t)) => (&t.process, icons::title_mark(&t.process, t.title()).0),
+            Some(PaneRef::Explorer(_)) => (icons::EXPLORER_PROCESS, None),
+            Some(PaneRef::Diff(_)) => (icons::DIFF_PROCESS, None),
+            Some(PaneRef::Agents(_)) => (icons::AGENTS_PROCESS, None),
             None => Default::default(),
         }
     }
 
     /// The tab's icon: the focused pane's app tile, or a deck with one card per pane (focused
     /// on top, up to 3 peeking out behind, each `step` further). With `center`, the whole deck
-    /// is centered on `icon` rather than fanning out from it. Returns where the title text
-    /// starts.
-    fn tab_icon(&mut self, ctx: &egui::Context, painter: &egui::Painter, i: usize, icon: Rect, step: Vec2, center: bool) -> f32 {
-        let (title, process) = self.pane_label(self.tab_header_pane(&self.tabs[i]));
-        let mark = icons::title_mark(&process, &title).0.map(str::to_string);
-        let card_of: HashMap<PaneId, (String, Option<String>)> =
-            self.tabs[i].root.panes().into_iter().map(|id| (id, self.deck_card(id))).collect();
-        let cards = self.tabs[i].deck_cards(ctx, |id| card_of.get(&id).cloned().unwrap_or_default());
+    /// is centered on `icon` rather than fanning out from it. `deck` is each pane and its
+    /// card's depth (see [`Tab::deck_cards`]), `label` the tab's `(process, title mark)`.
+    /// Returns where the title text starts.
+    ///
+    /// [`Tab::deck_cards`]: crate::app::workspace::tab::Tab::deck_cards
+    fn tab_icon(&self, painter: &egui::Painter, deck: &[(PaneId, f32)], label: (&str, Option<&str>), icon: Rect, step: Vec2, center: bool) -> f32 {
+        let (process, mark) = label;
         let mut text_left = icon.right() + 9.0;
-        if cards.len() > 1 {
-            let cards: Vec<(&str, Option<&str>, f32)> = cards.iter().map(|((p, m), d)| (p.as_str(), m.as_deref(), *d)).collect();
+        if deck.len() > 1 {
+            let cards: Vec<(&str, Option<&str>, f32)> = deck
+                .iter()
+                .map(|&(id, depth)| {
+                    let (process, mark) = self.deck_card(id);
+                    (process, mark, depth)
+                })
+                .collect();
             let behind = (cards.len() as f32 - 1.0).min(icons::STACK_DEPTH - 1.0);
             let icon = if center { icon.translate(-step * behind / 2.0) } else { icon };
             icons::icon_stack(painter, icon, &cards, step);
             text_left += step.x * behind;
         } else {
-            icons::app_tile(painter, icon, &process, mark.as_deref());
+            icons::app_tile(painter, icon, process, mark);
         }
         text_left
     }
@@ -737,10 +737,9 @@ impl App {
         // Not the sticky pane, which every tab has.
         self.tabs[i]
             .root
-            .panes()
             .iter()
-            .filter(|&&id| !self.is_sticky(id))
-            .any(|&id| self.panes.get(&id).is_some_and(|t| t.attention) || self.agent_tracker.wants_you(id))
+            .filter(|&id| !self.is_sticky(id))
+            .any(|id| self.panes.get(&id).is_some_and(|t| t.attention) || self.agent_tracker.wants_you(id))
     }
 
     fn new_tab_button(&mut self, ui: &Ui, rect: Rect, cy: f32, theme: &Theme) {

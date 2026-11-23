@@ -1,5 +1,6 @@
 //! One terminal "surface": a PTY + child process, the alacritty VT state machine, and the
-//! bookkeeping (title, cwd, foreground process) shown in pane headers and tabs. A remote
+//! bookkeeping (title, cwd, foreground process) shown in pane headers and tabs: the label is
+//! stored and rebuilt only when one of those changes, not asked for anew each frame. A remote
 //! pane's "PTY" is a `nex-host` session on a host nex connects to itself (see `remote.rs`).
 
 pub mod input;
@@ -109,6 +110,16 @@ pub struct Terminal {
     size: GridSize,
     cell_px: (u16, u16),
 
+    /// The label shown in pane headers and tabs (see [`Terminal::title`]), built from the
+    /// four fields below it and from `cwd`. Whatever writes one of those calls
+    /// [`Terminal::rebuild_title`], so reading the label costs nothing.
+    title: String,
+    /// How many times the label was built, and how many times the OS was asked what the
+    /// shell is running: both are meant to happen on a change, not on every frame or title.
+    #[cfg(test)]
+    pub title_builds: usize,
+    #[cfg(test)]
+    pub proc_polls: usize,
     /// Title set by the program via OSC 0/2.
     pub osc_title: Option<String>,
     /// Foreground process at the time the title was set; the title only applies while that
@@ -128,6 +139,7 @@ pub struct Terminal {
     /// A restored command waiting to be typed into the shell once it is ready, and when it
     /// was queued (see [`Terminal::queue_command`]).
     pending_command: Option<(String, Instant)>,
+    /// The foreground process's working directory, as of the last process poll.
     pub cwd: Option<PathBuf>,
     /// The directory the shell last reported with OSC 7 (see [`osc7`]).
     osc7: osc7::Slot,
@@ -261,6 +273,7 @@ impl Terminal {
         let pty = remote::open(start, scan.osc7.clone(), scan.alert.clone(), scan.agent_tag.clone())?;
         let mut t = Self::start(cfg, pty, scan, 0, size, cell_px, None, Some(remote))?;
         t.process = "shell".into();
+        t.rebuild_title();
         t.attach(ctx);
         Ok(t)
     }
@@ -290,6 +303,11 @@ impl Terminal {
             pid,
             size,
             cell_px,
+            title: String::new(),
+            #[cfg(test)]
+            title_builds: 0,
+            #[cfg(test)]
+            proc_polls: 0,
             osc_title: None,
             osc_title_owner: String::new(),
             title_dir: None,
@@ -363,16 +381,20 @@ impl Terminal {
             }
             match event {
                 Event::Title(title) => {
-                    self.refresh_process_info();
-                    self.osc_title_owner = self.process.clone();
+                    self.refresh_process_info_for_title();
+                    self.osc_title_owner.clone_from(&self.process);
                     if self.in_remote_session()
                         && let Some(dir) = osc7::title_dir(&title)
                     {
                         self.title_dir = Some((self.foreground_pid(), dir.to_string()));
                     }
                     self.osc_title = Some(title);
+                    self.rebuild_title();
                 }
-                Event::ResetTitle => self.osc_title = None,
+                Event::ResetTitle => {
+                    self.osc_title = None;
+                    self.rebuild_title();
+                }
                 Event::ClipboardStore(_, text) => ctx.copy_text(text),
                 Event::ClipboardLoad(..) => {} // Reading the clipboard via OSC 52 is not allowed.
                 Event::ColorRequest(index, format) => {
@@ -473,15 +495,50 @@ impl Terminal {
             // Nothing runs here to look at.
             return;
         }
+        #[cfg(test)]
+        {
+            self.proc_polls += 1;
+        }
         let info = platform::proc_info(self.pid);
+        let mut changed = false;
         if let Some(name) = info.name {
+            changed = name != self.process;
             self.process = name;
             self.process_argv = info.argv;
         }
         self.job = info.job;
-        if let Some(cwd) = info.cwd {
+        if let Some(cwd) = info.cwd
+            && self.cwd.as_ref() != Some(&cwd)
+        {
             self.cwd = Some(cwd);
+            changed = true;
         }
+        if changed {
+            self.rebuild_title();
+        }
+    }
+
+    /// [`refresh_process_info`](Self::refresh_process_info) for a title that just arrived,
+    /// to know which process set it. A program redrawing its title (Claude Code's spinner,
+    /// several times a second) is the one already seen, so the OS is asked for everything
+    /// again only when the foreground job is another one, or for the first title, which can
+    /// arrive before a poll has seen what the pty's child became.
+    fn refresh_process_info_for_title(&mut self) {
+        if self.remote.is_some() {
+            return;
+        }
+        if self.osc_title_owner.is_empty() || platform::foreground_job(self.pid) != self.job {
+            self.refresh_process_info();
+        }
+    }
+
+    /// Build the label again, after a change to something it is made of.
+    fn rebuild_title(&mut self) {
+        #[cfg(test)]
+        {
+            self.title_builds += 1;
+        }
+        self.title = compose_title(self.osc_title.as_deref(), &self.osc_title_owner, &self.process, self.cwd.as_deref());
     }
 
     /// The foreground job's pid and command line, as of the last process poll (`None` at the
@@ -614,20 +671,28 @@ impl Terminal {
         self.agent_session().or_else(|| self.foreground_job().and_then(|(_, argv)| crate::remote::SshTarget::attach_id(argv)))
     }
 
-    /// The label shown in pane headers, e.g. "Node ~/Sites/rex-snake".
-    pub fn title(&self) -> String {
-        if let Some(t) = self.osc_title.as_deref().filter(|t| !t.trim().is_empty())
-            && self.osc_title_owner == self.process {
-                return t.to_string();
-            }
-        let mut name = self.process.clone();
-        if let Some(first) = name.get_mut(0..1) {
-            first.make_ascii_uppercase();
+    /// The label shown in pane headers, e.g. "Node ~/Sites/rex-snake": the title the
+    /// foreground program set, else its name and directory. Kept up to date as those change,
+    /// so this only hands out the stored text.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+}
+
+/// A terminal's label (see [`Terminal::title`]): the program's own title while the process
+/// that set it (`osc_title_owner`) is still the foreground one, else `Process ~/dir`.
+fn compose_title(osc_title: Option<&str>, osc_title_owner: &str, process: &str, cwd: Option<&std::path::Path>) -> String {
+    if let Some(t) = osc_title.filter(|t| !t.trim().is_empty())
+        && osc_title_owner == process {
+            return t.to_string();
         }
-        match &self.cwd {
-            Some(cwd) => format!("{name} {}", tilde(cwd)),
-            None => name,
-        }
+    let mut name = process.to_string();
+    if let Some(first) = name.get_mut(0..1) {
+        first.make_ascii_uppercase();
+    }
+    match cwd {
+        Some(cwd) => format!("{name} {}", tilde(cwd)),
+        None => name,
     }
 }
 
@@ -690,7 +755,88 @@ fn reattach_command(argv: &[String], tagged: Option<String>) -> Option<Vec<Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{quote_arg, reattach_command};
+    use super::{compose_title, quote_arg, reattach_command};
+
+    #[test]
+    fn a_title_is_the_programs_own_or_its_name_and_directory() {
+        let dir = std::path::Path::new("/srv/www");
+        assert_eq!(compose_title(None, "", "node", Some(dir)), "Node /srv/www");
+        assert_eq!(compose_title(None, "", "node", None), "Node");
+        assert_eq!(compose_title(None, "", "", None), "");
+        // A program's title labels the pane while that program is in the foreground.
+        assert_eq!(compose_title(Some("\u{2733} Claude Code"), "node", "node", Some(dir)), "\u{2733} Claude Code");
+        // The shell's prompt title doesn't label what it runs next; a blank one labels nothing.
+        assert_eq!(compose_title(Some("me@box: ~"), "fish", "node", Some(dir)), "Node /srv/www");
+        assert_eq!(compose_title(Some("  "), "node", "node", None), "Node");
+    }
+
+    /// A stand-in program for a pane to run: a script that sends `titles` as OSC 0 titles and
+    /// then waits. Returns its folder (to remove) and its path.
+    #[cfg(target_os = "linux")]
+    fn titling_script(name: &str, titles: &[&str]) -> (std::path::PathBuf, std::path::PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("nex-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("spinner");
+        let sends: String = titles.iter().map(|t| format!("printf '\\033]0;{t}\\007'\n")).collect();
+        std::fs::write(&script, format!("#!/bin/sh\n{sends}sleep 30\n")).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (dir, script)
+    }
+
+    /// The label was built (two clones, a format and a home-folder lookup) on every call,
+    /// several times per tab per frame; and every title a program set (a spinner sets ten a
+    /// second) read the foreground process's name, directory and command line again.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_label_is_built_and_the_process_polled_only_on_a_change() {
+        use std::time::{Duration, Instant};
+
+        let titles = ["one", "two", "three", "four", "five", "six"];
+        let (dir, script) = titling_script("title-cache", &titles);
+        let cfg = crate::config::Config::default();
+        let ctx = egui::Context::default();
+        let size = crate::terminal::GridSize { cols: 80, lines: 24 };
+        let mut t = super::Terminal::spawn(1, &cfg, Some(vec![script.to_string_lossy().into_owned()]), None, size, (8, 16), &ctx).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while t.osc_title.as_deref() != Some("six") {
+            assert!(Instant::now() < deadline, "no title from the script (got {:?})", t.osc_title);
+            std::thread::sleep(Duration::from_millis(20));
+            t.process_events(&ctx, &cfg);
+        }
+        assert_eq!(t.process, "spinner");
+        assert_eq!(t.title(), "six");
+        // One poll when it started and one for its first title, to learn who set it. The other
+        // five came from the same foreground process. (The terminal may merge titles that
+        // arrive together, so there can be fewer builds than titles, never more.)
+        assert_eq!(t.proc_polls, 2, "a title from the same foreground process polled it again");
+        assert!(t.title_builds <= 2 + titles.len(), "{} builds", t.title_builds);
+
+        // Asking for the label, as every frame does for each tab and header, builds nothing.
+        let builds = t.title_builds;
+        for _ in 0..1000 {
+            assert_eq!(t.title(), "six");
+        }
+        // Nor does a poll that finds the same process in the same directory.
+        for _ in 0..5 {
+            t.refresh_process_info();
+        }
+        assert_eq!(t.title_builds, builds);
+
+        // A change to what the label is made of does: the program's title going away...
+        t.osc_title = None;
+        t.rebuild_title();
+        assert_eq!(t.title(), format!("Spinner {}", super::tilde(t.cwd.as_deref().unwrap())));
+        // ...and the poll noticing another directory.
+        t.cwd = Some("/nonexistent".into());
+        let builds = t.title_builds;
+        t.refresh_process_info();
+        assert_eq!(t.title_builds, builds + 1);
+        assert_ne!(t.cwd.as_deref(), Some(std::path::Path::new("/nonexistent")));
+        assert_eq!(t.title(), format!("Spinner {}", super::tilde(t.cwd.as_deref().unwrap())));
+        drop(t);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn an_ssh_showing_an_agent_reattaches_to_it() {

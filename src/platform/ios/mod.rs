@@ -101,6 +101,10 @@ pub fn proc_info(_pid: u32) -> ProcInfo {
     ProcInfo::default()
 }
 
+pub fn foreground_job(_pid: u32) -> Option<u32> {
+    None
+}
+
 pub fn process_start(_pid: u32) -> Option<String> {
     None
 }

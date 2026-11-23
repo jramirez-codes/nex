@@ -37,7 +37,7 @@ impl GitDiff {
             && bar.width() >= 420.0
         {
             let labels = [(Filter::All, "All".to_string()), (Filter::Unstaged, format!("Changes {unstaged}")), (Filter::Staged, format!("Staged {staged}"))];
-            let font = ui_font(12.0);
+            let font = FontId::proportional(12.0);
             let widths: Vec<f32> = labels.iter().map(|(_, l)| p.layout_no_wrap(l.clone(), font.clone(), c.text).size().x + 22.0).collect();
             let total: f32 = widths.iter().sum::<f32>() + 4.0;
             let track = Rect::from_min_size(Pos2::new(right - total, cy - 13.0), Vec2::new(total, 26.0));
@@ -87,7 +87,7 @@ impl GitDiff {
             (0, b) => Some(format!("↓{b}")),
             (a, b) => Some(format!("↑{a} ↓{b}")),
         };
-        let ab = ab.map(|t| p.layout_no_wrap(t, ui_font(11.0), c.text_dim));
+        let ab = ab.map(|t| p.layout_no_wrap(t, FontId::proportional(11.0), c.text_dim));
         if let Some(g) = &ab {
             room -= g.size().x + 22.0;
         }
