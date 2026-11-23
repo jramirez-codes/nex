@@ -230,6 +230,10 @@ All notable changes to nex are documented here. The format follows
 - A crash in one agent on an ssh host no longer takes down the others. `nex-host` kept going
   only until another agent or pane touched the shared agent list, then stopped too, ending
   every agent on the host.
+- Android: Ctrl armed with the keyboard button now works like a held Ctrl for nex's own
+  shortcuts. Ctrl then `e` opens the file explorer and Ctrl then `g` the Changes pane, as
+  Ctrl+E and Ctrl+G do on a desktop; keys with no shortcut still reach the program as
+  control characters.
 
 ## [0.11.0] - 2026-11-17
 
