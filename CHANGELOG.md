@@ -156,6 +156,15 @@ All notable changes to nex are documented here. The format follows
 - Agents pane: clicking a team's or pipeline's dropdown arrow opens and closes its list of
   agents (it used to jump to the lead instead, and an open list couldn't be closed with the
   mouse). A card lifted off the grid also takes clicks where it's drawn.
+- Agent teams: a pipeline's `each` stage reviews every report from the stages before it,
+  not just each one's first. A re-report after `--verdict changes` and any later PR from a
+  build agent get in line too, and one reviewer agent takes them one at a time. A
+  reviewer can now have `worktree = true` to check each PR out in a worktree of its own.
+- Agent teams: running `nex-host pipe NAME TASK` again from the same repository joins the
+  run that's going when it ends in an `each` stage. Before, each call made a run of its
+  own, so the Agents pane and `nex-host ls` showed one pipeline group per feature. Now one
+  run is one group, with every builder and the one reviewer under it. The run stays up for
+  more until you press Enter in it.
 - Agent teams: a pipeline stage with `worktree = true` no longer quits on start. Claude Code
   asks whether to trust each new worktree, and nex-host typed the stage's task (or its
   reminder to report) into that question, answering "No, exit". An agent showing one of

@@ -160,9 +160,13 @@ retry = { stage = "build", unless = "approved", max = 3 }
 
 #### Many builders, one merger, first come first served
 
-A last stage with `each = true` runs once per report from the stages before it, in the
-order they arrive, one at a time, with a fresh agent each time. Builders open PRs and
-report them with `done --pr N`; the first one done is the first one reviewed and merged:
+A last stage with `each = true` is a queue: every report from the stages before it gets
+in line in the order they arrive, and one agent of its own takes them one at a time, each
+as a new task. Builders open PRs and report them with `done --pr N`; the first one done is
+the first one reviewed and merged. Every report counts, not only a builder's first: a
+re-report after a send-back, or a second PR, gets in line too.
+`worktree = true` on the `each` stage gives the reviewer a checkout of its own to look at
+each PR in:
 
 ```toml
 [[stage]]
@@ -177,6 +181,7 @@ task = "…"
 [[stage]]
 name = "merge"
 each = true
+worktree = true
 task = "Review PR {pr} from {from}: {report}. Merged before it: {merged}. Merge it and report approved, or report changes saying what to fix."
 ```
 
@@ -184,6 +189,11 @@ task = "Review PR {pr} from {from}: {report}. Merged before it: {merged}. Merge 
 - When it reports `changes` (a conflict, a failing check), that goes back to the builder
   as a new task. The builder is still running, so it keeps its context. Its next report
   joins the back of the line. After three send-backs it counts as not merged.
+- When the stages before the `each` one all run at once (one build stage, say), running
+  `nex-host pipe NAME TASK` again from the same repository joins the run that's going
+  instead of starting another. Its builder starts in that run, so `nex-host ls` and nex's
+  Agents pane show one group, and its PR joins the same line for the same reviewer.
+  Such a run stays up for more until you press Enter in it.
 - `examples/pr-team/` is a full run of this with real Claude agents and GitHub PRs.
 
 `nex-host worktree ls` lists the worktrees `--worktree` made. `nex-host worktree prune`
