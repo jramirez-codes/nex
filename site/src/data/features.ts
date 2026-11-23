@@ -55,6 +55,5 @@ export const DETAILS: { icon: string; title: string; body: string }[] = [
   { icon: '◎', title: 'Smart titles', body: 'Tabs and panes show the program and its folder, like “Node ~/code/nex”, or the title the program sets.' },
   { icon: '✋', title: 'Touch and pinch', body: 'Pinch, or Ctrl+wheel (Cmd+wheel on a Mac), to zoom. On a touchscreen, swipe up and down to scroll and sideways to go to the next or previous tab.' },
   { icon: '↻', title: 'Config that just applies', body: 'A Ghostty-style key = value file. Save it and the running window updates, no restart.' },
-  { icon: '◐', title: 'Every color', body: '16, 256 and 24-bit truecolor, plus bold, italic, double underline, strikethrough, dim and inverse.' },
   { icon: '🦀', title: 'Rust all the way', body: 'Built on alacritty_terminal, the VT engine behind Alacritty and Zed, with egui for rendering.' },
 ]

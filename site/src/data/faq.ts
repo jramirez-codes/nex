@@ -62,7 +62,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Is there a phone app?',
-    a: 'Yes. Every release includes nex-<version>-android-arm64.apk: install it on the phone, or with adb install -r. The phone runs only nex\'s window and every pane works on your ssh host. You type your password once; the app then adds a key for the phone that expires after 30 days. Panes survive network drops, the keyboard button doubles as an arrow-key joystick and a Ctrl key (double-tap), swipe typing works, holding the button talks to Claude Code\'s voice mode, and the Agents pane lists the agents on the server. An iPhone app is in beta with no download yet: build it with nex-ios/build-ipa.sh on a Mac with Xcode 15 or newer and an Apple Developer account.',
+    a: 'Yes. Every release includes nex-v<version>-android-arm64.apk: install it on the phone, or with adb install -r. The phone runs only nex\'s window and every pane works on your ssh host. You type your password once; the app then adds a key for the phone that expires after 30 days. Panes survive network drops, the keyboard button doubles as an arrow-key joystick and a Ctrl key (double-tap), swipe typing works, holding the button talks to Claude Code\'s voice mode, and the Agents pane lists the agents on the server. An iPhone app is in beta with no download yet: build it with nex-ios/build-ipa.sh on a Mac with Xcode 15 or newer and an Apple Developer account.',
   },
   {
     q: 'Does nex install anything on my servers?',
