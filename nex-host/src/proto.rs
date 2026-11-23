@@ -39,10 +39,53 @@ pub const RECV_DEFAULT_MS: u64 = 600 * 1000;
 /// Claude Code's title glyph while it waits at its prompt; spinner frames replace it while
 /// it works.
 pub const CLAUDE_IDLE_MARK: char = '✳';
+/// What sits between the two halves of the terminal title a pipeline's runner sets, for the
+/// Agents pane's card: how its work stands (`2 building · 1 in review`), then the last
+/// thing that happened. See [`pipeline_title`].
+pub const TITLE_SEP: &str = " — ";
+/// The most characters of the last event a pipeline puts in its title.
+const TITLE_EVENT_MAX: usize = 160;
+
+/// The title a pipeline's runner sets: `counts`, then (when something has happened)
+/// [`TITLE_SEP`] and `event` on one line, cut to a length a title can carry.
+pub fn pipeline_title(counts: &str, event: &str) -> String {
+    let line: String = event.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut event: String = line.chars().filter(|c| !c.is_control()).take(TITLE_EVENT_MAX).collect();
+    if event.len() < line.len() {
+        event.push('…');
+    }
+    if event.is_empty() { counts.trim().to_string() } else { format!("{}{TITLE_SEP}{event}", counts.trim()) }
+}
+
+/// A [`pipeline_title`] taken apart again: its counts and its last event (either may be
+/// empty).
+pub fn split_pipeline_title(title: &str) -> (&str, &str) {
+    let (counts, event) = title.split_once(TITLE_SEP).unwrap_or((title, ""));
+    (counts.trim(), event.trim())
+}
+
+/// What a daemon that's handing over to a newer nex-host answers a `launch` or `spawn`
+/// with: the client starts the new daemon and asks it again.
+pub const RESTARTING: &str = "nex-host is restarting";
 
 /// What `nex-host --version` prints: `nex-host 0.11.0 (protocol 2)`.
 pub fn version_line() -> String {
     format!("nex-host {VERSION} (protocol {PROTOCOL})")
+}
+
+/// Whether version line `a` is from an older nex-host than `b` (by version, then
+/// protocol). `false` when either isn't a version line: only a nex-host known to be older
+/// is ever replaced.
+pub fn older(a: &str, b: &str) -> bool {
+    fn parse(line: &str) -> Option<(Vec<u64>, u32)> {
+        let rest = line.trim().strip_prefix("nex-host ")?;
+        let (version, protocol) = rest.split_once(" (protocol ")?;
+        let protocol = protocol.strip_suffix(')')?.parse().ok()?;
+        // `0.12.2`, or `0.13.0-rc1`: the numbers before any suffix.
+        let version = version.split(['-', '+']).next()?.split('.').map(|n| n.parse().ok()).collect::<Option<Vec<u64>>>()?;
+        Some((version, protocol))
+    }
+    matches!((parse(a), parse(b)), (Some(a), Some(b)) if a < b)
 }
 
 /// What an agent is doing, most urgent first.
@@ -295,6 +338,9 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lines: Option<usize>,
     },
+    /// The daemon's [`version_line`], answered in `text`. A daemon from before this request
+    /// answers `bad request`: it's older than any client that asks.
+    Version,
 }
 
 /// What a message is for, which tells the agent reading it what's expected of it.
@@ -427,9 +473,15 @@ pub struct Response {
     /// With `recv`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub messages: Option<Vec<Message>>,
-    /// With `read`: the screen. With `send`: something the sender should know.
+    /// With `read`: the screen. With `send`: something the sender should know. With
+    /// `version`: the daemon's version line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Added by `nex-host watch` (not the daemon) to each line when the daemon it watches is
+    /// an older nex-host than the installed one, still running because agents are: it hands
+    /// over once they're done. Its version line, or `older` when it's too old to say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_version: Option<String>,
 }
 
 impl Response {
@@ -584,6 +636,20 @@ mod tests {
     }
 
     #[test]
+    fn a_pipelines_title_is_its_counts_then_its_last_event() {
+        let t = pipeline_title("2 building · 1 in review", "\n✓ build (PR 7) approved:\tmerged\n");
+        assert_eq!(t, "2 building · 1 in review — ✓ build (PR 7) approved: merged");
+        assert_eq!(split_pipeline_title(&t), ("2 building · 1 in review", "✓ build (PR 7) approved: merged"));
+        // Nothing said yet: the counts alone. An event that has a dash of its own splits once.
+        assert_eq!(pipeline_title("1 building", "  "), "1 building");
+        assert_eq!(split_pipeline_title("1 building"), ("1 building", ""));
+        assert_eq!(split_pipeline_title("1 merged — ✓ done — really"), ("1 merged", "✓ done — really"));
+        assert_eq!(split_pipeline_title(&pipeline_title("", "✗ stopped")), ("", "✗ stopped"));
+        let long = pipeline_title("1 building", &"é".repeat(500));
+        assert_eq!(split_pipeline_title(&long).1.chars().count(), TITLE_EVENT_MAX + 1, "cut, with an ellipsis");
+    }
+
+    #[test]
     fn sessions_round_trip() {
         let mut s = session();
         s.claude = Some(Claude { status: Some("busy".into()), ..Claude::default() });
@@ -619,6 +685,18 @@ mod tests {
         assert_eq!(s.compute_status(10_000), Status::Idle, "just the echo of typing");
         s.last_input = 0;
         assert_eq!(s.compute_status(20_000), Status::Idle);
+    }
+
+    #[test]
+    fn versions_compare_by_number_then_protocol() {
+        assert!(older("nex-host 0.12.2 (protocol 3)", "nex-host 0.12.10 (protocol 3)"));
+        assert!(older("nex-host 0.12.2 (protocol 3)", "nex-host 0.13.0-rc1 (protocol 3)"));
+        assert!(older("nex-host 0.12.2 (protocol 2)", "nex-host 0.12.2 (protocol 3)"));
+        assert!(!older("nex-host 0.12.2 (protocol 3)", "nex-host 0.12.2 (protocol 3)"));
+        assert!(!older("nex-host 0.13.0 (protocol 3)", "nex-host 0.12.2 (protocol 3)"), "never a newer one");
+        assert!(!older("something else", &version_line()));
+        assert!(!older(&version_line(), "garbage"));
+        assert_eq!(serde_json::from_str::<Request>(r#"{"op":"version"}"#).unwrap(), Request::Version);
     }
 
     #[test]

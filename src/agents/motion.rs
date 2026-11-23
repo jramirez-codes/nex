@@ -273,6 +273,8 @@ mod tests {
             tab: Some(0),
             kind: AgentKind::Claude,
             name: "a".into(),
+            task: None,
+            session: None,
             mark: None,
             cwd: None,
             status,

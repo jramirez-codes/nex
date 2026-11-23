@@ -102,6 +102,32 @@ fn names_by_task_then_session_then_folder() {
 }
 
 #[test]
+fn the_live_title_is_kept_as_the_task_beside_the_name() {
+    let now = Instant::now();
+    let mut p = probe(1, 0, AgentKind::Claude, now);
+    p.session_name = Some("build-2".into());
+    let mut t = Tracker::default();
+    let mut seen = |p: &Probe| {
+        t.update(vec![p.clone()], now);
+        let a = &t.agents()[0];
+        (a.name.clone(), a.task.clone(), a.session.clone())
+    };
+    assert_eq!(seen(&p), ("build-2".into(), None, Some("build-2".into())), "no title: no task yet");
+    p.title = "claude".into();
+    assert_eq!(seen(&p).1, None, "the program's own name isn't a task");
+    p.title = "Fix the login redirect".into();
+    assert_eq!(seen(&p), ("Fix the login redirect".into(), Some("Fix the login redirect".into()), Some("build-2".into())));
+    p.title = "Write its tests".into();
+    assert_eq!(seen(&p).1.as_deref(), Some("Write its tests"), "it follows the title");
+
+    // A pipeline's title is how its run stands: its card keeps its name.
+    p.kind = AgentKind::Pipeline;
+    p.session_name = Some("feature".into());
+    p.title = "2 building · 1 merged — ✓ build approved".into();
+    assert_eq!(seen(&p), ("feature".into(), Some("2 building · 1 merged — ✓ build approved".into()), Some("feature".into())));
+}
+
+#[test]
 fn sorts_by_need_then_tab_and_keeps_time_in_state() {
     let start = Instant::now();
     let mut idle = probe(5, 0, AgentKind::Claude, start);

@@ -207,7 +207,7 @@ impl App {
         if self.strip.files_rect.is_some_and(|r| r.contains(at)) {
             return None;
         }
-        let company = self.tabs.iter().find(|t| t.uid == home).is_some_and(|t| t.root.panes().len() > 1);
+        let company = self.tabs.iter().find(|t| t.uid == home).is_some_and(|t| t.root.len() > 1);
         (company && self.strip.strip_rect.is_some_and(|r| r.contains(at))).then_some(DropTarget::NewTab)
     }
 

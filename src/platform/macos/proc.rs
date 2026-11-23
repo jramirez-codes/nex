@@ -18,14 +18,27 @@ pub fn process_start(_pid: u32) -> Option<String> {
 /// The pty starts shells through `/usr/bin/login`, which runs as root, so the kernel won't
 /// describe it to us; we then ask its child, the user's shell, instead.
 pub fn proc_info(pid: u32) -> ProcInfo {
-    let shell = if bsd_info(pid).is_some() { pid } else { first_child(pid).unwrap_or(pid) };
-    let fg = bsd_info(shell).map(|i| i.e_tpgid).filter(|&p| p > 0).unwrap_or(shell);
+    let (shell, fg) = shell_and_foreground(pid);
     ProcInfo {
         name: name(fg).or_else(|| name(shell)),
         cwd: cwd(fg).or_else(|| cwd(shell)),
         argv: args(fg).unwrap_or_default(),
         job: (fg != shell).then_some(fg),
     }
+}
+
+/// The shell behind pty child `pid`, and the foreground process group of its terminal.
+fn shell_and_foreground(pid: u32) -> (u32, u32) {
+    let shell = if bsd_info(pid).is_some() { pid } else { first_child(pid).unwrap_or(pid) };
+    let fg = bsd_info(shell).map(|i| i.e_tpgid).filter(|&p| p > 0).unwrap_or(shell);
+    (shell, fg)
+}
+
+/// What [`proc_info`]'s `job` would be, without reading the rest: cheap enough to ask on
+/// every title a program sets.
+pub fn foreground_job(pid: u32) -> Option<u32> {
+    let (shell, fg) = shell_and_foreground(pid);
+    (fg != shell).then_some(fg)
 }
 
 fn first_child(pid: u32) -> Option<u32> {

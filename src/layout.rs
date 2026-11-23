@@ -54,20 +54,85 @@ pub struct Divider {
     pub parent: Rect,
 }
 
-impl Node {
-    pub fn panes(&self) -> Vec<PaneId> {
-        let mut out = Vec::new();
-        self.collect(&mut out);
-        out
+/// How deep a walk of the tree goes before [`Panes`] needs the heap: far deeper than the
+/// splits anyone fits in a window.
+const WALK_DEPTH: usize = 16;
+
+/// The panes of a tree in layout order (see [`Node::iter`]).
+pub struct Panes<'a> {
+    /// The node to walk next.
+    next: Option<&'a Node>,
+    /// The `b` sides still owed on the way down, innermost last: the first `owed_len` slots
+    /// of `owed`, then `spill` for a tree deeper than [`WALK_DEPTH`] (empty, and so
+    /// unallocated, otherwise).
+    owed: [Option<&'a Node>; WALK_DEPTH],
+    owed_len: usize,
+    spill: Vec<&'a Node>,
+}
+
+impl<'a> Panes<'a> {
+    fn push(&mut self, node: &'a Node) {
+        match self.owed.get_mut(self.owed_len) {
+            Some(slot) => {
+                *slot = Some(node);
+                self.owed_len += 1;
+            }
+            None => self.spill.push(node),
+        }
     }
 
-    fn collect(&self, out: &mut Vec<PaneId>) {
-        match self {
-            Node::Leaf(id) => out.push(*id),
-            Node::Split { a, b, .. } => {
-                a.collect(out);
-                b.collect(out);
+    fn pop(&mut self) -> Option<&'a Node> {
+        self.spill.pop().or_else(|| {
+            self.owed_len = self.owed_len.checked_sub(1)?;
+            self.owed[self.owed_len].take()
+        })
+    }
+}
+
+impl Iterator for Panes<'_> {
+    type Item = PaneId;
+
+    fn next(&mut self) -> Option<PaneId> {
+        let mut node = self.next.take().or_else(|| self.pop())?;
+        loop {
+            match node {
+                Node::Leaf(id) => return Some(*id),
+                Node::Split { a, b, .. } => {
+                    self.push(b);
+                    node = a;
+                }
             }
+        }
+    }
+}
+
+impl Node {
+    /// The panes in layout order (`a` before `b`), as a list. To only ask something of them,
+    /// use [`iter`](Self::iter), [`contains`](Self::contains) or [`len`](Self::len), which
+    /// don't allocate.
+    pub fn panes(&self) -> Vec<PaneId> {
+        self.iter().collect()
+    }
+
+    /// The panes in layout order (`a` before `b`), without building a list.
+    pub fn iter(&self) -> Panes<'_> {
+        Panes { next: Some(self), owed: [None; WALK_DEPTH], owed_len: 0, spill: Vec::new() }
+    }
+
+    /// Whether pane `id` is in this tree.
+    pub fn contains(&self, id: PaneId) -> bool {
+        match self {
+            Node::Leaf(leaf) => *leaf == id,
+            Node::Split { a, b, .. } => a.contains(id) || b.contains(id),
+        }
+    }
+
+    /// How many panes the tree holds (never zero).
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        match self {
+            Node::Leaf(_) => 1,
+            Node::Split { a, b, .. } => a.len() + b.len(),
         }
     }
 
@@ -104,8 +169,7 @@ impl Node {
     /// Move leaf `pane` to the `dir` side of leaf `target` (its old slot closes up). Returns
     /// false (changing nothing) if either is missing or they are the same pane.
     pub fn move_pane(&mut self, pane: PaneId, target: PaneId, dir: Direction) -> bool {
-        let ids = self.panes();
-        if pane == target || !ids.contains(&pane) || !ids.contains(&target) {
+        if pane == target || !self.contains(pane) || !self.contains(target) {
             return false;
         }
         self.remove(pane) && self.insert(target, dir, pane)
@@ -136,8 +200,7 @@ impl Node {
     /// Exchange the leaves holding `a` and `b`, keeping every split's axis and ratio.
     /// Returns false (changing nothing) if either is missing or they are the same pane.
     pub fn swap(&mut self, a: PaneId, b: PaneId) -> bool {
-        let ids = self.panes();
-        if a == b || !ids.contains(&a) || !ids.contains(&b) {
+        if a == b || !self.contains(a) || !self.contains(b) {
             return false;
         }
         self.swap_leaves(a, b);
@@ -358,6 +421,58 @@ mod tests {
 
     fn split(axis: Axis, ratio: f32, a: Node, b: Node) -> Node {
         Node::Split { axis, ratio, a: Box::new(a), b: Box::new(b) }
+    }
+
+    /// A chain of `depth` splits, each leaf numbered in layout order from 1. With `left`,
+    /// the chain runs down the `a` sides (the deepest walk); else down the `b` sides.
+    fn chain(depth: usize, left: bool) -> Node {
+        let mut n = Node::Leaf(if left { 1 } else { depth as PaneId + 1 });
+        for k in 1..=depth as PaneId {
+            n = if left {
+                split(Axis::Horizontal, 0.5, n, Node::Leaf(k + 1))
+            } else {
+                split(Axis::Vertical, 0.5, Node::Leaf(depth as PaneId + 1 - k), n)
+            };
+        }
+        n
+    }
+
+    #[test]
+    fn iter_contains_and_len_agree_with_panes() {
+        let leaf = Node::Leaf(7);
+        assert_eq!(leaf.iter().collect::<Vec<_>>(), vec![7]);
+        assert_eq!((leaf.len(), leaf.contains(7), leaf.contains(1)), (1, true, false));
+
+        let n = split(
+            Axis::Horizontal,
+            0.5,
+            split(Axis::Vertical, 0.5, Node::Leaf(4), Node::Leaf(2)),
+            split(Axis::Vertical, 0.5, Node::Leaf(9), split(Axis::Horizontal, 0.5, Node::Leaf(1), Node::Leaf(3))),
+        );
+        assert_eq!(n.iter().collect::<Vec<_>>(), vec![4, 2, 9, 1, 3]);
+        assert_eq!(n.panes(), vec![4, 2, 9, 1, 3]);
+        assert_eq!(n.len(), 5);
+        assert!(n.panes().iter().all(|&id| n.contains(id)));
+        assert!(!n.contains(5));
+    }
+
+    /// The walk keeps its place in a fixed array, and still gets a tree deeper than that right.
+    #[test]
+    fn iter_walks_trees_of_any_depth_in_order() {
+        for depth in [1, WALK_DEPTH - 1, WALK_DEPTH, WALK_DEPTH + 1, 3 * WALK_DEPTH] {
+            for left in [true, false] {
+                let n = chain(depth, left);
+                let want: Vec<PaneId> = (1..=depth as PaneId + 1).collect();
+                assert_eq!(n.iter().collect::<Vec<_>>(), want, "depth {depth}, left {left}");
+                assert_eq!(n.len(), depth + 1);
+            }
+        }
+        // Within the array's depth nothing is put on the heap.
+        let n = chain(WALK_DEPTH, true);
+        let mut it = n.iter();
+        while it.next().is_some() {
+            assert_eq!(it.spill.capacity(), 0);
+        }
     }
 
     #[test]

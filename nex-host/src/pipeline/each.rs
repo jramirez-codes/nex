@@ -7,6 +7,9 @@
 //! `pipe NAME TASK` that joins the run adds another. A batch's sender hears how it went
 //! once every source in it is settled.
 //!
+//! The queue also says how the work stands, for the title the runner gives its terminal
+//! ([`Queue::title`]): nex's Agents pane shows it on the pipeline's card.
+//!
 //! This file is the bookkeeping only, with no I/O: [`Queue`] takes what arrived and says
 //! what to do (an [`Action`]), and `run_each` in `run.rs` does it.
 
@@ -65,11 +68,13 @@ pub struct Queue {
     reviewing: Option<(usize, Outcome, Instant)>,
     /// Everything approved, in order: (source name, PR).
     merged: Vec<(String, Option<String>)>,
+    /// The last [`Action::Say`] line.
+    said: String,
 }
 
 impl Queue {
     pub fn new(stage: &str, timeout: Duration) -> Queue {
-        Queue { stage: stage.into(), timeout, reviewer: None, sources: Vec::new(), batches: Vec::new(), line: VecDeque::new(), reviewing: None, merged: Vec::new() }
+        Queue { stage: stage.into(), timeout, reviewer: None, sources: Vec::new(), batches: Vec::new(), line: VecDeque::new(), reviewing: None, merged: Vec::new(), said: String::new() }
     }
 
     /// A new batch: `task` given by `origin`. Returns its index for [`Queue::add`].
@@ -91,6 +96,39 @@ impl Queue {
     /// Whether anything ended up not approved.
     pub fn failed(&self) -> bool {
         self.batches.iter().any(|b| !b.failed.is_empty())
+    }
+
+    /// How the work stands, zero counts left out: `2 building · 1 in review · 3 merged`.
+    /// Building is a source on its task, sent back one that's on it again after a review;
+    /// in review is every report in line or with the reviewer.
+    pub fn counts(&self) -> String {
+        let working = |back: bool| self.sources.iter().filter(|s| s.working && (s.tries > 0) == back).count();
+        let failed = self.batches.iter().map(|b| b.failed.len()).sum();
+        [
+            (working(false), "building"),
+            (self.line.len() + usize::from(self.reviewing.is_some()), "in review"),
+            (self.merged.len(), "merged"),
+            (working(true), "sent back"),
+            (failed, "failed"),
+        ]
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, what)| format!("{n} {what}"))
+        .collect::<Vec<_>>()
+        .join(" · ")
+    }
+
+    /// The runner's terminal title: [`Queue::counts`], then the last line it said (see
+    /// `nex_host::proto::pipeline_title`).
+    pub fn title(&self) -> String {
+        nex_host::proto::pipeline_title(&self.counts(), &self.said)
+    }
+
+    /// Remember the last line `out` says, for the title.
+    fn heard(&mut self, out: &[Action]) {
+        if let Some(line) = out.iter().rev().find_map(|a| if let Action::Say(l) = a { Some(l) } else { None }) {
+            self.said = line.trim().to_string();
+        }
     }
 
     /// A `done` from agent `from`. `alive` says whether an agent is still running (a
@@ -117,6 +155,7 @@ impl Queue {
             }
         }
         self.advance(now, &mut out);
+        self.heard(&out);
         out
     }
 
@@ -136,6 +175,7 @@ impl Queue {
             self.batches[s.batch].failed.push(s.name.clone());
         }
         self.advance(now, &mut out);
+        self.heard(&out);
         out
     }
 
@@ -272,6 +312,45 @@ mod tests {
         assert_eq!(merged, "PR 7 (build)");
         let a = q.done("rev", says(Verdict::Approved, "merged"), ALIVE, now);
         assert_eq!(tells(&a), ["The pipeline finished. merge approved 2: build (PR 7), build (PR 8)"]);
+    }
+
+    #[test]
+    fn the_title_says_how_the_work_stands_and_what_happened_last() {
+        let now = Instant::now();
+        let mut q = Queue::new("merge", T);
+        let b = q.batch("user", "go");
+        q.add("a", "build", b, now);
+        q.add("b", "build-2", b, now);
+        q.add("c", "build-3", b, now);
+        q.reviewer = Some("rev".into());
+        assert_eq!(q.title(), "3 building", "added: nothing said yet");
+
+        // A report goes straight to the reviewer; the next one gets in line behind it.
+        q.done("a", report("opened it", "7"), ALIVE, now);
+        assert_eq!(q.title(), "2 building · 1 in review — ▸ build (PR 7) is next: opened it");
+        q.done("b", report("mine too", "8"), ALIVE, now);
+        assert_eq!(q.title(), "1 building · 2 in review — build-2 (PR 8) gets in line (1 ahead): mine too");
+
+        // Approved: merged, and the one in line is up.
+        q.done("rev", says(Verdict::Approved, "merged it"), ALIVE, now);
+        assert_eq!(q.title(), "1 building · 1 in review · 1 merged — ▸ build-2 (PR 8) is next: mine too");
+        // Sent back: its agent is on it again.
+        q.done("rev", says(Verdict::Changes, "conflicts"), ALIVE, now);
+        assert_eq!(q.title(), "1 building · 1 merged · 1 sent back — ↺ build-2 (PR 8) sent back (1/3): conflicts");
+        q.done("c", says(Verdict::Failed, "couldn't build"), ALIVE, now);
+        assert_eq!(q.title(), "1 merged · 1 sent back · 1 failed — ✗ build-3: couldn't build");
+
+        // Finished: the last report is approved, and the batch is settled.
+        q.done("b", report("rebased", "8"), ALIVE, now);
+        q.done("rev", says(Verdict::Approved, "merged"), ALIVE, now);
+        assert_eq!(q.title(), "2 merged · 1 failed — ✗ finished. merge approved 2: build (PR 7), build-2 (PR 8); not approved: build-3");
+        assert!(q.idle());
+        // A late source counts as failed too.
+        let mut q = Queue::new("merge", T);
+        let b = q.batch("user", "go");
+        q.add("a", "build", b, now);
+        q.overdue(ALIVE, now + T);
+        assert_eq!(q.title(), "1 failed — ✗ finished. merge approved 0: nothing; not approved: build");
     }
 
     #[test]

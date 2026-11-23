@@ -1,8 +1,12 @@
 //! Running a pipeline: starting each group of stages, taking their reports, and for an
 //! `each` stage, feeding its queue (`each.rs`) until Enter ends the run.
+//!
+//! The run keeps its terminal's title saying how it stands and what happened last
+//! ([`Title`]): the daemon reports a session's title, and nex's Agents pane shows it on the
+//! pipeline's card.
 
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -19,6 +23,34 @@ use crate::pipeline::spec::{Next, Pipeline, Stage, after, fill, fill_each};
 pub struct Ran {
     pub code: i32,
     pub ended: bool,
+}
+
+/// The run's terminal title (OSC 0), set again only when it changes.
+#[derive(Default)]
+struct Title(String);
+
+impl Title {
+    fn set(&mut self, title: String) {
+        if title != self.0 {
+            print!("\x1b]0;{title}\x07");
+            let _ = io::stdout().flush();
+            self.0 = title;
+        }
+    }
+
+    /// A run without an `each` stage: which group of stages it's on, and the line it just
+    /// printed.
+    fn stage(&mut self, p: &Pipeline, g: usize, event: &str) {
+        self.set(nex_host::proto::pipeline_title(&stage_counts(p, g), event));
+    }
+}
+
+/// Where a run without a queue stands: `stage 2 of 3: review` (stages run together joined
+/// with `+`).
+fn stage_counts(p: &Pipeline, g: usize) -> String {
+    let groups = p.groups();
+    let names: Vec<&str> = groups.get(g).into_iter().flatten().map(|&i| p.stages[i].name.as_str()).collect();
+    format!("stage {} of {}: {}", g + 1, groups.len(), names.join(" + "))
 }
 
 /// What a run keeps across its stages.
@@ -92,16 +124,20 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
     let mut results: HashMap<String, Outcome> = HashMap::new();
     let mut loops: HashMap<String, u32> = HashMap::new();
     let mut step = Next::Run(0, None);
+    let mut title = Title::default();
+    let mut at = 0;
     loop {
         let (g, sent_back_by) = match step {
             Next::Run(g, by) => (g, by),
             Next::Finished => break,
             Next::Failed(why) => {
                 println!("\n✗ stopped: {why}");
+                title.stage(&p, at, &format!("✗ stopped: {why}"));
                 report(me.as_deref(), &format!("The pipeline stopped: {why}"), Some(Verdict::Failed));
                 return Ok(Ran { code: 1, ended: false });
             }
         };
+        at = g;
         // Start (or re-task) every stage of the group, then take each one's report.
         let mut running = Vec::new();
         for &i in &groups[g] {
@@ -119,12 +155,14 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
                 }
                 _ => ctx.spawn(s, body, false)?,
             };
-            println!("▸ {} ({}) is on it: {id}", s.name, ctx.kind(s).as_deref().unwrap_or("claude"));
+            let line = format!("▸ {} ({}) is on it: {id}", s.name, ctx.kind(s).as_deref().unwrap_or("claude"));
+            println!("{line}");
+            title.stage(&p, g, &line);
             agents.insert(s.name.clone(), id.clone());
             running.push((s.name.clone(), id));
         }
         if let Some(each) = groups.get(g + 1).map(|n| &p.stages[n[0]]).filter(|s| s.each) {
-            let code = run_each(&mut ctx, each, task, &results, running, enter)?;
+            let code = run_each(&mut ctx, each, task, &results, running, enter, title)?;
             return Ok(Ran { code, ended: true });
         }
         for (name, id) in running {
@@ -136,18 +174,23 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
             };
             let verdict = o.verdict.map(|v| format!(" [{}]", v.label())).unwrap_or_default();
             let pr = o.pr.as_ref().map(|p| format!(" (PR {p})")).unwrap_or_default();
-            println!("{mark} {name}{verdict}{pr}: {}", crate::deliver::first_line(&o.body));
+            let line = format!("{mark} {name}{verdict}{pr}: {}", crate::deliver::first_line(&o.body));
+            println!("{line}");
+            title.stage(&p, g, &line);
             results.insert(name, o);
         }
         step = after(&p, g, &results, &mut loops);
         if let Next::Run(back, Some(by)) = &step {
             let to = &p.stages[groups[*back][0]].name;
-            println!("↺ {by} sent it back to {to} ({}/{})", loops[by], p.stages.iter().find(|s| s.name == *by).and_then(|s| s.retry.as_ref()).map_or(0, |r| r.max));
+            let line = format!("↺ {by} sent it back to {to} ({}/{})", loops[by], p.stages.iter().find(|s| s.name == *by).and_then(|s| s.retry.as_ref()).map_or(0, |r| r.max));
+            println!("{line}");
+            title.stage(&p, g, &line);
         }
     }
     let last = &p.stages[groups[groups.len() - 1][0]].name;
     let summary = results.get(last).map(|o| o.body.trim().to_string()).unwrap_or_default();
     println!("\n✓ finished. {last} said:\n{summary}");
+    title.stage(&p, at, &format!("✓ finished. {last} said: {}", crate::deliver::first_line(&summary)));
     report(me.as_deref(), &format!("The pipeline finished. {last} said:\n{summary}"), Some(Verdict::Approved));
     Ok(Ran { code: 0, ended: false })
 }
@@ -156,7 +199,7 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
 /// them to one agent of `each`'s, one at a time (see `each.rs`). Tasks sent to the run
 /// itself (another `pipe` joining it) start the stages before `each` again, on that task,
 /// with their reports joining the same line. Runs until Enter; returns the exit code.
-fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, Outcome>, running: Vec<(String, String)>, enter: &Receiver<()>) -> io::Result<i32> {
+fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, Outcome>, running: Vec<(String, String)>, enter: &Receiver<()>, mut title: Title) -> io::Result<i32> {
     let p = ctx.p;
     let me = ctx.me.clone();
     let mut q = each::Queue::new(&each.name, p.stage_timeout());
@@ -170,6 +213,7 @@ fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, O
     let alive_fn: &dyn Fn(&str) -> bool = &alive;
     let mut said_idle = false;
     loop {
+        title.set(q.title());
         if enter.try_recv().is_ok() {
             break;
         }
@@ -303,5 +347,20 @@ fn report(me: Option<&str>, body: &str, verdict: Option<Verdict>) {
             &Request::Send { from: me.map(Into::into), to: "@task".into(), kind: MessageKind::Done, payload: Payload { verdict, ..Payload::text(body) }, force: false },
             true,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_without_a_queue_says_which_stage_it_is_on() {
+        let stage = |name: &str, more: &str| format!("[[stage]]\nname='{name}'\ntask='x'\n{more}\n");
+        let p = Pipeline::parse(&[stage("plan", ""), stage("build", ""), stage("tests", "parallel=true"), stage("review", "")].concat()).unwrap();
+        assert_eq!(stage_counts(&p, 0), "stage 1 of 3: plan");
+        assert_eq!(stage_counts(&p, 1), "stage 2 of 3: build + tests");
+        assert_eq!(stage_counts(&p, 2), "stage 3 of 3: review");
+        assert_eq!(nex_host::proto::pipeline_title(&stage_counts(&p, 2), "✓ build [approved] (PR 7): done"), "stage 3 of 3: review — ✓ build [approved] (PR 7): done");
     }
 }

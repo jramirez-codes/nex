@@ -86,15 +86,11 @@ impl App {
             painter.rect_filled(r, 14, HOVER);
         }
         let files = self.home_is_files();
-        let (project, tip) = if files {
-            let project = self
-                .focused_cwd()
-                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
-                .unwrap_or_else(|| "~".into());
-            let tip = format!("Files: {project} on {}", self.hostname);
-            (project, tip)
+        let project = self.home_label(files);
+        let tip = if files {
+            format!("Files: {project} on {}", self.hostname)
         } else {
-            ("Agents".to_string(), format!("Agents: {}", self.agent_tracker.summary()))
+            format!("Agents: {}", self.agent_tracker.summary())
         };
         let resp = resp.on_hover_text(tip);
         if resp.clicked_by(PointerButton::Middle) {

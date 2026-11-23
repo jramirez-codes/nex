@@ -15,6 +15,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use super::ssh::Exec;
 use super::ssh::host::RemoteHost;
 use super::{SshTarget, last_line, needs_login, posix_quote};
 
@@ -91,7 +92,7 @@ struct Started {
     out: Arc<Mutex<Vec<u8>>>,
     /// Its exit status, once it has ended.
     done: mpsc::Receiver<Result<i32, ExecError>>,
-    /// Stop waiting for it (end the local side of the connection).
+    /// Stop it: kill the `ssh` running it, or close its channel on nex's own connection.
     abort: Box<dyn FnOnce() + Send>,
 }
 
@@ -240,8 +241,14 @@ fn start_ssh(target: &SshTarget, script: &str) -> Result<Started, ExecError> {
 fn start_nex(host: &Arc<RemoteHost>, script: &str) -> Result<Started, ExecError> {
     let client = host.client().map_err(|e| ExecError::Failed(format!("Not connected to {}: {e}", host.server.host)))?;
     // The command goes through the user's login shell: hand the script to `sh` whatever that is.
-    let exec = client.exec(&format!("sh -c {}", posix_quote(script))).map_err(|e| ExecError::Failed(e.to_string()))?;
-    let crate::remote::ssh::Exec { mut reader, writer, status, .. } = exec;
+    let exec = client.exec_sh(script).map_err(|e| ExecError::Failed(e.to_string()))?;
+    // The connection stays up until the command is done with it.
+    Ok(follow(exec, client))
+}
+
+/// Read a command started on nex's own connection to its end. `keep` is held until then.
+fn follow(exec: Exec, keep: impl Send + 'static) -> Started {
+    let Exec { mut reader, writer, status, closer } = exec;
     // Nothing to send: end its input.
     drop(writer);
     let out = Arc::new(Mutex::new(Vec::new()));
@@ -251,11 +258,12 @@ fn start_nex(host: &Arc<RemoteHost>, script: &str) -> Result<Started, ExecError>
         pump(&mut reader, &o);
         let code = status.lock().unwrap_or_else(|e| e.into_inner()).map_or(255, |c| c as i32);
         let _ = tx.send(Ok(code));
-        // Keep the connection up until the command is done with it.
-        drop(client);
+        drop(keep);
     });
-    // The channel ends with the command; there's nothing to kill on this side.
-    Ok(Started { out, done, abort: Box::new(|| {}) })
+    // A command given up on (a timeout, a Cancel) is ended on the host: its channel is
+    // closed, which also ends the thread above. Left alone it would run on, holding its
+    // channel and that thread for as long as it liked.
+    Started { out, done, abort: Box::new(move || closer.close()) }
 }
 
 /// Copy everything `from` gives into `to` as it arrives.
@@ -372,6 +380,56 @@ mod tests {
         assert_eq!(out[0], Output { code: 0, out: b"a\0b\n\n".to_vec() });
         assert_eq!(out[1], Output { code: 0, out: Vec::new() });
         assert_eq!(out[2], Output { code: 3, out: b"oops\n".to_vec() });
+    }
+
+    /// Sends when dropped: [`follow`] lets go of what it keeps once the command has ended.
+    struct Ended(mpsc::Sender<()>);
+
+    impl Drop for Ended {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
+        }
+    }
+
+    /// A command on nex's own connection that never ends by itself, and when it has ended.
+    fn hanging() -> (Started, mpsc::Receiver<()>) {
+        let (tx, ended) = mpsc::channel();
+        (follow(Exec::hanging(b"so far\n"), Ended(tx)), ended)
+    }
+
+    #[test]
+    fn a_timeout_ends_the_command_on_nex_s_own_connection() {
+        let (started, ended) = hanging();
+        assert_eq!(wait(started, Some(Duration::from_millis(100)), None, &mut |_| {}), Err(ExecError::Timeout));
+        ended.recv_timeout(Duration::from_secs(5)).expect("the command was ended, not left running");
+    }
+
+    #[test]
+    fn a_cancel_ends_the_command_on_nex_s_own_connection() {
+        let (started, ended) = hanging();
+        let cancel = AtomicBool::new(false);
+        let mut asked = false;
+        let mut seen = Vec::new();
+        // Cancelled once its first output shows.
+        let result = wait(started, None, Some((&cancel, &mut || asked = true)), &mut |bytes| {
+            seen = bytes.to_vec();
+            cancel.store(true, Ordering::Relaxed);
+        });
+        assert_eq!(result, Err(ExecError::Cancelled));
+        assert!(asked, "the script's own stop ran first");
+        assert_eq!(seen, b"so far\n");
+        ended.recv_timeout(Duration::from_secs(5)).expect("the command was ended, not left running");
+    }
+
+    /// A command that ends by itself is still read to its end.
+    #[test]
+    fn a_command_that_ends_gives_its_output() {
+        let exec = Exec::hanging(b"done\n");
+        exec.closer.close();
+        let (tx, ended) = mpsc::channel();
+        let out = wait(follow(exec, Ended(tx)), Some(Duration::from_secs(5)), None, &mut |_| {}).unwrap();
+        assert_eq!(out.out, b"done\n");
+        ended.recv_timeout(Duration::from_secs(5)).unwrap();
     }
 
     #[test]

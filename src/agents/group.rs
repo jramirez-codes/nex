@@ -202,6 +202,8 @@ mod tests {
             tab: None,
             kind: AgentKind::Claude,
             name: format!("a{pane}"),
+            task: None,
+            session: None,
             mark: None,
             cwd: None,
             status,

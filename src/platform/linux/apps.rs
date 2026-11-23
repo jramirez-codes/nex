@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::super::AppChoice;
-use super::super::unix::{command_output, file_mime, spawn_detached};
+use crate::platform::AppChoice;
+use crate::platform::unix::{command_output, file_mime, spawn_detached};
 
 /// The file's MIME type, from the desktop's database (`xdg-mime`), else from `file(1)`.
 pub fn mime_type(path: &Path) -> Option<String> {

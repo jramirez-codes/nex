@@ -29,7 +29,7 @@ impl Tab {
     }
 
     pub(in crate::app) fn contains(&self, pane: PaneId) -> bool {
-        self.root.panes().contains(&pane)
+        self.root.contains(pane)
     }
 
     /// The pane that names the tab in its header: the focused pane if it's a terminal, else
@@ -39,10 +39,9 @@ impl Tab {
         if is_terminal(self.focused) {
             return self.focused;
         }
-        let ids = self.root.panes();
         self.last_terminal
-            .filter(|id| ids.contains(id) && is_terminal(*id))
-            .or_else(|| ids.iter().copied().find(|&id| is_terminal(id)))
+            .filter(|id| self.root.contains(*id) && is_terminal(*id))
+            .or_else(|| self.root.iter().find(|&id| is_terminal(id)))
             .unwrap_or(self.focused)
     }
 
@@ -53,7 +52,7 @@ impl Tab {
             return false;
         }
         if self.focused == pane {
-            self.focused = self.root.panes()[0];
+            self.focused = self.root.iter().next().unwrap_or(self.focused);
         }
         self.zoomed = false;
         true
