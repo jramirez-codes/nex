@@ -8,8 +8,9 @@
 //!   claude.rs   Claude Code's session file (~/.claude/sessions/<pid>.json)
 //!   paths.rs    where nex-host keeps its socket and lock (~/.nex/run)
 //!   main.rs     the `nex-host` program: its subcommands
-//!   daemon.rs   the background process that owns the agents
-//!   agent.rs    one agent: its pty, its process, and the screen it has drawn
+//!   daemon/     the background process that owns the agents
+//!   agent.rs    one agent: its process, and the screen it has drawn
+//!   pty.rs      the pty and process it runs in: login shell, environment, size
 //!   redraw.rs   that screen as escape sequences, for a pane attaching to it
 //!   attach.rs   `nex-host attach`: a pane's view of one agent
 //!   client.rs   talking to the daemon (starting it when it isn't running)

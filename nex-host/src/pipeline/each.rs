@@ -8,7 +8,7 @@
 //! once every source in it is settled.
 //!
 //! This file is the bookkeeping only, with no I/O: [`Queue`] takes what arrived and says
-//! what to do (an [`Action`]), and `run_each` in `mod.rs` does it.
+//! what to do (an [`Action`]), and `run_each` in `run.rs` does it.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

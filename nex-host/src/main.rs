@@ -11,7 +11,7 @@
 //! nex-host forget ID                                 drop an exited one from the list
 //! nex-host shim install|remove|status                the `claude` / `codex` shim (see `shim.rs`)
 //! nex-host connect                                   one connection to the daemon, over stdin/stdout
-//! nex-host spawn|send|done|recv|read|pipe|skill      agents working together (see `agentcli.rs`)
+//! nex-host spawn|send|done|recv|read|pipe|skill      agents working together (see `agentcli/`)
 //! nex-host --version
 //! ```
 
@@ -33,6 +33,8 @@ mod deliver;
 mod locked;
 #[cfg(unix)]
 mod pipeline;
+#[cfg(unix)]
+mod pty;
 #[cfg(unix)]
 mod redraw;
 #[cfg(unix)]

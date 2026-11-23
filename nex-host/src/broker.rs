@@ -5,7 +5,7 @@
 //! reporting back (`done`), asking and answering are all messages; what differs is their
 //! [`MessageKind`]. Each one goes in its recipient's mailbox (kept in memory, and appended to
 //! `~/.nex/run/mail/<id>.jsonl` as a record) and is typed into the recipient's terminal
-//! (`daemon.rs` does that, `deliver.rs` says how), unless a `recv` is waiting for it: then
+//! (`daemon/` does that, `deliver.rs` says how), unless a `recv` is waiting for it: then
 //! the `recv` gets it instead, so an agent never sees one message twice.
 
 use std::collections::HashMap;
