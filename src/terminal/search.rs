@@ -1,5 +1,7 @@
 //! Scrollback search (Ctrl+Shift+F) and link detection (Ctrl+hover / Ctrl+click).
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Boundary, Column, Direction, Point};
 use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
@@ -22,6 +24,14 @@ pub struct Search {
     pub index: Option<usize>,
     searched_query: Option<String>,
     searched_generation: u64,
+    /// See [`Search::results_generation`].
+    results_generation: u64,
+}
+
+/// A number no other set of search results has had, in this search or any other.
+fn next_results_generation() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 impl Search {
@@ -33,7 +43,16 @@ impl Search {
             index: None,
             searched_query: None,
             searched_generation: 0,
+            results_generation: next_results_generation(),
         }
+    }
+
+    /// Identifies the contents of `matches`: a new number each time they are searched for
+    /// again, never shared with another `Search`. With `index`, it stands for everything the
+    /// search draws on the grid, so a frame can be compared to the last one without comparing
+    /// (or copying) the matches themselves.
+    pub fn results_generation(&self) -> u64 {
+        self.results_generation
     }
 
     pub fn current(&self) -> Option<&Match> {
@@ -50,6 +69,7 @@ impl Search {
         self.searched_query = Some(self.query.clone());
         self.searched_generation = generation;
         self.matches = find_all(term, &self.query);
+        self.results_generation = next_results_generation();
 
         if query_changed {
             self.index = self.matches.len().checked_sub(1);
@@ -185,6 +205,41 @@ mod tests {
         let matches = find_all(&term, "foo.bar");
         assert_eq!(matches.len(), 1, "query must be matched literally, not as a regex");
         assert_eq!(find_all(&term, "foo").len(), 3);
+    }
+
+    /// The frame cache keys on the generation instead of the matches, so it has to change
+    /// exactly when the matches may have.
+    #[test]
+    fn results_generation_changes_only_when_the_search_is_rerun() {
+        let term = term_with("foo\nfoo\nbar\n");
+        let mut search = Search::new(1);
+        search.query = "foo".into();
+        let fresh = search.results_generation();
+        search.refresh(&term, 1);
+        let first = search.results_generation();
+        assert_ne!(first, fresh, "new matches, new generation");
+        assert_eq!(search.matches.len(), 2);
+
+        // Nothing changed: no search, same generation. Stepping only moves the index.
+        search.refresh(&term, 1);
+        search.step(true);
+        assert_eq!(search.results_generation(), first);
+        assert_eq!(search.index, Some(0));
+
+        // New terminal contents, then a new query: searched again each time.
+        search.refresh(&term, 2);
+        let second = search.results_generation();
+        assert_ne!(second, first);
+        search.query = "bar".into();
+        search.refresh(&term, 2);
+        assert_ne!(search.results_generation(), second);
+
+        // Another search never reuses a generation, so one replacing this one between two
+        // frames can't be mistaken for it.
+        let mut other = Search::new(1);
+        other.query = "bar".into();
+        other.refresh(&term, 2);
+        assert_ne!(other.results_generation(), search.results_generation());
     }
 
     #[test]

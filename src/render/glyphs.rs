@@ -94,7 +94,9 @@ impl GlyphCache {
 
 /// Lay out `c` alone to find its bitmap in the atlas (rasterizing it there if needed).
 fn look_up(painter: &Painter, c: char, style: Flags, font_size: f32) -> Slot {
-    let galley = painter.layout_no_wrap(c.to_string(), font_for(style, font_size), Color32::WHITE);
+    // Encoded on the stack; egui's layout wants an owned `String`, so that is the one copy.
+    let text = String::from(&*c.encode_utf8(&mut [0; 4]));
+    let galley = painter.layout_no_wrap(text, font_for(style, font_size), Color32::WHITE);
     let row = galley.rows.first()?;
     let g = row.glyphs.first()?;
     (!g.uv_rect.is_nothing()).then(|| Glyph {
