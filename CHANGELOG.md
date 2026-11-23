@@ -156,6 +156,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Toasts fit narrow screens: a message wider than the window (a phone held upright) wraps
+  onto more lines instead of running off the sides, and a very long one stops at a few
+  lines, ending in "…".
 - Agents pane: clicking a team's or pipeline's dropdown arrow opens and closes its list of
   agents (it used to jump to the lead instead, and an open list couldn't be closed with the
   mouse). A card lifted off the grid also takes clicks where it's drawn.
