@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-23
+
+### Added
+
+- `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS) pins the focused pane to every tab, or unpins it,
+  the same as Shift + the pane header's ×.
+
 ### Changed
 
 - The connect screen (Android, iOS, `nex --remote`) is one card drawn like a focused
@@ -26,8 +33,6 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
-- `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS) pins the focused pane to every tab, or unpins it,
-  the same as Shift + the pane header's ×.
 - Touch screens: the Changes pane (its file list and its diff) and the Agents pane scroll
   with a finger too, flinging on after a quick swipe.
 - Touch screens: a finger on a terminal no longer only selects text. Swipe up or down to
@@ -641,7 +646,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/jramirez-codes/nex/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/jramirez-codes/nex/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/jramirez-codes/nex/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/jramirez-codes/nex/compare/v0.10.0...v0.10.1
