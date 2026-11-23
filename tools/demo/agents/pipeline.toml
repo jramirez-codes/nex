@@ -1,0 +1,37 @@
+# The promo's pipeline: a planner, three builders in parallel (each in a worktree of its
+# own), then one merger taking their PRs first come, first served. Every stage runs
+# stub-agent instead of a real agent (setup.sh fills in @STUB@), so a take is the same each
+# time, costs nothing and pushes nothing. The stages stay kind "claude" to look the part.
+
+timeout = "10m"
+
+[[stage]]
+name = "plan"
+command = ["@STUB@", "plan", "2"]
+task = "Plan this: {task}. Write PLAN.md."
+
+[[stage]]
+name = "stats"
+worktree = true
+command = ["@STUB@", "stats", "3"]
+task = "Add a `stats` command. The plan: {plan}"
+
+[[stage]]
+name = "search"
+parallel = true
+worktree = true
+command = ["@STUB@", "search", "5"]
+task = "Add a `search TEXT` command. The plan: {plan}"
+
+[[stage]]
+name = "export"
+parallel = true
+worktree = true
+command = ["@STUB@", "export", "3"]
+task = "Add an `export` command (CSV). The plan: {plan}"
+
+[[stage]]
+name = "merge"
+each = true
+command = ["@STUB@", "merge", "2"]
+task = "You review and merge pull request {pr}, opened by {from}: {report}"

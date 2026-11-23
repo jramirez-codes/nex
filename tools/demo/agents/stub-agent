@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# A stand-in coding agent for the promo recording: it waits for a task to be typed in (as
+# nex-host types one into any agent), "works" on it for a fixed time, printing a believable
+# transcript and keeping a spinner in its title, then reports with `nex-host done` and goes
+# idle for the next one. Every take comes out the same and nothing is billed or pushed.
+#
+# usage: stub-agent ROLE [SECONDS]     ROLE: plan, stats, search, export, review, merge
+set -u
+role=${1:?usage: stub-agent ROLE [SECONDS]}
+secs=${2:-${STUB_SECS:-6}}
+frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+dim=$'\e[2m' bold=$'\e[1m' green=$'\e[32m' cyan=$'\e[36m' violet=$'\e[35m' red=$'\e[31m' off=$'\e[0m'
+
+title() { printf '\e]0;%s\a' "$1"; }
+say() { printf '%s\n' "$*"; }
+step() { say "${violet}●${off} $*"; }
+
+# One task: the first line wakes us, the rest of the paste drains until it goes quiet.
+read_task() {
+    task=""
+    IFS= read -r line || exit 0
+    task=$line
+    while IFS= read -r -t 0.6 line; do task+=$'\n'$line; done
+}
+
+# Spin in the title while printing `lines` spread over `secs` seconds.
+work() {
+    local label=$1; shift
+    local n=$# i=0 ticks=$((secs * 10)) per
+    per=$(( ticks / (n > 0 ? n : 1) ))
+    for ((t = 0; t < ticks; t++)); do
+        title "${frames[t % 10]} $label"
+        if (( n > 0 && t % per == 0 && i < n )); then
+            i=$((i + 1)); say "${!i}"
+        fi
+        sleep 0.1
+    done
+    while (( i < n )); do i=$((i + 1)); say "${!i}"; done
+}
+
+prompt() { printf '\n%s❯%s ' "$dim" "$off"; }
+
+build() {   # NAME FILE PR
+    work "Adding $1" \
+        "$(step "Read ${cyan}app/commands/add.py${off}")" \
+        "$(step "Write ${cyan}app/commands/$2.py${off} ${green}+31${off}")" \
+        "$(step "Write ${cyan}tests/test_$2.py${off} ${green}+44${off}")" \
+        "$(step "Bash ${dim}python3 -m unittest${off}")" \
+        "  ${green}Ran 9 tests · OK${off}" \
+        "$(step "Bash ${dim}gh pr create --fill${off}")" \
+        "  ${green}✓${off} Opened PR ${bold}#$3${off}"
+    nex-host done "Added the \`$1\` command with tests" --pr "$3" >/dev/null 2>&1
+}
+
+banner() { say "${bold}${violet}✻${off} ${bold}$role${off} ${dim}· $(basename "$PWD")${off}"; say ""; }
+
+# What nex-host types in is a <nex-message> block: show just the task in it, as the user
+# would see their own prompt, rather than echoing the whole paste.
+stty -echo 2>/dev/null
+summary() {
+    tr '\n' ' ' <<<"$task" | sed -E 's/.*kind="task">[[:space:]]*//; s/[[:space:]]*\(You are .*//; s/[[:space:]]*<how-to-reply>.*//; s/[[:space:]]*<\/nex-message>.*//' | cut -c1-90
+}
+
+clear; banner; title "✳ $role"; prompt
+while read_task; do
+    say "$(summary)"; say ""
+    case $role in
+        plan)
+            work "Planning" \
+                "$(step "Read ${cyan}README.md${off}, ${cyan}app/cli.py${off}")" \
+                "$(step "Glob ${dim}app/commands/*.py${off} ${dim}(4 files)${off}")" \
+                "$(step "Write ${cyan}PLAN.md${off} ${green}+18${off}")" \
+                "  ${green}✓${off} 3 commands, one builder each"
+            nex-host done "stats, search and export: one builder each, a file apiece" >/dev/null 2>&1 ;;
+        stats) build stats stats 12 ;;
+        search) build search search 13 ;;
+        export)
+            # This one needs you for a moment: the bell, then it carries on by itself.
+            work "Adding export" \
+                "$(step "Read ${cyan}app/store.py${off}")" \
+                "$(step "Question: quote every CSV field, or only when needed?")"
+            title "✳ Waiting for you"; printf '\a'; sleep "${NEEDS_SECS:-2}"
+            say "  ${dim}→ only when needed (csv.QUOTE_MINIMAL)${off}"
+            build export export 14 ;;
+        review)
+            work "Reviewing" \
+                "$(step "Bash ${dim}git diff main --stat${off}")" \
+                "  ${dim}6 files changed, 226 insertions(+)${off}" \
+                "$(step "Bash ${dim}python3 -m unittest${off}")" \
+                "  ${green}Ran 21 tests · OK${off}" \
+                "  ${green}✓${off} Approved"
+            nex-host done "Looks good: each command in its own file, all tested" --verdict approved >/dev/null 2>&1 ;;
+        merge)
+            pr=$(grep -oE 'pull request #?[0-9]+' <<<"$task" | grep -oE '[0-9]+' | head -1)
+            work "Merging #${pr:-?}" \
+                "$(step "Bash ${dim}gh pr diff ${pr:-?}${off}")" \
+                "$(step "Bash ${dim}gh pr merge ${pr:-?} --squash${off}")" \
+                "  ${green}✓${off} Merged ${bold}#${pr:-?}${off} into main"
+            nex-host done "merged PR ${pr:-?}" --verdict approved --pr "${pr:-0}" >/dev/null 2>&1 ;;
+        *) work "$role" "$(step "Working on it")"; nex-host done "done" >/dev/null 2>&1 ;;
+    esac
+    title "✳ $role"; prompt
+done

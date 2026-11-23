@@ -10,7 +10,7 @@ export default function Footer() {
       <div className="footer-cta">
         <AnimatedLogo size={72} onView />
         <h2>Try nex today.</h2>
-        <p>Free and open source, for macOS and Linux. Coming next: a quick drop-down terminal, a command palette and shell integration.</p>
+        <p>Free and open source, for macOS and Linux. Coming next: a command palette, shell integration and a quick drop-down terminal.</p>
         <div className="footer-actions">
           <a className="btn btn-primary" href={RELEASES}>Download for {platformName(platform)}</a>
           <a className="btn btn-ghost" href={REPO}>Star on GitHub</a>

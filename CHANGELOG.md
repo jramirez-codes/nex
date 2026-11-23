@@ -17,6 +17,8 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS) pins the focused pane to every tab, or unpins it,
+  the same as Shift + the pane header's ×.
 - Touch screens: the Changes pane (its file list and its diff) and the Agents pane scroll
   with a finger too, flinging on after a quick swipe.
 - Touch screens: a finger on a terminal no longer only selects text. Swipe up or down to

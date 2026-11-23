@@ -456,8 +456,8 @@ impl App {
         let shown = if show_buttons { 4 } else if pinned { 1 } else { 0 };
         if shown > 0 {
             let close: (&str, Action, Action, &IconFn<'_>) = match (pinned, shift) {
-                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(id), Action::ToggleSticky(id), &pane_pin),
-                (false, true) => ("Pin to every tab", Action::ToggleSticky(id), Action::ToggleSticky(id), &pane_pin),
+                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(0), Action::ToggleSticky(id), &pane_pin),
+                (false, true) => ("Pin to every tab", Action::ToggleSticky(0), Action::ToggleSticky(id), &pane_pin),
                 _ => ("Close  (Shift: pin to every tab)", Action::ClosePane(0), Action::ClosePane(id), &icons::icon_close),
             };
             // (label, the shortcut's action for the focused pane, this button's action, icon)

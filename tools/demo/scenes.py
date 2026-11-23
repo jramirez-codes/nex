@@ -2,7 +2,7 @@
 
 Every scene starts and ends on the same footing: a single tab, focused on a shell, so they
 can be reordered or recorded on their own. `d.mark` brackets the part that becomes the clip;
-make_gifs.sh names each GIF after it.
+make_gifs.py names each GIF after it.
 """
 
 CTRL_SHIFT, CTRL_ALT = "CTRL_SHIFT", "CTRL_ALT"
@@ -124,45 +124,46 @@ def search(d) -> None:
 
 
 def promo(d) -> None:
-    """Social post: every headline feature in one quick pass, for promo.py to put on a backdrop.
-    `caption:<text>` markers say when each on-screen caption takes over; make_gifs.py ignores
-    them, since they have no end."""
+    """Social post and site hero: every built-in in one quick pass. A pipeline of agents
+    (stub agents, see agents/) starts over ssh first, so it works on while the rest plays:
+    the Agents pane opens, narrows and is pinned; a new tab follows ssh to the same folder
+    and opens the Changes pane; another splits off a file explorer; then back to the run,
+    the pinned pane gliding along from tab to tab. record.py makes the demo repo (with an
+    uncommitted change for Changes) and the remote shell's rc first."""
+    from record import PROMO_RC
     d.extra_panes = 0
-    d.type("git log --oneline -12", after=0.6)
+    # Off the clip: into the "server" (this machine, over ssh) with a tidy prompt.
+    d.type(f"ssh -t localhost bash --rcfile {PROMO_RC}", after=2.5)
     d.mark("promo", "start")
-    d.mark("caption:Split panes, built in", "start")
-    d.key("O", CTRL_SHIFT, after=0.45)           # split right
-    d.extra_panes += 1
-    for _ in range(3):                           # smaller font so btop fits the column
-        d.key("minus", "CTRL", after=0.1)
-    d.type("btop", after=0.9)
-    d.key("Left", CTRL_ALT, after=0.25)
-    d.key("E", CTRL_SHIFT, after=0.45)           # split down
-    d.extra_panes += 1
-    d.type("nvim src/main.rs", after=0.9)
-    d.mark("caption:Zoom any pane", "start")
-    d.key("Return", CTRL_SHIFT, after=0.9)       # zoom
-    d.key("Return", CTRL_SHIFT, after=0.6)       # and back
-    d.mark("caption:Tabs and a file explorer", "start")
-    d.key("T", CTRL_SHIFT, after=0.5)            # new tab: the glass pill glides over
-    d.key("E", "CTRL", after=0.7)                # explorer splits off at the shell's folder
-    for _ in range(2):
-        d.key("Down", after=0.12)
-    d.key("space", after=0.12)
-    d.key("Down", after=0.12)
-    d.key("space", after=0.12)
-    d.key("Down", after=0.12)
-    d.key("space", after=0.5)                    # three marked
-    d.key("G", "CTRL", after=1.0)                # grid view
-    d.mark("caption:Search your scrollback", "start")
-    d.key("1", "ALT", after=0.5)                 # back to the first tab
-    d.key("Up", CTRL_ALT, after=0.3)             # the git log pane
-    d.key("F", CTRL_SHIFT, after=0.3)
-    d.type("release", enter=False, after=0.5)
-    d.key("Return", after=0.4)
-    d.key("Return", after=0.8)
+    d.mark("hero", "start")                      # the same span, real time, for the site's hero
+    d.wait(0.3)
+    d.type('nex-host pipe demo "add stats, search and export"', after=0.8)
+    d.key("A", CTRL_SHIFT, after=0.5)            # the Agents pane splits off, focused
+    for _ in range(5):                           # narrow it to a quarter of the width
+        d.key("Right", "CTRL_SHIFT_ALT", after=0.08)
+    d.key("P", CTRL_SHIFT, after=0.8)            # pin it: it follows to every tab
+    d.key("Left", CTRL_ALT, after=0.2)           # back to the ssh pane...
+    d.key("T", CTRL_SHIFT, after=1.2)            # ...so the new tab opens on the server, here
+    d.key("G", "CTRL", after=1.0)                # the Changes pane: what git sees changed
+    d.key("Down", after=0.4)
+    d.key("Return", after=1.1)                   # its diff (a narrow pane shows one at a time)
+    d.key("Left", CTRL_ALT, after=0.2)           # back to the shell
+    d.key("T", CTRL_SHIFT, after=1.0)            # another tab on the server
+    d.key("E", "CTRL", after=0.9)                # a file explorer splits off at its folder
+    for k in ("Down", "space", "Down", "space"):
+        d.key(k, after=0.15)
+    d.wait(0.8)
+    d.key("1", "ALT", after=0.8)                 # back to the run
+    d.key("Right", CTRL_ALT, after=0.3)          # into the Agents pane
+    d.key("Down", after=0.3)
+    d.key("space", after=1.6)                    # open the team: plan, builders, merge
+    d.key("2", "ALT", after=0.9)                 # the pinned pane glides along
+    d.key("3", "ALT", after=0.9)
+    d.key("1", "ALT", after=1.6)
+    d.mark("hero", "end")
     d.mark("promo", "end")
-    d.key("Escape", after=0.3)
+    # No way back to one tab from here worth scripting, so promo stays last: record.py
+    # closes the window and ends the run's agents.
 
 
-SCENES = [tour, splits, explorer, search, promo]
+SCENES = [tour, splits, explorer, search, promo]  # promo last: it doesn't tidy up

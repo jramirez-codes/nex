@@ -1,8 +1,8 @@
 //! The sticky pane: one pane that follows the user from tab to tab (Shift + the header's ×
-//! turns it into a pin). It is a leaf in every tab's split tree, the Files tab's too, so each
-//! tab keeps its own place and size for it; its terminal is resized to whichever tab shows
-//! it. On a tab switch it glides to its new card rather than leaving with the old tab (see
-//! `animation/sticky_glide.rs`).
+//! turns it into a pin; Ctrl+Shift+P pins the focused pane). It is a leaf in every tab's
+//! split tree, the Files tab's too, so each tab keeps its own place and size for it; its
+//! terminal is resized to whichever tab shows it. On a tab switch it glides to its new card
+//! rather than leaving with the old tab (see `animation/sticky_glide.rs`).
 
 use crate::layout::{self, Direction, Node, PaneId};
 
