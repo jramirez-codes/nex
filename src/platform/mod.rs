@@ -14,6 +14,7 @@
 //!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
 //!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
 //!   glide.rs      the space typed after a glided (swiped) word ([`AutoSpace`], Android)
+//!   text_edit.rs  a text field's change as Backspaces and typing ([`edit_between`], iOS)
 //!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland) · watch.rs (inotify)
 //!                 · file_manager/ (D-Bus FileManager1) · apps.rs (Open With, desktop entries)
 //!                 · clipboard.rs · memory.rs (glibc arenas, malloc_trim)
@@ -89,6 +90,10 @@ pub use winit_app::{WinitApp, vsync};
 mod glide;
 #[cfg_attr(not(target_os = "android"), allow(unused_imports))]
 pub use glide::AutoSpace;
+
+mod text_edit;
+#[cfg_attr(not(target_os = "ios"), allow(unused_imports))]
+pub use text_edit::edit_between;
 
 #[cfg(target_os = "linux")]
 mod linux;
