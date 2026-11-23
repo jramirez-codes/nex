@@ -108,7 +108,7 @@ impl Pipeline {
             }
             seen.push(&s.name);
             if s.each {
-                let last = std::ptr::eq(s, self.stages.last().unwrap());
+                let last = self.stages.last().is_some_and(|l| std::ptr::eq(s, l));
                 if !last || s.parallel || seen.len() == 1 || s.retry.is_some() {
                     return Err(format!("{}: an `each` stage is the last one, not parallel, after other stages, without retry", s.name));
                 }

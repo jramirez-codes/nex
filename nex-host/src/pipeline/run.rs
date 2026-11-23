@@ -6,7 +6,7 @@
 //! pipeline's card.
 
 use std::collections::HashMap;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -25,15 +25,18 @@ pub struct Ran {
     pub ended: bool,
 }
 
-/// The run's terminal title (OSC 0), set again only when it changes.
+/// The run's terminal title (OSC 0), set again only when it changes, and only on a
+/// terminal: output that's piped or kept in a file stays free of escape sequences.
 #[derive(Default)]
 struct Title(String);
 
 impl Title {
     fn set(&mut self, title: String) {
         if title != self.0 {
-            print!("\x1b]0;{title}\x07");
-            let _ = io::stdout().flush();
+            if let Some(osc) = osc_title(&title, io::stdout().is_terminal()) {
+                print!("{osc}");
+                let _ = io::stdout().flush();
+            }
             self.0 = title;
         }
     }
@@ -43,6 +46,11 @@ impl Title {
     fn stage(&mut self, p: &Pipeline, g: usize, event: &str) {
         self.set(nex_host::proto::pipeline_title(&stage_counts(p, g), event));
     }
+}
+
+/// What sets a terminal's title to `title`; nothing when there's no terminal to take it.
+fn osc_title(title: &str, terminal: bool) -> Option<String> {
+    terminal.then(|| format!("\x1b]0;{title}\x07"))
 }
 
 /// Where a run without a queue stands: `stage 2 of 3: review` (stages run together joined
@@ -362,5 +370,11 @@ mod tests {
         assert_eq!(stage_counts(&p, 1), "stage 2 of 3: build + tests");
         assert_eq!(stage_counts(&p, 2), "stage 3 of 3: review");
         assert_eq!(nex_host::proto::pipeline_title(&stage_counts(&p, 2), "✓ build [approved] (PR 7): done"), "stage 3 of 3: review — ✓ build [approved] (PR 7): done");
+    }
+
+    #[test]
+    fn the_title_is_only_set_on_a_terminal() {
+        assert_eq!(osc_title("stage 1 of 3: plan", true).as_deref(), Some("\x1b]0;stage 1 of 3: plan\x07"));
+        assert_eq!(osc_title("stage 1 of 3: plan", false), None);
     }
 }

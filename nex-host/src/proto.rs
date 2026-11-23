@@ -49,9 +49,10 @@ const TITLE_EVENT_MAX: usize = 160;
 /// The title a pipeline's runner sets: `counts`, then (when something has happened)
 /// [`TITLE_SEP`] and `event` on one line, cut to a length a title can carry.
 pub fn pipeline_title(counts: &str, event: &str) -> String {
-    let line: String = event.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut event: String = line.chars().filter(|c| !c.is_control()).take(TITLE_EVENT_MAX).collect();
-    if event.len() < line.len() {
+    let shown: String = event.chars().filter(|c| c.is_whitespace() || !c.is_control()).collect();
+    let line = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut event: String = line.chars().take(TITLE_EVENT_MAX).collect();
+    if line.chars().count() > TITLE_EVENT_MAX {
         event.push('…');
     }
     if event.is_empty() { counts.trim().to_string() } else { format!("{}{TITLE_SEP}{event}", counts.trim()) }
@@ -68,7 +69,7 @@ pub fn split_pipeline_title(title: &str) -> (&str, &str) {
 /// with: the client starts the new daemon and asks it again.
 pub const RESTARTING: &str = "nex-host is restarting";
 
-/// What `nex-host --version` prints: `nex-host 0.11.0 (protocol 2)`.
+/// What `nex-host --version` prints: `nex-host 0.12.2 (protocol 3)`.
 pub fn version_line() -> String {
     format!("nex-host {VERSION} (protocol {PROTOCOL})")
 }
@@ -647,6 +648,13 @@ mod tests {
         assert_eq!(split_pipeline_title(&pipeline_title("", "✗ stopped")), ("", "✗ stopped"));
         let long = pipeline_title("1 building", &"é".repeat(500));
         assert_eq!(split_pipeline_title(&long).1.chars().count(), TITLE_EVENT_MAX + 1, "cut, with an ellipsis");
+        // The ellipsis is for what was cut: not for control characters left out, nor for
+        // an event that just fits.
+        assert_eq!(pipeline_title("1 building", "✓ \x1b[1mbuild\x07 \x1b done"), "1 building — ✓ [1mbuild done");
+        let fits = "é".repeat(TITLE_EVENT_MAX);
+        assert_eq!(split_pipeline_title(&pipeline_title("1 building", &fits)).1, fits);
+        assert!(pipeline_title("1 building", &format!("{fits}\x07")).ends_with('é'));
+        assert!(pipeline_title("1 building", &format!("\x07{fits}é")).ends_with("é…"));
     }
 
     #[test]

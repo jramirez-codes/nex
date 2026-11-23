@@ -1,3 +1,7 @@
+//! Tests of the pipeline's parts that need no daemon: the file format and its checks
+//! (`spec.rs`), the task templates, what joins a run (`files.rs`), and the examples that
+//! ship with nex-host, which must all parse.
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -169,4 +173,20 @@ fn durations() {
     assert_eq!(parse_duration("45"), Some(Duration::from_secs(45)));
     assert_eq!(parse_duration("500ms"), Some(Duration::from_millis(500)));
     assert_eq!(parse_duration("soon"), None);
+}
+
+#[test]
+fn every_example_pipeline_parses() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files: Vec<PathBuf> = std::fs::read_dir(root.join("examples")).unwrap().map(|e| e.unwrap().path().join("pipeline.toml")).filter(|p| p.exists()).collect();
+    files.sort();
+    let names: Vec<_> = files.iter().filter_map(|p| p.parent()?.file_name()?.to_str()).collect();
+    assert!(names.contains(&"feature") && names.contains(&"pr-team"), "examples went missing: {names:?}");
+    files.push(root.join("../tools/demo/agents/pipeline.toml"));
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+        if let Err(e) = Pipeline::parse(&text) {
+            panic!("{}: {e}", file.display());
+        }
+    }
 }
