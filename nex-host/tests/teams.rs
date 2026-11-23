@@ -102,6 +102,10 @@ fn parallel_pipeline_stages_get_worktrees_of_their_own() {
     assert_eq!(Path::new(&merge), repo.canonicalize().unwrap(), "a stage without worktree works in the run's folder");
     let branches = git(&repo, &["branch", "--list", "nex/*"]);
     assert!(branches.contains("nex/team-a-") && branches.contains("nex/team-b-"), "{branches}");
+
+    // The run's title says where it stands, for the Agents pane's card: the daemon reports it.
+    let title = || h.sessions().into_iter().find(|s| s.kind == nex_host::proto::PIPELINE_KIND).and_then(|s| s.title).unwrap_or_default();
+    eventually("the pipeline's title", || title().starts_with("stage 1 of 1: a + b + merge — ▸ merge (cat) is on it"));
 }
 
 #[test]

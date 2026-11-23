@@ -236,14 +236,23 @@ impl Probe {
         shown_pane(self.pane, &self.source)
     }
 
-    /// What to call it: the task in its title, else its session's name, else its folder.
-    fn name(&self) -> String {
+    /// What its title says it's doing right now, unless the title is only the program's
+    /// name. A pipeline's is how its run stands (`nex_host::proto::pipeline_title`).
+    fn task(&self) -> Option<&str> {
         let title = self.title.trim();
         let generic = title.is_empty()
             || title.eq_ignore_ascii_case(self.kind.label())
             || title.eq_ignore_ascii_case(self.kind.process());
-        if !generic {
-            return title.to_string();
+        (!generic).then_some(title)
+    }
+
+    /// What to call it: the task in its title, else its session's name, else its folder. A
+    /// pipeline keeps its name: its title changes with every report.
+    fn name(&self) -> String {
+        if self.kind != AgentKind::Pipeline
+            && let Some(task) = self.task()
+        {
+            return task.to_string();
         }
         if let Some(n) = &self.session_name {
             return n.clone();
@@ -270,6 +279,12 @@ pub struct Agent {
     pub tab: Option<usize>,
     pub kind: AgentKind,
     pub name: String,
+    /// What its terminal's title says it's doing, live (see [`Probe`]'s `task`); `None`
+    /// while the title is only the program's name.
+    pub task: Option<String>,
+    /// The name its session goes by, when it has one (on an ssh host, `nex-host`'s: `build`,
+    /// `build-2`).
+    pub session: Option<String>,
     pub mark: Option<String>,
     pub cwd: Option<PathBuf>,
     pub status: Status,
@@ -389,6 +404,8 @@ impl Tracker {
                     tab: p.tab,
                     kind: p.kind,
                     name: p.name(),
+                    task: p.task().map(str::to_string),
+                    session: p.session_name.clone(),
                     mark: p.mark.clone(),
                     cwd: p.cwd.clone(),
                     status,

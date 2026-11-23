@@ -1,13 +1,17 @@
 //! Drawing the Agents pane, in the style of a macOS / iOS dashboard: grouped sections of
 //! rounded agent cards (two or three to a row when there's room). Each card has the agent's
 //! app tile, its task over the folder it works in, and a status pill whose dot breathes while the agent
-//! works. Mouse handling lives here too.
+//! works. A pipeline's card says how its run stands instead (`Feature · 2 building · 1 merged`)
+//! over the last thing that happened, from the title its runner sets. Mouse handling lives
+//! here too.
 //!
 //! A team (see `group`) is one card. Closed, it's a cell of the grid like any other card,
 //! with a row of capsules under its header for its helpers (a pipeline's joined into steps,
 //! a pipeline it asked for opened into its stages); open, it spans the row and they're an
 //! inset list inside the card, like a grouped table. Opening is the card growing: its rows are
-//! uncovered as it does, and the capsules fade as the list comes in.
+//! uncovered as it does, and the capsules fade as the list comes in. A helper goes by a tag
+//! ([`member_tag`]: `Build-01`): its word on its capsule, the whole tag in a small capsule
+//! leading its row, before the task its terminal's title says it's on.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -24,7 +28,7 @@ use crate::ui::{icons, paint};
 
 use super::AgentsPane;
 use super::group::{Group, Member, Step, groups, same_step};
-use super::model::{Agent, Source, Status, elapsed};
+use super::model::{Agent, AgentKind, Source, Status, elapsed};
 use super::motion::Motion;
 
 const SIDE: f32 = 18.0;
@@ -41,6 +45,8 @@ const DETAIL_Y: f32 = 47.0;
 /// A closed team's row of capsules, under its header.
 const STRIP_H: f32 = 40.0;
 const CAPSULE_H: f32 = 24.0;
+/// The capsule a helper's tag sits in, leading its row.
+const TAG_H: f32 = 18.0;
 /// An open team's list: its rows, the margin around it, and the "Show all" row.
 const ROW_H: f32 = 46.0;
 const LIST_INSET: f32 = 12.0;
@@ -140,13 +146,74 @@ fn row_rect(r: Rect, i: usize) -> Rect {
     Rect::from_min_size(Pos2::new(list.left(), list.top() + i as f32 * ROW_H), Vec2::new(list.width(), ROW_H))
 }
 
-/// What a helper is called in its team: its role (or pipeline stage), else its name. A
-/// sub-agent goes by what it was asked to do (its role is only its type: `Explore`).
-fn member_label(a: &Agent) -> &str {
-    if a.team.sub {
-        return &a.name;
+/// `text` with its first letter a capital: `build` → `Build`.
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+}
+
+/// A session name without the number `nex-host` gives a second agent of the same name, and
+/// that number: `build-2` → (`build`, 2).
+fn numbered(name: &str) -> (&str, Option<u32>) {
+    match name.rsplit_once('-') {
+        Some((stem, n)) if !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => (stem, n.parse().ok()),
+        _ => (name, None),
     }
-    a.team.role.as_deref().filter(|r| !r.is_empty()).unwrap_or(&a.name)
+}
+
+/// The name a helper's session goes by (its card's name while its title holds a task
+/// instead, or the program when nothing else is known).
+fn session_name(a: &Agent) -> &str {
+    match &a.session {
+        Some(name) if !name.is_empty() => name,
+        _ if a.task.is_none() => &a.name,
+        _ => a.kind.process(),
+    }
+}
+
+/// What kind of helper it is, as its capsule says and its tag starts: its role (or pipeline
+/// stage), else its session's name without its number, capitalized (`Build`). A sub-agent's
+/// is its type (`Explore`), else `Sub`.
+fn member_word(a: &Agent) -> String {
+    let role = a.team.role.as_deref().map(str::trim).filter(|r| !r.is_empty());
+    capitalized(match role {
+        Some(role) => role,
+        None if a.team.sub => "Sub",
+        None => numbered(session_name(a)).0,
+    })
+}
+
+/// What a helper goes by in its team: its word and a number (`Build-01`). The number is its
+/// session name's (`build-2` is 02), else its place among the `siblings` (the helpers its
+/// parent started, itself among them or not) with the same word, in the order they started.
+fn member_tag(a: &Agent, siblings: &[&Agent]) -> String {
+    let word = member_word(a);
+    let own = if a.team.sub { None } else { numbered(session_name(a)).1 };
+    let n = own.unwrap_or_else(|| {
+        let order = |x: &Agent| (x.team.started, x.pane);
+        let before = siblings.iter().filter(|s| s.pane != a.pane && order(s) < order(a) && member_word(s) == word).count();
+        before as u32 + 1
+    });
+    format!("{word}-{n:02}")
+}
+
+/// What a helper is doing, for its row: the task in its terminal's title, live. A pipeline's
+/// is how its run stands.
+fn member_task(a: &Agent) -> Option<&str> {
+    let task = a.task.as_deref()?;
+    let task = if a.kind == AgentKind::Pipeline { nex_host::proto::split_pipeline_title(task).0 } else { task.trim() };
+    (!task.is_empty()).then_some(task)
+}
+
+/// Each member's tag, in `g.members`' order.
+fn member_tags(g: &Group) -> Vec<String> {
+    g.members
+        .iter()
+        .map(|m| {
+            let siblings: Vec<&Agent> = g.members.iter().map(|s| &s.agent).filter(|s| s.team.parent == m.agent.team.parent).collect();
+            member_tag(&m.agent, &siblings)
+        })
+        .collect()
 }
 
 impl AgentsPane {
@@ -401,13 +468,14 @@ impl AgentsPane {
         }
     }
 
-    /// An open team's helpers: one row each (tile, label, what it is, status), hairlines
+    /// An open team's helpers: one row each (tile, tag and task, folder, status), hairlines
     /// between, "Show all" when there are more than fit. `live`: settled, so rows take clicks.
     fn helper_list(&mut self, f: &Frame, p: &Painter, r: Rect, g: &Group, all: bool, live: bool) {
         let list = list_rect(r);
         p.rect_filled(list, 10, white_alpha(6));
         let key = g.key();
         let rows = shown_members(g, all);
+        let tags = member_tags(g);
         for (i, m) in rows.iter().enumerate() {
             let row = row_rect(r, i);
             let id = m.agent.pane;
@@ -427,7 +495,7 @@ impl AgentsPane {
             if self.selected == Some(id) && f.focused {
                 p.rect_stroke(row.shrink2(Vec2::new(4.0, 3.0)), 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
             }
-            helper_row(f, p, row, m, i + 1 < rows.len() || g.members.len() > rows.len());
+            helper_row(f, p, row, m, &tags[i], i + 1 < rows.len() || g.members.len() > rows.len());
         }
         if g.members.len() > ROWS_SHOWN {
             let more = Rect::from_min_size(Pos2::new(list.left(), list.top() + rows.len() as f32 * ROW_H), Vec2::new(list.width(), MORE_H));
@@ -595,11 +663,19 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
         title_right = at.x - 12.0;
     }
 
-    // The task, and the checkout it's working in.
+    // The task, and the checkout it's working in. A pipeline's counts follow its name in
+    // lighter type.
     let x = tile.right() + 13.0;
     let title_room = (title_right - x).max(0.0);
-    paint::faded_text(p, Pos2::new(x, r.top() + TITLE_Y), &agent.name, paint::bold(14.0), c.text_bright, title_room, 18.0);
-    let detail = card_detail(agent, team.map(|(size, _)| size));
+    let HeaderText { title, counts, detail } = header_text(agent, team.map(|(size, _)| size));
+    paint::faded_text(p, Pos2::new(x, r.top() + TITLE_Y), &title, paint::bold(14.0), c.text_bright, title_room, 18.0);
+    if let Some(counts) = counts {
+        let used = p.layout_no_wrap(title, paint::bold(14.0), c.text_bright).size().x;
+        let room = title_room - used - 18.0;
+        if room > 0.0 {
+            paint::faded_text(p, Pos2::new(x + used, r.top() + TITLE_Y), &format!(" \u{00b7} {counts}"), ui_font(13.5), c.text, room + 18.0, 18.0);
+        }
+    }
     let detail_room = (pill.right() - 4.0 - since_w - 12.0 - x).max(0.0);
     paint::faded_text(p, Pos2::new(x, since_y), &detail, ui_font(12.0), c.text_dim, detail_room, 18.0);
     pill
@@ -626,23 +702,41 @@ fn card_detail(a: &Agent, team_size: Option<&str>) -> String {
     parts.join(" · ")
 }
 
-/// The line under a helper's label: its folder, then its own name when the label is its
-/// role (else what kind of agent it is, when there's no folder).
+/// What a card's header says.
+struct HeaderText {
+    /// In bold: the agent's task (or name).
+    title: String,
+    /// After the title, lighter: how a pipeline's run stands (`2 building · 1 merged`).
+    counts: Option<String>,
+    /// The quiet line under them.
+    detail: String,
+}
+
+/// A card's header: its agent's name over [`card_detail`]. A pipeline whose runner says how
+/// it stands (its title; one from an older `nex-host` has none) is its name, capitalized,
+/// then the counts, over the last thing that happened and then the detail.
+fn header_text(a: &Agent, team_size: Option<&str>) -> HeaderText {
+    let detail = card_detail(a, team_size);
+    let stands = a.task.as_deref().filter(|_| a.kind == AgentKind::Pipeline).map(nex_host::proto::split_pipeline_title);
+    match stands {
+        Some((counts, event)) if !counts.is_empty() || !event.is_empty() => HeaderText {
+            title: capitalized(&a.name),
+            counts: (!counts.is_empty()).then(|| counts.to_string()),
+            detail: if event.is_empty() { detail } else { format!("{event} \u{00b7} {detail}") },
+        },
+        _ => HeaderText { title: a.name.clone(), counts: None, detail },
+    }
+}
+
+/// The quiet line under a helper's tag and task: its folder (or, without one, what kind of
+/// agent it is).
 fn member_detail(a: &Agent) -> String {
     // A sub-agent works in its agent's folder: what kind it is says more.
     if a.team.sub {
         let kind = a.team.role.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| "Sub-agent".into());
         return format!("{kind} \u{00b7} {}", a.kind.label());
     }
-    let label = member_label(a);
-    let mut parts: Vec<String> = folder(a).into_iter().collect();
-    if a.name != label {
-        parts.push(a.name.clone());
-    }
-    if parts.is_empty() {
-        parts.push(a.kind.label().to_string());
-    }
-    parts.join(" · ")
+    folder(a).unwrap_or_else(|| a.kind.label().to_string())
 }
 
 /// The status pill in header `r`, for a label `label_w` wide: top right.
@@ -672,7 +766,7 @@ fn chevron(p: &Painter, at: Pos2, open: f32, color: Color32) {
     p.line_segment([tip, rot(Vec2::new(-1.5, 4.0))], stroke);
 }
 
-/// A closed team's helpers in `strip`: a capsule each (status and label), the lead's own
+/// A closed team's helpers in `strip`: a capsule each (status and its tag's word), the lead's own
 /// helpers only, with a pipeline among them opened into its stages after its name. A
 /// pipeline's stages are steps: joined by a hairline to the stage before, side by side with
 /// another of the same stage (`build`, `build-2`). `+N` for what doesn't fit.
@@ -703,8 +797,8 @@ fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group) {
             Step::Stage(a) | Step::Helper(a) => {
                 // A stage or helper running sub-agents says how many.
                 let label = match g.subs_of(a.pane) {
-                    0 => member_label(a).to_string(),
-                    n => format!("{} \u{00b7}{n}", member_label(a)),
+                    0 => member_word(a),
+                    n => format!("{} \u{00b7}{n}", member_word(a)),
                 };
                 let g = p.layout_no_wrap(label, font.clone(), c.text_bright);
                 let w = g.size().x + 30.0;
@@ -739,10 +833,10 @@ fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group) {
     }
 }
 
-/// One helper's row in an open team: tile (indented for a helper's own helpers), its label
-/// over what it is, and its status with how long it has been in it. `rule`: a hairline
-/// under it.
-fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, rule: bool) {
+/// One helper's row in an open team: tile (indented for a helper's own helpers), its `tag`
+/// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
+/// in, and its status with how long it has been in it. `rule`: a hairline under it.
+fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, tag: &str, rule: bool) {
     let c = f.c;
     let a = &m.agent;
     let indent = 16.0 * (m.depth.saturating_sub(1).min(3)) as f32;
@@ -762,8 +856,18 @@ fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, rule: bool) {
     p.galley(Pos2::new(since_x, row.center().y - since_g.size().y / 2.0), since_g, c.text_dim);
 
     let room = (dot.x - 14.0 - x).max(0.0);
-    let label = member_label(a);
-    paint::faded_text(p, Pos2::new(x, row.top() + 16.0), label, paint::bold(13.0), c.text_bright, room, 16.0);
+    // The tag: a soft capsule, quieter than the task beside it. In a narrow row it gives way
+    // to the fade like the text does.
+    let line_y = row.top() + 16.0;
+    let tag_g = p.layout_no_wrap(tag.to_string(), paint::bold(10.5), c.text);
+    let cap = Rect::from_min_size(Pos2::new(x, line_y - TAG_H / 2.0), Vec2::new(tag_g.size().x + 16.0, TAG_H));
+    let tp = p.with_clip_rect(p.clip_rect().intersect(Rect::from_min_max(row.min, Pos2::new(x + room, row.bottom()))));
+    tp.rect_filled(cap, TAG_H / 2.0, white_alpha(13));
+    tp.galley(Pos2::new(cap.left() + 8.0, line_y - tag_g.size().y / 2.0), tag_g, c.text);
+    if let Some(task) = member_task(a) {
+        let task_x = cap.right() + 8.0;
+        paint::faded_text(p, Pos2::new(task_x, line_y), task, paint::bold(13.0), c.text_bright, (x + room - task_x).max(0.0), 16.0);
+    }
     let detail = member_detail(a);
     paint::faded_text(p, Pos2::new(x, row.top() + 32.0), &detail, ui_font(11.5), c.text_dim, room, 16.0);
     if rule {
@@ -831,6 +935,8 @@ mod tests {
             tab: None,
             kind: AgentKind::Claude,
             name: format!("a{pane}"),
+            task: None,
+            session: None,
             mark: None,
             cwd: None,
             status: Status::Idle,
@@ -971,14 +1077,150 @@ mod tests {
         a.cwd = Some("/srv/nex-wt-review".into());
         assert_eq!(member_detail(&a), "nex-wt-review");
         a.team.role = Some("review".into());
-        assert_eq!(member_detail(&a), "nex-wt-review · a2");
+        a.task = Some("Read the diff".into());
+        assert_eq!(member_detail(&a), "nex-wt-review", "the folder alone: its task is on the line above");
+        // A sub-agent works in its agent's folder: what kind it is.
+        a.team.sub = true;
+        a.team.role = Some("Explore".into());
+        assert_eq!(member_detail(&a), "Explore · Claude Code");
+        a.team.role = None;
+        assert_eq!(member_detail(&a), "Sub-agent · Claude Code");
+    }
+
+    /// A helper of card 1 that `nex-host` started as `session`, at `started`.
+    fn helper(pane: PaneId, session: &str, role: Option<&str>, started: u64) -> Agent {
+        let mut a = agent(pane, Some(1));
+        a.name = session.into();
+        a.session = Some(session.into());
+        a.team.role = role.map(Into::into);
+        a.team.started = started;
+        a
+    }
+
+    fn sub(pane: PaneId, kind: Option<&str>, started: u64) -> Agent {
+        let mut a = agent(pane, Some(1));
+        a.name = "Find where titles are set".into();
+        a.task = Some(a.name.clone());
+        a.team = Team { parent: Some(1), role: kind.map(Into::into), started, sub: true };
+        a
     }
 
     #[test]
-    fn helpers_are_called_by_their_role() {
+    fn helpers_go_by_a_tag_their_role_or_name_and_a_number() {
+        // Its role (a pipeline's stage) is the word; without one, its session's name.
+        let build = helper(2, "build", Some("build"), 10);
+        assert_eq!((member_word(&build), member_tag(&build, &[])), ("Build".into(), "Build-01".into()));
+        let checker = helper(3, "checker", None, 20);
+        assert_eq!(member_tag(&checker, &[&build, &checker]), "Checker-01");
+        let reviewer = helper(4, "rev", Some("reviewer"), 30);
+        assert_eq!(member_tag(&reviewer, &[&build, &checker, &reviewer]), "Reviewer-01", "the role, not the name");
+        let mut blank = helper(5, "docs", Some(" "), 40);
+        assert_eq!(member_tag(&blank, &[]), "Docs-01", "an empty role is no role");
+
+        // Once its title holds a task its card goes by that, but it's still the same helper.
+        blank.name = "Write the changelog".into();
+        blank.task = Some(blank.name.clone());
+        assert_eq!(member_tag(&blank, &[]), "Docs-01");
+
+        // The number nex-host gave a second one of the same name is its number.
+        let second = helper(6, "build-2", Some("build"), 5);
+        assert_eq!(member_tag(&second, &[&build, &second]), "Build-02", "though it started first");
+        assert_eq!(member_tag(&helper(7, "build-12", None, 0), &[]), "Build-12");
+        assert_eq!(member_tag(&helper(8, "build-123", None, 0), &[]), "Build-123", "two digits at least");
+        assert_eq!(member_tag(&helper(9, "build-a", None, 0), &[]), "Build-a-01", "only a number is one");
+        assert_eq!(numbered("-2"), ("-2", None));
+
+        // Without one: its place among the siblings with the same word, as they started
+        // (the same moment: by card).
+        let revs = [helper(10, "anna", Some("reviewer"), 30), helper(11, "ben", Some("reviewer"), 10), helper(12, "cy", Some("reviewer"), 30)];
+        let all: Vec<&Agent> = revs.iter().chain([&build, &checker]).collect();
+        let tags: Vec<String> = revs.iter().map(|a| member_tag(a, &all)).collect();
+        assert_eq!(tags, ["Reviewer-02", "Reviewer-01", "Reviewer-03"]);
+        assert_eq!(member_tag(&checker, &all), "Checker-01", "other words don't count");
+    }
+
+    #[test]
+    fn sub_agents_are_tagged_by_their_type() {
+        let lead_session = {
+            // A sub-agent has no session of its own, whatever its agent's is called.
+            let mut s = sub(20, Some("Explore"), 10);
+            s.session = None;
+            s
+        };
+        let (second, plain, other) = (sub(21, Some("Explore"), 20), sub(22, None, 30), sub(23, Some("general-purpose"), 5));
+        let all = [&lead_session, &second, &plain, &other];
+        assert_eq!(all.map(|a| member_tag(a, &all)), ["Explore-01", "Explore-02", "Sub-01", "General-purpose-01"]);
+        assert_eq!(member_word(&plain), "Sub");
+    }
+
+    #[test]
+    fn a_helper_row_is_its_tag_then_the_task_in_its_title() {
+        let mut lead = agent(1, None);
+        lead.kind = AgentKind::Pipeline;
+        let mut build = helper(2, "build", Some("build"), 10);
+        let mut second = helper(3, "build-2", Some("build"), 20);
+        let merge = helper(4, "merge", Some("merge"), 30);
+        // A stage's own sub-agents are numbered among themselves.
+        let mut explore = sub(5, Some("Explore"), 15);
+        explore.team.parent = Some(2);
+        build.cwd = Some("/home/me/.nex/worktrees/nex-feature-build-17".into());
+        second.name = "Fix the login redirect".into();
+        second.task = Some(second.name.clone());
+        let agents = vec![lead, build, second, merge, explore];
+        let g = &groups(&agents)[0];
+        let rows: Vec<(String, Option<&str>, String)> =
+            g.members.iter().zip(member_tags(g)).map(|(m, tag)| (tag, member_task(&m.agent), member_detail(&m.agent))).collect();
+        let row = |tag: &str, task: Option<&'static str>, detail: &str| (tag.to_string(), task, detail.to_string());
+        assert_eq!(
+            rows,
+            [
+                row("Build-01", None, "nex-feature-build-17"),
+                row("Explore-01", Some("Find where titles are set"), "Explore · Claude Code"),
+                row("Build-02", Some("Fix the login redirect"), "Claude Code"),
+                row("Merge-01", None, "Claude Code"),
+            ],
+            "the tag alone until it has a task"
+        );
+        // The closed card's capsules say the same words.
+        let words: Vec<String> = g.strip().iter().filter_map(|s| s.agent()).map(member_word).collect();
+        assert_eq!(words, ["Build", "Build", "Merge"]);
+
+        // The task follows the title as the agent retitles its terminal.
+        let mut a = helper(2, "build", Some("build"), 10);
+        a.task = Some("Run the tests".into());
+        assert_eq!(member_task(&a), Some("Run the tests"));
+        // A pipeline among an agent's helpers: how its run stands.
+        a.kind = AgentKind::Pipeline;
+        a.task = Some("2 building · 1 merged — ✓ build approved".into());
+        assert_eq!(member_task(&a), Some("2 building · 1 merged"));
+        a.task = Some(" — ✗ stopped".into());
+        assert_eq!(member_task(&a), None);
+    }
+
+    #[test]
+    fn a_pipelines_header_says_how_its_run_stands() {
         let mut a = agent(1, None);
-        assert_eq!(member_label(&a), "a1");
-        a.team.role = Some("review".into());
-        assert_eq!(member_label(&a), "review");
+        a.kind = AgentKind::Pipeline;
+        a.name = "feature".into();
+        a.cwd = Some("~/Documents/nex".into());
+        let text = |a: &Agent| {
+            let h = header_text(a, Some("2 stages"));
+            (h.title, h.counts, h.detail)
+        };
+        // An older nex-host sets no title: the card as it was.
+        assert_eq!(text(&a), ("feature".into(), None, "nex · 2 stages".into()));
+
+        a.task = Some("2 building · 1 in review · 3 merged — ✓ build (PR 7) approved: merged".into());
+        assert_eq!(text(&a), ("Feature".into(), Some("2 building · 1 in review · 3 merged".into()), "✓ build (PR 7) approved: merged · nex · 2 stages".into()));
+        a.task = Some("stage 2 of 3: review".into());
+        assert_eq!(text(&a), ("Feature".into(), Some("stage 2 of 3: review".into()), "nex · 2 stages".into()), "nothing has happened yet");
+        a.task = Some(" — ✗ stopped: no plan".into());
+        assert_eq!(text(&a), ("Feature".into(), None, "✗ stopped: no plan · nex · 2 stages".into()));
+
+        // Any other agent's title is its task, and already its name.
+        a.kind = AgentKind::Claude;
+        a.name = "Fix it — properly".into();
+        a.task = Some(a.name.clone());
+        assert_eq!(text(&a), ("Fix it — properly".into(), None, "nex · 2 stages".into()));
     }
 }
