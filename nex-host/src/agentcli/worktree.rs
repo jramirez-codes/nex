@@ -19,9 +19,16 @@ pub fn worktree(dir: &Path, name: &str) -> io::Result<PathBuf> {
     }
     let top = PathBuf::from(String::from_utf8_lossy(&top.stdout).trim());
     let repo = top.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "repo".into());
+    let trees = nex_host::paths::worktrees().ok_or_else(|| io::Error::other("no home folder"))?;
+    // The second it's made in, plus `-2`, `-3`… when another was made that second (two
+    // features joining a run at once): no two share a branch or a folder.
     let stamp = crate::agent::now_ms() / 1000;
-    let branch = format!("nex/{name}-{stamp}");
-    let path = nex_host::paths::worktrees().ok_or_else(|| io::Error::other("no home folder"))?.join(format!("{repo}-{name}-{stamp}"));
+    let taken = |b: &str, p: &Path| p.exists() || git(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{b}")]).is_ok_and(|o| o.status.success());
+    let (branch, path) = (1..)
+        .map(|n| if n == 1 { format!("{name}-{stamp}") } else { format!("{name}-{stamp}-{n}") })
+        .map(|s| (format!("nex/{s}"), trees.join(format!("{repo}-{s}"))))
+        .find(|(b, p)| !taken(b, p))
+        .unwrap();
     let out = git(&["worktree", "add", "-b", &branch, &path.to_string_lossy()])?;
     if !out.status.success() {
         return Err(io::Error::other(format!("git worktree add: {}", String::from_utf8_lossy(&out.stderr).trim())));
