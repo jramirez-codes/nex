@@ -151,6 +151,11 @@ retry = { stage = "build", unless = "approved", max = 3 }
 
 - `nex-host pipe feature "add --json to ls"` runs it in a session of its own and shows it.
   Add `--bg` to only start it. `nex-host pipe ls` lists the pipelines it can find.
+- In a task, `{task}` is what the pipeline was run with, `{<stage>}` that stage's report,
+  and `{<stage>.verdict}`, `{<stage>.files}` and `{<stage>.pr}` its fields. Anything else
+  in braces stays as it is.
+- At the top, `kind` is the agent stages run when they don't say (default `claude`), and
+  `timeout` how long a stage may take, like `90m` (default `2h`).
 - The runner uses the same `spawn`, `send` and `recv` as any agent.
 - When `retry` sends the run back, agents still running get the new task as a message, so
   they keep their context.

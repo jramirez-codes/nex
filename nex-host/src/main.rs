@@ -11,7 +11,7 @@
 //! nex-host forget ID                                 drop an exited one from the list
 //! nex-host shim install|remove|status                the `claude` / `codex` shim (see `shim.rs`)
 //! nex-host connect                                   one connection to the daemon, over stdin/stdout
-//! nex-host spawn|send|done|recv|read|pipe|skill      agents working together (see `agentcli.rs`)
+//! nex-host spawn|send|done|recv|read|pipe|skill      agents working together (see `agentcli/`)
 //! nex-host --version
 //! ```
 
@@ -33,6 +33,8 @@ mod deliver;
 mod locked;
 #[cfg(unix)]
 mod pipeline;
+#[cfg(unix)]
+mod pty;
 #[cfg(unix)]
 mod redraw;
 #[cfg(unix)]
@@ -96,52 +98,124 @@ Everything lives in ~/.nex (or $NEX_HOME); remove that folder to remove nex-host
 const USAGE: &str =
     "usage: nex-host run|launch|attach|list|spawn|send|done|recv|read|pipe|worktree|skill|watch|kill|forget|shim|connect|--version (see nex-host help)";
 
+/// A subcommand, with what it was given.
+#[cfg(unix)]
+#[derive(Debug, PartialEq)]
+enum Command<'a> {
+    /// No subcommand at all.
+    Usage,
+    Version,
+    Help,
+    Daemon,
+    /// `run` (shown here) or `launch` (in the background).
+    Launch { opts: Launch, here: bool },
+    Attach(&'a str),
+    List { json: bool },
+    Spawn(&'a [String]),
+    Send(&'a [String]),
+    Done(&'a [String]),
+    Recv(&'a [String]),
+    Read(&'a [String]),
+    Pipe(&'a [String]),
+    PipeRun(&'a [String]),
+    Worktree(&'a [String]),
+    Skill(&'a [String]),
+    Watch,
+    Connect,
+    Shim(Shim),
+    Kill(&'a str),
+    Forget(&'a str),
+    Unknown(&'a str),
+}
+
+/// What `shim` does.
+#[cfg(unix)]
+#[derive(Debug, PartialEq)]
+enum Shim {
+    Install,
+    Remove,
+    Status,
+}
+
+#[cfg(unix)]
+impl<'a> Command<'a> {
+    fn parse(args: &'a [String]) -> std::io::Result<Command<'a>> {
+        use std::io;
+
+        let Some((cmd, rest)) = args.split_first() else { return Ok(Command::Usage) };
+        Ok(match cmd.as_str() {
+            "--version" | "-V" | "version" => Command::Version,
+            "help" | "--help" | "-h" => Command::Help,
+            "daemon" => Command::Daemon,
+            c @ ("launch" | "run") => Command::Launch { opts: Launch::parse(rest)?, here: c == "run" },
+            "attach" => Command::Attach(one_id(rest)?),
+            "list" | "ls" => Command::List { json: rest.iter().any(|a| a == "--json") },
+            "spawn" => Command::Spawn(rest),
+            "send" => Command::Send(rest),
+            "done" => Command::Done(rest),
+            "recv" => Command::Recv(rest),
+            "read" => Command::Read(rest),
+            "pipe" => Command::Pipe(rest),
+            "pipe-run" => Command::PipeRun(rest),
+            "worktree" | "worktrees" => Command::Worktree(rest),
+            "skill" => Command::Skill(rest),
+            "watch" => Command::Watch,
+            "connect" => Command::Connect,
+            "shim" => Command::Shim(match rest.first().map(String::as_str) {
+                Some("install") => Shim::Install,
+                Some("remove") => Shim::Remove,
+                Some("status") | None => Shim::Status,
+                Some(other) => return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("shim {other}? (install, remove or status)"))),
+            }),
+            "kill" => Command::Kill(one_id(rest)?),
+            "forget" => Command::Forget(one_id(rest)?),
+            other => Command::Unknown(other),
+        })
+    }
+}
+
 #[cfg(unix)]
 fn run(args: &[String]) -> std::io::Result<i32> {
     use std::io;
 
     use nex_host::proto::{self, Request};
 
-    let (cmd, rest) = match args.split_first() {
-        Some((c, r)) => (c.as_str(), r),
-        None => {
+    match Command::parse(args)? {
+        Command::Usage => {
             eprintln!("{USAGE}");
-            return Ok(2);
+            Ok(2)
         }
-    };
-    match cmd {
-        "--version" | "-V" | "version" => {
+        Command::Version => {
             println!("{}", proto::version_line());
             Ok(0)
         }
-        "help" | "--help" | "-h" => {
+        Command::Help => {
             println!("{HELP}");
             Ok(0)
         }
-        "daemon" => daemon::run().map(|_| 0),
-        "launch" | "run" => {
-            let opts = Launch::parse(rest)?;
-            let (cols, rows) = if cmd == "run" { terminal_size().unwrap_or((120, 40)) } else { (opts.cols.unwrap_or(120), opts.rows.unwrap_or(40)) };
+        Command::Daemon => daemon::run().map(|_| 0),
+        Command::Launch { opts, here } => {
+            let (cols, rows) = if here { terminal_size().unwrap_or((120, 40)) } else { (opts.cols.unwrap_or(120), opts.rows.unwrap_or(40)) };
             let cwd = opts.cwd.or_else(|| std::env::current_dir().ok().map(|d| d.to_string_lossy().into_owned()));
             // `run` is typed into a shell: the agent gets that shell's environment.
-            let env = (cmd == "run").then(|| std::env::vars().collect());
+            let env = here.then(|| std::env::vars().collect());
             let r = client::request(&Request::Launch { argv: opts.argv, kind: opts.kind, name: opts.name, cwd, cols: Some(cols), rows: Some(rows), env }, true)?;
             let id = r.id.unwrap_or_default();
-            if cmd == "launch" {
+            if !here {
                 println!("{id}");
                 return Ok(0);
             }
             attach::run(&id)
         }
-        "attach" => attach::run(one_id(rest)?),
-        "list" | "ls" => {
+        Command::Attach(id) => attach::run(id),
+        Command::List { json } => {
             let sessions = match client::request(&Request::List, false) {
                 Ok(r) => r.sessions.unwrap_or_default(),
                 // No daemon: nothing is running.
                 Err(e) if e.kind() != io::ErrorKind::Other => Vec::new(),
                 Err(e) => return Err(e),
             };
-            if rest.iter().any(|a| a == "--json") {
+            if json {
                 println!("{}", serde_json::to_string(&proto::Response::sessions(sessions)).map_err(io::Error::other)?);
                 return Ok(0);
             }
@@ -153,35 +227,31 @@ fn run(args: &[String]) -> std::io::Result<i32> {
             }
             Ok(0)
         }
-        "spawn" => agentcli::spawn(rest),
-        "send" => agentcli::send(rest),
-        "done" => agentcli::done(rest),
-        "recv" => agentcli::recv(rest),
-        "read" => agentcli::read(rest),
-        "pipe" => agentcli::pipe(rest),
-        "pipe-run" => agentcli::pipe_run(rest),
-        "worktree" | "worktrees" => agentcli::worktrees(rest),
-        "skill" => skill::run(rest),
-        "watch" => watch(),
-        "connect" => connect(),
-        "shim" => {
-            let paths = match rest.first().map(String::as_str) {
-                Some("install") => shim::install()?,
-                Some("remove") => shim::remove()?,
-                Some("status") | None => {
-                    println!("{}", if shim::installed() { "on" } else { "off" });
-                    return Ok(0);
-                }
-                Some(other) => return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("shim {other}? (install, remove or status)"))),
-            };
+        Command::Spawn(rest) => agentcli::spawn(rest),
+        Command::Send(rest) => agentcli::send(rest),
+        Command::Done(rest) => agentcli::done(rest),
+        Command::Recv(rest) => agentcli::recv(rest),
+        Command::Read(rest) => agentcli::read(rest),
+        Command::Pipe(rest) => agentcli::pipe(rest),
+        Command::PipeRun(rest) => agentcli::pipe_run(rest),
+        Command::Worktree(rest) => agentcli::worktrees(rest),
+        Command::Skill(rest) => skill::run(rest),
+        Command::Watch => watch(),
+        Command::Connect => connect(),
+        Command::Shim(Shim::Status) => {
+            println!("{}", if shim::installed() { "on" } else { "off" });
+            Ok(0)
+        }
+        Command::Shim(op) => {
+            let paths = if op == Shim::Install { shim::install()? } else { shim::remove()? };
             for p in paths {
                 println!("{}", p.display());
             }
             Ok(0)
         }
-        "kill" => client::request(&Request::Kill { id: one_id(rest)?.to_string() }, false).map(|_| 0),
-        "forget" => client::request(&Request::Forget { id: one_id(rest)?.to_string() }, false).map(|_| 0),
-        other => {
+        Command::Kill(id) => client::request(&Request::Kill { id: id.to_string() }, false).map(|_| 0),
+        Command::Forget(id) => client::request(&Request::Forget { id: id.to_string() }, false).map(|_| 0),
+        Command::Unknown(other) => {
             eprintln!("nex-host: unknown command `{other}`\n{USAGE}");
             Ok(2)
         }
@@ -337,5 +407,24 @@ mod tests {
         assert_eq!(o.argv, v(&["codex", "--full-auto"]), "options after the command are its own");
         assert!(Launch::parse(&v(&["--name", "x"])).is_err());
         assert!(Launch::parse(&v(&["--bogus", "claude"])).is_err());
+    }
+
+    #[test]
+    fn subcommands_parse_to_commands() {
+        let args = v(&["kill", "a1"]);
+        assert_eq!(Command::parse(&args).unwrap(), Command::Kill("a1"));
+        assert!(Command::parse(&v(&["kill"])).is_err(), "one id");
+        assert_eq!(Command::parse(&[]).unwrap(), Command::Usage);
+        let args = v(&["ls", "--json"]);
+        assert_eq!(Command::parse(&args).unwrap(), Command::List { json: true });
+        let args = v(&["run", "claude"]);
+        assert!(matches!(Command::parse(&args).unwrap(), Command::Launch { here: true, .. }));
+        let args = v(&["shim"]);
+        assert_eq!(Command::parse(&args).unwrap(), Command::Shim(Shim::Status));
+        assert!(Command::parse(&v(&["shim", "bogus"])).is_err());
+        let args = v(&["send", "lead", "hi"]);
+        assert_eq!(Command::parse(&args).unwrap(), Command::Send(&args[1..]));
+        let args = v(&["bogus"]);
+        assert_eq!(Command::parse(&args).unwrap(), Command::Unknown("bogus"));
     }
 }

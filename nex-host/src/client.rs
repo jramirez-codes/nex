@@ -10,6 +10,9 @@ use std::time::Duration;
 use nex_host::paths;
 use nex_host::proto::{Request, Response};
 
+/// How long to wait between tries at connecting to a daemon that's starting.
+const START_RETRY: Duration = Duration::from_millis(60);
+
 /// Connect to the daemon. With `start`, start one if none is running and wait for it.
 pub fn connect(start: bool) -> io::Result<UnixStream> {
     let sock = paths::socket().ok_or_else(|| io::Error::other("no home folder ($HOME is unset)"))?;
@@ -21,7 +24,7 @@ pub fn connect(start: bool) -> io::Result<UnixStream> {
     spawn_daemon()?;
     let mut last = None;
     for _ in 0..50 {
-        std::thread::sleep(Duration::from_millis(60));
+        std::thread::sleep(START_RETRY);
         match UnixStream::connect(&sock) {
             Ok(s) => return Ok(s),
             Err(e) => last = Some(e),

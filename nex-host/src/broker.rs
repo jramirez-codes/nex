@@ -5,7 +5,7 @@
 //! reporting back (`done`), asking and answering are all messages; what differs is their
 //! [`MessageKind`]. Each one goes in its recipient's mailbox (kept in memory, and appended to
 //! `~/.nex/run/mail/<id>.jsonl` as a record) and is typed into the recipient's terminal
-//! (`daemon.rs` does that, `deliver.rs` says how), unless a `recv` is waiting for it: then
+//! (`daemon/` does that, `deliver.rs` says how), unless a `recv` is waiting for it: then
 //! the `recv` gets it instead, so an agent never sees one message twice.
 
 use std::collections::HashMap;
@@ -97,7 +97,7 @@ pub struct Filter {
 
 impl Filter {
     pub fn matches(&self, m: &Message) -> bool {
-        self.from.as_ref().is_none_or(|f| *f == m.from) && self.reply_to.as_ref().is_none_or(|r| m.reply_to.as_ref() == Some(r)) && self.kind.is_none_or(|k| k == m.kind)
+        self.from.as_ref().is_none_or(|f| *f == m.from) && self.reply_to.as_ref().is_none_or(|r| m.payload.reply_to.as_ref() == Some(r)) && self.kind.is_none_or(|k| k == m.kind)
     }
 }
 
@@ -304,12 +304,8 @@ mod tests {
             to: to.into(),
             to_name: to.into(),
             kind,
-            body: String::new(),
-            reply_to: None,
+            payload: nex_host::proto::Payload::default(),
             re: None,
-            verdict: None,
-            files: vec![],
-            pr: None,
             more: None,
             more_lines: None,
             sent: 0,

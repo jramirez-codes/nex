@@ -64,7 +64,7 @@ fn builders_report_their_prs_to_a_merger() {
     let notes: Vec<Message> = h.mail(&merger).into_iter().filter(|m| m.kind == MessageKind::Note).collect();
     for (id, pr) in &builders {
         let m = notes.iter().find(|m| m.from == *id).unwrap_or_else(|| panic!("nothing from {id}: {notes:#?}"));
-        assert_eq!(m.pr.as_deref(), Some(*pr));
+        assert_eq!(m.payload.pr.as_deref(), Some(*pr));
         assert!(m.from_name.starts_with("build-"));
     }
 
@@ -72,7 +72,7 @@ fn builders_report_their_prs_to_a_merger() {
     for (id, pr) in &builders {
         let out = h.run(&["recv", "--from", id, "--kind", "done", "--timeout", "10s", "--json"]);
         let m: Message = serde_json::from_str(&out).unwrap();
-        assert_eq!((m.kind, m.pr.as_deref()), (MessageKind::Done, Some(*pr)));
+        assert_eq!((m.kind, m.payload.pr.as_deref()), (MessageKind::Done, Some(*pr)));
     }
 }
 

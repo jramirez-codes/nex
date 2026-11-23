@@ -34,6 +34,8 @@ pub const SHELL_KIND: &str = "shell";
 pub const PIPELINE_KIND: &str = "pipeline";
 /// Output this recent (and not just the echo of typing) counts as working.
 pub const BUSY_WINDOW_MS: u64 = 1500;
+/// How long a `recv` waits when it doesn't say.
+pub const RECV_DEFAULT_MS: u64 = 600 * 1000;
 /// Claude Code's title glyph while it waits at its prompt; spinner frames replace it while
 /// it works.
 pub const CLAUDE_IDLE_MARK: char = '✳';
@@ -232,16 +234,8 @@ pub enum Request {
         /// task) or `user`.
         to: String,
         kind: MessageKind,
-        body: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        reply_to: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        verdict: Option<Verdict>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        files: Vec<String>,
-        /// The pull request it's about (a number or a URL).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pr: Option<String>,
+        #[serde(flatten)]
+        payload: Payload,
         /// Type it in even though the recipient is waiting for the user.
         #[serde(default)]
         force: bool,
@@ -328,6 +322,30 @@ impl Verdict {
     }
 }
 
+/// What a message says: its text, and the fields that go with it. Its keys sit at the top
+/// level of a [`Request::Send`] and of a [`Message`], beside theirs.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Payload {
+    pub body: String,
+    /// The message it answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<Verdict>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+    /// The pull request it's about: a number or a URL, as the sender gave it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<String>,
+}
+
+impl Payload {
+    /// Just a text, no fields.
+    pub fn text(body: impl Into<String>) -> Payload {
+        Payload { body: body.into(), ..Payload::default() }
+    }
+}
+
 /// The address of someone at a shell rather than an agent: messages to it are only taken
 /// with `recv`.
 pub const USER: &str = "user";
@@ -343,20 +361,13 @@ pub struct Message {
     pub to: String,
     pub to_name: String,
     pub kind: MessageKind,
-    /// Its text, cut short when it was long (the whole of it is in the file at `more`).
-    pub body: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reply_to: Option<String>,
+    /// Its text (cut short when it was long: the whole of it is in the file at `more`) and
+    /// fields.
+    #[serde(flatten)]
+    pub payload: Payload,
     /// The first line of the message it answers, so it makes sense on its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub re: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub verdict: Option<Verdict>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<String>,
-    /// The pull request it's about: a number or a URL, as the sender gave it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pr: Option<String>,
     /// Where the whole text is when `body` was cut short, and how many lines it has.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub more: Option<String>,
@@ -473,11 +484,48 @@ mod tests {
     #[test]
     fn message_requests_are_tagged_json() {
         let r: Request = serde_json::from_str(r#"{"op":"send","to":"@parent","kind":"done","body":"ok","verdict":"approved"}"#).unwrap();
-        assert!(matches!(r, Request::Send { kind: MessageKind::Done, verdict: Some(Verdict::Approved), force: false, .. }));
+        assert!(matches!(r, Request::Send { kind: MessageKind::Done, payload: Payload { verdict: Some(Verdict::Approved), .. }, force: false, .. }));
         let r: Request = serde_json::from_str(r#"{"op":"recv","from":"build","timeout_ms":5}"#).unwrap();
         assert!(matches!(r, Request::Recv { me: None, timeout_ms: Some(5), .. }));
         assert_eq!(MessageKind::parse("ask"), Some(MessageKind::Ask));
         assert_eq!(Verdict::parse("changes"), Some(Verdict::Changes));
+    }
+
+    #[test]
+    fn payloads_sit_at_the_top_level() {
+        let payload = Payload { body: "ok".into(), reply_to: Some("m9".into()), verdict: Some(Verdict::Changes), files: vec!["a.rs".into()], pr: Some("42".into()) };
+        let send = Request::Send { from: Some("a1".into()), to: "@task".into(), kind: MessageKind::Done, payload: payload.clone(), force: true };
+        let line = r#"{"op":"send","from":"a1","to":"@task","kind":"done","body":"ok","reply_to":"m9","verdict":"changes","files":["a.rs"],"pr":"42","force":true}"#;
+        assert_eq!(serde_json::to_string(&send).unwrap(), line);
+        assert_eq!(serde_json::from_str::<Request>(line).unwrap(), send);
+        let bare = r#"{"op":"send","to":"lead","kind":"note","body":"hi"}"#;
+        let r: Request = serde_json::from_str(bare).unwrap();
+        assert_eq!(r, Request::Send { from: None, to: "lead".into(), kind: MessageKind::Note, payload: Payload::text("hi"), force: false });
+        assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"op":"send","to":"lead","kind":"note","body":"hi","force":false}"#);
+
+        let m = Message {
+            id: "m12".into(),
+            from: "b7".into(),
+            from_name: "reviewer".into(),
+            to: "a1".into(),
+            to_name: "lead".into(),
+            kind: MessageKind::Done,
+            payload,
+            re: Some("Review it".into()),
+            more: Some("~/.nex/run/mail/m12.md".into()),
+            more_lines: Some(40),
+            sent: 7,
+        };
+        let json = serde_json::to_value(&m).unwrap();
+        let want = serde_json::json!({
+            "id": "m12", "from": "b7", "from_name": "reviewer", "to": "a1", "to_name": "lead", "kind": "done",
+            "body": "ok", "reply_to": "m9", "re": "Review it", "verdict": "changes", "files": ["a.rs"], "pr": "42",
+            "more": "~/.nex/run/mail/m12.md", "more_lines": 40, "sent": 7,
+        });
+        assert_eq!(json, want);
+        assert_eq!(serde_json::from_value::<Message>(want).unwrap(), m);
+        let old = r#"{"id":"m1","from":"user","from_name":"user","to":"a","to_name":"a","kind":"note","body":"x","sent":0}"#;
+        assert_eq!(serde_json::from_str::<Message>(old).unwrap().payload, Payload::text("x"));
     }
 
     #[test]
