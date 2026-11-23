@@ -20,6 +20,7 @@ python3 "$repo/bench/gen_data.py" "$data" 50
 
 terminals=()
 for t in nex alacritty kitty ghostty gnome-terminal; do
+  # shellcheck disable=SC2076 # a literal whole-word match is the intent, not a regex
   if [ ${#only[@]} -gt 0 ] && [[ ! " ${only[*]} " =~ " $t " ]]; then continue; fi
   if [ "$t" = nex ] || command -v "$t" >/dev/null; then terminals+=("$t"); fi
 done

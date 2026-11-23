@@ -35,6 +35,7 @@ if [ "$(uname -s)" = Linux ]; then
     chmod 644 "$PREFIX/share/applications/$entry.desktop"
   done
   install -m644 assets/nex.svg "$PREFIX/share/icons/hicolor/scalable/apps/nex.svg"
+  # shellcheck disable=SC2015 # best effort: a missing or failing tool must not fail the install
   command -v update-desktop-database >/dev/null && update-desktop-database -q "$PREFIX/share/applications" || true
   # Opt in to answering other apps' "Show in Folder" (D-Bus FileManager1) with nex.
   if [ "${NEX_FILE_MANAGER:-0}" = 1 ]; then
