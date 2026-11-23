@@ -303,6 +303,10 @@ impl AgentsPane {
             if !r.intersects(body) {
                 continue;
             }
+            // An agent on the shown tab lifts off the grid when you switch to it or it
+            // changes sections. Clicks go where it's drawn, lifted.
+            let lift = card.lift(now, shown_tab);
+            let r = Rect::from_center_size(r.center(), r.size() * (1.0 + 0.025 * lift));
             let team = self.view.teams.get(&id).filter(|g| g.is_team()).cloned();
             // The part of the card that's the agent itself: a team's header.
             let head = if team.is_some() { Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H.min(r.height()))) } else { r };
@@ -322,10 +326,6 @@ impl AgentsPane {
             let selected = !card.leaving && self.selected == Some(id);
             let (border, border_width) = border_for(card.agent.status, selected, f.focused, hovered, f.c);
             card.set_colors(now, border, border_width, status_color(card.agent.status, f.c), f.animate);
-            // An agent on the shown tab lifts off the grid when you switch to it or it
-            // changes sections.
-            let lift = card.lift(now, shown_tab);
-            let r = Rect::from_center_size(r.center(), r.size() * (1.0 + 0.025 * lift));
             let look = Look { hover, lift, border: card.border.get(now), border_width: card.border_width.get(now), tint: card.tint.get(now) };
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
@@ -359,9 +359,17 @@ impl AgentsPane {
         let what = if g.is_pipeline() { "stage" } else { "helper" };
         let n = g.members.len();
         let size = format!("{n} {what}{}", if n == 1 { "" } else { "s" });
-        agent_header(f, p, head, &g.lead, &look, Some((&size, t)));
+        let pill = agent_header(f, p, head, &g.lead, &look, Some((&size, t)));
 
-        // Clicking the capsules, or the chevron's corner, opens and closes it.
+        // Clicking the chevron opens and closes it (over the header's own click, which
+        // jumps to the lead); so do the capsules while it's closed.
+        if !leaving && let Some(hit) = f.interact(chevron_hit(pill), ("chevron", key)) {
+            if hit.clicked() {
+                self.selected = Some(key);
+                self.toggle_team(key);
+            }
+            hit.on_hover_cursor(egui::CursorIcon::PointingHand);
+        }
         let toggle_area = Rect::from_min_max(Pos2::new(r.left(), head.bottom()), Pos2::new(r.right(), head.bottom() + STRIP_H)).intersect(r);
         if !leaving && t < 0.01 && let Some(hit) = f.interact(toggle_area, ("strip", key)) {
             if hit.clicked() {
@@ -547,7 +555,8 @@ fn card_body(p: &Painter, r: Rect, look: &Look) {
 /// task over its folder and tab, and the status pill over how long it has been in that
 /// state. A team's (`team`: its size, and how open it is) also says how big it is and has
 /// a disclosure chevron.
-fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, team: Option<(&str, f32)>) {
+/// Returns the pill's rect (a team's chevron sits left of it: [`chevron_hit`]).
+fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, team: Option<(&str, f32)>) -> Rect {
     let c = f.c;
     let tile = Rect::from_center_size(Pos2::new(r.left() + 14.0 + TILE / 2.0, r.top() + CARD_H / 2.0), Vec2::splat(TILE));
     icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref());
@@ -556,7 +565,7 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
     let color = look.tint;
     let pill_font = paint::bold(11.0);
     let label = p.layout_no_wrap(agent.status.label().to_string(), pill_font, color);
-    let pill = Rect::from_min_size(Pos2::new(r.right() - 14.0 - (label.size().x + 26.0), r.top() + 14.0), Vec2::new(label.size().x + 26.0, 22.0));
+    let pill = pill_rect(r, label.size().x);
     p.rect_filled(pill, 11, color.gamma_multiply(0.15));
     let dot = Pos2::new(pill.left() + 12.0, pill.center().y);
     status_dot(f, p, dot, agent.status, color);
@@ -569,7 +578,7 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
     // A team's chevron, left of the pill: pointing right while closed, down when open.
     let mut title_right = pill.left() - 12.0;
     if let Some((_, open)) = team {
-        let at = Pos2::new(pill.left() - 16.0, pill.center().y);
+        let at = chevron_center(pill);
         chevron(p, at, open, c.text_dim);
         title_right = at.x - 12.0;
     }
@@ -603,6 +612,23 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
     }
     let detail_room = (pill.right() - 4.0 - since_w - 12.0 - x).max(0.0);
     paint::faded_text(p, Pos2::new(x, since_y), &detail, ui_font(12.0), c.text_dim, detail_room, 18.0);
+    pill
+}
+
+/// The status pill in header `r`, for a label `label_w` wide: top right.
+fn pill_rect(r: Rect, label_w: f32) -> Rect {
+    Rect::from_min_size(Pos2::new(r.right() - 14.0 - (label_w + 26.0), r.top() + 14.0), Vec2::new(label_w + 26.0, 22.0))
+}
+
+/// Where a team's chevron is drawn: just left of its status `pill`.
+fn chevron_center(pill: Rect) -> Pos2 {
+    Pos2::new(pill.left() - 16.0, pill.center().y)
+}
+
+/// The chevron's click box: a finger-sized square around it, not past the pill.
+fn chevron_hit(pill: Rect) -> Rect {
+    let at = chevron_center(pill);
+    Rect::from_min_max(Pos2::new(at.x - 16.0, at.y - 16.0), Pos2::new(pill.left() - 2.0, at.y + 16.0))
 }
 
 /// A disclosure chevron at `at`, turning from › (`open` 0) to ⌄ (`open` 1).
@@ -774,6 +800,75 @@ mod tests {
         assert_eq!(rect(&all, 3).height(), CARD_H + 2.0 + 8.0 * ROW_H + MORE_H + LIST_INSET);
         assert!(all.content_h > open.content_h && open.content_h > closed.content_h);
         assert_eq!(row_rect(rect(&open, 3), 1).top() - row_rect(rect(&open, 3), 0).top(), ROW_H);
+    }
+
+    /// Paints `pane` showing `agents` in an 800×600 window, with `events`.
+    fn frame(ctx: &egui::Context, pane: &mut AgentsPane, agents: &[Agent], time: &mut f64, events: Vec<egui::Event>) {
+        *time += 0.05;
+        let theme = Theme::from_config(&crate::config::Config::default());
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), time: Some(*time), events, ..Default::default() };
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
+                let rect = ui.max_rect();
+                pane.paint(ui, ui.painter(), rect, 1, true, &theme, agents, &[], None);
+            });
+        });
+    }
+
+    fn click(ctx: &egui::Context, pane: &mut AgentsPane, agents: &[Agent], time: &mut f64, at: Pos2) {
+        let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        for events in [vec![egui::Event::PointerMoved(at)], vec![press(true)], vec![press(false)], vec![]] {
+            frame(ctx, pane, agents, time, events);
+        }
+    }
+
+    #[test]
+    fn the_chevron_drawn_on_a_pipelines_card_opens_and_closes_it() {
+        let ctx = egui::Context::default();
+        crate::render::fonts::install(&ctx, &crate::config::Config::default());
+        crate::ui::glide::set_animations(&ctx, false);
+        let mut lead = agent(1, None);
+        lead.kind = AgentKind::Pipeline;
+        let agents = vec![lead, agent(2, Some(1)), agent(3, Some(1))];
+        let mut pane = AgentsPane::new();
+        let mut time = 0.0;
+        for _ in 0..3 {
+            frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+        }
+
+        // Where the card and its chevron are drawn: under its section header, the chevron
+        // left of the status pill.
+        let body = Rect::from_min_max(Pos2::new(0.0, 6.0), Pos2::new(800.0, 600.0));
+        let teams = groups(&agents);
+        let card = layout(&teams, body.width() - 2.0 * SIDE, &HashMap::new()).cards[0].1.translate(body.min.to_vec2());
+        let head = Rect::from_min_size(card.min, Vec2::new(card.width(), CARD_H));
+        let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), body);
+        let label_w = painter.layout_no_wrap(Status::Idle.label().to_string(), paint::bold(11.0), Color32::WHITE).size().x;
+        let pill = pill_rect(head, label_w);
+        let arrow = chevron_center(pill);
+        assert!(chevron_hit(pill).contains(arrow) && !chevron_hit(pill).intersects(pill), "the box is around the arrow, short of the pill");
+
+        click(&ctx, &mut pane, &agents, &mut time, arrow);
+        assert_eq!(pane.expanded.get(&1), Some(&false), "the arrow opens the list");
+        assert!(pane.requests.is_empty(), "rather than jumping to the pipeline");
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+        // Its edge too, a few points off the arrow.
+        click(&ctx, &mut pane, &agents, &mut time, arrow + Vec2::new(-10.0, 8.0));
+        assert!(pane.expanded.is_empty(), "and closes it again");
+        assert!(pane.requests.is_empty());
+
+        // The capsules under a closed card open it; the rest of the header jumps.
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+        click(&ctx, &mut pane, &agents, &mut time, Pos2::new(card.center().x, head.bottom() + STRIP_H / 2.0));
+        assert_eq!(pane.expanded.get(&1), Some(&false));
+        // Open, its rows are where they're drawn: the second stage's.
+        let open = layout(&teams, body.width() - 2.0 * SIDE, &pane.expanded).cards[0].1.translate(body.min.to_vec2());
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+        click(&ctx, &mut pane, &agents, &mut time, row_rect(open, 1).center());
+        assert_eq!(pane.requests, vec![super::super::Request::Focus(3)]);
+        pane.requests.clear();
+        click(&ctx, &mut pane, &agents, &mut time, head.left_center() + Vec2::new(30.0, 0.0));
+        assert_eq!(pane.requests, vec![super::super::Request::Focus(1)]);
     }
 
     #[test]
