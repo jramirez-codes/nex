@@ -40,9 +40,28 @@ pub const RECV_DEFAULT_MS: u64 = 600 * 1000;
 /// it works.
 pub const CLAUDE_IDLE_MARK: char = '✳';
 
+/// What a daemon that's handing over to a newer nex-host answers a `launch` or `spawn`
+/// with: the client starts the new daemon and asks it again.
+pub const RESTARTING: &str = "nex-host is restarting";
+
 /// What `nex-host --version` prints: `nex-host 0.11.0 (protocol 2)`.
 pub fn version_line() -> String {
     format!("nex-host {VERSION} (protocol {PROTOCOL})")
+}
+
+/// Whether version line `a` is from an older nex-host than `b` (by version, then
+/// protocol). `false` when either isn't a version line: only a nex-host known to be older
+/// is ever replaced.
+pub fn older(a: &str, b: &str) -> bool {
+    fn parse(line: &str) -> Option<(Vec<u64>, u32)> {
+        let rest = line.trim().strip_prefix("nex-host ")?;
+        let (version, protocol) = rest.split_once(" (protocol ")?;
+        let protocol = protocol.strip_suffix(')')?.parse().ok()?;
+        // `0.12.2`, or `0.13.0-rc1`: the numbers before any suffix.
+        let version = version.split(['-', '+']).next()?.split('.').map(|n| n.parse().ok()).collect::<Option<Vec<u64>>>()?;
+        Some((version, protocol))
+    }
+    matches!((parse(a), parse(b)), (Some(a), Some(b)) if a < b)
 }
 
 /// What an agent is doing, most urgent first.
@@ -295,6 +314,9 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lines: Option<usize>,
     },
+    /// The daemon's [`version_line`], answered in `text`. A daemon from before this request
+    /// answers `bad request`: it's older than any client that asks.
+    Version,
 }
 
 /// What a message is for, which tells the agent reading it what's expected of it.
@@ -427,9 +449,15 @@ pub struct Response {
     /// With `recv`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub messages: Option<Vec<Message>>,
-    /// With `read`: the screen. With `send`: something the sender should know.
+    /// With `read`: the screen. With `send`: something the sender should know. With
+    /// `version`: the daemon's version line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Added by `nex-host watch` (not the daemon) to each line when the daemon it watches is
+    /// an older nex-host than the installed one, still running because agents are: it hands
+    /// over once they're done. Its version line, or `older` when it's too old to say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_version: Option<String>,
 }
 
 impl Response {
@@ -619,6 +647,18 @@ mod tests {
         assert_eq!(s.compute_status(10_000), Status::Idle, "just the echo of typing");
         s.last_input = 0;
         assert_eq!(s.compute_status(20_000), Status::Idle);
+    }
+
+    #[test]
+    fn versions_compare_by_number_then_protocol() {
+        assert!(older("nex-host 0.12.2 (protocol 3)", "nex-host 0.12.10 (protocol 3)"));
+        assert!(older("nex-host 0.12.2 (protocol 3)", "nex-host 0.13.0-rc1 (protocol 3)"));
+        assert!(older("nex-host 0.12.2 (protocol 2)", "nex-host 0.12.2 (protocol 3)"));
+        assert!(!older("nex-host 0.12.2 (protocol 3)", "nex-host 0.12.2 (protocol 3)"));
+        assert!(!older("nex-host 0.13.0 (protocol 3)", "nex-host 0.12.2 (protocol 3)"), "never a newer one");
+        assert!(!older("something else", &version_line()));
+        assert!(!older(&version_line(), "garbage"));
+        assert_eq!(serde_json::from_str::<Request>(r#"{"op":"version"}"#).unwrap(), Request::Version);
     }
 
     #[test]

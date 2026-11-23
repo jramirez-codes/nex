@@ -328,11 +328,25 @@ pub struct Snapshot {
     pub updated: Option<Instant>,
     /// Whether the shim is on, once the install check has run.
     pub shim: Option<bool>,
+    /// The version of the daemon `watch` reaches when it's older than the installed
+    /// nex-host: kept running for its agents, it hands over once they finish.
+    pub daemon_version: Option<String>,
+}
+
+impl Snapshot {
+    /// Take in a line `watch` sent.
+    fn update(&mut self, r: Response) {
+        self.state = State::Live;
+        self.sessions = r.sessions.unwrap_or_default();
+        self.home = r.home.or(self.home.take());
+        self.daemon_version = r.daemon_version;
+        self.updated = Some(Instant::now());
+    }
 }
 
 impl Default for Snapshot {
     fn default() -> Self {
-        Self { state: State::Connecting, sessions: Vec::new(), home: None, updated: None, shim: None }
+        Self { state: State::Connecting, sessions: Vec::new(), home: None, updated: None, shim: None, daemon_version: None }
     }
 }
 
@@ -433,10 +447,7 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
             };
             lines += 1;
             if let Ok(mut s) = snapshot.lock() {
-                s.state = State::Live;
-                s.sessions = r.sessions.unwrap_or_default();
-                s.home = r.home.or(s.home.take());
-                s.updated = Some(Instant::now());
+                s.update(r);
             }
             wake();
         }
@@ -509,10 +520,7 @@ fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool
             let Ok(r) = serde_json::from_str::<Response>(&line) else { continue };
             lines += 1;
             if let Ok(mut s) = snapshot.lock() {
-                s.state = State::Live;
-                s.sessions = r.sessions.unwrap_or_default();
-                s.home = r.home.or(s.home.take());
-                s.updated = Some(Instant::now());
+                s.update(r);
             }
             wake();
         }
@@ -539,6 +547,17 @@ fn sleep(stop: &AtomicBool, d: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_watch_line_from_an_older_daemon_says_so() {
+        let mut snap = Snapshot::default();
+        let line = r#"{"ok":true,"sessions":[],"home":"/home/u","daemon_version":"nex-host 0.12.2 (protocol 3)"}"#;
+        snap.update(serde_json::from_str(line).unwrap());
+        assert_eq!((snap.state.clone(), snap.daemon_version.as_deref()), (State::Live, Some("nex-host 0.12.2 (protocol 3)")));
+        // The new daemon's lines don't: the update is done.
+        snap.update(serde_json::from_str(r#"{"ok":true,"sessions":[]}"#).unwrap());
+        assert_eq!((snap.daemon_version, snap.home.as_deref()), (None, Some("/home/u")));
+    }
 
     #[test]
     fn install_paths_agree() {

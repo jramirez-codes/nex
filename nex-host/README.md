@@ -34,7 +34,8 @@ Agents pane ◄── nex-host watch ◄───────────── 
 - **daemon:** owns every agent's pty and process. It feeds the output into a terminal emulator
   (`alacritty_terminal`, the same one nex uses), so it always knows the agent's screen,
   scrollback, title, bell and modes. It exits about 30 s after its last agent has ended and
-  nobody is connected.
+  nobody is connected, or as soon as none is running once a newer nex-host is installed (see
+  [Building](#building)).
 - **attach:** turns the pane into the agent's terminal. It sends a redraw first (scrollback,
   screen, colors, cursor, and modes such as bracketed paste, mouse and the kitty keyboard),
   then the live output. Keys and resizes go back to the agent. Closing the pane only ends the
@@ -221,6 +222,22 @@ cargo build -p nex-host --release --target x86_64-unknown-linux-musl   # a stati
 
 Its version is kept equal to nex's. nex reinstalls the helper on a host whenever the two
 differ.
+
+A daemon started before an update keeps running the old code, and it can't simply be
+restarted: it owns the agents' terminals. So:
+
+- Every command that may start the daemon first asks the running one its version
+  (`{"op":"version"}`; one from before that request answers `bad request`, which counts as
+  older). If it's older than the command and none of its agents is running, the command ends
+  it and starts the new one. If agents are running, it's kept, and the command says so on
+  stderr. A newer daemon is never replaced.
+- The daemon checks its own program file when an agent ends and while nothing runs. Once a
+  newer version is installed there (or the file is gone) and none of its agents is running
+  (exited ones don't count), it stops listening and exits; a `launch` or `spawn` that reaches
+  it meanwhile is told `nex-host is restarting`, and the client asks the new daemon instead.
+  Exited sessions and their unread mail go with it (the mail stays in `run/mail/`).
+- `watch` against an older daemon adds `"daemon_version"` to each line, and nex's Agents pane
+  shows "nex-host update pending" for that host until the daemon hands over.
 
 Releases build it for `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`,
 `aarch64-apple-darwin` and `x86_64-apple-darwin`, and every nex package carries all four as

@@ -83,8 +83,9 @@ pub struct App {
     card_rects: Vec<(PaneId, Rect)>,
     /// The lists drawing the panes fills each frame, kept for their allocations.
     draw_bufs: workspace::draw::DrawBuffers,
-    /// Where the layout put the focused pane's card this frame (the connect handoff lands there).
-    focused_card: Option<Rect>,
+    /// Where the layout put the focused pane's card this frame, and how it looked (the
+    /// connect handoff lands there).
+    focused_card: Option<animation::handoff::FocusedCard>,
     /// The connect screen handing over to the panes, while it plays (`animation/handoff.rs`).
     handoff: Option<animation::handoff::Handoff>,
     hostname: String,
@@ -459,9 +460,10 @@ impl App {
             for _ in 0..tabs {
                 self.new_tab(ctx, None, None);
             }
-            if crate::ui::glide::animations(ctx) && let Some((card, dog, title)) = self.connect.last_card() {
+            if crate::ui::glide::animations(ctx) && let Some(drawn) = self.connect.last_card() {
                 let start = ctx.input(|i| i.time);
-                self.handoff = Some(animation::handoff::Handoff { start, card, dog, title, sidebar: self.cfg.sidebar() });
+                let drawn = drawn.clone();
+                self.handoff = Some(animation::handoff::Handoff { start, drawn, sidebar: self.cfg.sidebar() });
             }
             if !self.tabs.is_empty() {
                 self.show_tab(0);
