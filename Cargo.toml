@@ -46,7 +46,7 @@ syntect = { version = "5.3", default-features = false, features = ["parsing", "r
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 
 # Per-OS dependencies, used only by src/platform/<os>/ (and eframe, picked per OS).
-[target.'cfg(not(target_os = "android"))'.dependencies]
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 eframe = "0.33.3"
 
 # The Android app (see nex-android/): NativeActivity, so the APK needs no Java. eframe's
@@ -57,6 +57,20 @@ winit = { version = "0.30.13", default-features = false, features = ["android-na
 # The system clipboard, through ClipboardManager (see src/platform/android/clipboard.rs).
 jni = "0.21"
 ndk-context = "0.1"
+
+# The iPhone app (see nex-ios/): eframe's OpenGL backend has no iOS support, so it draws
+# with wgpu (Metal) there.
+[target.'cfg(target_os = "ios")'.dependencies]
+eframe = { version = "0.33.3", default-features = false, features = ["wgpu", "default_fonts"] }
+# Only for its default features, which give wgpu its Metal backend (eframe's are off).
+egui-wgpu = "0.33.3"
+objc2 = { version = "0.6", default-features = false, features = ["std"] }
+# The safe area and keyboard (platform/ios/screen.rs), the clipboard and haptics.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSNotification", "NSValue", "NSGeometry", "NSDictionary", "block2", "NSOperation"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "UIPasteboard", "UIApplication", "UIResponder", "UIWindow", "UIView", "UIScreen", "UIGeometry", "UIFeedbackGenerator", "UIImpactFeedbackGenerator", "UISelectionFeedbackGenerator", "UINotificationFeedbackGenerator", "UITextView", "UIScrollView", "UITextInput", "UITextInputTraits", "UIColor", "objc2-core-foundation"] }
+block2 = "0.6"
+# The mic's permission and audio session (platform/ios/mic.rs); cpal's own version.
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes", "block2"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -83,9 +97,9 @@ raw-window-handle = "0.6"
 
 # `nex-host`, the helper nex installs on ssh hosts to keep agents running after their pane
 # closes (see nex-host/README.md). `cargo build` here still builds nex alone.
-# `nex-android` builds the Android app around this crate (see nex-android/README.md).
+# `nex-android` and `nex-ios` build the phone apps around this crate (see their README.md).
 [workspace]
-members = ["nex-host", "nex-android"]
+members = ["nex-host", "nex-android", "nex-ios"]
 
 [profile.release]
 lto = "thin"

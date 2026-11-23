@@ -1,8 +1,8 @@
 # Architecture
 
 nex is a single Rust crate (`src/`, a library with the `nex` program on top) plus `nex-host`
-(`nex-host/`), a small helper nex installs on ssh hosts, and `nex-android/`, which wraps the same
-library as the Android app. The terminal engine is [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal);
+(`nex-host/`), a small helper nex installs on ssh hosts, and `nex-android/` and `nex-ios/`, which
+wrap the same library as the Android and iPhone apps. The terminal engine is [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal);
 everything on screen is drawn with [egui](https://github.com/emilk/egui) on eframe, which nex
 runs on its own winit event loop (`src/platform/winit_app.rs`).
 
@@ -82,11 +82,15 @@ src/
     ├── macos/            libproc process info, traffic lights, app menu, clipboard,
     │                     Open With, starting from nex.app
     ├── windows/          compiles, not supported yet
-    └── android/          app folders, stdout/stderr to logcat, no local shells (a thin
-                          client: every pane works on an ssh host)
+    ├── android/          app folders, stdout/stderr to logcat, no local shells (a thin
+    │                     client: every pane works on an ssh host)
+    └── ios/              the same thin client: full-screen window with the safe area and
+                          keyboard as the content rect, UIPasteboard, haptics
 
 nex-android/          the Android app: nex's library as NativeActivity's shared library
                       (see nex-android/README.md)
+nex-ios/              the iPhone app: nex's library as a static library, linked and signed by
+                      a small Xcode project (see nex-ios/README.md)
 nex-host/             the helper on ssh hosts (see nex-host/README.md); nex itself links only
                       its protocol (`proto`, `claude`, `paths`), built without the `daemon` feature
 ```

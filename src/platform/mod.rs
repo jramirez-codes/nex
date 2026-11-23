@@ -14,6 +14,7 @@
 //!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
 //!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
 //!   glide.rs      the space typed after a glided (swiped) word ([`AutoSpace`], Android)
+//!   text_edit.rs  a text field's change as Backspaces and typing ([`edit_between`], iOS)
 //!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland) · watch.rs (inotify)
 //!                 · file_manager/ (D-Bus FileManager1) · apps.rs (Open With, desktop entries)
 //!                 · clipboard.rs · memory.rs (glibc arenas, malloc_trim)
@@ -22,6 +23,9 @@
 //!                 · menu.rs (app menu) · window.rs (traffic lights, title)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
 //!   android/      mod.rs (app folders, no local shells: a thin client to ssh hosts)
+//!   ios/          mod.rs (the same thin client) · screen.rs (safe area, keyboard frame)
+//!                 · keyboard.rs (the view the keyboard types into) · clipboard.rs · haptics.rs
+//!                 · mic.rs (permission, audio session)
 //! ```
 //!
 //! Every backend's `mod.rs` provides:
@@ -56,7 +60,8 @@
 //! | `DirWatch` / `on_dir_change(f)` | being told when a folder's contents change |
 //! | `tune_allocator()` / `trim_heap()` | allocator setup at launch; return freed heap to the OS |
 //! | `MIC_PERMISSION_HINT` | where to allow microphone access, after the OS refused it |
-//! | `mic_allowed()` / `ask_mic()` | whether nex may record from the microphone, and asking the user (Android; desktops ask when the mic opens) |
+//! | `mic_allowed()` / `ask_mic()` | whether nex may record from the microphone, and asking the user (phones; desktops ask when the mic opens) |
+//! | `prepare_mic()` | get the OS ready to record, just before the mic opens (iOS: the audio session; [`MicRefused`]) |
 //! | `app_icon()` | the window icon, where the OS takes it from the window |
 //! | `set_window_title(..)` / `align_window_buttons(..)` | the window title; centering native title-bar buttons (macOS) |
 //!
@@ -86,6 +91,10 @@ mod glide;
 #[cfg_attr(not(target_os = "android"), allow(unused_imports))]
 pub use glide::AutoSpace;
 
+mod text_edit;
+#[cfg_attr(not(target_os = "ios"), allow(unused_imports))]
+pub use text_edit::edit_between;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
@@ -106,20 +115,25 @@ mod android;
 #[cfg(target_os = "android")]
 use android as backend;
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android")))]
+#[cfg(target_os = "ios")]
+mod ios;
+#[cfg(target_os = "ios")]
+use ios as backend;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android", target_os = "ios")))]
 compile_error!("nex has no platform backend for this OS yet: add one under src/platform/");
 
 pub use backend::*;
 
 /// Desktop windows have no system bars or on-screen keyboard drawn over them.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn content_rect_px() -> Option<[f32; 4]> {
     None
 }
 
 /// Text the on-screen keyboard sent outside of key events.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(dead_code))]
 pub enum Typed {
     /// Typed (a key, a glided word, a suggestion): first `delete` characters are taken back
     /// with Backspace (the keyboard changed its mind about a word it's still composing), then
@@ -127,6 +141,9 @@ pub enum Typed {
     Text { delete: usize, text: String },
     /// Several characters committed at once from the keyboard's clipboard: a paste.
     Paste(String),
+    /// Return, where the keyboard types it as text rather than a key event (iOS).
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    Enter,
 }
 
 /// A touch of haptic feedback, for controls that should feel physical.
@@ -142,33 +159,48 @@ pub enum Haptic {
     Release,
 }
 
-/// Only Android has an on-screen keyboard that commits text outside of key events.
-#[cfg(not(target_os = "android"))]
+/// Only the phones have an on-screen keyboard that types outside of key events.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn typed_text() -> Vec<Typed> {
     Vec::new()
 }
 
 /// Desktops have no haptics to play.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn haptic(_kind: Haptic) {}
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn sync_soft_keyboard(_ctx: &egui::Context) {}
 
 /// Whether the on-screen keyboard is up, as far as the system has said.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn soft_keyboard_visible() -> Option<bool> {
     None
 }
 
-/// Desktops ask for the microphone themselves when it's opened (macOS), or don't ask at all.
-#[cfg(not(target_os = "android"))]
+/// Desktops ask for the microphone themselves when it's opened, or don't ask at all.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn mic_allowed() -> bool {
     true
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn ask_mic() {}
+
+/// Why the OS couldn't be made ready to record ([`prepare_mic`]).
+#[derive(Debug)]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+pub enum MicRefused {
+    /// The user said no (or turned it off in Settings).
+    Denied,
+    Failed(String),
+}
+
+/// Elsewhere opening the mic is all it takes.
+#[cfg(not(target_os = "ios"))]
+pub fn prepare_mic() -> Result<(), MicRefused> {
+    Ok(())
+}
 
 /// Why [`lock_file`] didn't take its lock.
 #[derive(Debug)]
@@ -198,7 +230,7 @@ pub struct ProcInfo {
 
 /// What the clipboard holds that isn't text: copied files, or an image (as PNG).
 /// Windows and Android have no backend that reads these yet, so nothing constructs them there.
-#[cfg_attr(any(windows, target_os = "android"), allow(dead_code))]
+#[cfg_attr(any(windows, target_os = "android", target_os = "ios"), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClipboardFiles {
     Paths(Vec<PathBuf>),

@@ -1,0 +1,22 @@
+[package]
+name = "nex-ios"
+# Kept equal to nex's own version.
+version = "0.12.0"
+edition = "2024"
+rust-version = "1.88"
+description = "The nex iPhone app: nex's window on the phone, every pane on an ssh host."
+license = "MIT"
+repository = "https://github.com/jramirez-codes/nex"
+publish = false
+
+# The Xcode project in xcode/ links this as `libnex_ios.a` and calls `nex_ios_main` from its
+# `main` (see README.md). On other OSes it builds to an empty library.
+[lib]
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+nex = { path = ".." }
+
+[lints]
+workspace = true

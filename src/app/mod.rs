@@ -284,7 +284,15 @@ impl App {
 
 impl eframe::App for App {
     /// Stop sharing the microphone, so hosts get their own `~/.asoundrc` back.
+    #[cfg(not(target_os = "ios"))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.stop_mics();
+        self.save_session_on_exit();
+    }
+
+    /// The same on iOS, where eframe draws with wgpu (no glow context to pass).
+    #[cfg(target_os = "ios")]
+    fn on_exit(&mut self) {
         self.stop_mics();
         self.save_session_on_exit();
     }
@@ -312,6 +320,13 @@ impl eframe::App for App {
             for typed in crate::platform::typed_text() {
                 let text = match typed {
                     crate::platform::Typed::Paste(text) => text,
+                    crate::platform::Typed::Enter => {
+                        for pressed in [true, false] {
+                            let modifiers = egui::Modifiers::NONE;
+                            raw_input.events.push(egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed, repeat: false, modifiers });
+                        }
+                        continue;
+                    }
                     crate::platform::Typed::Text { delete, text } => {
                         for pressed in std::iter::repeat_n([true, false], delete).flatten() {
                             let modifiers = egui::Modifiers::NONE;

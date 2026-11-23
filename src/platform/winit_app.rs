@@ -7,6 +7,9 @@
 //! - **Waking:** when the app comes back (resumed, or focused: some phones only say that
 //!   after the screen comes on), nex's own ssh connections are checked, since the phone may
 //!   have lost them while it slept (`remote::ssh::woke`).
+//! - **Return on iOS:** winit's iOS view hands what the on-screen keyboard types to the app as
+//!   characters, Return included (`"\n"`), and egui drops control characters from typed text.
+//!   This turns them back into the Enter (and Tab) keys they are; see [`typed_control_as_key`].
 //! - **Frame pacing:** on Wayland vsync is off (see `vsync`), so this keeps frames to the
 //!   display's refresh rate instead.
 
@@ -77,9 +80,17 @@ impl<'a> WinitApp<'a> {
     }
 
     /// Run until the window closes, as `eframe::run_native` does.
-    pub fn run(mut self, event_loop: &mut EventLoop<UserEvent>) -> eframe::Result {
+    #[cfg(not(target_os = "ios"))]
+    pub fn run(mut self, mut event_loop: EventLoop<UserEvent>) -> eframe::Result {
         use winit::platform::run_on_demand::EventLoopExtRunOnDemand as _;
         event_loop.run_app_on_demand(&mut self)?;
+        Ok(())
+    }
+
+    /// Hand the app to UIKit, which runs it until the system ends it: this never returns.
+    #[cfg(target_os = "ios")]
+    pub fn run(mut self, event_loop: EventLoop<UserEvent>) -> eframe::Result {
+        event_loop.run_app(&mut self)?;
         Ok(())
     }
 }
@@ -102,6 +113,36 @@ fn is_paste(mods: ModifiersState, logical: &Key, physical: PhysicalKey) -> bool 
     }
 }
 
+/// The named key a typed control character stands for: Return (`"\n"` from the iOS keyboard,
+/// `"\r"` from some hardware keyboards) and Tab.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn control_key(text: &str) -> Option<(NamedKey, KeyCode)> {
+    match text {
+        "\n" | "\r" | "\r\n" => Some((NamedKey::Enter, KeyCode::Enter)),
+        "\t" => Some((NamedKey::Tab, KeyCode::Tab)),
+        _ => None,
+    }
+}
+
+/// A key event that typed a control character, as the key it stands for (see [`control_key`]),
+/// with no text: egui would drop the text, and the key is what terminals and text fields act on.
+#[cfg(target_os = "ios")]
+fn typed_control_as_key(event: WindowEvent) -> WindowEvent {
+    match event {
+        WindowEvent::KeyboardInput { device_id, event: mut key, is_synthetic } => {
+            if let Key::Character(c) = &key.logical_key
+                && let Some((named, code)) = control_key(c)
+            {
+                key.logical_key = Key::Named(named);
+                key.physical_key = PhysicalKey::Code(code);
+                key.text = None;
+            }
+            WindowEvent::KeyboardInput { device_id, event: key, is_synthetic }
+        }
+        other => other,
+    }
+}
+
 impl ApplicationHandler<UserEvent> for WinitApp<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         crate::remote::ssh::woke();
@@ -112,6 +153,8 @@ impl ApplicationHandler<UserEvent> for WinitApp<'_> {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        #[cfg(target_os = "ios")]
+        let event = typed_control_as_key(event);
         match &event {
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
             WindowEvent::Focused(true) => crate::remote::ssh::woke(),
@@ -176,6 +219,15 @@ mod tests {
         let t = Instant::now();
         p.wait();
         assert!(t.elapsed() < Duration::from_millis(10));
+    }
+
+    #[test]
+    fn typed_control_characters_are_keys() {
+        assert_eq!(control_key("\n"), Some((NamedKey::Enter, KeyCode::Enter)));
+        assert_eq!(control_key("\r"), Some((NamedKey::Enter, KeyCode::Enter)));
+        assert_eq!(control_key("\t"), Some((NamedKey::Tab, KeyCode::Tab)));
+        assert_eq!(control_key("a"), None);
+        assert_eq!(control_key("\n\n"), None);
     }
 
     #[test]

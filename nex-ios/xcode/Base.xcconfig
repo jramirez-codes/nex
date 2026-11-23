@@ -1,0 +1,8 @@
+// Settings shared by Debug and Release. Your Apple developer team goes in Local.xcconfig
+// (not committed), as one line:
+//
+//   DEVELOPMENT_TEAM = ABCDE12345
+//
+// The team ID is under Membership at developer.apple.com/account, or in Xcode under
+// Settings → Accounts.
+#include? "Local.xcconfig"

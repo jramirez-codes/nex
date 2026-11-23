@@ -63,6 +63,7 @@ impl App {
                         t.paste(&text);
                     }
                 }
+                platform::Typed::Enter => self.key_to_pane(Key::Enter, Modifiers::NONE),
                 platform::Typed::Text { delete, text } => {
                     for _ in 0..delete {
                         self.key_to_pane(Key::Backspace, Modifiers::NONE);

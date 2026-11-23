@@ -181,7 +181,7 @@ impl Default for Config {
             tab_animation: TabAnimation::Glide,
             explorer_view: crate::file_explorer::View::List,
             tab_bar: TabBar::Top,
-            agents_tab: if cfg!(target_os = "android") { AgentsTab::Icon } else { AgentsTab::Full },
+            agents_tab: if cfg!(any(target_os = "android", target_os = "ios")) { AgentsTab::Icon } else { AgentsTab::Full },
 
             cursor_style: CursorStyle::Block,
             cursor_blink: true,

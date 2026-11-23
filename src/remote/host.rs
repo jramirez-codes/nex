@@ -183,7 +183,7 @@ pub fn ensure_with(mut run: impl FnMut(&str, Option<&[u8]>) -> Result<String, Ho
 const CONNECT_CHECK: &str = r#""$HOME/.nex/bin/nex-host" help 2>/dev/null | grep -q "nex-host connect" && echo "connect yes"; true"#;
 
 /// The `nex-host` program for `triple`: built into the app where there is no folder of
-/// builds beside it (Android, see `build.rs`), else from [`local_binary`].
+/// builds beside it (the phone apps, see `build.rs`), else from [`local_binary`].
 fn binary(triple: &str) -> Result<Vec<u8>, String> {
     if let Some(bytes) = bundled(triple) {
         return Ok(bytes.to_vec());
@@ -192,7 +192,7 @@ fn binary(triple: &str) -> Result<Vec<u8>, String> {
     std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn bundled(triple: &str) -> Option<&'static [u8]> {
     let bytes: &'static [u8] = match triple {
         "x86_64-unknown-linux-musl" => include_bytes!(concat!(env!("OUT_DIR"), "/nex-host-x86_64-unknown-linux-musl")),
@@ -203,7 +203,7 @@ fn bundled(triple: &str) -> Option<&'static [u8]> {
     (!bytes.is_empty()).then_some(bytes)
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn bundled(_triple: &str) -> Option<&'static [u8]> {
     None
 }
