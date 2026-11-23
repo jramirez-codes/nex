@@ -72,6 +72,7 @@ fn a_second_pipe_joins_the_run_going_in_its_repository() {
         last_input: 0,
         exit,
         claude: None,
+        running: None,
         status: Status::Idle,
         parent: None,
         role: None,
