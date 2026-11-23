@@ -538,7 +538,7 @@ fn pane_pin(p: &Painter, r: Rect, c: Color32) {
 }
 
 /// Process glyph and title at the left of a pane header, the title fading out before `right`.
-fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
+pub(in crate::app) fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
     let cy = header.center().y + 1.0;
     let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));
     let (mark, title) = icons::title_mark(process, title);

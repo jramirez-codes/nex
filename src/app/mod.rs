@@ -440,7 +440,7 @@ impl App {
             }
         }
         let theme = Theme::from_config(&self.cfg);
-        self.connect.show(ctx, &theme, self.cfg.device_key_days);
+        self.connect.show(ctx, &theme, self.cfg.device_key_days, self.cfg.sidebar());
         crate::platform::mirror_copies(ctx);
         crate::platform::sync_soft_keyboard(ctx);
     }
@@ -477,7 +477,7 @@ impl App {
 
     /// Height of a pane's header (taller with the sidebar tab bar).
     fn header_height(&self) -> f32 {
-        if self.cfg.sidebar() { MOBILE_HEADER_HEIGHT } else { HEADER_HEIGHT }
+        header_height(self.cfg.sidebar())
     }
 
     /// Read PTY events; panes whose shell exited are closed (like Ghostty).
@@ -656,6 +656,12 @@ impl App {
             self.window_title = title;
         }
     }
+}
+
+/// Height of a pane's header (taller with the sidebar tab bar), shared with the connect
+/// screen's card.
+pub(in crate::app) fn header_height(sidebar: bool) -> f32 {
+    if sidebar { MOBILE_HEADER_HEIGHT } else { HEADER_HEIGHT }
 }
 
 /// A key press, click, touch or typed text: the user is at the window.
