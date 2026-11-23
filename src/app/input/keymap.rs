@@ -78,7 +78,7 @@ pub(in crate::app) fn keybindings() -> Vec<Binding> {
     bindings_for(platform::SHORTCUTS)
 }
 
-fn bindings_for(style: ShortcutStyle) -> Vec<Binding> {
+pub(in crate::app) fn bindings_for(style: ShortcutStyle) -> Vec<Binding> {
     let table = match style {
         ShortcutStyle::Ctrl => ctrl_style(),
         ShortcutStyle::Cmd => cmd_style(),

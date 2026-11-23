@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-23
+
 ### Added
 
 - Touch screens: the Changes pane (its file list and its diff) and the Agents pane scroll
@@ -180,6 +182,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- nex-host: a message an agent sends the moment it starts is from that agent. It could
+  be taken for one from someone at a shell (`user`), so a merger never heard which builder
+  opened which PR, when the agent ran before nex-host had it on its list.
 - Android: the pane header's pin (Ctrl armed with the keyboard button) is the same pin as
   desktop's Shift pin: the same glyph, always from the built-in font, at the same size. The
   button stays finger-sized.
@@ -618,7 +623,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/jramirez-codes/nex/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/jramirez-codes/nex/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/jramirez-codes/nex/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/jramirez-codes/nex/compare/v0.9.1...v0.10.0

@@ -6,6 +6,8 @@ use egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
 use crate::app::App;
 use crate::app::chrome::keyboard_button::DOUBLE_TAP;
+use crate::app::input::keymap;
+use crate::platform::ShortcutStyle;
 
 const STEP: f64 = 0.016;
 
@@ -50,9 +52,47 @@ fn tap_and_settle(app: &mut App, ctx: &egui::Context, t: &mut f64, pos: Pos2) ->
     wait(app, ctx, t, DOUBLE_TAP + 0.05)
 }
 
+/// An app as on a phone: an on-screen keyboard, and Android's shortcuts (Ctrl+E, not the
+/// Cmd+E nex uses on macOS), whatever OS the tests run on.
+///
+/// Its terminal runs a stand-in that ignores Ctrl-C, not the login shell: a `^C` the tests
+/// type would end a shell still starting up (on a busy machine), closing the pane under
+/// them. It's waited for until it ignores it.
 fn phone(ctx: &egui::Context) -> App {
-    let mut app = super::new_app(ctx, crate::config::Config::default());
+    // Only Unix sets the stand-in in it.
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut cfg = crate::config::Config::default();
+    #[cfg(unix)]
+    let ready = {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("nex-test-phone-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (script, ready) = (dir.join("shell"), dir.join("ready"));
+        std::fs::write(&script, format!("#!/bin/sh\ntrap '' INT\n: > '{}'\nexec sleep 600\n", ready.display())).unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        cfg.command = Some(script.display().to_string());
+        ready
+    };
+    let mut app = super::new_app(ctx, cfg);
     app.soft_keyboard = true;
+    app.bindings = keymap::bindings_for(ShortcutStyle::Ctrl);
+    // The first frame opens the terminal. These run before the tests' clock starts at 0, so
+    // time only goes forward.
+    let mut t = -100.0;
+    frame(&mut app, ctx, &mut t, vec![]);
+    #[cfg(unix)]
+    {
+        let start = std::time::Instant::now();
+        while !ready.exists() {
+            assert!(start.elapsed() < std::time::Duration::from_secs(10), "the stand-in shell didn't start");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            frame(&mut app, ctx, &mut t, vec![]);
+        }
+        // It's `sleep` now: the script and its folder aren't needed.
+        let _ = std::fs::remove_dir_all(ready.parent().unwrap());
+    }
     app
 }
 
