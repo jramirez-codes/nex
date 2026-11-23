@@ -2,9 +2,9 @@
 //! commits in one go (a paste from its clipboard history, a suggestion, an emoji) arrives as a
 //! key event whose characters the NDK can't read, and is lost. nex adds a view of its own that
 //! the keyboard types into (`java/NexInput.java`, compiled to a dex by `build.rs` and loaded
-//! here): what the keyboard types (glide typing included) or commits comes back through
-//! [`typed_text`]. Enter, and Backspace with nothing composing, still arrive as key events
-//! through winit.
+//! here): what the keyboard types (glide typing included, with a space after each glided word:
+//! see [`AutoSpace`]) or commits comes back through [`typed_text`]. Enter, and Backspace with
+//! nothing composing, still arrive as key events through winit.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -14,7 +14,7 @@ use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, NativeMethod};
 
 use super::clipboard::with_context;
-use crate::platform::{Haptic, Typed};
+use crate::platform::{AutoSpace, Haptic, Typed};
 
 /// The activity (ndk-context's context is the Application, which can't host a view).
 fn activity() -> Option<JObject<'static>> {
@@ -32,6 +32,8 @@ const CLASS: &str = "io.github.jramirez_codes.nex.NexInput";
 static INPUT_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 /// Text typed or committed since nex last asked, in order.
 static COMMITTED: Mutex<Vec<Typed>> = Mutex::new(Vec::new());
+/// The word the keyboard is composing, for the space after a glided one.
+static WORD: Mutex<AutoSpace> = Mutex::new(AutoSpace::new());
 /// Woken when text arrives, so a frame reads it.
 static CTX: OnceLock<egui::Context> = OnceLock::new();
 /// Whether nex last asked for the keyboard to be shown.
@@ -71,11 +73,28 @@ extern "system" fn commit(mut env: JNIEnv, _class: JClass, text: JString) {
     push(Typed::Paste(text.into()));
 }
 
-/// `NexInput.type`: the keyboard took back `delete` characters and typed `text`. Called on
-/// Android's UI thread.
-extern "system" fn type_text(mut env: JNIEnv, _class: JClass, delete: jni::sys::jint, text: JString) {
+/// `NexInput.type`: the keyboard took back `delete` characters and typed `text`, into the
+/// word it's composing if `composing`. Called on Android's UI thread.
+extern "system" fn type_text(mut env: JNIEnv, _class: JClass, delete: jni::sys::jint, text: JString, composing: jni::sys::jboolean) {
     let Ok(text) = env.get_string(&text) else { return };
-    push(Typed::Text { delete: delete.max(0) as usize, text: text.into() });
+    let (delete, text): (usize, String) = (delete.max(0) as usize, text.into());
+    // Less a space right after the one nex typed after a glided word.
+    let text = match WORD.lock() {
+        Ok(mut word) => word.typed(delete, &text, composing != 0).to_owned(),
+        Err(_) => text,
+    };
+    if delete > 0 || !text.is_empty() {
+        push(Typed::Text { delete, text });
+    }
+}
+
+/// `NexInput.wordDone`: the keyboard `committed` the word it was composing, or gave it up. A
+/// glided word gets a space after it. Called on Android's UI thread.
+extern "system" fn word_done(_env: JNIEnv, _class: JClass, committed: jni::sys::jboolean) {
+    let space = WORD.lock().is_ok_and(|mut word| word.word_done(committed != 0));
+    if space {
+        push(Typed::Text { delete: 0, text: " ".into() });
+    }
 }
 
 /// Load `NexInput` from the built-in dex, hook up its native method and add its view to the
@@ -103,7 +122,8 @@ pub fn install() {
             &class,
             &[
                 NativeMethod { name: "commit".into(), sig: "(Ljava/lang/String;)V".into(), fn_ptr: commit as *mut c_void },
-                NativeMethod { name: "type".into(), sig: "(ILjava/lang/String;)V".into(), fn_ptr: type_text as *mut c_void },
+                NativeMethod { name: "type".into(), sig: "(ILjava/lang/String;Z)V".into(), fn_ptr: type_text as *mut c_void },
+                NativeMethod { name: "wordDone".into(), sig: "(Z)V".into(), fn_ptr: word_done as *mut c_void },
                 NativeMethod { name: "imeVisible".into(), sig: "(Z)V".into(), fn_ptr: ime_visible as *mut c_void },
             ],
         )?;
