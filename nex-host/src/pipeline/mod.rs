@@ -23,8 +23,11 @@
 //! retry = { stage = "build", unless = "approved", max = 3 }
 //! ```
 //!
-//! A last stage with `each = true` runs once per report from the stages before it, in the
-//! order they arrive (first done, first served), one at a time, a fresh agent each time:
+//! A last stage with `each = true` is a queue: every report from the stages before it
+//! gets in line, in the order they arrive (first done, first served), and one agent of its
+//! own takes them one at a time, each as a new task (`worktree = true` gives it a checkout
+//! of its own to look at each PR in). Like a firehose: a build agent is listened to for as
+//! long as the run lasts, so each of its reports is reviewed, including later ones.
 //!
 //! ```toml
 //! [[stage]]
@@ -39,6 +42,7 @@
 //! [[stage]]
 //! name = "merge"
 //! each = true
+//! worktree = true
 //! task = "Review PR {pr} from {from} ({report}); merged before it: {merged}. Merge it and report approved, or report changes saying what to fix."
 //! ```
 //!
@@ -46,6 +50,11 @@
 //! (what it approved so far). When it reports `changes`, that goes back to the stage that
 //! sent the report as a new task (it's still running, so it keeps its context), and its
 //! next report joins the back of the line; up to three times.
+//!
+//! When the stages before the `each` one all run at once, `pipe NAME TASK` run again in
+//! the same repository joins the run that's going instead of starting another: its stages
+//! start in that run (under it, in one group) and their reports join the same line. Such
+//! a run stays up for more until Enter ends it. `each.rs` keeps the line.
 //!
 //! In a task, `{task}` is what the pipeline was run with, `{<stage>}` that stage's report,
 //! `{<stage>.verdict}`, `{<stage>.files}` and `{<stage>.pr}` its fields. When `retry` sends the run back,
@@ -60,6 +69,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -67,6 +77,8 @@ use serde::Deserialize;
 use nex_host::proto::{MessageKind, Request, Verdict};
 
 use crate::client;
+
+mod each;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -100,7 +112,7 @@ pub struct Stage {
     #[serde(default)]
     pub command: Option<Vec<String>>,
     /// Last stage only: run once per report from the stages before it, first come first
-    /// served, a fresh agent each time.
+    /// served, one at a time, by one agent.
     #[serde(default)]
     pub each: bool,
     /// Works in a git worktree (and branch) of its own, so stages running at the same time
@@ -126,7 +138,7 @@ pub struct Retry {
 const RESERVED: [&str; 6] = ["task", "from", "report", "pr", "files", "merged"];
 
 /// How many times an `each` stage can send one report back.
-const SEND_BACKS: u32 = 3;
+pub(crate) const SEND_BACKS: u32 = 3;
 
 fn approved() -> String {
     Verdict::Approved.label().into()
@@ -176,8 +188,8 @@ impl Pipeline {
             seen.push(&s.name);
             if s.each {
                 let last = std::ptr::eq(s, self.stages.last().unwrap());
-                if !last || s.parallel || seen.len() == 1 || s.retry.is_some() || s.worktree {
-                    return Err(format!("{}: an `each` stage is the last one, not parallel, after other stages, without retry or worktree", s.name));
+                if !last || s.parallel || seen.len() == 1 || s.retry.is_some() {
+                    return Err(format!("{}: an `each` stage is the last one, not parallel, after other stages, without retry", s.name));
                 }
             }
             if let Some(r) = &s.retry {
@@ -202,6 +214,12 @@ impl Pipeline {
             }
         }
         groups
+    }
+
+    /// Whether another `pipe` of it can join a run that's going: it ends in an `each`
+    /// stage, and the stages before that all run at once (so a joined task is just those).
+    pub fn joinable(&self) -> bool {
+        self.stages.last().is_some_and(|s| s.each) && self.groups().len() == 2
     }
 
     fn group_of(&self, stage: &str) -> Option<usize> {
@@ -345,8 +363,68 @@ pub fn list() -> Vec<(String, PathBuf)> {
     out
 }
 
+/// How a run went: its exit code, and whether Enter already ended it (an `each` run
+/// listens for more until then).
+pub struct Ran {
+    pub code: i32,
+    pub ended: bool,
+}
+
+/// What a run keeps across its stages.
+struct Ctx<'a> {
+    p: &'a Pipeline,
+    me: Option<String>,
+    cwd: PathBuf,
+    stem: String,
+    env: Vec<(String, String)>,
+    /// Stage name → the worktree it was given (kept across retries).
+    trees: HashMap<String, PathBuf>,
+}
+
+impl Ctx<'_> {
+    /// Start stage `s` on `body` in a fresh agent: in its worktree (a new one when `fresh`,
+    /// else the one it had) or the run's folder, as one of the run's children.
+    fn spawn(&mut self, s: &Stage, body: String, fresh: bool) -> io::Result<String> {
+        let dir = if !s.worktree {
+            self.cwd.clone()
+        } else if let Some(t) = self.trees.get(&s.name).filter(|_| !fresh) {
+            t.clone()
+        } else {
+            let t = crate::agentcli::worktree(&self.cwd, &format!("{}-{}", self.stem, s.name))?;
+            println!("worktree ({}): {}", s.name, nex_host::paths::tilde(&t));
+            self.trees.entry(s.name.clone()).or_insert_with(|| t.clone());
+            t
+        };
+        let r = client::request(
+            &Request::Spawn {
+                name: s.name.clone(),
+                kind: self.kind(s),
+                argv: s.command.clone().unwrap_or_default(),
+                cwd: Some(dir.to_string_lossy().into_owned()),
+                env: Some(self.env.clone()),
+                parent: self.me.clone(),
+                role: Some(s.role.clone().unwrap_or_else(|| s.name.clone())),
+                task: body,
+            },
+            true,
+        )?;
+        Ok(r.id.unwrap_or_default())
+    }
+
+    /// Give agent `id` a new task.
+    fn task(&self, id: &str, body: String) -> io::Result<()> {
+        client::request(&Request::Send { from: self.me.clone(), to: id.into(), kind: MessageKind::Task, body, reply_to: None, verdict: None, files: vec![], pr: None, force: false }, true)?;
+        Ok(())
+    }
+
+    fn kind(&self, s: &Stage) -> Option<String> {
+        s.kind.clone().or_else(|| self.p.kind.clone())
+    }
+}
+
 /// Run the pipeline in `file` on `task`, here: what `pipe` starts in a session of its own.
-pub fn run(file: &Path, task: &str) -> io::Result<i32> {
+/// `enter` gets a line each time Enter is pressed.
+pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
     let text = std::fs::read_to_string(file)?;
     let p = Pipeline::parse(&text).map_err(|e| io::Error::other(format!("{}: {e}", file.display())))?;
     let me = std::env::var("NEX_AGENT_ID").ok().filter(|s| !s.is_empty());
@@ -356,13 +434,12 @@ pub fn run(file: &Path, task: &str) -> io::Result<i32> {
         cwd = crate::agentcli::worktree(&cwd, &stem)?;
         println!("worktree: {}", nex_host::paths::tilde(&cwd));
     }
-    let env: Vec<(String, String)> = std::env::vars().collect();
+    let mut ctx = Ctx { p: &p, me: me.clone(), cwd, stem, env: std::env::vars().collect(), trees: HashMap::new() };
     let timeout = p.stage_timeout();
     let groups = p.groups();
     let mut agents: HashMap<String, String> = HashMap::new();
     let mut results: HashMap<String, Outcome> = HashMap::new();
     let mut loops: HashMap<String, u32> = HashMap::new();
-    let mut trees: HashMap<String, PathBuf> = HashMap::new();
     let mut step = Next::Run(0, None);
     loop {
         let (g, sent_back_by) = match step {
@@ -371,7 +448,7 @@ pub fn run(file: &Path, task: &str) -> io::Result<i32> {
             Next::Failed(why) => {
                 println!("\n✗ stopped: {why}");
                 report(me.as_deref(), &format!("The pipeline stopped: {why}"), Some(Verdict::Failed));
-                return Ok(1);
+                return Ok(Ran { code: 1, ended: false });
             }
         };
         // Start (or re-task) every stage of the group, then take each one's report.
@@ -384,58 +461,20 @@ pub fn run(file: &Path, task: &str) -> io::Result<i32> {
             {
                 body.push_str(&format!("\n\nThis is another go: {by} sent it back ({}). What it said:\n{}", o.verdict.map_or("no verdict", Verdict::label), o.body.trim()));
             }
-            let kind = s.kind.clone().or_else(|| p.kind.clone());
             let id = match agents.get(&s.name) {
                 Some(id) if alive(id) => {
-                    client::request(
-                        &Request::Send { from: me.clone(), to: id.clone(), kind: MessageKind::Task, body, reply_to: None, verdict: None, files: vec![], pr: None, force: false },
-                        true,
-                    )?;
+                    ctx.task(id, body)?;
                     id.clone()
                 }
-                _ => {
-                    let dir = match (s.worktree, trees.get(&s.name)) {
-                        (false, _) => cwd.clone(),
-                        (true, Some(t)) => t.clone(),
-                        (true, None) => {
-                            let t = crate::agentcli::worktree(&cwd, &format!("{stem}-{}", s.name))?;
-                            println!("worktree ({}): {}", s.name, nex_host::paths::tilde(&t));
-                            trees.insert(s.name.clone(), t.clone());
-                            t
-                        }
-                    };
-                    let r = client::request(
-                        &Request::Spawn {
-                            name: s.name.clone(),
-                            kind: kind.clone(),
-                            argv: s.command.clone().unwrap_or_default(),
-                            cwd: Some(dir.to_string_lossy().into_owned()),
-                            env: Some(env.clone()),
-                            parent: me.clone(),
-                            role: Some(s.role.clone().unwrap_or_else(|| s.name.clone())),
-                            task: body,
-                        },
-                        true,
-                    )?;
-                    r.id.unwrap_or_default()
-                }
+                _ => ctx.spawn(s, body, false)?,
             };
-            println!("▸ {} ({}) is on it: {id}", s.name, kind.as_deref().unwrap_or("claude"));
+            println!("▸ {} ({}) is on it: {id}", s.name, ctx.kind(s).as_deref().unwrap_or("claude"));
             agents.insert(s.name.clone(), id.clone());
             running.push((s.name.clone(), id));
         }
         if let Some(each) = groups.get(g + 1).map(|n| &p.stages[n[0]]).filter(|s| s.each) {
-            let (merged, failed) = run_each(&p, each, task, &results, &cwd, &env, me.as_deref(), running)?;
-            let summary = format!(
-                "{each_name} approved {}: {}{}",
-                merged.len(),
-                if merged.is_empty() { "nothing".to_string() } else { merged.iter().map(|(n, pr)| pr.as_ref().map_or_else(|| n.clone(), |p| format!("{n} (PR {p})"))).collect::<Vec<_>>().join(", ") },
-                if failed.is_empty() { String::new() } else { format!("; not approved: {}", failed.join(", ")) },
-                each_name = each.name,
-            );
-            println!("\n{} finished. {summary}", if failed.is_empty() { "✓" } else { "✗" });
-            report(me.as_deref(), &format!("The pipeline finished. {summary}"), Some(if failed.is_empty() { Verdict::Approved } else { Verdict::Failed }));
-            return Ok(if failed.is_empty() { 0 } else { 1 });
+            let code = run_each(&mut ctx, each, task, &results, running, enter)?;
+            return Ok(Ran { code, ended: true });
         }
         for (name, id) in running {
             let o = wait_done(me.as_deref(), &id, timeout)?;
@@ -459,106 +498,82 @@ pub fn run(file: &Path, task: &str) -> io::Result<i32> {
     let summary = results.get(last).map(|o| o.body.trim().to_string()).unwrap_or_default();
     println!("\n✓ finished. {last} said:\n{summary}");
     report(me.as_deref(), &format!("The pipeline finished. {last} said:\n{summary}"), Some(Verdict::Approved));
-    Ok(0)
+    Ok(Ran { code: 0, ended: false })
 }
 
-/// The (stage, PR) of each report an `each` stage approved, in order.
-type Approved = Vec<(String, Option<String>)>;
-
-/// The `each` stage: take the reports of `running` as they come, and give each one to a
-/// fresh agent of `each`'s, one at a time. What it approves goes in `merged`; what it
-/// sends back goes back to whoever reported it. Returns (stage, pr) approved, in order,
-/// and the stages that weren't.
-#[allow(clippy::too_many_arguments)]
-fn run_each(
-    p: &Pipeline,
-    each: &Stage,
-    task: &str,
-    results: &HashMap<String, Outcome>,
-    cwd: &Path,
-    env: &[(String, String)],
-    me: Option<&str>,
-    running: Vec<(String, String)>,
-) -> io::Result<(Approved, Vec<String>)> {
-    let timeout = p.stage_timeout();
-    let kind = each.kind.clone().or_else(|| p.kind.clone());
-    let mut waiting: HashMap<String, String> = running.into_iter().map(|(name, id)| (id, name)).collect();
-    let mut merged: Approved = Vec::new();
-    let mut failed: Vec<String> = Vec::new();
-    let mut sent_back: HashMap<String, u32> = HashMap::new();
-    let mut n = 0;
-    while !waiting.is_empty() {
-        let Some((id, o)) = wait_any(me, &waiting, timeout)? else {
-            let late: Vec<String> = waiting.into_values().collect();
-            println!("✗ no report in time from {}", late.join(", "));
-            failed.extend(late);
-            break;
-        };
-        let name = waiting.remove(&id).unwrap_or_default();
-        let pr = o.pr.as_ref().map(|p| format!(" (PR {p})")).unwrap_or_default();
-        if o.verdict == Some(Verdict::Failed) {
-            println!("✗ {name}{pr}: {}", crate::deliver::first_line(&o.body));
-            failed.push(name);
-            continue;
-        }
-        println!("▸ {name}{pr} is next: {}", crate::deliver::first_line(&o.body));
-        n += 1;
-        let done_so_far = if merged.is_empty() {
-            "nothing yet".to_string()
-        } else {
-            merged.iter().map(|(n, pr)| pr.as_ref().map_or_else(|| n.clone(), |p| format!("PR {p} ({n})"))).collect::<Vec<_>>().join(", ")
-        };
-        let body = fill_each(&fill(&each.task, task, results), &name, &o, &done_so_far);
-        let r = client::request(
-            &Request::Spawn {
-                name: format!("{}-{n}", each.name),
-                kind: kind.clone(),
-                argv: each.command.clone().unwrap_or_default(),
-                cwd: Some(cwd.to_string_lossy().into_owned()),
-                env: Some(env.to_vec()),
-                parent: me.map(Into::into),
-                role: Some(each.role.clone().unwrap_or_else(|| each.name.clone())),
-                task: body,
-            },
-            true,
-        )?;
-        let agent = r.id.unwrap_or_default();
-        println!("  {}-{n} ({}) is on it: {agent}", each.name, kind.as_deref().unwrap_or("claude"));
-        let verdict = wait_done(me, &agent, timeout)?;
-        // Fresh for each: this one's done.
-        let _ = client::request(&Request::Kill { id: agent.clone() }, false);
-        match verdict.verdict {
-            Some(Verdict::Approved) => {
-                println!("✓ {name}{pr} approved: {}", crate::deliver::first_line(&verdict.body));
-                merged.push((name, o.pr));
-            }
-            Some(Verdict::Changes) => {
-                let tries = sent_back.entry(name.clone()).or_insert(0);
-                *tries += 1;
-                if *tries > SEND_BACKS || !alive(&id) {
-                    println!("✗ {name}{pr} sent back too often (or its agent ended): {}", crate::deliver::first_line(&verdict.body));
-                    failed.push(name);
-                    continue;
-                }
-                println!("↺ {name}{pr} sent back ({tries}/{SEND_BACKS}): {}", crate::deliver::first_line(&verdict.body));
-                let body = format!(
-                    "{} sent your work back. What it said:\n{}\n\nFix it (rebase onto the main branch first if it conflicts), push, and report again with nex-host done (with --pr).",
-                    each.name,
-                    verdict.body.trim()
-                );
-                client::request(
-                    &Request::Send { from: me.map(Into::into), to: id.clone(), kind: MessageKind::Task, body, reply_to: None, verdict: None, files: vec![], pr: None, force: false },
-                    true,
-                )?;
-                waiting.insert(id, name);
-            }
-            _ => {
-                println!("✗ {name}{pr} not approved: {}", crate::deliver::first_line(&verdict.body));
-                failed.push(name);
-            }
-        }
+/// The `each` stage: put every report from the run's agents in line as it comes, and give
+/// them to one agent of `each`'s, one at a time (see `each.rs`). Tasks sent to the run
+/// itself (another `pipe` joining it) start the stages before `each` again, on that task,
+/// with their reports joining the same line. Runs until Enter; returns the exit code.
+fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, Outcome>, running: Vec<(String, String)>, enter: &Receiver<()>) -> io::Result<i32> {
+    let p = ctx.p;
+    let me = ctx.me.clone();
+    let mut q = each::Queue::new(&each.name, p.stage_timeout());
+    let now = Instant::now();
+    // The run's own task came from whoever started it (nobody gives a pipeline its task,
+    // so that's its parent, or the user).
+    let first = q.batch("@parent", task);
+    for (name, id) in &running {
+        q.add(id, name, first, now);
     }
-    Ok((merged, failed))
+    let alive_fn: &dyn Fn(&str) -> bool = &alive;
+    let mut said_idle = false;
+    loop {
+        if enter.try_recv().is_ok() {
+            break;
+        }
+        let mut actions = q.overdue(alive_fn, Instant::now());
+        match recv_any(me.as_deref())? {
+            Some(m) if m.kind == MessageKind::Task && p.joinable() => {
+                let body = message_body(&m.more, m.body);
+                let joined = body.trim().to_string();
+                println!("\n▸ {} joins with: {}", m.from_name, crate::deliver::first_line(&joined));
+                let b = q.batch(&m.from, &joined);
+                for &i in &p.groups()[0] {
+                    let s = &p.stages[i];
+                    let id = ctx.spawn(s, fill(&s.task, &joined, results), true)?;
+                    // Its own name (`build-2`), so the line tells the features apart.
+                    let name = name_of(&id).unwrap_or_else(|| s.name.clone());
+                    println!("▸ {name} ({}) is on it: {id}", ctx.kind(s).as_deref().unwrap_or("claude"));
+                    q.add(&id, &name, b, Instant::now());
+                }
+            }
+            Some(m) if m.kind == MessageKind::Done => {
+                let o = Outcome { body: message_body(&m.more, m.body), verdict: m.verdict, files: m.files, pr: m.pr };
+                actions.extend(q.done(&m.from, o, alive_fn, Instant::now()));
+            }
+            _ => {}
+        }
+        for a in actions {
+            match a {
+                each::Action::Say(line) => println!("{line}"),
+                each::Action::Tell { to, body, verdict } => {
+                    if me.is_some() {
+                        let _ = client::request(&Request::Send { from: me.clone(), to, kind: MessageKind::Done, body, reply_to: None, verdict: Some(verdict), files: vec![], pr: None, force: false }, true);
+                    }
+                }
+                each::Action::SendBack { to, body } => ctx.task(&to, body)?,
+                each::Action::Review { from, task, report, merged } => {
+                    let body = fill_each(&fill(&each.task, &task, results), &from, &report, &merged);
+                    let id = match q.reviewer.clone() {
+                        Some(id) if alive(&id) => {
+                            ctx.task(&id, body)?;
+                            id
+                        }
+                        _ => ctx.spawn(each, body, false)?,
+                    };
+                    println!("  {} ({}) is on it: {id}", each.name, ctx.kind(each).as_deref().unwrap_or("claude"));
+                    q.reviewer = Some(id);
+                }
+            }
+        }
+        if q.idle() && !said_idle {
+            let more = if p.joinable() { " Waiting for more (nex-host pipe with this pipeline, from this repository, adds to this run)." } else { "" };
+            println!("\nThe line is empty.{more} Press Enter to end the run and its agents.");
+        }
+        said_idle = q.idle();
+    }
+    Ok(if q.failed() { 1 } else { 0 })
 }
 
 /// An `each` stage's task with `{from}`, `{report}`, `{pr}`, `{files}` and `{merged}` filled in.
@@ -571,32 +586,40 @@ pub fn fill_each(template: &str, from: &str, o: &Outcome, merged: &str) -> Strin
         .replace("{report}", o.body.trim())
 }
 
-/// The next `done` from any of `from` (id → name), waiting up to `timeout`; none if time
-/// runs out. Reports from anyone else are passed over.
-fn wait_any(me: Option<&str>, from: &HashMap<String, String>, timeout: Duration) -> io::Result<Option<(String, Outcome)>> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Ok(None);
-        }
-        let r = client::request(&Request::Recv { me: me.map(Into::into), from: None, reply_to: None, kind: Some(MessageKind::Done), timeout_ms: Some(left.as_millis() as u64) }, true);
-        match r {
-            Ok(r) => {
-                if let Some(m) = r.messages.and_then(|m| m.into_iter().next())
-                    && from.contains_key(&m.from)
-                {
-                    let body = match &m.more {
-                        Some(path) => std::fs::read_to_string(nex_host::paths::expand_home(path)).unwrap_or(m.body),
-                        None => m.body,
-                    };
-                    return Ok(Some((m.from, Outcome { body, verdict: m.verdict, files: m.files, pr: m.pr })));
-                }
-            }
-            Err(e) if e.to_string().starts_with("timed out") => {}
-            Err(e) => return Err(e),
-        }
+/// A message's whole body: what was cut short is in the file `more` names.
+fn message_body(more: &Option<String>, body: String) -> String {
+    match more {
+        Some(path) => std::fs::read_to_string(nex_host::paths::expand_home(path)).unwrap_or(body),
+        None => body,
     }
+}
+
+/// The next message for the run, if one comes within a second.
+fn recv_any(me: Option<&str>) -> io::Result<Option<nex_host::proto::Message>> {
+    let r = client::request(&Request::Recv { me: me.map(Into::into), from: None, reply_to: None, kind: None, timeout_ms: Some(1000) }, true);
+    match r {
+        Ok(r) => Ok(r.messages.and_then(|m| m.into_iter().next())),
+        Err(e) if e.to_string().starts_with("timed out") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Of `sessions`, the run of the pipeline in `file` that a `pipe` from `here` joins: a
+/// live one, from the same repository (`top` says which a folder is in), the latest.
+pub fn joins<'a>(sessions: &'a [nex_host::proto::Session], file: &Path, here: &Path, top: &dyn Fn(&Path) -> PathBuf) -> Option<&'a nex_host::proto::Session> {
+    let file = file.to_string_lossy();
+    let repo = top(here);
+    sessions
+        .iter()
+        .filter(|s| s.kind == nex_host::proto::PIPELINE_KIND && s.exit.is_none())
+        .filter(|s| s.argv.get(1).is_some_and(|a| a == "pipe-run") && s.argv.get(2).is_some_and(|f| *f == file))
+        .filter(|s| top(Path::new(&s.cwd)) == repo)
+        .max_by_key(|s| s.started)
+}
+
+/// The name agent `id` goes by.
+fn name_of(id: &str) -> Option<String> {
+    client::request(&Request::List, false).ok().and_then(|r| r.sessions)?.into_iter().find(|s| s.id == id).map(|s| s.name)
 }
 
 fn alive(id: &str) -> bool {
@@ -619,11 +642,7 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
         match r {
             Ok(r) => {
                 if let Some(m) = r.messages.and_then(|m| m.into_iter().next()) {
-                    let body = match &m.more {
-                        Some(path) => std::fs::read_to_string(nex_host::paths::expand_home(path)).unwrap_or(m.body),
-                        None => m.body,
-                    };
-                    return Ok(Outcome { body, verdict: m.verdict, files: m.files, pr: m.pr });
+                    return Ok(Outcome { body: message_body(&m.more, m.body), verdict: m.verdict, files: m.files, pr: m.pr });
                 }
             }
             Err(e) if e.to_string().starts_with("timed out") => {}
@@ -681,6 +700,54 @@ mod tests {
         let p = Pipeline::parse("[[stage]]\nname='a'\ntask='x'\nworktree=true\n[[stage]]\nname='b'\ntask='y'\nparallel=true").unwrap();
         assert!(!p.worktree);
         assert_eq!(p.stages.iter().map(|s| s.worktree).collect::<Vec<_>>(), [true, false]);
+    }
+
+    #[test]
+    fn a_pipeline_ending_in_one_queue_can_be_joined() {
+        let firehose = "[[stage]]\nname='build'\ntask='{task}'\nworktree=true\n[[stage]]\nname='merge'\ntask='{pr}'\neach=true\nworktree=true";
+        assert!(Pipeline::parse(firehose).unwrap().joinable(), "the merger can have a worktree of its own");
+        assert!(!Pipeline::parse(FEATURE).unwrap().joinable(), "no each stage");
+        let two_steps = "[[stage]]\nname='plan'\ntask='x'\n[[stage]]\nname='build'\ntask='x'\n[[stage]]\nname='merge'\ntask='{pr}'\neach=true";
+        assert!(!Pipeline::parse(two_steps).unwrap().joinable(), "a joined task would skip the plan");
+    }
+
+    #[test]
+    fn a_second_pipe_joins_the_run_going_in_its_repository() {
+        use nex_host::proto::{Session, Status};
+        let run = |id: &str, file: &str, cwd: &str, started: u64, exit: Option<i32>| Session {
+            id: id.into(),
+            kind: nex_host::proto::PIPELINE_KIND.into(),
+            name: "feature".into(),
+            cwd: cwd.into(),
+            argv: vec!["nex-host".into(), "pipe-run".into(), file.into(), "a task".into()],
+            pid: 1,
+            started,
+            title: None,
+            bell: false,
+            attached: false,
+            last_output: 0,
+            last_input: 0,
+            exit,
+            claude: None,
+            status: Status::Idle,
+            parent: None,
+            role: None,
+            last_message: 0,
+        };
+        // Folders under /repo are one repository (its worktrees too); /other is another.
+        let top = |d: &Path| if d.starts_with("/repo") || d.starts_with("/trees") { PathBuf::from("/repo/.git") } else { d.to_path_buf() };
+        let file = Path::new("/cfg/feature.toml");
+        let sessions = vec![
+            run("old", "/cfg/feature.toml", "/repo", 1, None),
+            run("new", "/cfg/feature.toml", "/repo", 2, None),
+            run("ended", "/cfg/feature.toml", "/repo", 3, Some(0)),
+            run("elsewhere", "/cfg/feature.toml", "/other", 4, None),
+            run("another", "/cfg/smoke.toml", "/repo", 5, None),
+        ];
+        assert_eq!(joins(&sessions, file, Path::new("/trees/x"), &top).map(|s| s.id.as_str()), Some("new"), "the latest live one");
+        assert_eq!(joins(&sessions, file, Path::new("/other"), &top).map(|s| s.id.as_str()), Some("elsewhere"));
+        assert!(joins(&sessions, file, Path::new("/third"), &top).is_none(), "nothing going there: a run of its own");
+        assert!(joins(&sessions, Path::new("/cfg/x.toml"), Path::new("/repo"), &top).is_none());
     }
 
     #[test]

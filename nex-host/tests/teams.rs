@@ -148,52 +148,97 @@ fn prune_removes_only_worktrees_that_cant_lose_work() {
     assert!(!ahead_dir.exists() && dirty_dir.exists());
 }
 
+/// A merger standing in for Claude: one agent for the whole run, taking one task after
+/// another. It sends back anything that's a first try and approves the rest.
+const MERGER: &str = r#"while read -r l; do t="$t $l"; case "$l" in *'</nex-message>'*) case "$t" in *'first try'*) nex-host done 'conflicts with main' --verdict changes;; *) nex-host done merged --verdict approved;; esac; t='';; esac; done"#;
+
 #[test]
 fn an_each_stage_takes_reports_first_come_first_served() {
     let h = Host::new();
     let pipes = h.home.join(".config/nex/pipelines");
     std::fs::create_dir_all(&pipes).unwrap();
     // Builders report in the order b, c, a. b's first try gets sent back (a "conflict"),
-    // so it reports again, and is merged last. Each merger is a fresh agent that approves
-    // anything but a first try.
+    // so it reports again, and is merged last. Then a reports a second PR, which is
+    // reviewed too: every report gets in line, not only each builder's first.
     std::fs::write(
         pipes.join("prs.toml"),
-        r#"
-        kind = "sh"
-        [[stage]]
-        name = "build-a"
-        task = "build a"
-        command = ["sh", "-c", "sleep 3; nex-host done 'built a' --pr 101; sleep 60"]
-        [[stage]]
-        name = "build-b"
-        parallel = true
-        task = "build b"
-        command = ["sh", "-c", "sleep 1; nex-host done 'first try' --pr 102; read -r x; read -r t; nex-host done 'rebased' --pr 102; sleep 60"]
-        [[stage]]
-        name = "build-c"
-        parallel = true
-        task = "build c"
-        command = ["sh", "-c", "sleep 2; nex-host done 'built c' --pr '#103'; sleep 60"]
-        [[stage]]
-        name = "merge"
-        each = true
-        task = "Merge PR {pr} from {from} ({report}). Merged before it: {merged}."
-        command = ["sh", "-c", "read -r t; case \"$t\" in *'first try'*) nex-host done 'conflicts with main' --verdict changes;; *) nex-host done \"merged\" --verdict approved;; esac; sleep 60"]
-        "#,
+        format!(
+            r#"
+            kind = "sh"
+            [[stage]]
+            name = "build-a"
+            task = "build a"
+            command = ["sh", "-c", "sleep 3; nex-host done 'built a' --pr 101; sleep 3; nex-host done 'a follow-up' --pr 104; sleep 60"]
+            [[stage]]
+            name = "build-b"
+            parallel = true
+            task = "build b"
+            command = ["sh", "-c", "sleep 1; nex-host done 'first try' --pr 102; read -r x; read -r t; nex-host done 'rebased' --pr 102; sleep 60"]
+            [[stage]]
+            name = "build-c"
+            parallel = true
+            task = "build c"
+            command = ["sh", "-c", "sleep 2; nex-host done 'built c' --pr '#103'; sleep 60"]
+            [[stage]]
+            name = "merge"
+            each = true
+            task = "Merge PR {{pr}} from {{from}} ({{report}}). Merged before it: {{merged}}."
+            command = ["sh", "-c", {MERGER:?}]
+            "#
+        ),
     )
     .unwrap();
     let id = h.run(&["pipe", "prs", "go", "--bg"]).trim().to_string();
 
-    let screen = || h.run(&["read", &id, "--lines", "40"]);
+    let screen = || h.run(&["read", &id, "--lines", "60"]);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-    while !screen().contains("finished.") {
+    while !screen().contains("merge approved 4") {
         assert!(std::time::Instant::now() < deadline, "the run never finished:\n{}", screen());
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
     let out = screen();
     assert!(out.contains("↺ build-b (PR 102) sent back (1/3): conflicts with main"), "{out}");
-    assert!(out.contains("merge approved 3: build-c (PR 103), build-a (PR 101), build-b (PR 102)"), "{out}");
-    // A fresh merger per report, each gone when it's done.
-    assert!(out.contains("merge-4"), "{out}");
-    assert!(!h.sessions().iter().any(|s| s.name.starts_with("merge-") && s.exit.is_none()));
+    assert!(out.contains("merge approved 4: build-c (PR 103), build-a (PR 101), build-b (PR 102), build-a (PR 104)"), "{out}");
+    // One merger for the whole line, under the run like every stage.
+    let mergers: Vec<_> = h.sessions().into_iter().filter(|s| s.name.starts_with("merge")).collect();
+    assert_eq!(mergers.len(), 1, "{mergers:#?}");
+    assert!(h.sessions().iter().filter(|s| s.id != id).all(|s| s.parent.as_deref() == Some(id.as_str())));
+}
+
+#[test]
+fn another_pipe_of_a_pipeline_joins_the_run_going() {
+    let h = Host::new();
+    let pipes = h.home.join(".config/nex/pipelines");
+    std::fs::create_dir_all(&pipes).unwrap();
+    std::fs::write(
+        pipes.join("feature.toml"),
+        format!(
+            r#"
+            kind = "sh"
+            [[stage]]
+            name = "build"
+            task = "build {{task}}"
+            command = ["sh", "-c", "read -r t; case \"$t\" in *'build one'*) f=one;; *) f=two;; esac; sleep 1; nex-host done \"built $f\" --pr \"build $f\"; sleep 60"]
+            [[stage]]
+            name = "merge"
+            each = true
+            task = "Merge PR {{pr}}: {{report}}"
+            command = ["sh", "-c", {MERGER:?}]
+            "#
+        ),
+    )
+    .unwrap();
+    let first = h.run(&["pipe", "feature", "one", "--bg"]).trim().to_string();
+    let screen = || h.run(&["read", &first, "--lines", "60"]);
+    eventually("the first feature merged", || screen().contains("merge approved 1: build (PR build one)"));
+
+    // A second feature in the same folder joins that run: one group, one merger.
+    let second = h.run(&["pipe", "feature", "two", "--bg"]).trim().to_string();
+    assert_eq!(second, first);
+    eventually("the second feature merged", || screen().contains("merge approved 1: build-2 (PR build two)"));
+    let sessions = h.sessions();
+    assert_eq!(sessions.iter().filter(|s| s.kind == "pipeline").count(), 1, "{sessions:#?}");
+    let mut names: Vec<&str> = sessions.iter().filter(|s| s.parent.as_deref() == Some(first.as_str())).map(|s| s.name.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["build", "build-2", "merge"]);
 }
