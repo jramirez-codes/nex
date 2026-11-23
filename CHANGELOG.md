@@ -6,6 +6,21 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-23
+
+### Added
+
+- An iPhone app, like the Android one: the phone runs only nex's window, and every pane is a
+  `nex-host` session on an ssh host. `nex-ios/build-ipa.sh` builds a signed ad hoc `.ipa`, or
+  an App Store one for TestFlight (see [`nex-ios/README.md`](nex-ios/README.md)).
+
+### Fixed
+
+- The Agents pane lists Claude Code and Codex started by typing `claude` or `codex` in a pane
+  on an ssh host (every pane, when nex is connected to the host). `nex-host` now reports what
+  a shell session's foreground job is (`running` in `nex-host list --json`), with Claude's
+  name and status, so the pane no longer says "No agents running" while they're open.
+
 ## [0.12.1] - 2026-11-23
 
 ### Added
@@ -646,7 +661,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/jramirez-codes/nex/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/jramirez-codes/nex/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/jramirez-codes/nex/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/jramirez-codes/nex/compare/v0.10.1...v0.11.0

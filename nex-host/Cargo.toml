@@ -1,7 +1,7 @@
 [package]
 name = "nex-host"
 # Kept equal to nex's own version: nex reinstalls the helper on a host when they differ.
-version = "0.12.1"
+version = "0.12.2"
 edition = "2024"
 rust-version = "1.88"
 description = "nex's helper on ssh hosts: keeps coding agents running after the pane they were started in closes."
