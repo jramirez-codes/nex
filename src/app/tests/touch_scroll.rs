@@ -165,7 +165,36 @@ fn sideways_swipes_switch_tabs_without_wrapping() {
     assert_eq!(s.app.active, 0, "a right swipe goes to the previous tab");
     s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
     s.settle();
-    assert_eq!(s.app.active, 0, "swiping right on the first tab doesn't wrap to the last");
+    assert!(s.app.home_active, "swiping right on the first tab didn't reach the Agents tab");
+    let c = s.other_pane_body().center();
+    s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
+    s.settle();
+    assert!(s.app.home_active, "swiping right on the Agents tab wrapped around");
+    assert_eq!(s.app.active, 0, "swiping right on the Agents tab wrapped to the last");
+}
+
+#[test]
+fn swiping_right_on_the_first_tab_opens_agents_before_it_was_ever_opened() {
+    let mut s = Sim::new(2);
+    s.app.show_tab(0);
+    s.settle();
+    assert!(s.app.home_tab.is_none() && s.app.agents.is_empty());
+    let c = s.terminal().1.center();
+    s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
+    s.settle();
+    assert!(s.app.home_active, "a right swipe on the first tab didn't open the Agents tab");
+    assert!(s.app.shows_agents_label());
+    assert_eq!(s.app.agents.len(), 1, "no Agents pane");
+    let a = s.other_pane_body().center();
+    s.swipe(a, a - Vec2::new(200.0, 0.0), 10);
+    s.settle();
+    assert!(!s.app.home_active, "a left swipe on Agents didn't leave it");
+    assert_eq!(s.app.active, 0);
+    // Again: the same Agents tab, not a second one.
+    s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
+    s.settle();
+    assert!(s.app.home_active);
+    assert_eq!(s.app.agents.len(), 1, "a second swipe opened another Agents pane");
 }
 
 #[test]
@@ -259,6 +288,7 @@ fn sideways_swipes_on_files_reach_the_home_tab_and_back() {
     s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
     s.settle();
     assert!(s.app.home_active, "a right swipe on the first tab didn't go to Files");
+    assert!(s.app.home_is_files() && s.app.agents.is_empty(), "a right swipe opened Agents over Files");
     let c = s.other_pane_body().center();
     s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
     s.settle();
