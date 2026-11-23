@@ -117,7 +117,7 @@ fn run_passes_the_shells_environment_on() {
         UnixStream::connect(h.home.join(".nex/run/sock"))
     }).unwrap();
     let env = vec![("PATH".to_string(), "/usr/bin:/bin".to_string()), ("NEX_TEST_KEY".to_string(), "from the shell".to_string()), ("TERM".to_string(), "dumb".to_string())];
-    let req = Request::Launch { argv: vec!["sh".into(), "-c".into(), "echo \"$NEX_TEST_KEY/$TERM/$NEX_HOST\"; sleep 30".into()], kind: None, name: None, cwd: None, cols: Some(60), rows: Some(10), env: Some(env) };
+    let req = Request::Launch { argv: vec!["sh".into(), "-c".into(), "echo \"$NEX_TEST_KEY/$TERM/$NEX_HOST\"; sleep 30".into()], kind: None, name: None, cwd: None, cols: Some(60), rows: Some(10), env: Some(env), parent: None };
     s.write_all(format!("{}\n", serde_json::to_string(&req).unwrap()).as_bytes()).unwrap();
     let mut line = String::new();
     std::io::BufRead::read_line(&mut std::io::BufReader::new(s), &mut line).unwrap();

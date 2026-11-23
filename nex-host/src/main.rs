@@ -199,7 +199,7 @@ fn run(args: &[String]) -> std::io::Result<i32> {
             let cwd = opts.cwd.or_else(|| std::env::current_dir().ok().map(|d| d.to_string_lossy().into_owned()));
             // `run` is typed into a shell: the agent gets that shell's environment.
             let env = here.then(|| std::env::vars().collect());
-            let r = client::request(&Request::Launch { argv: opts.argv, kind: opts.kind, name: opts.name, cwd, cols: Some(cols), rows: Some(rows), env }, true)?;
+            let r = client::request(&Request::Launch { argv: opts.argv, kind: opts.kind, name: opts.name, cwd, cols: Some(cols), rows: Some(rows), env, parent: None }, true)?;
             let id = r.id.unwrap_or_default();
             if !here {
                 println!("{id}");

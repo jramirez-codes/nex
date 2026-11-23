@@ -255,3 +255,44 @@ fn another_pipe_of_a_pipeline_joins_the_run_going() {
     names.sort();
     assert_eq!(names, ["build", "build-2", "merge"]);
 }
+
+#[test]
+fn a_pipe_from_an_agent_shows_under_it_and_outlives_it() {
+    let h = Host::new();
+    let pipes = h.home.join(".config/nex/pipelines");
+    std::fs::create_dir_all(&pipes).unwrap();
+    std::fs::write(
+        pipes.join("feature.toml"),
+        format!(
+            r#"
+            kind = "sh"
+            [[stage]]
+            name = "build"
+            task = "build {{task}}"
+            command = ["sh", "-c", "read -r t; sleep 1; nex-host done built --pr 1; sleep 60"]
+            [[stage]]
+            name = "merge"
+            each = true
+            task = "Merge PR {{pr}}: {{report}}"
+            command = ["sh", "-c", {MERGER:?}]
+            "#
+        ),
+    )
+    .unwrap();
+    let asker = h.launch(&["sleep", "60"]);
+    let pipe = |task: &str| {
+        let out = h.cmd(&["pipe", "feature", task, "--bg"]).env("NEX_AGENT_ID", &asker).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    };
+    let run = pipe("one");
+    assert_eq!(h.session(&run).unwrap().parent.as_deref(), Some(asker.as_str()), "under the agent that asked");
+    assert_eq!(pipe("two"), run, "the second joins the same run");
+    eventually("both builders and the merger under the run", || h.sessions().iter().filter(|s| s.parent.as_deref() == Some(run.as_str())).count() == 3);
+
+    // The asker ending doesn't end the run it asked for.
+    h.run(&["kill", &asker]);
+    eventually("the asker ended", || h.session(&asker).is_none_or(|s| s.exit.is_some()));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert!(h.session(&run).is_some_and(|s| s.exit.is_none()), "the pipeline is still running");
+}

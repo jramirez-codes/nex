@@ -199,6 +199,10 @@ task = "Review PR {pr} from {from}: {report}. Merged before it: {merged}. Merge 
   instead of starting another. Its builder starts in that run, so `nex-host ls` and nex's
   Agents pane show one group, and its PR joins the same line for the same reviewer.
   Such a run stays up for more until you press Enter in it.
+- A `pipe` run from an agent (with `$NEX_AGENT_ID` set) shows under that agent, in
+  `nex-host ls` and in nex's Agents pane: one card with the agent, and its pipeline's
+  stages as steps. Unlike a helper it spawned, the run outlives the agent: it still ends
+  only when you press Enter in it.
 - `examples/pr-team/` is a full run of this with real Claude agents and GitHub PRs.
 - `examples/feature/pipeline.toml` is a general one for any GitHub repository: build a
   feature in a worktree, open a PR, review and merge it, with its agents in full auto.

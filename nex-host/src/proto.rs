@@ -194,6 +194,10 @@ pub enum Request {
         /// what it would there: `PATH`, API keys). Without it, the user's login shell's.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         env: Option<Vec<(String, String)>>,
+        /// The agent it's started for (`pipe` from an agent): it shows under that one, in
+        /// `ls` and nex's Agents pane. Unlike a spawned helper it outlives it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
     },
     List,
     Watch,
@@ -539,7 +543,11 @@ mod tests {
         assert!(matches!(launch, Request::Launch { cwd: None, .. }));
         let launch: Request = serde_json::from_str(r#"{"op":"launch","argv":[],"kind":"shell"}"#).unwrap();
         assert!(matches!(launch, Request::Launch { ref argv, .. } if argv.is_empty()));
-        assert!(matches!(launch, Request::Launch { cwd: None, .. }));
+        assert!(matches!(launch, Request::Launch { cwd: None, parent: None, .. }));
+        let launch = Request::Launch { argv: vec!["x".into()], kind: None, name: None, cwd: None, cols: None, rows: None, env: None, parent: Some("a1".into()) };
+        let line = serde_json::to_string(&launch).unwrap();
+        assert!(line.contains(r#""parent":"a1""#), "{line}");
+        assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), launch);
     }
 
     #[test]

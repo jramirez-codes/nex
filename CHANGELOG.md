@@ -134,6 +134,14 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- `nex-host pipe` from an agent: the pipeline shows under the agent that asked for it, so
+  asking for several features is one card in the Agents pane, the agent with its
+  pipeline's stages as steps (`feature: build, build-2 → merge`). Builders of the same
+  stage sit side by side, the next stage after a step line. The run outlives the agent
+  that asked, as before.
+- Agents pane: a closed team card is a cell of the grid, as wide as the other cards, with
+  teams on rows of their own ahead of the single cards; opened, it spans the row for its
+  list. On a desktop-width pane teams no longer stretch into full-width bars.
 - Android: title-bar tabs no longer show a close (×) button, which a tap set off as a hover;
   the title fills the tab. Close a tab from its pane header's × (closing its last pane closes
   the tab).

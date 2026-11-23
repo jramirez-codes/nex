@@ -3,9 +3,10 @@
 //! app tile, its task over the folder it works in, and a status pill whose dot breathes while the agent
 //! works. Mouse handling lives here too.
 //!
-//! A team (see `group`) is one card the width of the pane. Closed, a row of capsules under
-//! its header shows its helpers (a pipeline's joined into steps); open, they're an inset
-//! list inside the card, like a grouped table. Opening is the card growing: its rows are
+//! A team (see `group`) is one card. Closed, it's a cell of the grid like any other card,
+//! with a row of capsules under its header for its helpers (a pipeline's joined into steps,
+//! a pipeline it asked for opened into its stages); open, it spans the row and they're an
+//! inset list inside the card, like a grouped table. Opening is the card growing: its rows are
 //! uncovered as it does, and the capsules fade as the list comes in.
 
 use std::collections::HashMap;
@@ -22,7 +23,7 @@ use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
 use crate::ui::{icons, paint};
 
 use super::AgentsPane;
-use super::group::{Group, Member, groups};
+use super::group::{Group, Member, Step, groups, same_step};
 use super::model::{Agent, Source, Status, elapsed};
 use super::motion::Motion;
 
@@ -359,9 +360,7 @@ impl AgentsPane {
         let t = if open_h > closed_h { ((r.height() - closed_h) / (open_h - closed_h)).clamp(0.0, 1.0) } else { 0.0 };
         card_body(p, r, &look);
         let head = Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H));
-        let what = if g.is_pipeline() { "stage" } else { "helper" };
-        let n = g.members.len();
-        let size = format!("{n} {what}{}", if n == 1 { "" } else { "s" });
+        let size = g.size();
         let pill = agent_header(f, p, head, &g.lead, &look, Some((&size, t)));
 
         // Clicking the chevron opens and closes it (over the header's own click, which
@@ -453,7 +452,9 @@ struct Layout<'a> {
 }
 
 /// Lay `teams` out `width` wide: a header per status, then its cards in as many columns as
-/// fit, each team on a row of its own across them all (open ones as tall as their list).
+/// fit. A closed team is a cell of the grid like any card, only taller, so teams fill rows
+/// of their own first and the single cards follow (no row mixes heights); an open team
+/// spans the row, as tall as its list.
 fn layout<'a>(teams: &'a [Group], width: f32, expanded: &HashMap<PaneId, bool>) -> Layout<'a> {
     let columns = (((width + GAP) / (MIN_CARD_W + GAP)).floor() as usize).clamp(1, MAX_COLUMNS);
     let card_w = (width - GAP * (columns as f32 - 1.0)) / columns as f32;
@@ -467,28 +468,32 @@ fn layout<'a>(teams: &'a [Group], width: f32, expanded: &HashMap<PaneId, bool>) 
         }
         sections.push((status, group.len(), Rect::from_min_size(Pos2::new(SIDE, y), Vec2::new(width, SECTION_H))));
         y += SECTION_H;
+        let (in_teams, singles): (Vec<&Group>, Vec<&Group>) = group.into_iter().partition(|g| g.is_team());
+        // The row being filled: how many cards it has, and how tall they are.
         let mut col = 0;
-        for g in group {
-            if g.is_team() {
-                if col > 0 {
-                    y += CARD_H + GAP;
-                    col = 0;
-                }
-                let h = team_height(g, expanded.get(&g.key()).copied());
+        let mut row_h = 0.0;
+        for g in in_teams.into_iter().chain(singles) {
+            let open = g.is_team().then(|| expanded.get(&g.key()).copied()).flatten();
+            let h = if g.is_team() { team_height(g, open) } else { CARD_H };
+            if col > 0 && (open.is_some() || h != row_h) {
+                y += row_h + GAP;
+                col = 0;
+            }
+            if open.is_some() {
                 cards.push((g, Rect::from_min_size(Pos2::new(SIDE, y), Vec2::new(width, h))));
                 y += h + GAP;
-            } else {
-                let at = Pos2::new(SIDE + col as f32 * (card_w + GAP), y);
-                cards.push((g, Rect::from_min_size(at, Vec2::new(card_w, CARD_H))));
-                col += 1;
-                if col == columns {
-                    y += CARD_H + GAP;
-                    col = 0;
-                }
+                continue;
+            }
+            cards.push((g, Rect::from_min_size(Pos2::new(SIDE + col as f32 * (card_w + GAP), y), Vec2::new(card_w, h))));
+            row_h = h;
+            col += 1;
+            if col == columns {
+                y += row_h + GAP;
+                col = 0;
             }
         }
         if col > 0 {
-            y += CARD_H + GAP;
+            y += row_h + GAP;
         }
         y += 6.0;
     }
@@ -659,36 +664,64 @@ fn chevron(p: &Painter, at: Pos2, open: f32, color: Color32) {
 }
 
 /// A closed team's helpers in `strip`: a capsule each (status and label), the lead's own
-/// helpers only, joined by hairlines into steps for a pipeline, `+N` for what doesn't fit.
+/// helpers only, with a pipeline among them opened into its stages after its name. A
+/// pipeline's stages are steps: joined by a hairline to the stage before, side by side with
+/// another of the same stage (`build`, `build-2`). `+N` for what doesn't fit.
 fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group) {
     let c = f.c;
-    let direct: Vec<&Member> = g.direct().collect();
+    let steps = g.strip();
     let y = strip.center().y;
     let font = paint::bold(11.5);
-    let join = if g.is_pipeline() { 16.0 } else { 6.0 };
     let more_w = 44.0;
+    // The agents from step `i` on (what a `+N` there stands for).
+    let left = |i: usize| steps[i..].iter().filter(|s| s.agent().is_some()).count();
     let mut x = strip.left();
-    for (i, m) in direct.iter().enumerate() {
-        let label = p.layout_no_wrap(member_label(&m.agent).to_string(), font.clone(), c.text_bright);
-        let w = label.size().x + 30.0;
-        let room_left = strip.right() - x - if i + 1 < direct.len() { more_w + join } else { 0.0 };
-        if w > room_left {
-            let rest = direct.len() - i;
-            let more = Rect::from_min_size(Pos2::new(x, y - CAPSULE_H / 2.0), Vec2::new(more_w, CAPSULE_H));
+    let mut prev: Option<Step> = None;
+    for (i, &step) in steps.iter().enumerate() {
+        let (gap, joined) = match (prev, step) {
+            (None, _) => (0.0, false),
+            (_, Step::Heading(_)) => (14.0, false),
+            (Some(Step::Heading(_)), _) => (8.0, false),
+            (Some(Step::Stage(a)), Step::Stage(b)) if !same_step(a, b) => (16.0, true),
+            _ => (6.0, false),
+        };
+        let (galley, w) = match step {
+            Step::Heading(name) => {
+                let g = p.layout_no_wrap(format!("{name}:"), font.clone(), c.text_dim);
+                let w = g.size().x;
+                (g, w)
+            }
+            Step::Stage(a) | Step::Helper(a) => {
+                let g = p.layout_no_wrap(member_label(a).to_string(), font.clone(), c.text_bright);
+                let w = g.size().x + 30.0;
+                (g, w)
+            }
+        };
+        let room = strip.right() - x - gap - if left(i + 1) > 0 { more_w + 6.0 } else { 0.0 };
+        if w > room {
+            let at = x + if prev.is_some() { 6.0 } else { 0.0 };
+            let more = Rect::from_min_size(Pos2::new(at, y - CAPSULE_H / 2.0), Vec2::new(more_w, CAPSULE_H));
             p.rect_filled(more, 12, white_alpha(9));
-            p.text(more.center(), Align2::CENTER_CENTER, format!("+{rest}"), font.clone(), c.text_dim);
+            p.text(more.center(), Align2::CENTER_CENTER, format!("+{}", left(i)), font.clone(), c.text_dim);
             return;
         }
-        if i > 0 && g.is_pipeline() {
-            p.line_segment([Pos2::new(x - join + 3.0, y), Pos2::new(x - 3.0, y)], Stroke::new(1.0_f32, white_alpha(40)));
+        if joined {
+            p.line_segment([Pos2::new(x + 3.0, y), Pos2::new(x + gap - 3.0, y)], Stroke::new(1.0_f32, white_alpha(40)));
         }
-        let cap = Rect::from_min_size(Pos2::new(x, y - CAPSULE_H / 2.0), Vec2::new(w, CAPSULE_H));
-        let color = status_color(m.agent.status, c);
-        let fill = if m.agent.status == Status::NeedsYou { c.yellow.gamma_multiply(0.14) } else { white_alpha(9) };
-        p.rect_filled(cap, 12, fill);
-        member_glyph(f, p, Pos2::new(cap.left() + 12.0, y), m.agent.status, color);
-        p.galley(Pos2::new(cap.left() + 21.0, y - label.size().y / 2.0), label, c.text_bright);
-        x = cap.right() + join;
+        x += gap;
+        match step {
+            Step::Heading(_) => p.galley(Pos2::new(x, y - galley.size().y / 2.0), galley, c.text_dim),
+            Step::Stage(a) | Step::Helper(a) => {
+                let cap = Rect::from_min_size(Pos2::new(x, y - CAPSULE_H / 2.0), Vec2::new(w, CAPSULE_H));
+                let color = status_color(a.status, c);
+                let fill = if a.status == Status::NeedsYou { c.yellow.gamma_multiply(0.14) } else { white_alpha(9) };
+                p.rect_filled(cap, 12, fill);
+                member_glyph(f, p, Pos2::new(cap.left() + 12.0, y), a.status, color);
+                p.galley(Pos2::new(cap.left() + 21.0, y - galley.size().y / 2.0), galley, c.text_bright);
+            }
+        }
+        x += w;
+        prev = Some(step);
     }
 }
 
@@ -794,25 +827,34 @@ mod tests {
     }
 
     #[test]
-    fn a_team_takes_a_row_of_its_own_and_grows_when_open() {
-        // Two single cards, then a team of 8, then another single: 2 columns at 700.
-        let mut agents = vec![agent(1, None), agent(2, None), agent(3, None), agent(9, None)];
+    fn a_closed_team_is_a_cell_of_the_grid_and_spans_the_row_when_open() {
+        // Two single cards, two teams (8 and 2 helpers), another single: 2 columns at 700.
+        let mut agents = vec![agent(1, None), agent(2, None), agent(3, None), agent(4, None), agent(9, None)];
         agents.extend((10..18).map(|p| agent(p, Some(3))));
+        agents.extend((20..22).map(|p| agent(p, Some(4))));
         let teams = groups(&agents);
         let closed = layout(&teams, 700.0, &HashMap::new());
         let rect = |l: &Layout, key| l.cards.iter().find(|(g, _)| g.key() == key).unwrap().1;
-        assert_eq!(closed.cards.len(), 4, "helpers are inside their team's card");
-        let team = rect(&closed, 3);
-        assert_eq!((team.width(), team.height()), (700.0, CARD_H + STRIP_H));
-        assert!(rect(&closed, 1).top() == rect(&closed, 2).top() && rect(&closed, 1).width() < 400.0, "singles share a row");
-        assert!(rect(&closed, 9).top() > team.bottom() || rect(&closed, 9).bottom() < team.top(), "nothing beside a team");
+        assert_eq!(closed.cards.len(), 5, "helpers are inside their team's card");
+        let (t3, t4) = (rect(&closed, 3), rect(&closed, 4));
+        assert_eq!((t3.width(), t3.height()), (rect(&closed, 1).width(), CARD_H + STRIP_H), "as wide as a card, taller");
+        assert!(t3.width() < 400.0 && t3.top() == t4.top(), "the teams share a row");
+        let singles = [1, 2, 9].map(|k| rect(&closed, k));
+        assert!(singles.iter().all(|r| r.top() > t3.bottom()), "singles come after, on rows of their own");
+        assert!(singles[0].top() == singles[1].top() && singles[2].top() > singles[0].bottom());
 
         let open = layout(&teams, 700.0, &HashMap::from([(3, false)]));
-        assert_eq!(rect(&open, 3).height(), CARD_H + 2.0 + ROWS_SHOWN as f32 * ROW_H + MORE_H + LIST_INSET);
+        let o3 = rect(&open, 3);
+        assert_eq!((o3.width(), o3.height()), (700.0, CARD_H + 2.0 + ROWS_SHOWN as f32 * ROW_H + MORE_H + LIST_INSET), "open, it spans the row");
+        assert!(rect(&open, 4).top() > o3.bottom(), "nothing beside an open team");
         let all = layout(&teams, 700.0, &HashMap::from([(3, true)]));
         assert_eq!(rect(&all, 3).height(), CARD_H + 2.0 + 8.0 * ROW_H + MORE_H + LIST_INSET);
         assert!(all.content_h > open.content_h && open.content_h > closed.content_h);
-        assert_eq!(row_rect(rect(&open, 3), 1).top() - row_rect(rect(&open, 3), 0).top(), ROW_H);
+        assert_eq!(row_rect(o3, 1).top() - row_rect(o3, 0).top(), ROW_H);
+
+        // One column (a phone): every card is the full width, as before.
+        let narrow = layout(&teams, 320.0, &HashMap::new());
+        assert!(narrow.cards.iter().all(|(_, r)| r.width() == 320.0));
     }
 
     /// Paints `pane` showing `agents` in an 800×600 window, with `events`.
@@ -865,7 +907,10 @@ mod tests {
         assert_eq!(pane.expanded.get(&1), Some(&false), "the arrow opens the list");
         assert!(pane.requests.is_empty(), "rather than jumping to the pipeline");
         frame(&ctx, &mut pane, &agents, &mut time, vec![]);
-        // Its edge too, a few points off the arrow.
+        // Open, it spans the row, so its arrow moved with the pill. Its edge closes it too,
+        // a few points off the arrow.
+        let wide = layout(&teams, body.width() - 2.0 * SIDE, &pane.expanded).cards[0].1.translate(body.min.to_vec2());
+        let arrow = chevron_center(pill_rect(Rect::from_min_size(wide.min, Vec2::new(wide.width(), CARD_H)), label_w));
         click(&ctx, &mut pane, &agents, &mut time, arrow + Vec2::new(-10.0, 8.0));
         assert!(pane.expanded.is_empty(), "and closes it again");
         assert!(pane.requests.is_empty());
