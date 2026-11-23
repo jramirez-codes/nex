@@ -41,6 +41,10 @@ target_sdk_version = 34
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
 
+# Sharing the phone's microphone with the host (hold the keyboard button to talk).
+[[package.metadata.android.uses_permission]]
+name = "android.permission.RECORD_AUDIO"
+
 [package.metadata.android.application]
 label = "nex"
 icon = "@mipmap/ic_launcher"

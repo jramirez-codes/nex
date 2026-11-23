@@ -241,7 +241,7 @@ fn start_nex(host: &Arc<RemoteHost>, script: &str) -> Result<Started, ExecError>
     let client = host.client().map_err(|e| ExecError::Failed(format!("Not connected to {}: {e}", host.server.host)))?;
     // The command goes through the user's login shell: hand the script to `sh` whatever that is.
     let exec = client.exec(&format!("sh -c {}", posix_quote(script))).map_err(|e| ExecError::Failed(e.to_string()))?;
-    let crate::remote::ssh::Exec { mut reader, writer, status } = exec;
+    let crate::remote::ssh::Exec { mut reader, writer, status, .. } = exec;
     // Nothing to send: end its input.
     drop(writer);
     let out = Arc::new(Mutex::new(Vec::new()));

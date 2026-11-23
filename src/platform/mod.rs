@@ -56,6 +56,7 @@
 //! | `DirWatch` / `on_dir_change(f)` | being told when a folder's contents change |
 //! | `tune_allocator()` / `trim_heap()` | allocator setup at launch; return freed heap to the OS |
 //! | `MIC_PERMISSION_HINT` | where to allow microphone access, after the OS refused it |
+//! | `mic_allowed()` / `ask_mic()` | whether nex may record from the microphone, and asking the user (Android; desktops ask when the mic opens) |
 //! | `app_icon()` | the window icon, where the OS takes it from the window |
 //! | `set_window_title(..)` / `align_window_buttons(..)` | the window title; centering native title-bar buttons (macOS) |
 //!
@@ -159,6 +160,15 @@ pub fn sync_soft_keyboard(_ctx: &egui::Context) {}
 pub fn soft_keyboard_visible() -> Option<bool> {
     None
 }
+
+/// Desktops ask for the microphone themselves when it's opened (macOS), or don't ask at all.
+#[cfg(not(target_os = "android"))]
+pub fn mic_allowed() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn ask_mic() {}
 
 /// Why [`lock_file`] didn't take its lock.
 #[derive(Debug)]

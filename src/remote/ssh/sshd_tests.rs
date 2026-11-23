@@ -179,6 +179,58 @@ fn logs_in_with_the_device_key_and_keeps_a_shell_through_a_dropped_connection() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The closer ends a command that isn't reading its input: one blocked opening a FIFO, as
+/// the shared mic's ALSA waiting session is. Ending its input or closing its channel wouldn't
+/// unblock it; the `SIGTERM` the closer sends does.
+#[test]
+#[ignore = "runs a private sshd; see the module doc"]
+fn the_closer_ends_a_command_blocked_on_a_fifo() {
+    let dir = std::env::temp_dir().join(format!("nex-ssh-close-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // SAFETY: this test runs alone (`--test-threads=1`), before any thread reads these.
+    unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.join("config")) };
+    let sshd = Sshd::start(&dir, 2298);
+    let key = device::new_key("closer-test").unwrap();
+    sshd.authorize(&device::authorized_line(&key, "closer-test", None).unwrap());
+    let server = Server { host: "127.0.0.1".into(), port: sshd.port, user: user() };
+    let fingerprint = match Client::connect(&server, Login::Key(&key), None) {
+        Err(ConnectError::UnknownHost { fingerprint }) => fingerprint,
+        other => panic!("expected UnknownHost, got {:?}", other.err()),
+    };
+    let client = Client::connect(&server, Login::Key(&key), Some(&fingerprint)).expect("key login");
+
+    let script = r#"f="$HOME/blocked.fifo"; rm -f "$f"; mkfifo "$f" || exit 1; echo $$; exec 3>"$f""#;
+    let exec = client.exec(&format!("sh -c {}", crate::remote::posix_quote(script))).unwrap();
+    let super::Exec { mut reader, writer, closer, .. } = exec;
+    let mut pid = Vec::new();
+    let mut byte = [0u8];
+    while reader.read(&mut byte).unwrap() == 1 && byte[0] != b'\n' {
+        pid.push(byte[0]);
+    }
+    let proc = PathBuf::from(format!("/proc/{}", String::from_utf8(pid).unwrap()));
+    // Ending its input alone doesn't end it: it never reads it.
+    drop(writer);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(proc.exists(), "still blocked");
+
+    let (tx, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = reader.read_to_end(&mut rest);
+        let _ = tx.send(());
+    });
+    closer.close();
+    ended.recv_timeout(Duration::from_secs(5)).expect("its output ends once closed");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while proc.exists() {
+        assert!(Instant::now() < deadline, "the command outlived its closed channel");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(client);
+    drop(sshd);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn listed(remote: &host::RemoteHost, id: &str) -> bool {
     remote.ask(&nex_host::proto::Request::List).ok().and_then(|(r, _)| r.sessions).unwrap_or_default().iter().any(|s| s.id == id)
 }

@@ -173,6 +173,14 @@ other Linux:   your mic ─▶ nex ─▶ a waiting ssh session (sh + dd) ─▶
 Without PipeWire, recording works best with `arecord` (Claude Code uses it on hosts without a
 sound card): ALSA reads the shared mic in `arecord`'s block size.
 
+**On Android**, hold the floating keyboard button in a terminal to talk to Claude Code's
+voice mode (run `/voice` first). Claude Code records while Space is held, which the phone's
+keyboard can't do (holding its Space moves its cursor), so the button does it: after about
+half a second it turns red, shares the phone's microphone with the host over the app's own
+connection, and sends Space as if held until you let go (and a moment longer, so your last
+words arrive). The first time, Android asks to let nex use the microphone; allow it and hold
+again. Taps, double-taps and drags work as before. `ssh-mic = off` turns this off too.
+
 ### Following your remote folder
 
 To open splits in the folder you're in, nex needs the remote shell to say where it is. fish

@@ -147,7 +147,7 @@ impl App {
         true
     }
 
-    fn focused_terminal(&mut self) -> Option<&mut Terminal> {
+    pub(in crate::app) fn focused_terminal(&mut self) -> Option<&mut Terminal> {
         self.focused_pane().and_then(|id| self.panes.get_mut(&id))
     }
 
