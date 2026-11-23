@@ -196,7 +196,7 @@ task = "Review PR {pr} from {from}: {report}. Merged before it: {merged}. Merge 
   Such a run stays up for more until you press Enter in it.
 - `examples/pr-team/` is a full run of this with real Claude agents and GitHub PRs.
 - `examples/feature/pipeline.toml` is a general one for any GitHub repository: build a
-  feature in a worktree, open a PR, review and merge it.
+  feature in a worktree, open a PR, review and merge it, with its agents in full auto.
 
 `nex-host worktree ls` lists the worktrees `--worktree` made. `nex-host worktree prune`
 removes the ones no agent is working in, with nothing uncommitted, whose branch is merged

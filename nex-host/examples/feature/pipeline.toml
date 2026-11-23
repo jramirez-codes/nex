@@ -7,23 +7,16 @@
 # one line of PRs). Press Enter in the run to end it.
 #   nex-host pipe feature "add a stats command" --bg
 #
-# The agents may edit files and run git, gh pr, nex-host and the usual build and test tools
-# without asking; anything else still asks you (the team card shows "Needs you").
+# The agents run in full auto (--dangerously-skip-permissions): they never stop to ask
+# you anything, so run it only in repositories you trust them with. Each builder keeps
+# to its own worktree by instruction, not by any sandbox.
 
 timeout = "90m"
 
 [[stage]]
 name = "build"
 worktree = true
-command = [
-  "claude",
-  "--allowedTools", "Bash(git:*)", "Bash(gh pr:*)", "Bash(gh repo view:*)", "Bash(nex-host:*)",
-  "Bash(cargo:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(pnpm:*)", "Bash(yarn:*)", "Bash(bun:*)",
-  "Bash(pytest:*)", "Bash(python3 -m pytest:*)", "Bash(python3 -m unittest:*)", "Bash(go:*)",
-  "Bash(make:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(grep:*)",
-  "Bash(rg:*)", "Bash(find:*)", "Bash(wc:*)",
-  "--permission-mode", "acceptEdits",
-]
+command = ["claude", "--dangerously-skip-permissions"]
 task = """
 Build this in this repository: {task}
 
@@ -43,12 +36,7 @@ the same way.
 name = "merge"
 each = true
 worktree = true
-command = [
-  "claude",
-  "--allowedTools", "Bash(git:*)", "Bash(gh pr:*)", "Bash(gh repo view:*)", "Bash(nex-host:*)",
-  "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(grep:*)", "Bash(rg:*)",
-  "--permission-mode", "acceptEdits",
-]
+command = ["claude", "--dangerously-skip-permissions"]
 task = """
 Review and merge pull request {pr}, from {from}: {report}
 Merged before it in this run: {merged}.
