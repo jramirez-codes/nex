@@ -21,6 +21,12 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Updating nex now updates the nex-host daemon on ssh hosts too, not just the program on
+  disk: a daemon started before the update used to keep serving the old code (new commands
+  failed with `bad request`) until it happened to exit. Without agents running, the next
+  `nex-host` command replaces it at once. While agents run on it, it stays up (they'd end
+  with it), the Agents pane shows "nex-host update pending" for that host, and it hands over
+  by itself when the last one finishes.
 - Ctrl+G in a pane ssh'd into a host opens the Changes pane in the folder the remote shell is
   in, not the remote home, while a program there (Claude Code, vim, tmux) has set its own
   window title. Titles like oh-my-zsh's `user@host:~/src` count too.
