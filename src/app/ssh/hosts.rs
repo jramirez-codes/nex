@@ -321,6 +321,8 @@ impl App {
                 State::Failed(HostError::NeedsLogin) => Some(format!("{} needs a password, so nex can't see its agents", t.host())),
                 State::Failed(HostError::Unsupported(system)) => Some(format!("{}: nex has no helper for {system}", t.host())),
                 State::Failed(HostError::Other(e)) => Some(format!("{}: can't connect ({e}), retrying", t.host())),
+                // An older nex-host still holds agents there; it hands over once they finish.
+                State::Live if s.daemon_version.is_some() => Some(format!("{}: nex-host update pending (it switches over when its agents finish)", t.host())),
                 State::Connecting | State::Live => None,
             })
             .collect()

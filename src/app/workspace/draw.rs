@@ -20,6 +20,7 @@ use crate::app::workspace::metrics::cell_px;
 use crate::app::ssh::mic::MicState;
 use crate::app::animation::pane_motion::Ghost;
 use crate::app::workspace::pane_drag::DragFrame;
+use crate::app::animation::handoff::{FocusedCard, HeaderLabel};
 use crate::app::animation::tab_switch::Shown;
 use crate::app::{App, PANE_GAP};
 
@@ -137,7 +138,11 @@ impl App {
         };
         // Where the connect screen's card lands (`animation/handoff.rs`): the layout's rect,
         // not where the card is drawn mid-animation.
-        self.focused_card = views.iter().find(|v| v.focused).map(|v| v.target);
+        self.focused_card = views.iter().find(|v| v.focused).map(|v| FocusedCard {
+            rect: v.target,
+            ring: if v.multi { v.focus } else { 0.0 },
+            label: None,
+        });
         for pane in &views {
             self.draw_pane(ui, pane, theme, blink_on);
         }
@@ -528,6 +533,10 @@ impl App {
 
         let font = if self.cfg.sidebar() { 15.0 } else { 13.5 };
         header_label(painter, header, &process, &title, title_color, bx - 4.0, font);
+        // The connect handoff draws the same label on its card as it lands here.
+        if let Some(f) = self.focused_card.as_mut().filter(|f| pane.focused && f.rect == pane.target) {
+            f.label = Some(HeaderLabel { process, title, color: title_color, right_inset: header.right() - (bx - 4.0), font });
+        }
         if pressed_in(ui, header) {
             self.pending.push(Action::FocusPane(id));
         }

@@ -260,7 +260,8 @@ fn run(args: &[String]) -> std::io::Result<i32> {
 
 /// `watch`: the session list as JSON lines, forever. It doesn't start the daemon (that would
 /// keep one running for nothing): while none runs it reports no sessions and looks again
-/// every couple of seconds, and when the daemon exits it goes back to that.
+/// every couple of seconds, and when the daemon exits it goes back to that. Each line from a
+/// daemon older than this program carries its version in `daemon_version`.
 #[cfg(unix)]
 fn watch() -> std::io::Result<i32> {
     use std::io::{self, Write};
@@ -274,14 +275,24 @@ fn watch() -> std::io::Result<i32> {
         match client::connect(false) {
             Ok(mut stream) => {
                 idle_sent = None;
+                // An older daemon still running agents: every line says so (see
+                // `Response::daemon_version`). It ends the stream when it hands over.
+                let old = match client::daemon(false) {
+                    Ok(client::Daemon::Older(v)) => Some(v),
+                    _ => None,
+                };
+                let mark = |line: &str| match &old {
+                    Some(v) => client::mark_older(line, v),
+                    None => line.to_string(),
+                };
                 let first = client::ask(&mut stream, &Request::Watch)?;
-                writeln!(out, "{}", serde_json::to_string(&first).map_err(io::Error::other)?)?;
+                writeln!(out, "{}", mark(&serde_json::to_string(&first).map_err(io::Error::other)?))?;
                 out.flush()?;
                 // Line by line, so each one reaches nex as soon as it's sent.
                 let mut lines = io::BufReader::new(stream);
                 let mut line = String::new();
                 while io::BufRead::read_line(&mut lines, &mut line)? > 0 {
-                    out.write_all(line.as_bytes())?;
+                    writeln!(out, "{}", mark(line.trim_end()))?;
                     out.flush()?;
                     line.clear();
                 }

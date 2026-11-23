@@ -11,6 +11,7 @@ use nex_host::proto::{self, MessageKind, Payload, USER, Verdict};
 
 use crate::agent::{self, Agent, Spec};
 use crate::daemon::mail::{Draft, letter, post};
+use crate::daemon::retire;
 use crate::daemon::{State, log, new_id};
 use crate::deliver;
 use crate::locked::Locked;
@@ -54,6 +55,9 @@ pub(super) fn launch(state: &Arc<State>, id: String, spec: Spec) -> io::Result<(
     // Locked from before the program starts until it's on the list: what it runs first
     // (`nex-host send`, `done`) must find it there, or it's taken for someone at a shell.
     let mut agents = state.agents.locked();
+    if state.retiring.load(Ordering::Relaxed) {
+        return Err(io::Error::other(proto::RESTARTING));
+    }
     let a = Agent::spawn(id.clone(), spec, ended)?;
     agents.insert(id, a);
     Ok(())
@@ -84,6 +88,8 @@ fn on_end(state: &Arc<State>, a: &Arc<Agent>) {
     if a.killed.load(Ordering::Relaxed) || a.kind == proto::SHELL_KIND {
         state.remove(&a.id);
     }
+    // The last one running may have been what kept an outdated daemon here.
+    retire::check(state);
 }
 
 /// `name`, or `name-2`, `name-3`… if a running agent already has it.

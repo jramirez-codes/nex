@@ -21,7 +21,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 
-use egui::epaint::Shadow;
+use egui::epaint::{ClippedShape, Shadow};
 use egui::layers::ShapeIdx;
 use egui::{Align, Align2, Color32, FontId, Id, Layout, Painter, Pos2, Rangef, Rect, RichText, Sense, Shape, Stroke, StrokeKind, Ui, Vec2};
 
@@ -93,8 +93,19 @@ pub(in crate::app) struct Connect {
     pub host: Option<Arc<RemoteHost>>,
     /// When the screen first showed: the header dog's intro plays from then.
     shown_at: Option<f64>,
-    /// The card, its dog and its title as drawn on the last frame (where the handoff starts).
-    drawn: Option<(Rect, Rect, &'static str)>,
+    /// The card as drawn on the last frame (where the handoff starts).
+    drawn: Option<DrawnCard>,
+}
+
+/// The connect card as a frame drew it: where the handoff to the workspace starts from.
+#[derive(Clone)]
+pub(in crate::app) struct DrawnCard {
+    pub card: Rect,
+    /// The header dog.
+    pub dog: Rect,
+    pub title: &'static str,
+    /// What the body (below the header) painted: the handoff fades it out of the card.
+    pub body: Vec<ClippedShape>,
 }
 
 impl Connect {
@@ -175,9 +186,9 @@ impl Connect {
         }
     }
 
-    /// The card, its dog and its title as the last frame drew them.
-    pub(in crate::app) fn last_card(&self) -> Option<(Rect, Rect, &'static str)> {
-        self.drawn
+    /// The card as the last frame drew it.
+    pub(in crate::app) fn last_card(&self) -> Option<&DrawnCard> {
+        self.drawn.as_ref()
     }
 
     /// Pick up the login's result. Returns the shells to open tabs for when it just worked.
@@ -241,12 +252,12 @@ impl Connect {
                         _ => None,
                     };
                     let title = if trust.is_some() { "Trust This Server?" } else { "Connect to Your Server" };
-                    let (a, card, dog) = pane_card(ui, theme, sidebar, title, dog_t, |ui| match trust {
+                    let (a, card, dog, body) = pane_card(ui, theme, sidebar, title, dog_t, |ui| match trust {
                         Some(fingerprint) => self.trust_view(ui, theme, &fingerprint, scale),
                         None => self.form_view(ui, theme, self.step == Step::Connecting, scale),
                     });
                     action = a;
-                    self.drawn = Some((card, dog, title));
+                    self.drawn = Some(DrawnCard { card, dog, title, body });
                     ui.add_space(32.0);
                 });
             });
@@ -442,7 +453,7 @@ fn card_span(content: Rect) -> Rangef {
 /// `dog_t` seconds into its intro, where a pane's glyph goes, and `title`), a hairline under
 /// the header, and `body` inside the pane content's inset. The card grows to fit the body,
 /// which is laid out first and painted over it. Returns the body's result, the card and the dog.
-fn pane_card<R>(ui: &mut Ui, theme: &Theme, sidebar: bool, title: &str, dog_t: f32, body: impl FnOnce(&mut Ui) -> R) -> (R, Rect, Rect) {
+fn pane_card<R>(ui: &mut Ui, theme: &Theme, sidebar: bool, title: &str, dog_t: f32, body: impl FnOnce(&mut Ui) -> R) -> (R, Rect, Rect, Vec<ClippedShape>) {
     let under = ui.painter().add(Shape::Noop);
     let (header, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), header_height(sidebar)), Sense::hover());
     let font = if sidebar { 15.0 } else { 13.5 };
@@ -450,13 +461,19 @@ fn pane_card<R>(ui: &mut Ui, theme: &Theme, sidebar: bool, title: &str, dog_t: f
     dog::paint(ui.painter(), dog, dog_t, (theme.card, 0.0));
     header_title(ui.painter(), header, title, theme.text_bright, header.right() - 20.0, font);
     ui.painter().hline(header.x_range().shrink(1.0), header.bottom(), Stroke::new(1.0_f32, HAIRLINE));
+    let body_start = ui.painter().add(Shape::Noop);
     let inner = egui::Frame::new().inner_margin(BODY).show(ui, |ui| {
         ui.set_width(ui.available_width());
         body(ui)
     });
+    // A copy of what the body painted (galleys and meshes are shared, so it's cheap).
+    let body = ui.ctx().graphics(|g| match g.get(ui.layer_id()) {
+        Some(list) => list.all_entries().skip(body_start.0 + 1).filter(|s| !matches!(s.shape, Shape::Noop)).cloned().collect(),
+        None => Vec::new(),
+    });
     let card = Rect::from_min_max(header.min, Pos2::new(header.right(), inner.response.rect.bottom()));
     paint_under(ui, under, |p| paint::card(p, card, PANE_RADIUS, theme.card, 1.0, None));
-    (inner.inner, card, dog)
+    (inner.inner, card, dog, body)
 }
 
 /// The header dog: centered on the glyph's place, a little larger than the 13pt glyph since

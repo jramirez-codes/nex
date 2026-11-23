@@ -212,6 +212,11 @@ impl Broker {
         found
     }
 
+    /// Whether a `recv` is waiting for a message.
+    pub fn waiting(&self) -> bool {
+        !self.mail.locked().waiting.is_empty()
+    }
+
     /// Forget an agent that's gone for good: its mailbox, its task, its record on disk.
     pub fn forget(&self, agent: &str) {
         let mut mail = self.mail.locked();

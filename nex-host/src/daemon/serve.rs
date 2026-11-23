@@ -14,6 +14,7 @@ use crate::agent::{self, Agent, Spec};
 use crate::broker::{self, Filter};
 use crate::daemon::lifecycle::{Hire, launch, spawn};
 use crate::daemon::mail::{Draft, post};
+use crate::daemon::retire::own_version;
 use crate::daemon::{State, new_id};
 
 /// How often `watch` looks for changes.
@@ -41,7 +42,12 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
         Ok(r) => r,
         Err(e) => return send(&mut stream, &Response::error(format!("bad request: {e}"))),
     };
+    let starts = matches!(request, Request::Launch { .. } | Request::Spawn { .. });
+    if starts && state.retiring.load(Ordering::Relaxed) {
+        return send(&mut stream, &Response::error(proto::RESTARTING));
+    }
     match request {
+        Request::Version => send(&mut stream, &Response { ok: true, text: Some(own_version()), ..Response::default() }),
         Request::Launch { argv, kind, name, cwd, cols, rows, env, parent } => {
             let id = new_id(state);
             let spec = Spec {
