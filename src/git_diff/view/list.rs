@@ -154,7 +154,7 @@ fn section_header(p: &Painter, r: Rect, label: &str, count: usize, collapsed: bo
     job.append(label, 0.0, TextFormat { font_id: paint::bold(10.5), color, extra_letter_spacing: 0.8, ..Default::default() });
     let g = p.layout_job(job);
     p.galley(Pos2::new(x + 14.0, cy - g.size().y / 2.0), g, color);
-    p.text(Pos2::new(r.right() - SIDE, cy), Align2::RIGHT_CENTER, count.to_string(), ui_font(11.0), c.text_dim.gamma_multiply(0.8));
+    p.text(Pos2::new(r.right() - SIDE, cy), Align2::RIGHT_CENTER, count.to_string(), FontId::proportional(11.0), c.text_dim.gamma_multiply(0.8));
 }
 
 /// A small triangle-ish chevron: pointing down when open, right when collapsed.
@@ -189,7 +189,7 @@ fn file_row(p: &Painter, r: Rect, file: &FileChange, selected: bool, c: &Theme) 
         Some((a, d)) if a + d > 0 => counts_text(p, Pos2::new(right, cy), a, d, 10.5, c, selected),
         Some(_) => right,
         None => {
-            let g = p.layout_no_wrap("BIN".into(), ui_font(9.5), c.text_dim);
+            let g = p.layout_no_wrap("BIN".into(), FontId::proportional(9.5), c.text_dim);
             let at = Pos2::new(right - g.size().x, cy - g.size().y / 2.0);
             let w = g.size().x;
             p.galley(at, g, c.text_dim);
@@ -198,7 +198,7 @@ fn file_row(p: &Painter, r: Rect, file: &FileChange, selected: bool, c: &Theme) 
     };
     let room = (counts_left - 8.0 - x).max(0.0);
     let name_color = if selected { Color32::WHITE } else { c.text };
-    let font = ui_font(13.0);
+    let font = FontId::proportional(13.0);
     let name_w = p.layout_no_wrap(file.name().to_string(), font.clone(), name_color).size().x;
     let struck = file.change == Change::Deleted;
     paint::faded_text(p, Pos2::new(x, cy), file.name(), font, if struck { name_color.gamma_multiply(0.7) } else { name_color }, room, 18.0);
@@ -210,6 +210,6 @@ fn file_row(p: &Painter, r: Rect, file: &FileChange, selected: bool, c: &Theme) 
     if !folder.is_empty() && room - name_w > 28.0 {
         let fx = x + name_w + 7.0;
         let dim = if selected { white_alpha(150) } else { c.text_dim.gamma_multiply(0.85) };
-        paint::faded_text(p, Pos2::new(fx, cy + 0.5), folder, ui_font(11.0), dim, counts_left - 8.0 - fx, 18.0);
+        paint::faded_text(p, Pos2::new(fx, cy + 0.5), folder, FontId::proportional(11.0), dim, counts_left - 8.0 - fx, 18.0);
     }
 }

@@ -5,6 +5,7 @@
 //! For a folder on an ssh host the same `git` commands run there (`*_remote`, see
 //! `remote::exec`), batched so a status is one trip; their output is parsed the same way.
 
+use std::collections::HashMap;
 use std::io::Read;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -27,6 +28,18 @@ const MAX_EMPHASIS_CHARS: usize = 500;
 /// Tokens per line compared for word-level highlights (the LCS is quadratic).
 const MAX_EMPHASIS_TOKENS: usize = 240;
 
+/// What every `git` runs with, here and on a host: never page, prompt or take locks, and
+/// print in plain C-locale text.
+const GIT_ENV: [(&str, &str); 4] = [("GIT_PAGER", "cat"), ("GIT_TERMINAL_PROMPT", "0"), ("GIT_OPTIONAL_LOCKS", "0"), ("LC_ALL", "C")];
+/// The repository's root folder.
+const TOPLEVEL_ARGS: [&str; 2] = ["rev-parse", "--show-toplevel"];
+/// The status [`parse_status`] reads.
+const STATUS_ARGS: [&str; 5] = ["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"];
+/// Line counts ([`parse_numstat`]) of the work tree against the index.
+const NUMSTAT_ARGS: [&str; 5] = ["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv"];
+/// Line counts of the index against `HEAD`.
+const NUMSTAT_STAGED_ARGS: [&str; 6] = ["diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv"];
+
 #[derive(Debug)]
 pub enum RunError {
     /// `git` isn't installed (or isn't on `PATH`).
@@ -43,10 +56,7 @@ pub fn run(dir: &Path, args: &[&str]) -> Result<(bool, Vec<u8>), RunError> {
         .arg(dir)
         .args(args)
         // Never page, prompt or pick up a user's color / external-diff settings.
-        .env("GIT_PAGER", "cat")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("LC_ALL", "C")
+        .envs(GIT_ENV)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -175,36 +185,34 @@ pub enum Status {
     NeedsLogin,
 }
 
+impl From<RunError> for Status {
+    fn from(e: RunError) -> Status {
+        match e {
+            RunError::NotFound => Status::NoGit,
+            RunError::Timeout => Status::Failed("git took too long".into()),
+            RunError::Io(e) => Status::Failed(e),
+        }
+    }
+}
+
 /// `git status` (and line counts) for the repository holding `dir`.
 pub fn load_status(dir: &Path) -> Status {
-    let root = match run(dir, &["rev-parse", "--show-toplevel"]) {
+    let root = match run(dir, &TOPLEVEL_ARGS) {
         Ok((true, out)) => PathBuf::from(String::from_utf8_lossy(&out).trim()),
         Ok((false, _)) => return Status::NotRepo,
-        Err(RunError::NotFound) => return Status::NoGit,
-        Err(RunError::Timeout) => return Status::Failed("git took too long".into()),
-        Err(RunError::Io(e)) => return Status::Failed(e),
+        Err(e) => return e.into(),
     };
-    let out = match run(&root, &["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]) {
+    let out = match run(&root, &STATUS_ARGS) {
         Ok((true, out)) => out,
         Ok((false, _)) => return Status::Failed("git status failed".into()),
-        Err(RunError::NotFound) => return Status::NoGit,
         Err(RunError::Timeout) => return Status::Failed("git status took too long".into()),
-        Err(RunError::Io(e)) => return Status::Failed(e),
+        Err(e) => return e.into(),
     };
     let mut snap = parse_status(&String::from_utf8_lossy(&out));
     snap.root = root.clone();
     let numstat = |args: &[&str]| run(&root, args).ok().filter(|(ok, _)| *ok).map(|(_, out)| parse_numstat(&String::from_utf8_lossy(&out))).unwrap_or_default();
-    let staged = numstat(&["diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv"]);
-    let unstaged = numstat(&["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv"]);
-    for f in &mut snap.staged {
-        f.counts = staged.iter().find(|(p, _)| *p == f.path).and_then(|(_, c)| *c);
-    }
-    for f in &mut snap.unstaged {
-        f.counts = match f.change {
-            Change::Untracked => count_lines(&root.join(&f.path)).map(|n| (n, 0)),
-            _ => unstaged.iter().find(|(p, _)| *p == f.path).and_then(|(_, c)| *c),
-        };
-    }
+    let (staged, unstaged) = (numstat(&NUMSTAT_STAGED_ARGS), numstat(&NUMSTAT_ARGS));
+    attach_counts(&mut snap, staged, unstaged, |path| count_lines(&root.join(path)));
     Status::Ready(snap)
 }
 
@@ -276,9 +284,12 @@ pub fn parse_status(out: &str) -> Snapshot {
     snap
 }
 
+/// What [`parse_numstat`] gives: each path with its lines added and removed.
+pub type Numstat = Vec<(String, Option<(u32, u32)>)>;
+
 /// Parse `git diff --numstat -z`: `(path, Some((added, removed)))`, `None` counts for binary
 /// files. A rename is reported under its new path.
-pub fn parse_numstat(out: &str) -> Vec<(String, Option<(u32, u32)>)> {
+pub fn parse_numstat(out: &str) -> Numstat {
     let mut result = Vec::new();
     let mut fields = out.split('\0');
     while let Some(rec) = fields.next() {
@@ -297,35 +308,25 @@ pub fn parse_numstat(out: &str) -> Vec<(String, Option<(u32, u32)>)> {
     result
 }
 
-#[cfg(test)]
-mod remote_tests {
-    use super::*;
-
-    #[test]
-    fn remote_git_commands() {
-        assert_eq!(
-            remote_git("~/my repo", &["diff", "--", "a b.txt"]),
-            "cd -- ~/'my repo' 2>/dev/null || exit 3; GIT_PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 LC_ALL=C git diff -- 'a b.txt'"
-        );
-    }
-
-    #[test]
-    fn counts_lines_like_here() {
-        let dir = std::env::temp_dir().join(format!("nex-remote-counts-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("two"), "a\nb\n").unwrap();
-        std::fs::write(dir.join("no newline"), "a\nb").unwrap();
-        std::fs::write(dir.join("bin"), b"a\0b").unwrap();
-        let files = ["two", "no newline", "bin", "missing"];
-        // The same script as on a host, run here by `sh`.
-        let script = count_script(&dir.to_string_lossy(), &files.map(String::from));
-        let out = std::process::Command::new("sh").arg("-c").arg(script).output().unwrap();
-        let counts = parse_counts(&String::from_utf8_lossy(&out.stdout));
-        assert_eq!(counts, [Some(2), Some(2), None, None]);
-        for f in ["two", "no newline"] {
-            assert_eq!(counts[files.iter().position(|x| *x == f).unwrap()], count_lines(&dir.join(f)));
+/// Give every file of `snap` its line counts: a tracked file's from the numstat of its side,
+/// an untracked one's whole length, as `untracked_lines` counts it.
+fn attach_counts(snap: &mut Snapshot, staged: Numstat, unstaged: Numstat, untracked_lines: impl Fn(&str) -> Option<u32>) {
+    // The first entry for a path wins, should git ever list one twice.
+    let by_path = |numstat: Numstat| {
+        let mut map: HashMap<String, Option<(u32, u32)>> = HashMap::with_capacity(numstat.len());
+        for (path, counts) in numstat {
+            map.entry(path).or_insert(counts);
         }
-        std::fs::remove_dir_all(dir).unwrap();
+        map
+    };
+    for (files, numstat) in [(&mut snap.staged, staged), (&mut snap.unstaged, unstaged)] {
+        let counts = by_path(numstat);
+        for f in files {
+            f.counts = match f.change {
+                Change::Untracked => untracked_lines(&f.path).map(|n| (n, 0)),
+                _ => counts.get(&f.path).copied().flatten(),
+            };
+        }
     }
 }
 
@@ -450,11 +451,8 @@ const NO_FOLDER: i32 = 3;
 /// the same environment as [`run`] gives it here.
 fn remote_git(dir: &str, args: &[&str]) -> String {
     let args: Vec<String> = args.iter().map(|a| posix_quote(a)).collect();
-    format!(
-        "cd -- {} 2>/dev/null || exit {NO_FOLDER}; GIT_PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 LC_ALL=C git {}",
-        cd_word(dir),
-        args.join(" ")
-    )
+    let env: Vec<String> = GIT_ENV.iter().map(|(name, value)| format!("{name}={value}")).collect();
+    format!("cd -- {} 2>/dev/null || exit {NO_FOLDER}; {} git {}", cd_word(dir), env.join(" "), args.join(" "))
 }
 
 /// What a remote failure looks like in the pane.
@@ -469,15 +467,7 @@ fn remote_failure(e: ExecError) -> Status {
 /// counts, and one more for untracked files' line counts.
 pub fn load_status_remote(t: &Transport, dir: &Path) -> Status {
     let dir = dir.to_string_lossy();
-    let commands: Vec<String> = [
-        &["rev-parse", "--show-toplevel"][..],
-        &["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"],
-        &["diff", "--cached", "--numstat", "-z", "--no-ext-diff", "--no-textconv"],
-        &["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv"],
-    ]
-    .iter()
-    .map(|args| remote_git(&dir, args))
-    .collect();
+    let commands: Vec<String> = [&TOPLEVEL_ARGS[..], &STATUS_ARGS, &NUMSTAT_STAGED_ARGS, &NUMSTAT_ARGS].iter().map(|args| remote_git(&dir, args)).collect();
     let outs = match t.run_many(&commands) {
         Ok(outs) => outs,
         Err(e) => return remote_failure(e),
@@ -496,18 +486,10 @@ pub fn load_status_remote(t: &Transport, dir: &Path) -> Status {
     let mut snap = parse_status(&status.text());
     snap.root = root.clone();
     let numstat = |o: &crate::remote::exec::Output| if o.ok() { parse_numstat(&o.text()) } else { Vec::new() };
-    let (staged, unstaged) = (numstat(staged), numstat(unstaged));
-    for f in &mut snap.staged {
-        f.counts = staged.iter().find(|(p, _)| *p == f.path).and_then(|(_, c)| *c);
-    }
     let untracked: Vec<String> = snap.unstaged.iter().filter(|f| f.change == Change::Untracked).map(|f| f.path.clone()).take(MAX_REMOTE_COUNTS).collect();
     let counts = count_lines_remote(t, &root, &untracked);
-    for f in &mut snap.unstaged {
-        f.counts = match f.change {
-            Change::Untracked => untracked.iter().position(|p| *p == f.path).and_then(|i| counts.get(i).copied().flatten()).map(|n| (n, 0)),
-            _ => unstaged.iter().find(|(p, _)| *p == f.path).and_then(|(_, c)| *c),
-        };
-    }
+    let lines: HashMap<&str, u32> = untracked.iter().zip(counts).filter_map(|(path, n)| Some((path.as_str(), n?))).collect();
+    attach_counts(&mut snap, numstat(staged), numstat(unstaged), |path| lines.get(path).copied());
     Status::Ready(snap)
 }
 
@@ -788,4 +770,73 @@ fn tokens(s: &str) -> Vec<Range<usize>> {
         out.push(st..s.len());
     }
     out
+}
+
+#[cfg(test)]
+mod remote_tests {
+    use super::*;
+
+    #[test]
+    fn remote_git_commands() {
+        assert_eq!(
+            remote_git("~/my repo", &["diff", "--", "a b.txt"]),
+            "cd -- ~/'my repo' 2>/dev/null || exit 3; GIT_PAGER=cat GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 LC_ALL=C git diff -- 'a b.txt'"
+        );
+    }
+
+    #[test]
+    fn counts_lines_like_here() {
+        let dir = std::env::temp_dir().join(format!("nex-remote-counts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("two"), "a\nb\n").unwrap();
+        std::fs::write(dir.join("no newline"), "a\nb").unwrap();
+        std::fs::write(dir.join("bin"), b"a\0b").unwrap();
+        let files = ["two", "no newline", "bin", "missing"];
+        // The same script as on a host, run here by `sh`.
+        let script = count_script(&dir.to_string_lossy(), &files.map(String::from));
+        let out = std::process::Command::new("sh").arg("-c").arg(script).output().unwrap();
+        let counts = parse_counts(&String::from_utf8_lossy(&out.stdout));
+        assert_eq!(counts, [Some(2), Some(2), None, None]);
+        for f in ["two", "no newline"] {
+            assert_eq!(counts[files.iter().position(|x| *x == f).unwrap()], count_lines(&dir.join(f)));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn file(path: &str, change: Change, staged: bool) -> FileChange {
+        FileChange { path: path.into(), orig: None, change, staged, counts: None }
+    }
+
+    #[test]
+    fn counts_attach_by_path_and_side() {
+        let mut snap = Snapshot {
+            staged: vec![file("a.rs", Change::Modified, true), file("img.png", Change::Added, true), file("gone.rs", Change::Deleted, true)],
+            unstaged: vec![file("a.rs", Change::Modified, false), file("new.txt", Change::Untracked, false), file("big.bin", Change::Untracked, false)],
+            ..Snapshot::default()
+        };
+        let staged = vec![("img.png".to_string(), None), ("a.rs".to_string(), Some((3, 1))), ("a.rs".to_string(), Some((9, 9)))];
+        // `new.txt` in the numstat is ignored: an untracked file's count is its length.
+        let unstaged = vec![("a.rs".to_string(), Some((0, 7))), ("new.txt".to_string(), Some((5, 5)))];
+        attach_counts(&mut snap, staged, unstaged, |path| (path == "new.txt").then_some(12));
+        let counts = |files: &[FileChange]| files.iter().map(|f| f.counts).collect::<Vec<_>>();
+        assert_eq!(counts(&snap.staged), [Some((3, 1)), None, None]);
+        assert_eq!(counts(&snap.unstaged), [Some((0, 7)), Some((12, 0)), None]);
+    }
+
+    /// A status with thousands of files: the counts are matched in one pass, not by
+    /// searching the whole numstat for every file.
+    #[test]
+    fn counts_attach_fast_for_many_files() {
+        let n = 40_000u32;
+        let path = |i: u32| format!("src/some/deep/folder/file-{i:06}.rs");
+        let mut snap = Snapshot { unstaged: (0..n).map(|i| file(&path(i), Change::Modified, false)).collect(), ..Snapshot::default() };
+        let numstat: Numstat = (0..n).rev().map(|i| (path(i), Some((i, 1)))).collect();
+        let start = Instant::now();
+        attach_counts(&mut snap, Vec::new(), numstat, |_| None);
+        let took = start.elapsed();
+        assert!(snap.unstaged.iter().enumerate().all(|(i, f)| f.counts == Some((i as u32, 1))));
+        // Searching per file is 800 million string compares here: 26 s in a debug build, where
+        // this takes about 0.1 s.
+        assert!(took < Duration::from_secs(5), "attaching counts took {took:?}");
+    }
 }
