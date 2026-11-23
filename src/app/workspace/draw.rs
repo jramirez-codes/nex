@@ -530,7 +530,6 @@ impl App {
     }
 }
 
-/// Process glyph and title at the left of a pane header, the title fading out before `right`.
 /// The pane header's pin, in button icon rect `r`: always at the desktop's icon size, so mobile
 /// mode's bigger buttons keep a finger-sized target without a bigger pin.
 fn pane_pin(p: &Painter, r: Rect, c: Color32) {
@@ -538,6 +537,7 @@ fn pane_pin(p: &Painter, r: Rect, c: Color32) {
     icons::icon_pin(p, Rect::from_center_size(r.center(), Vec2::splat(side)), c);
 }
 
+/// Process glyph and title at the left of a pane header, the title fading out before `right`.
 fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
     let cy = header.center().y + 1.0;
     let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));
