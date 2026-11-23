@@ -130,10 +130,89 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # The Android app (nex-android/README.md), signed with the release key so each release installs
+  # over the last. It carries every nex-host build to install on the servers it connects to.
+  android:
+    name: Build Android APK
+    needs: host
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          version="v$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)"
+          android="v$(grep -m1 '^version' nex-android/Cargo.toml | cut -d '"' -f2)"
+          if [ "$version" != "$GITHUB_REF_NAME" ] || [ "$android" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml ($version) and nex-android ($android)"
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK platform, build-tools and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264" > /dev/null
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-android
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk --version 0.10.0 --locked
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: host-*
+          merge-multiple: true
+          path: target/host
+
+      - name: Build
+        env:
+          # Newer phones use 16 KB pages; cargo-apk ignores target-specific rustflags.
+          RUSTFLAGS: -C link-arg=-Wl,-z,max-page-size=16384
+          KEYSTORE_B64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_B64 }}
+          CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_RELEASE_KEYSTORE_B64 secret is not set"
+            exit 1
+          fi
+          export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/26.3.11579264"
+          export NEX_HOST_DIR="$PWD/target/host"
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nex-release.p12"
+          export CARGO_APK_RELEASE_KEYSTORE="$RUNNER_TEMP/nex-release.p12"
+          cargo apk build -p nex-android --release
+          rm "$RUNNER_TEMP/nex-release.p12"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/apk/nex.apk "dist/nex-${GITHUB_REF_NAME}-android-arm64.apk"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs dist/*.apk
+          cd dist && sha256sum * > SHA256SUMS-android.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-android
+          path: dist/*
+          if-no-files-found: error
+
+  # Not needed by `publish`: its tests have hung on the runner (v0.11.0), and Linux and Android
+  # shouldn't wait on it. When it does finish, `publish-macos` adds its files to the release.
   build-macos:
     name: Build macOS (universal)
     needs: host
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
@@ -196,7 +275,7 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [build, build-macos]
+    needs: [build, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -206,6 +285,10 @@ jobs:
           pattern: dist-*
           merge-multiple: true
           path: dist
+
+      # Whichever of build-macos's files are already here go up with `publish-macos`.
+      - name: Leave macOS files to publish-macos
+        run: rm -f dist/*macos*
 
       - name: Combine checksums
         run: |
@@ -236,9 +319,15 @@ jobs:
           ./nex-${GITHUB_REF_NAME}-x86_64-linux/install.sh   # installs to ~/.local
           \`\`\`
 
+          **Android (arm64)**
+
+          Install \`nex-${GITHUB_REF_NAME}-android-arm64.apk\` on the phone (allow installs from
+          your browser or file manager when asked), or \`adb install -r\` it. It connects to your
+          server over ssh; see nex-android/README.md.
+
           **macOS (Apple Silicon and Intel)**
 
-          Unzip \`nex-${GITHUB_REF_NAME}-macos-app.zip\` and drag \`nex.app\` to Applications. It isn't
+          The macOS files are added to this release once their build finishes. Unzip \`nex-${GITHUB_REF_NAME}-macos-app.zip\` and drag \`nex.app\` to Applications. It isn't
           notarized yet, so clear the download flag once before opening it:
           \`\`\`sh
           xattr -dr com.apple.quarantine /Applications/nex.app
@@ -263,3 +352,23 @@ jobs:
             --title "nex $GITHUB_REF_NAME" \
             --notes-file notes.md \
             --verify-tag
+
+  publish-macos:
+    name: Add macOS to the release
+    needs: [build-macos, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-macos
+          path: dist
+
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D sums
+          cat sums/SHA256SUMS.txt dist/SHA256SUMS-macos.txt | sort -k2 > SHA256SUMS.txt
+          rm dist/SHA256SUMS-macos.txt
+          gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
