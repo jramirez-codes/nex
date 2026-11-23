@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The connect screen (Android, iOS, `nex --remote`) is one card drawn like a focused
+  terminal pane: the pane's header with the ssh glyph and the step's title, the fields on the
+  card's own fill, and the desktop alert's buttons and recessed panels (Cancel beside "Trust
+  and Connect"). It sits in the screen's safe area.
+
 ## [0.12.0] - 2026-11-23
 
 ### Added

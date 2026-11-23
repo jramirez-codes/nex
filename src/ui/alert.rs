@@ -1,7 +1,8 @@
 //! A macOS-style alert: a narrow centered card over a dimmed window, with an icon tile, a bold
 //! centered title, softer body text, optional numbered steps, and equal-width buttons
 //! (secondary on the left, primary on the right). Enter picks the primary button; Escape or a
-//! tap outside picks the secondary one (or dismisses an alert with a single button).
+//! tap outside picks the secondary one (or dismisses an alert with a single button). Its
+//! buttons and recessed panel are public, for the connect screen's card.
 
 use egui::epaint::Shadow;
 use egui::text::{LayoutJob, TextFormat};
@@ -93,10 +94,18 @@ impl Alert<'_> {
     }
 }
 
-/// Numbered steps in a recessed panel.
-fn steps(ui: &mut Ui, steps: &[String], scale: f32, theme: &Theme) {
+/// A recessed panel across the available width (an alert's steps, the connect screen's key
+/// fingerprint), holding what `add` puts in it.
+pub fn recessed(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     egui::Frame::new().fill(Color32::from_black_alpha(46)).stroke(Stroke::new(1.0_f32, white_alpha(10))).corner_radius(10).inner_margin(12).show(ui, |ui| {
         ui.set_width(ui.available_width());
+        add(ui);
+    });
+}
+
+/// Numbered steps in a recessed panel.
+fn steps(ui: &mut Ui, steps: &[String], scale: f32, theme: &Theme) {
+    recessed(ui, |ui| {
         for (n, step) in steps.iter().enumerate() {
             if n > 0 {
                 ui.add_space(9.0);
@@ -167,8 +176,9 @@ fn buttons(ui: &mut Ui, alert: &Alert, scale: f32, theme: &Theme) -> Option<Aler
     choice
 }
 
-/// One alert button, with hover and press states. Returns whether it was clicked.
-fn button(ui: &mut Ui, rect: Rect, label: &str, primary: bool, scale: f32, theme: &Theme) -> bool {
+/// An alert button in `rect`, blue when `primary`, with hover and press states. Returns
+/// whether it was clicked.
+pub fn button(ui: &mut Ui, rect: Rect, label: &str, primary: bool, scale: f32, theme: &Theme) -> bool {
     let resp = ui.interact(rect, ui.id().with(label), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
     let (fill, text) = if primary { (BLUE, Color32::WHITE) } else { (white_alpha(20), theme.text_bright) };
     let fill = if resp.is_pointer_button_down_on() {
@@ -178,14 +188,30 @@ fn button(ui: &mut Ui, rect: Rect, label: &str, primary: bool, scale: f32, theme
     } else {
         fill
     };
-    let p = ui.painter();
+    paint_button(ui.painter(), rect, fill, primary);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, bold(13.0 * scale), text);
+    resp.clicked()
+}
+
+/// A primary [`button`] that is working on it: dimmed, a spinner beside its label, and no
+/// presses.
+pub fn busy_button(ui: &mut Ui, rect: Rect, label: &str, scale: f32) {
+    paint_button(ui.painter(), rect, BLUE.gamma_multiply(0.6), true);
+    let font = bold(13.0 * scale);
+    let text_w = ui.painter().layout_no_wrap(label.to_string(), font.clone(), Color32::WHITE).size().x;
+    let (spin, gap) = (14.0 * scale, 8.0);
+    let left = rect.center().x - (text_w + spin + gap) / 2.0;
+    let at = Rect::from_center_size(Pos2::new(left + spin / 2.0, rect.center().y), Vec2::splat(spin));
+    egui::Spinner::new().size(spin).color(Color32::WHITE).paint_at(ui, at);
+    ui.painter().text(Pos2::new(left + spin + gap, rect.center().y), egui::Align2::LEFT_CENTER, label, font, Color32::WHITE);
+}
+
+fn paint_button(p: &Painter, rect: Rect, fill: Color32, primary: bool) {
     p.rect_filled(rect, BUTTON_RADIUS, fill);
     if primary {
         // A soft top sheen, so the primary button reads as raised.
         p.rect_stroke(rect, BUTTON_RADIUS, Stroke::new(1.0_f32, white_alpha(30)), StrokeKind::Inside);
     }
-    p.text(rect.center(), egui::Align2::CENTER_CENTER, label, bold(13.0 * scale), text);
-    resp.clicked()
 }
 
 /// A rounded tile in the icon's color with a white symbol, like a macOS alert's app badge.
