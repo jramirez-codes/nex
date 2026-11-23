@@ -6,6 +6,7 @@ import './nav.css'
 
 const LINKS = [
   ['SSH', '#ssh'],
+  ['Agents', '#agents'],
   ['macOS', '#mac'],
   ['Features', '#features'],
   ['Shortcuts', '#shortcuts'],

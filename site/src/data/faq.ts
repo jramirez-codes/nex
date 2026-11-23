@@ -6,7 +6,19 @@
 export const FAQ: { q: string; a: string }[] = [
   {
     q: 'What is nex?',
-    a: 'nex is a free, open-source, GPU-accelerated terminal emulator for Linux and macOS, written in Rust. It has tabs, split panes and a file explorer built in, so you get a tmux-style layout and a file manager in one native-feeling window. ssh sessions come along too: splits stay on the server, and files you drop or paste are uploaded.',
+    a: 'nex is a free, open-source, GPU-accelerated terminal emulator for Linux and macOS, written in Rust. Tabs, split panes, a file explorer and a git Changes pane are built in, so you get a tmux-style layout, a file manager and a diff viewer in one native-feeling window. ssh sessions come along too: splits stay on the server, and files you drop or paste are uploaded. And an Agents pane keeps every Claude Code and Codex agent you run in view, saying which one needs you.',
+  },
+  {
+    q: 'Which coding agents does nex work with?',
+    a: 'Claude Code and Codex. nex spots them in any pane, local or over ssh, and shows each one as a card in the Agents pane (Ctrl+Shift+A, Cmd+Shift+A on macOS) with its task, folder and tab, sorted as needs you, done, working or idle. Enter or a click jumps to its pane.',
+  },
+  {
+    q: 'What is an agent pipeline?',
+    a: 'A list of stages in .nex/pipelines/NAME.toml, each an agent given a task, whose report feeds the stages after it. Stages can run side by side in git worktrees of their own, send the run back until a reviewer approves, or line up behind one merger that takes their pull requests first come, first served. nex-host pipe NAME "task" runs it, and the Agents pane shows the run as one team card with its stages.',
+  },
+  {
+    q: 'Do agents keep running if I close the pane or lose ssh?',
+    a: 'On an ssh host, yes. nex installs a small helper, nex-host, in ~/.nex on the server (no root needed), and agents started through it keep running when you close their pane, lose the connection or quit nex. Their cards stay in the Agents pane marked Detached; click one to open a tab attached to it, with the screen where it left off.',
   },
   {
     q: 'Does nex run on macOS?',

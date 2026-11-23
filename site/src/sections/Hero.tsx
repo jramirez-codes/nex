@@ -32,18 +32,18 @@ export default function Hero() {
 
   return (
     <section className="hero" id="top">
-      <a className="hero-badge hero-in" href="#ssh">
+      <a className="hero-badge hero-in" href="#agents">
         <span className="hero-badge-new">New</span>
-        SSH that follows you, in nex 0.10
+        Agents pane and pipelines
         <span aria-hidden="true">→</span>
       </a>
       <h1 className="hero-title hero-in">
         The <span className="gradient-text">nex</span> terminal.
       </h1>
       <p className="lede hero-sub hero-in">
-        A fast, GPU-accelerated terminal for macOS and Linux, written in Rust. Tabs, split
-        panes, a file explorer and SSH that follows you, all built in. No tmux, no plugins,
-        no setup.
+        A fast, GPU-accelerated terminal for macOS and Linux, written in Rust, with agent
+        monitoring, SSH that follows you, a file explorer and git changes built in. No tmux,
+        no plugins, no setup.
       </p>
       <div className="hero-actions hero-in">
         <a className="btn btn-primary" href={RELEASES}>Download for {platformName(platform)}</a>
@@ -61,8 +61,8 @@ export default function Hero() {
         <div className="hero-window">
           <DemoVideo
             className="hero-shot"
-            name="tour"
-            label="nex splitting into git, btop and nvim panes, moving focus between them, and switching tabs"
+            name="hero"
+            label="nex over ssh: a pipeline of agents starts and the Agents pane is pinned beside it; a new tab opens on the same server with the git Changes pane, another with a file explorer, and the pinned pane follows back to the run"
             width={1200}
             height={750}
             eager

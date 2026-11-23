@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Turn the `promo` clip of a record.py take into a social post: the nex window floating over a
 still, macOS-style dusk landscape (layered hills fading into haze under a warm horizon glow),
-with a soft shadow and a caption under it naming each feature as it plays. The clip is sped up
-to fit DURATION. The backdrop doesn't move, so the GIF only stores the window's changes.
+centered with a soft shadow. The clip is sped up to fit DURATION. The backdrop doesn't move, so
+the GIF only stores the window's changes.
 
-Writes promo.mp4 and promo.gif (both 1920x1080) to OUT_DIR; with --no-captions, hero.mp4 and
-hero.gif instead (the README's top GIF): no caption, and the window centered.
+Writes promo.mp4, promo.gif (both 1920x1080) and promo.jpg (the poster: the clip's last frame,
+where everything is on screen) to OUT_DIR: the site's hero video and the README's top GIF.
+With --captions, the window sits higher and the scene's `caption:<text>` markers are shown
+under it as each part plays (the promo scene has none right now).
 Usage: DEMO_SCENES=promo tools/demo/record.py [TAKE_DIR]
-       tools/demo/promo.py [TAKE_DIR] [OUT_DIR] [--background IMAGE] [--no-captions]
+       tools/demo/promo.py [TAKE_DIR] [OUT_DIR] [--background IMAGE] [--captions]
        (defaults: target/demo, site/public/demo; IMAGE replaces the generated landscape and is
        cropped to fill the frame)
        tools/demo/promo.py --still OUT.png [--background IMAGE]   just the backdrop, to preview
@@ -144,8 +146,8 @@ def main() -> None:
     ap.add_argument("out_dir", nargs="?", type=Path, default=REPO / "site" / "public" / "demo")
     ap.add_argument("--background", type=Path, help="image to use instead of the generated landscape")
     ap.add_argument("--still", type=Path, help="only write the backdrop to this PNG")
-    ap.add_argument("--no-captions", action="store_true",
-                    help="leave the captions out and center the window; writes hero.mp4/hero.gif")
+    ap.add_argument("--captions", action="store_true",
+                    help="show the scene's caption markers under the window (which sits higher)")
     args = ap.parse_args()
 
     bg = backdrop(args.background)
@@ -158,12 +160,12 @@ def main() -> None:
     marks = json.loads((args.take_dir / "timeline.json").read_text())
     start = next(m["t"] for m in marks if m["clip"] == "promo" and m["event"] == "start")
     end = next(m["t"] for m in marks if m["clip"] == "promo" and m["event"] == "end")
-    caps = [] if args.no_captions else captions(marks, start, end)
-    name = "hero" if args.no_captions else "promo"
+    caps = captions(marks, start, end) if args.captions else []
+    name = "promo"
 
     win = (WIN_W, round(WIN_W * 900 / 1440))
     # With captions the window sits high, leaving a band under it for them.
-    wx, wy = (W - win[0]) // 2, (H - win[1]) // 2 if args.no_captions else 46
+    wx, wy = (W - win[0]) // 2, 46 if args.captions else (H - win[1]) // 2
     radius = CORNER * WIN_W / 1440 + 1
     mask = rounded_mask(win, radius)
 
@@ -265,6 +267,7 @@ def main() -> None:
                 flat = Image.alpha_composite(flat.convert("RGBA"), cap).convert("RGB")
                 alpha = cap.getchannel("A")
                 ink = alpha if ink is None else ImageChops.lighter(ink, alpha)
+        last = smooth
         mp4_enc.stdin.write(smooth.convert("RGB").tobytes())
         snap(flat, win_box)
         if ink is not None:
@@ -274,7 +277,9 @@ def main() -> None:
         enc.stdin.close()
         enc.wait()
     palette_png.unlink()
-    for out in (master, gif):
+    poster = args.out_dir / f"{name}.jpg"
+    last.convert("RGB").save(poster, quality=86, optimize=True, progressive=True)
+    for out in (master, gif, poster):
         print(f"{out}  {out.stat().st_size / 1e6:5.1f} MB")
 
 

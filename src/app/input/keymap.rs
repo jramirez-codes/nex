@@ -132,6 +132,7 @@ fn ctrl_style() -> Vec<(Mods, Key, Action)> {
         (CTRL, Key::E, ExploreHere),
         (CTRL, Key::G, ToggleGitDiff),
         (CTRL | SHIFT, Key::A, ToggleAgents),
+        (CTRL | SHIFT, Key::P, ToggleSticky(0)),
         (SHIFT, Key::PageUp, ScrollPageUp),
         (SHIFT, Key::PageDown, ScrollPageDown),
         (SHIFT, Key::Home, ScrollTop),
@@ -186,6 +187,7 @@ fn cmd_style() -> Vec<(Mods, Key, Action)> {
         (CMD, Key::E, ExploreHere),
         (CMD, Key::G, ToggleGitDiff),
         (CMD | SHIFT, Key::A, ToggleAgents),
+        (CMD | SHIFT, Key::P, ToggleSticky(0)),
         (SHIFT, Key::PageUp, ScrollPageUp),
         (SHIFT, Key::PageDown, ScrollPageDown),
         (SHIFT, Key::Home, ScrollTop),
@@ -276,6 +278,7 @@ mod tests {
         let b = bindings_for(ShortcutStyle::Ctrl);
         assert_eq!(shortcut_label(&b, Action::ClosePane(0)).as_deref(), Some("Ctrl+Shift+W"));
         assert_eq!(shortcut_label(&b, Action::CloseExplorer), None);
+        assert_eq!(shortcut_label(&b, Action::ToggleSticky(0)).as_deref(), Some("Ctrl+Shift+P"));
     }
 
     #[test]
