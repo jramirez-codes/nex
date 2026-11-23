@@ -11,7 +11,7 @@ build-export ─▶ open PR ─┘
 - Each builder is a Claude Code agent in a git worktree of its own (`worktree = true`). It
   builds one feature of a tiny todo app, opens a PR, and reports it with `done --pr N`.
 - The `merge` stage has `each = true`. The pipeline gives each report, in the order they
-  arrive, to a fresh Claude agent that reviews the PR and merges it, one PR at a time.
+  arrive, to one Claude agent that reviews the PR and merges it, one PR at a time.
 - If the merger sends a PR back (`--verdict changes`: a conflict, missing tests), the
   builder, still running, gets that as a new task, fixes it, and its PR rejoins the line.
 
@@ -38,7 +38,7 @@ The runner's screen shows the line as it moves:
 
 ```
 ▸ build-search (PR 2) is next: added search …
-  merge-1 (claude) is on it: 5d1e…
+  merge (claude) is on it: 5d1e…
 ✓ build-search (PR 2) approved: merged PR 2 …
 ...
 ✓ finished. merge approved 3: build-search (PR 2), build-stats (PR 1), build-export (PR 3)

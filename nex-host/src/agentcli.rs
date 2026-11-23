@@ -243,8 +243,23 @@ pub fn pipe(args: &[String]) -> io::Result<i32> {
         [name, task @ ..] if !task.is_empty() => {
             let file = pipeline::find(name).ok_or_else(|| bad(format!("no pipeline {name} (see nex-host pipe ls)")))?;
             let spec = std::fs::read_to_string(&file)?;
-            pipeline::Pipeline::parse(&spec).map_err(|e| bad(format!("{}: {e}", file.display())))?;
+            let parsed = pipeline::Pipeline::parse(&spec).map_err(|e| bad(format!("{}: {e}", file.display())))?;
             let task = text(task)?;
+            let here = std::env::current_dir()?;
+            // One run per pipeline and repository: a run that's going takes this task too.
+            let going = if parsed.joinable() { client::request(&Request::List, false).ok().and_then(|r| r.sessions).unwrap_or_default() } else { Vec::new() };
+            if let Some(run) = pipeline::joins(&going, &file, &here, &repo_top) {
+                client::request(
+                    &Request::Send { from: me(), to: run.id.clone(), kind: MessageKind::Task, body: task, reply_to: None, verdict: None, files: vec![], pr: None, force: false },
+                    true,
+                )?;
+                if a.flag("--bg") {
+                    println!("{}", run.id);
+                    return Ok(0);
+                }
+                eprintln!("Joined the {} run that's going ({}).", run.name, run.id);
+                return crate::attach::run(&run.id);
+            }
             let exe = std::env::current_exe()?.to_string_lossy().into_owned();
             let cwd = std::env::current_dir()?.to_string_lossy().into_owned();
             let (cols, rows) = crate::terminal_size().unwrap_or((120, 40));
@@ -275,14 +290,39 @@ pub fn pipe(args: &[String]) -> io::Result<i32> {
 /// agents up until Enter (they end with this).
 pub fn pipe_run(args: &[String]) -> io::Result<i32> {
     let [file, task] = args else { return Err(bad("usage: nex-host pipe-run FILE TASK")) };
-    let code = pipeline::run(Path::new(file), task).unwrap_or_else(|e| {
-        println!("\n✗ {e}");
-        1
+    // Enter, as it's pressed (a closed stdin never counts as one).
+    let (tx, enter) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        while io::stdin().read_line(&mut line).is_ok_and(|n| n > 0) {
+            if tx.send(()).is_err() {
+                return;
+            }
+            line.clear();
+        }
     });
-    println!("\nThe stages' agents are still up (nex-host ls). Press Enter to end them and this.");
-    let mut line = String::new();
-    let _ = io::stdin().read_line(&mut line);
-    Ok(code)
+    let ran = pipeline::run(Path::new(file), task, &enter).unwrap_or_else(|e| {
+        println!("\n✗ {e}");
+        pipeline::Ran { code: 1, ended: false }
+    });
+    if !ran.ended {
+        println!("\nThe stages' agents are still up (nex-host ls). Press Enter to end them and this.");
+        let _ = enter.recv();
+    }
+    Ok(ran.code)
+}
+
+/// The top of the git repository `dir` is in, or `dir` itself.
+fn repo_top(dir: &Path) -> PathBuf {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+        .unwrap_or_else(|| dir.to_path_buf())
 }
 
 /// A new git worktree of the repository `dir` is in, on a branch of its own, for `name`.

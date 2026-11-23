@@ -32,7 +32,7 @@ impl Host {
             .env("SHELL", "/bin/sh")
             .env("NEX_HOST_IDLE_EXIT", "1")
             .env_remove("CLAUDE_CONFIG_DIR")
-            // GitHub's runners set it, and it would win over the temporary HOME.
+            // CI runners set it, and pipelines are looked for there before $HOME/.config.
             .env_remove("XDG_CONFIG_HOME");
         c
     }
