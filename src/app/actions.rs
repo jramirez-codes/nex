@@ -4,11 +4,11 @@
 use alacritty_terminal::grid::Scroll;
 use egui::ViewportCommand;
 
-use crate::config::{FONT_MAX, FONT_MIN};
-use crate::layout::{self, Axis, Direction, PaneId, PaneKind};
+use crate::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
 use crate::app::App;
+use crate::app::workspace::PaneMut;
 use crate::app::ssh::follow::Place;
 use crate::app::input::zoom::EXPLORER_ZOOM_STEP;
 
@@ -265,25 +265,16 @@ impl App {
     /// zooms its whole listing instead.
     fn change_font(&mut self, ctx: &egui::Context, action: Action) {
         let Some(id) = self.focused_pane() else { return };
-        match self.pane_kind(id) {
-            Some(PaneKind::Explorer) => {
-                let explorer = self.explorers.get_mut(&id).unwrap();
+        match self.pane_mut(id) {
+            Some(PaneMut::Explorer(explorer)) => {
                 match action {
                     Action::FontBigger => explorer.zoom_by(EXPLORER_ZOOM_STEP, None),
                     Action::FontSmaller => explorer.zoom_by(1.0 / EXPLORER_ZOOM_STEP, None),
                     _ => explorer.reset_zoom(),
                 }
             }
-            Some(PaneKind::Agents) => {}
-            Some(PaneKind::Diff) => {
-                let size = self.pane_font(id);
-                match action {
-                    Action::FontBigger => self.pane_fonts.insert(id, (size + 1.0).min(FONT_MAX)),
-                    Action::FontSmaller => self.pane_fonts.insert(id, (size - 1.0).max(FONT_MIN)),
-                    _ => self.pane_fonts.remove(&id),
-                };
-            }
-            Some(PaneKind::Terminal) | None => {
+            Some(PaneMut::Agents(_)) => {}
+            Some(PaneMut::Terminal(_) | PaneMut::Diff(_)) | None => {
                 let size = self.pane_font(id);
                 let size = match action {
                     Action::FontBigger => Some(size + 1.0),

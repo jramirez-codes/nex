@@ -6,7 +6,7 @@ use egui::emath::TSTransform;
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
 use crate::config::AgentsTab;
-use crate::layout::{PaneId, PaneKind};
+use crate::layout::PaneId;
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
@@ -15,6 +15,7 @@ use crate::ui::{dog, glide, icons, paint};
 
 use crate::app::App;
 use crate::app::actions::Action;
+use crate::app::workspace::PaneRef;
 use crate::app::workspace::pane_drag::{DropTarget, SPRING_DELAY};
 use crate::app::animation::tab_close::{GLYPH, TabDrawn, TabGhost};
 
@@ -694,15 +695,14 @@ impl App {
 
     /// The app tile pane `id` shows in its tab's icon deck: its process and title mark.
     fn deck_card(&self, id: PaneId) -> (String, Option<String>) {
-        match self.pane_kind(id) {
-            Some(PaneKind::Terminal) => {
-                let t = &self.panes[&id];
+        match self.pane(id) {
+            Some(PaneRef::Terminal(t)) => {
                 let title = t.title();
                 (t.process.clone(), icons::title_mark(&t.process, &title).0.map(str::to_string))
             }
-            Some(PaneKind::Explorer) => (icons::EXPLORER_PROCESS.to_string(), None),
-            Some(PaneKind::Diff) => (icons::DIFF_PROCESS.to_string(), None),
-            Some(PaneKind::Agents) => (icons::AGENTS_PROCESS.to_string(), None),
+            Some(PaneRef::Explorer(_)) => (icons::EXPLORER_PROCESS.to_string(), None),
+            Some(PaneRef::Diff(_)) => (icons::DIFF_PROCESS.to_string(), None),
+            Some(PaneRef::Agents(_)) => (icons::AGENTS_PROCESS.to_string(), None),
             None => Default::default(),
         }
     }

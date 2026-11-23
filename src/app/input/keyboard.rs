@@ -11,6 +11,7 @@ use crate::terminal::Terminal;
 use crate::app::App;
 use crate::app::actions::Action;
 use crate::app::input::keymap::{self, ClipboardKey};
+use crate::app::workspace::PaneMut;
 
 impl App {
     pub(in crate::app) fn handle_keyboard(&mut self, ctx: &egui::Context) {
@@ -188,26 +189,25 @@ impl App {
     /// A key for the focused pane (no shortcut lookup): its own keys for an Agents, Changes or
     /// file explorer pane, the search field while it's open, else the shell.
     pub(in crate::app) fn key_to_pane(&mut self, key: Key, modifiers: Modifiers) {
-        let focused = self.focused_pane();
-        match focused.and_then(|id| self.pane_kind(id).map(|kind| (id, kind))) {
-            Some((id, PaneKind::Agents)) => {
-                self.agents.get_mut(&id).unwrap().key(key, modifiers);
+        let searching = self.search.is_some();
+        match self.focused_pane().and_then(|id| self.pane_mut(id)) {
+            Some(PaneMut::Agents(a)) => {
+                a.key(key, modifiers);
             }
-            Some((id, PaneKind::Diff)) => {
-                self.diffs.get_mut(&id).unwrap().key(key, modifiers);
+            Some(PaneMut::Diff(d)) => {
+                d.key(key, modifiers);
             }
-            Some((id, PaneKind::Explorer)) => {
-                self.explorers.get_mut(&id).unwrap().key(key, modifiers);
+            Some(PaneMut::Explorer(b)) => {
+                b.key(key, modifiers);
             }
-            Some((_, PaneKind::Terminal)) | None if self.search.is_some() => self.search_key(key, modifiers),
-            Some((_, PaneKind::Terminal)) | None => {
-                if let Some(t) = self.focused_terminal() {
-                    let mode = *t.term.lock().mode();
-                    if let Some(bytes) = input::encode_key(key, modifiers, mode) {
-                        t.input(bytes);
-                    }
+            Some(PaneMut::Terminal(_)) | None if searching => self.search_key(key, modifiers),
+            Some(PaneMut::Terminal(t)) => {
+                let mode = *t.term.lock().mode();
+                if let Some(bytes) = input::encode_key(key, modifiers, mode) {
+                    t.input(bytes);
                 }
             }
+            None => {}
         }
     }
 
