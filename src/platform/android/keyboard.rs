@@ -178,3 +178,26 @@ pub fn haptic(kind: Haptic) {
         Ok(())
     });
 }
+
+/// Whether the app may record from the microphone (`RECORD_AUDIO` granted).
+pub fn mic_allowed() -> bool {
+    let (Some(class), Some(activity)) = (INPUT_CLASS.get(), activity()) else { return false };
+    let activity = &activity;
+    with_context(|env, _app| {
+        let class: &JClass = class.as_obj().into();
+        Ok(env.call_static_method(class, "hasMic", "(Landroid/app/Activity;)Z", &[JValue::Object(activity)])?.z()?)
+    })
+    .unwrap_or(false)
+}
+
+/// Ask the user to let the app use the microphone. Returns at once; the answer isn't passed
+/// back, so [`mic_allowed`] is checked again when the mic is next needed.
+pub fn ask_mic() {
+    let (Some(class), Some(activity)) = (INPUT_CLASS.get(), activity()) else { return };
+    let activity = &activity;
+    with_context(|env, _app| {
+        let class: &JClass = class.as_obj().into();
+        env.call_static_method(class, "askMic", "(Landroid/app/Activity;)V", &[JValue::Object(activity)])?;
+        Ok(())
+    });
+}

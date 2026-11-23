@@ -400,22 +400,41 @@ impl Drop for Live {
 }
 
 /// A command running on the host: what it prints ([`ExecReader`]), what it reads
-/// ([`ExecWriter`]; dropping it ends its input), and its exit status once it has ended.
+/// ([`ExecWriter`]; dropping it ends its input), its exit status once it has ended, and a way
+/// to end it from outside ([`ExecCloser`]).
 pub struct Exec {
     pub reader: ExecReader,
     pub writer: ExecWriter,
     pub status: Arc<Mutex<Option<u32>>>,
+    pub closer: ExecCloser,
+}
+
+/// Ends a command from outside: sends it `SIGTERM` and closes its channel. Ending its input
+/// isn't always enough (a command blocked opening a FIFO never reads it). Cheap to clone.
+#[derive(Clone)]
+pub struct ExecCloser {
+    close: Arc<tokio::sync::Notify>,
+}
+
+impl ExecCloser {
+    /// End the command. Returns at once; does nothing once it has ended.
+    pub fn close(&self) {
+        // A permit is kept if the task isn't waiting right now, so this is never missed.
+        self.close.notify_one();
+    }
 }
 
 impl Exec {
     /// Start the task that moves the channel's data to `reader` and `writer`'s data to it,
-    /// until the channel closes or `killed` says the connection is dead.
+    /// until the channel closes, `killed` says the connection is dead, or the closer is used.
     fn start(channel: russh::Channel<client::Msg>, mut killed: tokio::sync::watch::Receiver<bool>) -> Exec {
         let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
         let (in_tx, mut in_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
         let status = Arc::new(Mutex::new(None));
         let exit = status.clone();
         let (mut read, write) = channel.split();
+        let close = Arc::new(tokio::sync::Notify::new());
+        let closing = close.clone();
         runtime().spawn(async move {
             let mut input_open = true;
             // Ends only when the connection is found dead (not when the client is dropped).
@@ -428,6 +447,11 @@ impl Exec {
             loop {
                 tokio::select! {
                     () = &mut dead => break,
+                    () = closing.notified() => {
+                        let _ = write.signal(russh::Sig::TERM).await;
+                        let _ = write.close().await;
+                        break;
+                    }
                     msg = read.wait() => match msg {
                         Some(ChannelMsg::Data { data }) => {
                             // Once the reader is gone, output is just dropped until the end.
@@ -454,7 +478,7 @@ impl Exec {
             }
             // Dropping `out_tx` ends the reader.
         });
-        Exec { reader: ExecReader { rx: out_rx, pending: Vec::new(), at: 0 }, writer: ExecWriter { tx: in_tx }, status }
+        Exec { reader: ExecReader { rx: out_rx, pending: Vec::new(), at: 0 }, writer: ExecWriter { tx: in_tx }, status, closer: ExecCloser { close } }
     }
 }
 

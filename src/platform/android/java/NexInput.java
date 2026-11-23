@@ -199,6 +199,23 @@ public final class NexInput extends View {
         });
     }
 
+    /** Whether the app may record from the microphone. */
+    public static boolean hasMic(Activity activity) {
+        return activity.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** Ask the user to let the app use the microphone. NativeActivity doesn't pass the answer
+     *  on, so nex checks {@link #hasMic} again the next time it needs the mic. */
+    public static void askMic(final Activity activity) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                activity.requestPermissions(new String[] { android.Manifest.permission.RECORD_AUDIO }, 1);
+            }
+        });
+    }
+
     /** Add the (invisible, 1 px) view to the activity and give it focus. */
     public static void install(final Activity activity) {
         activity.runOnUiThread(new Runnable() {

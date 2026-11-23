@@ -536,6 +536,11 @@ impl Terminal {
         }
     }
 
+    /// The shell runs on a host nex connects to itself (see `remote.rs`), not on this machine.
+    pub fn is_remote(&self) -> bool {
+        self.remote.is_some()
+    }
+
     /// The host this pane's foreground `ssh` is connected to, if that is what it's running.
     /// Refreshes the process info first, so an `ssh` started a moment ago counts.
     pub fn ssh_target(&mut self) -> Option<crate::remote::SshTarget> {

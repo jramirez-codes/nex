@@ -24,6 +24,12 @@ All notable changes to nex are documented here. The format follows
 - Android: the title-bar tabs keep one width, two and a half to the screen, and the strip
   swipes sideways (with a fling) instead of squeezing every tab in. Long-press a tab, then
   drag, to reorder it; a new or newly shown tab scrolls into view.
+- Android: hold the keyboard button in a terminal to talk to Claude Code's voice mode. After
+  about half a second it turns red with a mic, the phone's microphone is shared with the
+  host (over the app's own connection: the shared mic works on Android now), and Space goes
+  to the terminal as if held until you let go, and a moment after so the last words get
+  through. Android asks for the microphone the first time. Taps, double-taps and drags keep
+  their meaning.
 - Android: a round glass keyboard button in the bottom-right corner of terminals and the
   Agents tab, above the on-screen keyboard while it's up. Tap it to put the keyboard away or
   bring it back. Putting the keyboard away (the button, the back gesture or its hide key)

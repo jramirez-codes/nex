@@ -7,8 +7,16 @@
 //!   and the arrow key it points to repeats, faster the further it is pushed.
 //! - A double-tap arms Ctrl for the next key (`^C` is double-tap, then `c`); a second double
 //!   tap disarms it.
+//! - Holding it still (in a terminal) talks to Claude Code's voice mode, which records while
+//!   Space is held: a terminal sees that as fast repeated spaces, and the on-screen keyboard
+//!   can't send them (holding its Space moves its cursor). After [`HOLD_TO_TALK`] the button
+//!   turns red, the microphone is shared with the pane's host (`app/ssh/mic.rs`), and once the
+//!   host can record, a space goes to the terminal every [`SPACE_REPEAT`]. Letting go keeps
+//!   them coming for [`TALK_TAIL`], so the last words get through the share's delay. Pressing
+//!   again during that tail goes on talking.
 //!
-//! Telling a tap from a double-tap means a tap acts a moment after it lifts.
+//! Telling a tap from a double-tap means a tap acts a moment after it lifts. The timing rules
+//! are plain functions ([`lift`], [`hold_turns_to_talk`], [`Talk::tick`]), tested below.
 
 use std::f32::consts::{PI, TAU};
 
@@ -19,7 +27,7 @@ use crate::app::App;
 use crate::layout::{PaneId, PaneKind};
 use crate::platform::{self, Haptic};
 use crate::ui::glide::{Lerp, animations, ease_out};
-use crate::ui::icons::{icon_control, icon_keyboard, icon_keyboard_hide};
+use crate::ui::icons::{icon_control, icon_keyboard, icon_keyboard_hide, icon_mic};
 use crate::ui::theme::Theme;
 
 /// Apple's minimum tap target.
@@ -46,6 +54,14 @@ const FREE_TRAVEL: f32 = 24.0;
 const MAX_TRAVEL: f32 = 34.0;
 /// How long the knob takes to spring back once let go.
 const SPRING_TIME: f64 = 0.45;
+/// A press held still this long talks (longer than [`DOUBLE_TAP`], so taps keep their meaning).
+const HOLD_TO_TALK: f64 = 0.45;
+/// While talking, a space goes to the terminal this often: faster than a held key repeats,
+/// which is what Claude Code listens for.
+const SPACE_REPEAT: f64 = 0.03;
+/// Spaces go on this long after letting go: the share sends audio 0.2 s late
+/// (`remote::mic`'s `LEAD`), and recording stops when the spaces do.
+const TALK_TAIL: f64 = 0.35;
 
 /// Where the button goes in `area` (the content area).
 pub(in crate::app) fn button_rect(area: Rect) -> Rect {
@@ -86,6 +102,8 @@ pub(in crate::app) struct KeyboardButton {
     armed_at: f64,
     /// When the joystick last sent an arrow, for its chevron's tick.
     tick_at: f64,
+    /// Hold-to-talk is sending spaces (through the tail after letting go, too).
+    talk: Option<Talk>,
 }
 
 /// A finger on the button.
@@ -95,6 +113,79 @@ struct Press {
     offset: Vec2,
     /// It moved past the dead zone: the press is the joystick.
     stick: Option<Stick>,
+    /// When it went down.
+    down_at: f64,
+    /// It was held still long enough to talk (even if the share was refused): letting go
+    /// isn't a tap.
+    talking: bool,
+}
+
+/// Hold-to-talk sending spaces.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Talk {
+    /// When the next space is due.
+    next: f64,
+    /// Let go: spaces stop at this time.
+    until: Option<f64>,
+}
+
+impl Talk {
+    fn new(now: f64) -> Self {
+        Self { next: now, until: None }
+    }
+
+    /// The finger lifted at `now`: the tail starts.
+    fn release(&mut self, now: f64) {
+        self.until.get_or_insert(now + TALK_TAIL);
+    }
+
+    /// One frame at `now`, with the host able to record (`ready`) or not yet: whether to send
+    /// a space (at most one a frame), and when to look again (`None`: talking is over).
+    fn tick(&mut self, now: f64, ready: bool) -> (bool, Option<f64>) {
+        if self.until.is_some_and(|until| now >= until) {
+            return (false, None);
+        }
+        let send = ready && now >= self.next;
+        if send {
+            self.next = now + SPACE_REPEAT;
+        }
+        // Not ready yet: the share's events repaint, but look again soon anyway.
+        let wake = if ready { self.next } else { now + SPACE_REPEAT };
+        (send, Some(self.until.map_or(wake, |until| wake.min(until))))
+    }
+}
+
+/// A press that went down at `down_at` and hasn't moved past the dead zone (`still`), and
+/// isn't talking yet, starts talking at `now`.
+fn hold_turns_to_talk(down_at: f64, still: bool, now: f64) -> bool {
+    still && now - down_at >= HOLD_TO_TALK
+}
+
+/// What a finger lifting off the button means.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lift {
+    /// The end of a joystick drag.
+    Stick,
+    /// The end of a hold to talk.
+    Talk,
+    /// The second tap of a double-tap.
+    DoubleTap,
+    /// A tap (acted on once no second one follows).
+    Tap,
+}
+
+/// The press lifting at `now` was a joystick (`stick`) or a hold to talk (`talking`), or a
+/// plain press; `pending_tap` is when the tap before it lifted, if it's still waiting.
+fn lift(stick: bool, talking: bool, pending_tap: Option<f64>, now: f64) -> Lift {
+    if stick {
+        Lift::Stick
+    } else if talking {
+        Lift::Talk
+    } else if pending_tap.is_some_and(|at| now - at < DOUBLE_TAP) {
+        Lift::DoubleTap
+    } else {
+        Lift::Tap
+    }
 }
 
 struct Stick {
@@ -215,6 +306,7 @@ impl App {
         if focus != self.keyboard_button.last_focus {
             self.keyboard_button.last_focus = focus;
             self.keyboard_button.ctrl_armed = false;
+            self.keyboard_button.talk = None;
         }
         let shown = target.is_some();
         let fade = if animations(ctx) {
@@ -229,6 +321,7 @@ impl App {
             kb.rect = None;
             kb.press = None;
             kb.pending_tap = None;
+            kb.talk = None;
             return;
         };
         let rect = button_rect(self.content_area);
@@ -240,8 +333,17 @@ impl App {
             match event {
                 egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } => {
                     if rect.contains(pos) {
-                        self.keyboard_button.press = Some(Press { origin: pos, offset: Vec2::ZERO, stick: None });
-                        self.keyboard_button.spring = None;
+                        let kb = &mut self.keyboard_button;
+                        // Pressed again while the spaces trail off: go on talking.
+                        let talking = match kb.talk.as_mut() {
+                            Some(talk) => {
+                                talk.until = None;
+                                true
+                            }
+                            None => false,
+                        };
+                        kb.press = Some(Press { origin: pos, offset: Vec2::ZERO, stick: None, down_at: now, talking });
+                        kb.spring = None;
                     }
                 }
                 egui::Event::PointerMoved(pos) => self.joystick_move(pos, now, target),
@@ -253,6 +355,9 @@ impl App {
         }
         if self.keyboard_button.press.is_some() && !ctx.input(|i| i.pointer.any_down()) {
             self.cancel_button_press(now);
+        }
+        if target == Target::Terminal {
+            self.hold_to_talk(ctx, now);
         }
         self.repeat_arrow(ctx, now, target);
         // A tap with no second one after it: it was a tap.
@@ -268,10 +373,46 @@ impl App {
         self.paint_keyboard_button(ctx, rect, fade, target, now);
     }
 
+    /// A press held still turns to talking; while talking, spaces go to the terminal.
+    fn hold_to_talk(&mut self, ctx: &egui::Context, now: f64) {
+        if let Some(press) = self.keyboard_button.press.as_mut()
+            && !press.talking
+        {
+            if hold_turns_to_talk(press.down_at, press.stick.is_none(), now) {
+                press.talking = true;
+                self.keyboard_button.pending_tap = None;
+                if self.share_mic_for_talk(ctx) {
+                    self.keyboard_button.talk = Some(Talk::new(now));
+                    platform::haptic(Haptic::Confirm);
+                }
+            } else if press.stick.is_none() {
+                // Wake when it would turn.
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(HOLD_TO_TALK - (now - press.down_at)));
+            }
+        }
+        let Some(mut talk) = self.keyboard_button.talk else { return };
+        // No share any more (it failed, or was stopped): nothing to talk through.
+        let Some(ready) = self.mic_ready_for_talk() else {
+            self.keyboard_button.talk = None;
+            return;
+        };
+        let (send, wake) = talk.tick(now, ready);
+        if send && let Some(t) = self.focused_terminal() {
+            t.input(b" ".to_vec());
+        }
+        self.keyboard_button.talk = wake.map(|_| talk);
+        if let Some(at) = wake {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64((at - now).max(0.0)));
+        }
+    }
+
     /// The finger moved: past the dead zone the press is the joystick, sending the arrow it
-    /// points to as soon as it points somewhere new.
+    /// points to as soon as it points somewhere new. Not while talking.
     fn joystick_move(&mut self, pos: Pos2, now: f64, target: Target) {
         let Some(press) = self.keyboard_button.press.as_mut() else { return };
+        if press.talking {
+            return;
+        }
         press.offset = pos - press.origin;
         let distance = press.offset.length();
         let dir = (distance > DEAD_ZONE).then(|| direction(press.offset));
@@ -317,32 +458,42 @@ impl App {
         platform::haptic(Haptic::Tick);
     }
 
-    /// The finger lifted: a tap (or the second of a double-tap), or the end of a drag.
+    /// The finger lifted: a tap (or the second of a double-tap), the end of a drag, or of a
+    /// hold to talk.
     fn release(&mut self, now: f64, target: Target) {
         let kb = &mut self.keyboard_button;
         let Some(press) = kb.press.take() else { return };
-        if press.stick.is_some() {
-            kb.spring = Some((knob_travel(press.offset), now));
-            return;
-        }
-        if kb.pending_tap.take().is_some_and(|at| now - at < DOUBLE_TAP) {
-            kb.ctrl_armed = !kb.ctrl_armed;
-            if kb.ctrl_armed {
-                kb.armed_at = now;
-                // Ctrl needs a key to go with it.
-                kb.set_down(target, false);
-                platform::haptic(Haptic::Confirm);
-            } else {
-                platform::haptic(Haptic::Release);
+        match lift(press.stick.is_some(), press.talking, kb.pending_tap, now) {
+            Lift::Stick => kb.spring = Some((knob_travel(press.offset), now)),
+            Lift::Talk => {
+                if let Some(talk) = kb.talk.as_mut() {
+                    talk.release(now);
+                }
             }
-            return;
+            Lift::DoubleTap => {
+                kb.pending_tap = None;
+                kb.ctrl_armed = !kb.ctrl_armed;
+                if kb.ctrl_armed {
+                    kb.armed_at = now;
+                    // Ctrl needs a key to go with it.
+                    kb.set_down(target, false);
+                    platform::haptic(Haptic::Confirm);
+                } else {
+                    platform::haptic(Haptic::Release);
+                }
+            }
+            Lift::Tap => {
+                kb.pending_tap = Some(now);
+                platform::haptic(Haptic::Tap);
+            }
         }
-        kb.pending_tap = Some(now);
-        platform::haptic(Haptic::Tap);
     }
 
+    /// The touch ended without a release (the system took it): no tap, and talking stops at
+    /// once.
     fn cancel_button_press(&mut self, now: f64) {
         let kb = &mut self.keyboard_button;
+        kb.talk = None;
         if let Some(press) = kb.press.take()
             && press.stick.is_some()
         {
@@ -365,6 +516,7 @@ impl App {
         };
         let pressing = kb.press.as_ref().is_some_and(|p| p.stick.is_none());
         let press = ease("pressed", pressing, 0.08);
+        let talk = ease("talk", kb.talk.is_some(), 0.15);
         let track = ease_out(ease("track", kb.stick_active(), 0.18));
         let armed = ease("armed", kb.ctrl_armed, 0.2);
         let up = ease("up", !kb.down(target), 0.15);
@@ -373,7 +525,7 @@ impl App {
         let center = Pos2::new(rect.center().x, cy);
         // Without animations the knob doesn't spring back: it is centered once let go.
         let knob = if anim || kb.stick_active() { kb.knob(now) } else { Vec2::ZERO };
-        if anim && (kb.spring.is_some_and(|(_, at)| now - at < SPRING_TIME) || kb.ctrl_armed) {
+        if anim && (kb.spring.is_some_and(|(_, at)| now - at < SPRING_TIME) || kb.ctrl_armed || kb.talk.is_some()) {
             ctx.request_repaint();
         }
 
@@ -400,11 +552,13 @@ impl App {
 
         // The button itself (the knob, while it's a joystick).
         let pulse = if kb.ctrl_armed && anim && now - kb.armed_at < 0.3 { 1.0 + 0.08 * (PI * ((now - kb.armed_at) / 0.3) as f32).sin() } else { 1.0 };
-        let radius = SIZE / 2.0 * (1.0 - 0.08 * press) * pulse;
+        // Talking: a slow, gentle swell, as if breathing with the voice.
+        let swell = if anim { 1.0 + 0.05 * talk * (0.5 + 0.5 * (TAU * (now / 1.1) as f32).sin()) } else { 1.0 };
+        let radius = SIZE / 2.0 * (1.0 - 0.08 * press) * pulse * swell;
         let c = center + knob;
         let tint = theme.blue.gamma_multiply(0.5);
-        let fill = Color32::lerp(fill_color(press), tint, armed);
-        let rim = Color32::lerp(Color32::from_white_alpha(34), theme.blue.gamma_multiply(0.85), armed);
+        let fill = Color32::lerp(Color32::lerp(fill_color(press), tint, armed), theme.red.gamma_multiply(0.8), talk);
+        let rim = Color32::lerp(Color32::lerp(Color32::from_white_alpha(34), theme.blue.gamma_multiply(0.85), armed), theme.red, talk);
         glass(&p, c, radius, Glass { fill, rim, shadow: 1.0 }, 1.0);
 
         // Armed: a hairline ring that breathes while it waits for the key.
@@ -421,15 +575,21 @@ impl App {
             let side = radius * 2.0 * 0.5;
             let kb_scale = 1.0 - 0.4 * armed;
             let kb_rect = Rect::from_center_size(c, Vec2::splat(side * kb_scale));
+            // The mic takes the place of the other glyphs while talking.
+            let rest = 1.0 - talk;
             if up < 1.0 {
-                icon_keyboard(&p, kb_rect, color.gamma_multiply((1.0 - up) * (1.0 - armed)));
+                icon_keyboard(&p, kb_rect, color.gamma_multiply((1.0 - up) * (1.0 - armed) * rest));
             }
             if up > 0.0 {
-                icon_keyboard_hide(&p, kb_rect, color.gamma_multiply(up * (1.0 - armed)));
+                icon_keyboard_hide(&p, kb_rect, color.gamma_multiply(up * (1.0 - armed) * rest));
             }
             if armed > 0.0 {
                 let ctrl = Rect::from_center_size(c, Vec2::splat(side * (0.6 + 0.4 * armed)));
-                icon_control(&p, ctrl, theme.text_bright.gamma_multiply(armed * glyph_alpha));
+                icon_control(&p, ctrl, theme.text_bright.gamma_multiply(armed * glyph_alpha * rest));
+            }
+            if talk > 0.0 {
+                let mic = Rect::from_center_size(c, Vec2::splat(side * (0.7 + 0.3 * talk)));
+                icon_mic(&p, mic, theme.text_bright.gamma_multiply(talk * glyph_alpha), true);
             }
         }
     }
@@ -473,4 +633,94 @@ fn chevron(p: &Painter, at: Pos2, dir: Vec2, k: f32, c: Color32) {
     let tip = at + dir * (k * 0.5);
     let back = tip - dir * k;
     p.add(Shape::line(vec![back + side * k, tip, back - side * k], Stroke::new(1.5_f32, c)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_still_press_talks_only_after_the_hold() {
+        assert!(!hold_turns_to_talk(0.0, true, DOUBLE_TAP), "a tap lifts before a hold talks");
+        assert!(!hold_turns_to_talk(2.0, true, 2.0 + HOLD_TO_TALK - 0.01));
+        assert!(hold_turns_to_talk(0.0, true, HOLD_TO_TALK));
+        assert!(hold_turns_to_talk(2.0, true, 2.0 + HOLD_TO_TALK + 0.01));
+        // A drag (past the dead zone) never talks, however long it's held.
+        assert!(!hold_turns_to_talk(1.0, false, 5.0));
+    }
+
+    #[test]
+    fn lifting_tells_taps_double_taps_drags_and_talk_apart() {
+        assert_eq!(lift(false, false, None, 1.0), Lift::Tap);
+        assert_eq!(lift(false, false, Some(1.0), 1.0 + DOUBLE_TAP / 2.0), Lift::DoubleTap);
+        assert_eq!(lift(false, false, Some(1.0), 1.0 + DOUBLE_TAP), Lift::Tap);
+        assert_eq!(lift(true, false, Some(1.0), 1.1), Lift::Stick);
+        // A release while talking is never a tap, even right after one.
+        assert_eq!(lift(false, true, Some(1.0), 1.1), Lift::Talk);
+        assert_eq!(lift(false, true, None, 9.0), Lift::Talk);
+    }
+
+    /// Run `talk` frame by frame (`frame` apart) from `from` to `to`; the times spaces went.
+    fn run(talk: &mut Option<Talk>, from: f64, to: f64, frame: f64, ready: bool) -> Vec<f64> {
+        let mut sent = Vec::new();
+        let mut now = from;
+        while now < to {
+            let Some(t) = talk.as_mut() else { break };
+            let (send, wake) = t.tick(now, ready);
+            if send {
+                sent.push(now);
+            }
+            if wake.is_none() {
+                *talk = None;
+            }
+            now += frame;
+        }
+        sent
+    }
+
+    #[test]
+    fn spaces_wait_for_the_share_then_repeat() {
+        let mut talk = Some(Talk::new(0.0));
+        assert!(run(&mut talk, 0.0, 1.0, 0.016, false).is_empty());
+        let sent = run(&mut talk, 1.0, 2.0, 0.016, true);
+        assert_eq!(sent[0], 1.0, "the first space goes as soon as it's ready");
+        for w in sent.windows(2) {
+            assert!(w[1] - w[0] >= SPACE_REPEAT - 1e-9, "{w:?}");
+            assert!(w[1] - w[0] < SPACE_REPEAT + 0.017, "{w:?}");
+        }
+    }
+
+    #[test]
+    fn slow_frames_send_one_space_each_not_a_burst() {
+        let mut talk = Some(Talk::new(0.0));
+        let sent = run(&mut talk, 0.0, 1.0, 0.25, true);
+        assert_eq!(sent, [0.0, 0.25, 0.5, 0.75]);
+    }
+
+    #[test]
+    fn spaces_trail_on_after_letting_go_then_stop() {
+        let mut t = Talk::new(0.0);
+        t.release(1.0);
+        // Letting go twice doesn't stretch the tail.
+        t.release(1.2);
+        let mut talk = Some(t);
+        let sent = run(&mut talk, 1.0, 3.0, 0.01, true);
+        assert!(sent.last().is_some_and(|&at| at < 1.0 + TALK_TAIL && at > 1.0 + TALK_TAIL - 2.0 * SPACE_REPEAT), "{sent:?}");
+        assert!(talk.is_none(), "talking ends with the tail");
+        // The last wake is the tail's end, not past it.
+        let mut t = Talk::new(0.0);
+        t.release(0.0);
+        assert_eq!(t.tick(TALK_TAIL - 0.01, false).1, Some(TALK_TAIL - 0.01 + SPACE_REPEAT).map(|w: f64| w.min(TALK_TAIL)));
+    }
+
+    #[test]
+    fn pressing_again_in_the_tail_goes_on_talking() {
+        let mut t = Talk::new(0.0);
+        t.release(1.0);
+        // What a new press does.
+        t.until = None;
+        let mut talk = Some(t);
+        assert!(!run(&mut talk, 1.5, 2.0, 0.016, true).is_empty());
+        assert!(talk.is_some());
+    }
 }
