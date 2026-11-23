@@ -4,7 +4,8 @@
 //! make room; cards and headers fade in when they appear and out when they go; borders and
 //! status tints cross-fade.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use egui::{Color32, Rect};
 
@@ -71,9 +72,9 @@ impl<T: Lerp> Tween<T> {
 }
 
 /// A card's place and colors, plus the agent it showed last (to draw it while it fades out
-/// after its pane is gone).
+/// after its pane is gone): the tracker's own, shared, not a copy.
 pub struct CardMotion {
-    pub agent: Agent,
+    pub agent: Arc<Agent>,
     /// In content coordinates (scrolling doesn't animate).
     pub rect: Tween<Rect>,
     pub border: Tween<Color32>,
@@ -91,7 +92,7 @@ pub struct CardMotion {
 }
 
 impl CardMotion {
-    pub fn new(agent: Agent, rect: Rect) -> Self {
+    pub fn new(agent: Arc<Agent>, rect: Rect) -> Self {
         CardMotion {
             agent,
             rect: Tween::new(rect, MOVE, ease_in_out),
@@ -181,7 +182,7 @@ impl Motion {
     /// Head every card and header for its place in the latest layout (content coordinates
     /// at `width`). New ones fade in where they belong, ones no longer there fade out where
     /// they were. `animate` false (or a resize, or the first layout) puts everything in place.
-    pub fn update(&mut self, now: f64, animate: bool, sections: &[(Status, usize, Rect)], cards: &[(&Agent, Rect)], width: f32) {
+    pub fn update(&mut self, now: f64, animate: bool, sections: &[(Status, usize, Rect)], cards: &[(&Arc<Agent>, Rect)], width: f32) {
         let animate = animate && !std::mem::take(&mut self.fresh);
         let slide = animate && (self.width - width).abs() < 0.5;
         self.width = width;
@@ -201,7 +202,7 @@ impl Motion {
         }
 
         for &(agent, r) in cards {
-            let c = self.cards.entry(agent.pane).or_insert_with(|| CardMotion::new(agent.clone(), r));
+            let c = self.cards.entry(agent.pane).or_insert_with(|| CardMotion::new(Arc::clone(agent), r));
             // A new status means a new section; a settled card that is only pushed along
             // by the others moves flat.
             if !slide {
@@ -211,13 +212,16 @@ impl Motion {
             } else if !c.rect.moving(now) {
                 c.section_change = false;
             }
-            c.agent = agent.clone();
+            if !Arc::ptr_eq(&c.agent, agent) {
+                c.agent = Arc::clone(agent);
+            }
             c.leaving = false;
             c.rect.set(now, r, slide);
             c.opacity.set(now, 1.0, animate);
         }
+        let present: HashSet<PaneId> = cards.iter().map(|(a, _)| a.pane).collect();
         for (pane, c) in &mut self.cards {
-            if !cards.iter().any(|(a, _)| a.pane == *pane) {
+            if !present.contains(pane) {
                 c.leaving = true;
                 c.opacity.set(now, 0.0, animate);
             }
@@ -262,9 +266,9 @@ mod tests {
         assert!(!t.moving(12.0));
     }
 
-    fn agent(pane: PaneId, status: Status) -> Agent {
+    fn agent(pane: PaneId, status: Status) -> Arc<Agent> {
         use crate::agents::model::{AgentKind, Source};
-        Agent {
+        Arc::new(Agent {
             pane,
             tab: Some(0),
             kind: AgentKind::Claude,
@@ -275,7 +279,7 @@ mod tests {
             since: std::time::Instant::now(),
             source: Source::Local,
             team: Default::default(),
-        }
+        })
     }
 
     fn at(y: f32) -> Rect {
@@ -330,7 +334,7 @@ mod tests {
     fn switching_to_a_tab_bubbles_only_its_agents() {
         let mut m = Motion::new();
         let here = agent(1, Status::Idle);
-        let elsewhere = Agent { tab: Some(1), ..agent(2, Status::Idle) };
+        let elsewhere = Arc::new(Agent { tab: Some(1), ..Agent::clone(&agent(2, Status::Idle)) });
         m.update(0.0, true, &[(Status::Idle, 2, at(0.0))], &[(&here, at(30.0)), (&elsewhere, at(110.0))], 300.0);
         m.pulse_tab(1.0, 0);
         let mid = 1.0 + MOVE / 2.0;
