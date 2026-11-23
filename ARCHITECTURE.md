@@ -56,7 +56,8 @@ src/
 │   └── tests/            the folder fixture, unit tests and egui-driven UI tests
 ├── git_diff/         the Changes pane (Ctrl+G): read-only git diff viewer
 │   ├── mod.rs            state, background loading, keys
-│   ├── git.rs            running git (here, or on an ssh host), parsing status and diffs
+│   ├── git/              running git and reading what it prints: mod.rs (`run`), status.rs,
+│   │                     diff.rs, emphasis.rs (word-level highlights), remote.rs (on an ssh host)
 │   ├── syntax.rs         syntax colors (syntect with bat's grammars)
 │   └── view/             drawing and the mouse: the layout, toolbar, file list and diff
 ├── agents/           the Agents pane: every Claude Code / Codex agent at a glance
