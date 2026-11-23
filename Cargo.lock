@@ -2662,7 +2662,7 @@ dependencies = [
 
 [[package]]
 name = "nex"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "alacritty_terminal",
  "cpal",
@@ -2693,7 +2693,7 @@ dependencies = [
 
 [[package]]
 name = "nex-android"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "nex",
  "winit",
@@ -2701,7 +2701,7 @@ dependencies = [
 
 [[package]]
 name = "nex-host"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "alacritty_terminal",
  "libc",
