@@ -81,6 +81,10 @@ pub struct App {
     term_rects: Vec<(PaneId, Rect)>,
     /// Card rects (including header), used for directional focus.
     card_rects: Vec<(PaneId, Rect)>,
+    /// Where the layout put the focused pane's card this frame (the connect handoff lands there).
+    focused_card: Option<Rect>,
+    /// The connect screen handing over to the panes, while it plays (`animation/handoff.rs`).
+    handoff: Option<animation::handoff::Handoff>,
     hostname: String,
     last_proc_poll: Instant,
     /// When to hand memory freed during startup (font loading) back to the OS; `None` once done.
@@ -207,6 +211,8 @@ impl App {
             pending: Vec::new(),
             term_rects: Vec::new(),
             card_rects: Vec::new(),
+            focused_card: None,
+            handoff: None,
             hostname,
             last_proc_poll: Instant::now(),
             trim_heap_at: Some(Instant::now() + TRIM_HEAP_DELAY),
@@ -270,6 +276,7 @@ impl App {
                 files_rect: None,
                 dog_wake: None,
                 dog_was_active: false,
+                dog_rect: None,
                 tab_hits: Vec::new(),
                 strip_rect: None,
                 scroll: chrome::titlebar::TabScroll::new(crate::platform::WINDOW.scroll_tabs),
@@ -413,6 +420,7 @@ impl eframe::App for App {
         self.glyphs.begin_frame(ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.draw_window(ui));
         self.glyphs.end_frame(ctx);
+        self.paint_handoff(ctx);
 
         self.handle_pinch(ctx);
         self.keyboard_button(ctx);
@@ -447,6 +455,10 @@ impl App {
             self.adopt.reverse();
             for _ in 0..tabs {
                 self.new_tab(ctx, None, None);
+            }
+            if crate::ui::glide::animations(ctx) && let Some((card, dog, title)) = self.connect.last_card() {
+                let start = ctx.input(|i| i.time);
+                self.handoff = Some(animation::handoff::Handoff { start, card, dog, title, sidebar: self.cfg.sidebar() });
             }
             if !self.tabs.is_empty() {
                 self.show_tab(0);

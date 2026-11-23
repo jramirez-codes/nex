@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The phone apps' connect screen (and `nex --remote`'s) shows the nex dog in its card's
+  header, waking up as the screen appears. Once connected, the card glides into the first
+  pane while the dog slides over to the Files tile with a blep, and the workspace fades in
+  (skipped with `animations = false`).
+
 ### Fixed
 
 - Ctrl+G in a pane ssh'd into a host opens the Changes pane in the folder the remote shell is
