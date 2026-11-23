@@ -128,6 +128,10 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- Agents pane: each card and helper row shows the folder its agent works in (`nex`, or a
+  worktree's own folder) instead of the host it runs on, so you can see which checkout each
+  is in. The cards are calmer too: the title and folder sit together beside the tile, with a
+  quieter status pill and a softer shadow.
 - The `mobile` setting is now `tab-bar = top | sidebar`: `mobile = true` is `tab-bar = sidebar`.
   `mobile` is still read, so existing configs keep working.
 
