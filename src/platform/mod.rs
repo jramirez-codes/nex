@@ -13,6 +13,7 @@
 //!   no_dnd.rs     drag-and-drop stub for OSes where winit already handles it
 //!   no_watch.rs   folder-watching stub (explorers re-read their folder every few seconds)
 //!   winit_app.rs  eframe's winit app on nex's own event loop, noting paste keys
+//!   glide.rs      the space typed after a glided (swiped) word ([`AutoSpace`], Android)
 //!   linux/        mod.rs · proc.rs (/proc) · fonts.rs (fontconfig) · dnd/ (Wayland) · watch.rs (inotify)
 //!                 · file_manager/ (D-Bus FileManager1) · apps.rs (Open With, desktop entries)
 //!                 · clipboard.rs · memory.rs (glibc arenas, malloc_trim)
@@ -79,6 +80,10 @@ mod no_watch;
 
 mod winit_app;
 pub use winit_app::{WinitApp, vsync};
+
+mod glide;
+#[cfg_attr(not(target_os = "android"), allow(unused_imports))]
+pub use glide::AutoSpace;
 
 #[cfg(target_os = "linux")]
 mod linux;

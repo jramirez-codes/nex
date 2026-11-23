@@ -24,17 +24,23 @@ import android.view.inputmethod.InputMethodManager;
  * The view says it is a text field, which is what keyboards want before they offer glide
  * (swipe) typing. A glided word arrives as composing text that the keyboard keeps revising
  * until it settles; nex types it into the terminal as it goes, taking back with Backspace what
- * a revision changed (`sent` is what is on the terminal so far). The field itself is always
- * left empty, so the keyboard never tries to edit text that is already in the terminal, and
- * Backspace with nothing composing arrives as a plain key event.
+ * a revision changed (`sent` is what is on the terminal so far), and nex types a space after
+ * it once it's committed (`wordDone`). The field itself is always left empty, so the keyboard
+ * never tries to edit text that is already in the terminal, and Backspace with nothing
+ * composing arrives as a plain key event.
  *
  * Loaded at run time from the dex built into nex (see `platform/android/keyboard.rs`).
  */
 public final class NexInput extends View {
     private static NexInput view;
 
-    /** Take back `delete` characters, then type `text` (typing, glide, a suggestion). */
-    static native void type(int delete, String text);
+    /** Take back `delete` characters, then type `text` (typing, glide, a suggestion);
+     *  `composing` when it's the word the keyboard is still composing. */
+    static native void type(int delete, String text, boolean composing);
+
+    /** The keyboard `committed` the word it was composing, or gave it up. nex types a space
+     *  after a glided word, since the empty field leaves the keyboard no word to space after. */
+    static native void wordDone(boolean committed);
 
     /** Text the keyboard committed in one go that isn't typing: a paste from its clipboard. */
     static native void commit(String text);
@@ -69,10 +75,11 @@ public final class NexInput extends View {
         out.initialSelStart = 0;
         out.initialSelEnd = 0;
         sent = "";
+        wordDone(false);
         return new BaseInputConnection(this, false) {
             @Override
             public boolean setComposingText(CharSequence text, int newCursorPosition) {
-                retype(text == null ? "" : text.toString());
+                retype(text == null ? "" : text.toString(), true);
                 return true;
             }
 
@@ -82,15 +89,17 @@ public final class NexInput extends View {
                 if (sent.isEmpty() && isPaste(t)) {
                     commit(t);
                 } else {
-                    retype(t);
+                    retype(t, false);
                 }
                 sent = "";
+                wordDone(true);
                 return true;
             }
 
             @Override
             public boolean finishComposingText() {
                 sent = "";
+                wordDone(true);
                 return true;
             }
 
@@ -98,6 +107,7 @@ public final class NexInput extends View {
             public boolean setComposingRegion(int start, int end) {
                 // The field is empty, so there is no earlier text to pick up again.
                 sent = "";
+                wordDone(true);
                 return true;
             }
 
@@ -134,7 +144,7 @@ public final class NexInput extends View {
 
     /** Make the terminal show `text` where it shows `sent`: Backspace over what differs, then
      *  type the rest. */
-    private static void retype(String text) {
+    private static void retype(String text, boolean composing) {
         int common = 0;
         int max = Math.min(sent.length(), text.length());
         while (common < max && sent.charAt(common) == text.charAt(common)) {
@@ -147,7 +157,7 @@ public final class NexInput extends View {
         int delete = sent.codePointCount(common, sent.length());
         String add = text.substring(common);
         if (delete > 0 || !add.isEmpty()) {
-            type(delete, add);
+            type(delete, add, composing);
         }
         sent = text;
     }
@@ -162,7 +172,7 @@ public final class NexInput extends View {
         if (fromSent > 0) {
             sent = sent.substring(0, sent.offsetByCodePoints(0, composed - fromSent));
         }
-        type(count, "");
+        type(count, "", false);
     }
 
     /** Whether committed text is a paste rather than typing: more than one character that
