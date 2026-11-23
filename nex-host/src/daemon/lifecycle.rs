@@ -51,8 +51,11 @@ pub(super) fn launch(state: &Arc<State>, id: String, spec: Spec) -> io::Result<(
             on_end(&s, a);
         }
     };
+    // Locked from before the program starts until it's on the list: what it runs first
+    // (`nex-host send`, `done`) must find it there, or it's taken for someone at a shell.
+    let mut agents = state.agents.locked();
     let a = Agent::spawn(id.clone(), spec, ended)?;
-    state.agents.locked().insert(id, a);
+    agents.insert(id, a);
     Ok(())
 }
 
@@ -162,9 +165,10 @@ pub(super) fn spawn(state: &Arc<State>, hire: Hire) -> Result<String, String> {
         parent,
         role,
     };
-    launch(state, id.clone(), spec).map_err(|e| format!("couldn't start it: {e}"))?;
+    // Its task is posted before it starts, so a report it sends at once answers it.
     let rendered = deliver::render(&message);
     state.broker.post(message);
+    launch(state, id.clone(), spec).map_err(|e| format!("couldn't start it: {e}"))?;
     if !on_command_line {
         state.pending.locked().push((id.clone(), rendered));
     }

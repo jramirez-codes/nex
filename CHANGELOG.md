@@ -182,6 +182,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- nex-host: a message an agent sends the moment it starts is from that agent. It could
+  be taken for one from someone at a shell (`user`), so a merger never heard which builder
+  opened which PR, when the agent ran before nex-host had it on its list.
 - Android: the pane header's pin (Ctrl armed with the keyboard button) is the same pin as
   desktop's Shift pin: the same glyph, always from the built-in font, at the same size. The
   button stays finger-sized.
