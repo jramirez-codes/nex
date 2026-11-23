@@ -9,6 +9,7 @@
 
 mod clipboard;
 mod haptics;
+mod mic;
 mod screen;
 
 use std::path::Path;
@@ -22,6 +23,7 @@ pub use super::unix::{
 };
 pub use clipboard::{clipboard_text, mirror_copies};
 pub use haptics::haptic;
+pub use mic::{ask_mic, mic_allowed, prepare_mic};
 pub use screen::{content_rect_px, soft_keyboard_visible, sync_soft_keyboard};
 
 use super::{ProcInfo, ShortcutStyle, WindowDefaults};

@@ -5,8 +5,8 @@
 //! [`RATE`] Hz. That's what speech recognizers want, it's small (32 KB/s), and the remote side
 //! converts it to whatever an app there asks for.
 //!
-//! `cpal` does the per-OS work (CoreAudio on macOS, ALSA on Linux, WASAPI on Windows), so this
-//! file has no platform code. The stream lives on a thread of its own, since a `cpal::Stream`
+//! `cpal` does the per-OS work (CoreAudio on macOS and iOS, ALSA on Linux, WASAPI on Windows),
+//! so this file has no platform code beyond `platform::prepare_mic` (iOS's audio session). The stream lives on a thread of its own, since a `cpal::Stream`
 //! isn't `Send` on every backend; dropping the [`Capture`] stops it.
 
 use std::sync::Arc;
@@ -109,6 +109,11 @@ impl Drop for Capture {
 /// server (PipeWire, PulseAudio) then converts, as it does for any program recording there.
 /// Devices that only record at their own rate (CoreAudio's, usually) get [`Resampler`].
 fn open(sink: Sender<Vec<u8>>, failed: Arc<AtomicBool>) -> Result<cpal::Stream, CaptureError> {
+    // iOS: switch the audio session to recording first, or there is no input to open.
+    crate::platform::prepare_mic().map_err(|e| match e {
+        crate::platform::MicRefused::Denied => CaptureError::PermissionDenied,
+        crate::platform::MicRefused::Failed(msg) => CaptureError::Other(msg),
+    })?;
     let device = cpal::default_host().default_input_device().ok_or(CaptureError::NoMic)?;
     let supported = wire_config(&device).map_or_else(|| device.default_input_config(), Ok)?;
     let mut config = supported.config();

@@ -23,6 +23,7 @@
 //!   windows/      mod.rs · proc.rs (not yet implemented)
 //!   android/      mod.rs (app folders, no local shells: a thin client to ssh hosts)
 //!   ios/          mod.rs (the same thin client) · screen.rs (safe area, keyboard) · clipboard.rs · haptics.rs
+//!                 · mic.rs (permission, audio session)
 //! ```
 //!
 //! Every backend's `mod.rs` provides:
@@ -57,7 +58,8 @@
 //! | `DirWatch` / `on_dir_change(f)` | being told when a folder's contents change |
 //! | `tune_allocator()` / `trim_heap()` | allocator setup at launch; return freed heap to the OS |
 //! | `MIC_PERMISSION_HINT` | where to allow microphone access, after the OS refused it |
-//! | `mic_allowed()` / `ask_mic()` | whether nex may record from the microphone, and asking the user (Android; desktops ask when the mic opens) |
+//! | `mic_allowed()` / `ask_mic()` | whether nex may record from the microphone, and asking the user (phones; desktops ask when the mic opens) |
+//! | `prepare_mic()` | get the OS ready to record, just before the mic opens (iOS: the audio session; [`MicRefused`]) |
 //! | `app_icon()` | the window icon, where the OS takes it from the window |
 //! | `set_window_title(..)` / `align_window_buttons(..)` | the window title; centering native title-bar buttons (macOS) |
 //!
@@ -168,14 +170,29 @@ pub fn soft_keyboard_visible() -> Option<bool> {
     None
 }
 
-/// Desktops and iOS ask for the microphone themselves when it's opened, or don't ask at all.
-#[cfg(not(target_os = "android"))]
+/// Desktops ask for the microphone themselves when it's opened, or don't ask at all.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn mic_allowed() -> bool {
     true
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn ask_mic() {}
+
+/// Why the OS couldn't be made ready to record ([`prepare_mic`]).
+#[derive(Debug)]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+pub enum MicRefused {
+    /// The user said no (or turned it off in Settings).
+    Denied,
+    Failed(String),
+}
+
+/// Elsewhere opening the mic is all it takes.
+#[cfg(not(target_os = "ios"))]
+pub fn prepare_mic() -> Result<(), MicRefused> {
+    Ok(())
+}
 
 /// Why [`lock_file`] didn't take its lock.
 #[derive(Debug)]
