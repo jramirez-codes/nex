@@ -1,7 +1,8 @@
 //! nex: a GPU-accelerated terminal emulator with tabs, split panes, a file explorer and ssh
 //! that follows you. This file builds the window and hands the frame loop to [`app::App`]; the
 //! desktop program (`main.rs`) parses the command line first, and the Android app
-//! (`nex-android/`) starts here through [`android_main`]. See ARCHITECTURE.md for the map of
+//! (`nex-android/`) and the iPhone app (`nex-ios/`) start here through [`android_main`] and
+//! `ios_main`. See ARCHITECTURE.md for the map of
 //! the modules below.
 
 mod agents;
@@ -54,6 +55,17 @@ pub fn android_main(app: winit::platform::android::activity::AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
     platform::android_setup(&app);
     if let Err(e) = run(cli::Args::default(), move |builder| builder.with_android_app(app)) {
+        eprintln!("nex: {e}");
+    }
+}
+
+/// The iPhone app's entry point, called by `nex-ios` from `main` on the main thread. Like
+/// Android, it has no command line and every pane works on an ssh host (see `platform/ios/`).
+/// UIKit runs the app from here on: this never returns.
+#[cfg(target_os = "ios")]
+pub fn ios_main() {
+    platform::ios_setup();
+    if let Err(e) = run(cli::Args::default(), |builder| builder) {
         eprintln!("nex: {e}");
     }
 }
@@ -117,10 +129,10 @@ fn run(args: cli::Args, event_loop: impl FnOnce(&mut EventLoopBuilder) -> &mut E
     // nex's own event loop rather than `run_native`'s, so drag and drop can set up on its
     // connection before eframe opens the window (see `platform::Dnd::prepare`).
     let mut builder = winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event();
-    let mut event_loop = event_loop(&mut builder).build()?;
+    let event_loop = event_loop(&mut builder).build()?;
     platform::Dnd::prepare(&event_loop);
     let vsync = platform::vsync(&event_loop);
     let options = eframe::NativeOptions { viewport, vsync, ..Default::default() };
     let eframe_app = eframe::create_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args, early, session, session_lock)))), &event_loop);
-    platform::WinitApp::new(eframe_app, !vsync).run(&mut event_loop)
+    platform::WinitApp::new(eframe_app, !vsync).run(event_loop)
 }

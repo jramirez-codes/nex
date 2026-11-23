@@ -22,6 +22,7 @@
 //!                 · menu.rs (app menu) · window.rs (traffic lights, title)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
 //!   android/      mod.rs (app folders, no local shells: a thin client to ssh hosts)
+//!   ios/          mod.rs (the same thin client) · screen.rs (safe area, keyboard) · clipboard.rs · haptics.rs
 //! ```
 //!
 //! Every backend's `mod.rs` provides:
@@ -106,13 +107,18 @@ mod android;
 #[cfg(target_os = "android")]
 use android as backend;
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android")))]
+#[cfg(target_os = "ios")]
+mod ios;
+#[cfg(target_os = "ios")]
+use ios as backend;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android", target_os = "ios")))]
 compile_error!("nex has no platform backend for this OS yet: add one under src/platform/");
 
 pub use backend::*;
 
 /// Desktop windows have no system bars or on-screen keyboard drawn over them.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn content_rect_px() -> Option<[f32; 4]> {
     None
 }
@@ -142,26 +148,27 @@ pub enum Haptic {
     Release,
 }
 
-/// Only Android has an on-screen keyboard that commits text outside of key events.
+/// Only Android has an on-screen keyboard that commits text outside of key events (on iOS,
+/// winit turns what the keyboard types into key events).
 #[cfg(not(target_os = "android"))]
 pub fn typed_text() -> Vec<Typed> {
     Vec::new()
 }
 
 /// Desktops have no haptics to play.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn haptic(_kind: Haptic) {}
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn sync_soft_keyboard(_ctx: &egui::Context) {}
 
 /// Whether the on-screen keyboard is up, as far as the system has said.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn soft_keyboard_visible() -> Option<bool> {
     None
 }
 
-/// Desktops ask for the microphone themselves when it's opened (macOS), or don't ask at all.
+/// Desktops and iOS ask for the microphone themselves when it's opened, or don't ask at all.
 #[cfg(not(target_os = "android"))]
 pub fn mic_allowed() -> bool {
     true
@@ -198,7 +205,7 @@ pub struct ProcInfo {
 
 /// What the clipboard holds that isn't text: copied files, or an image (as PNG).
 /// Windows and Android have no backend that reads these yet, so nothing constructs them there.
-#[cfg_attr(any(windows, target_os = "android"), allow(dead_code))]
+#[cfg_attr(any(windows, target_os = "android", target_os = "ios"), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClipboardFiles {
     Paths(Vec<PathBuf>),

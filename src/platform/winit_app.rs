@@ -77,9 +77,17 @@ impl<'a> WinitApp<'a> {
     }
 
     /// Run until the window closes, as `eframe::run_native` does.
-    pub fn run(mut self, event_loop: &mut EventLoop<UserEvent>) -> eframe::Result {
+    #[cfg(not(target_os = "ios"))]
+    pub fn run(mut self, mut event_loop: EventLoop<UserEvent>) -> eframe::Result {
         use winit::platform::run_on_demand::EventLoopExtRunOnDemand as _;
         event_loop.run_app_on_demand(&mut self)?;
+        Ok(())
+    }
+
+    /// Hand the app to UIKit, which runs it until the system ends it: this never returns.
+    #[cfg(target_os = "ios")]
+    pub fn run(mut self, event_loop: EventLoop<UserEvent>) -> eframe::Result {
+        event_loop.run_app(&mut self)?;
         Ok(())
     }
 }

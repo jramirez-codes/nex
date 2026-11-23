@@ -39,7 +39,7 @@ pub fn shell_quote(path: &Path) -> String {
 }
 
 /// Run `program uri` in the background, without inheriting stdio.
-#[cfg_attr(target_os = "android", allow(dead_code))]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 pub fn spawn_opener(program: &str, uri: &std::ffi::OsStr) {
     let _ = std::process::Command::new(program)
         .arg(uri)
@@ -121,7 +121,7 @@ pub fn format_local_time(t: std::time::SystemTime) -> Option<String> {
 }
 
 /// The output of a command that succeeded and printed something, trimmed.
-#[cfg_attr(target_os = "android", allow(dead_code))]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 pub(super) fn command_output(cmd: &mut std::process::Command) -> Option<String> {
     let out = cmd.stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok()?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -129,13 +129,13 @@ pub(super) fn command_output(cmd: &mut std::process::Command) -> Option<String> 
 }
 
 /// A file's MIME type from `file(1)`, following symlinks.
-#[cfg_attr(target_os = "android", allow(dead_code))]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 pub(super) fn file_mime(path: &Path) -> Option<String> {
     command_output(std::process::Command::new("file").args(["--mime-type", "-b", "-L"]).arg(path))
 }
 
 /// Start `argv` detached in `cwd`, without inheriting stdio. A thread reaps it when it exits.
-#[cfg_attr(target_os = "android", allow(dead_code))]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 pub(super) fn spawn_detached(argv: &[String], cwd: Option<&Path>) {
     let Some((program, args)) = argv.split_first() else { return };
     let mut cmd = std::process::Command::new(program);
@@ -152,7 +152,7 @@ pub(super) fn spawn_detached(argv: &[String], cwd: Option<&Path>) {
 
 /// Run `program args` and return its output, or `None` if it isn't installed, fails, or
 /// takes longer than `timeout` (it is then killed).
-#[cfg_attr(target_os = "android", allow(dead_code))]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
 pub(super) fn output_within(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<Vec<u8>> {
     use std::io::Read;
     use std::process::{Command, Stdio};

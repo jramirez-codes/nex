@@ -284,7 +284,15 @@ impl App {
 
 impl eframe::App for App {
     /// Stop sharing the microphone, so hosts get their own `~/.asoundrc` back.
+    #[cfg(not(target_os = "ios"))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.stop_mics();
+        self.save_session_on_exit();
+    }
+
+    /// The same on iOS, where eframe draws with wgpu (no glow context to pass).
+    #[cfg(target_os = "ios")]
+    fn on_exit(&mut self) {
         self.stop_mics();
         self.save_session_on_exit();
     }

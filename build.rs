@@ -1,4 +1,4 @@
-//! Only for the Android app: it has no folder of `nex-host` builds beside it to install on a
+//! Only for the phone apps (Android, iOS): they have no folder of `nex-host` builds beside it to install on a
 //! host from (see `remote/host.rs`), so they are built into it. Each one comes from
 //! `$NEX_HOST_DIR/nex-host-<triple>` or cargo's `target/<triple>/release/nex-host` (made by
 //! `cargo build -p nex-host --release --target <triple>`). A missing one bundles as an empty
@@ -15,7 +15,8 @@ const TRIPLES: &[&str] = &["x86_64-unknown-linux-musl", "aarch64-unknown-linux-m
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=NEX_HOST_DIR");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("android") {
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if os != "android" && os != "ios" {
         return;
     }
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
@@ -35,7 +36,9 @@ fn main() {
         }
         std::fs::write(out.join(format!("nex-host-{triple}")), bytes).expect("writing to OUT_DIR");
     }
-    build_dex(&root.join("src/platform/android/java"), &out);
+    if os == "android" {
+        build_dex(&root.join("src/platform/android/java"), &out);
+    }
 }
 
 /// Compile every `.java` file in `src` against the SDK's newest `android.jar` and turn the
