@@ -14,7 +14,9 @@
 //! The screen is one card drawn as a focused terminal pane (the pane's card and header, from
 //! `workspace/draw.rs`), with the desktop alert's buttons and recessed panels in it. It is the
 //! same egui on every phone: it places the card in `content_rect` (the safe area) and asks
-//! `crate::platform` only for the soft keyboard and the clipboard.
+//! `crate::platform` only for the soft keyboard and the clipboard. The card's header shows
+//! the nex dog, which wakes up when the screen first shows; once connected, the card and the
+//! dog hand over to the panes (`animation/handoff.rs`).
 
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
@@ -24,11 +26,12 @@ use egui::layers::ShapeIdx;
 use egui::{Align, Align2, Color32, FontId, Id, Layout, Painter, Pos2, Rangef, Rect, RichText, Sense, Shape, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::app::header_height;
-use crate::app::workspace::draw::{PANE_RADIUS, header_label};
+use crate::app::workspace::draw::{PANE_RADIUS, header_glyph_rect, header_title};
 use crate::remote::ssh::Server;
 use crate::remote::ssh::device;
 use crate::remote::ssh::host::{self, LoginError, RemoteHost};
 use crate::ui::alert::{self, BLUE};
+use crate::ui::{dog, glide};
 use crate::ui::paint::{self, bold};
 use crate::ui::theme::{ERROR, HAIRLINE, Theme, white_alpha};
 
@@ -45,6 +48,8 @@ const LABEL_WIDTH: f32 = 92.0;
 const BODY: egui::Margin = egui::Margin { left: 16, right: 16, top: 12, bottom: 16 };
 /// The alert's touch-sized button height (times the screen's scale).
 const BUTTON: f32 = 42.0;
+/// The header dog's side: the glyph's 13pt plus the margin around the dog in its square.
+const DOG: f32 = 17.0;
 /// What shows a host's key fingerprint, run on the host.
 const FINGERPRINT_COMMAND: &str = "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub";
 
@@ -86,6 +91,10 @@ pub(in crate::app) struct Connect {
     auto: bool,
     /// The host the panes are on, once connected.
     pub host: Option<Arc<RemoteHost>>,
+    /// When the screen first showed: the header dog's intro plays from then.
+    shown_at: Option<f64>,
+    /// The card, its dog and its title as drawn on the last frame (where the handoff starts).
+    drawn: Option<(Rect, Rect, &'static str)>,
 }
 
 impl Connect {
@@ -107,6 +116,8 @@ impl Connect {
             job: None,
             auto: false,
             host: None,
+            shown_at: None,
+            drawn: None,
         };
         if active && let Some(s) = server {
             c.host_field = s.host;
@@ -164,6 +175,11 @@ impl Connect {
         }
     }
 
+    /// The card, its dog and its title as the last frame drew them.
+    pub(in crate::app) fn last_card(&self) -> Option<(Rect, Rect, &'static str)> {
+        self.drawn
+    }
+
     /// Pick up the login's result. Returns the shells to open tabs for when it just worked.
     pub(in crate::app) fn poll(&mut self) -> Option<Vec<String>> {
         let result = self.job.as_ref()?.try_recv().ok()?;
@@ -202,6 +218,12 @@ impl Connect {
             self.start(ctx, key_days);
         }
         let content = ctx.content_rect();
+        let now = ctx.input(|i| i.time);
+        let since = now - *self.shown_at.get_or_insert(now);
+        let dog_t = if glide::animations(ctx) { (since as f32).min(dog::INTRO) } else { dog::INTRO };
+        if dog_t < dog::INTRO {
+            ctx.request_repaint();
+        }
         let scale = if sidebar { 1.15 } else { 1.0 };
         let mut action = None;
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(theme.window)).show(ctx, |ui| {
@@ -219,10 +241,12 @@ impl Connect {
                         _ => None,
                     };
                     let title = if trust.is_some() { "Trust This Server?" } else { "Connect to Your Server" };
-                    action = pane_card(ui, theme, sidebar, title, |ui| match trust {
+                    let (a, card, dog) = pane_card(ui, theme, sidebar, title, dog_t, |ui| match trust {
                         Some(fingerprint) => self.trust_view(ui, theme, &fingerprint, scale),
                         None => self.form_view(ui, theme, self.step == Step::Connecting, scale),
                     });
+                    action = a;
+                    self.drawn = Some((card, dog, title));
                     ui.add_space(32.0);
                 });
             });
@@ -414,14 +438,17 @@ fn card_span(content: Rect) -> Rangef {
     Rangef::new(content.center().x - width / 2.0, content.center().x + width / 2.0)
 }
 
-/// The screen's card, across `ui`'s width: a focused pane's card and header (the ssh glyph
-/// and `title`), a hairline under the header, and `body` inside the pane content's inset.
-/// The card grows to fit the body, which is laid out first and painted over it.
-fn pane_card<R>(ui: &mut Ui, theme: &Theme, sidebar: bool, title: &str, body: impl FnOnce(&mut Ui) -> R) -> R {
+/// The screen's card, across `ui`'s width: a focused pane's card and header (the nex dog,
+/// `dog_t` seconds into its intro, where a pane's glyph goes, and `title`), a hairline under
+/// the header, and `body` inside the pane content's inset. The card grows to fit the body,
+/// which is laid out first and painted over it. Returns the body's result, the card and the dog.
+fn pane_card<R>(ui: &mut Ui, theme: &Theme, sidebar: bool, title: &str, dog_t: f32, body: impl FnOnce(&mut Ui) -> R) -> (R, Rect, Rect) {
     let under = ui.painter().add(Shape::Noop);
     let (header, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), header_height(sidebar)), Sense::hover());
     let font = if sidebar { 15.0 } else { 13.5 };
-    header_label(ui.painter(), header, "ssh", title, theme.text_bright, header.right() - 20.0, font);
+    let dog = dog_rect(header);
+    dog::paint(ui.painter(), dog, dog_t, (theme.card, 0.0));
+    header_title(ui.painter(), header, title, theme.text_bright, header.right() - 20.0, font);
     ui.painter().hline(header.x_range().shrink(1.0), header.bottom(), Stroke::new(1.0_f32, HAIRLINE));
     let inner = egui::Frame::new().inner_margin(BODY).show(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -429,7 +456,14 @@ fn pane_card<R>(ui: &mut Ui, theme: &Theme, sidebar: bool, title: &str, body: im
     });
     let card = Rect::from_min_max(header.min, Pos2::new(header.right(), inner.response.rect.bottom()));
     paint_under(ui, under, |p| paint::card(p, card, PANE_RADIUS, theme.card, 1.0, None));
-    inner.inner
+    (inner.inner, card, dog)
+}
+
+/// The header dog: centered on the glyph's place, a little larger than the 13pt glyph since
+/// its square includes the coat's stroke, and short of the title (which doesn't move).
+fn dog_rect(header: Rect) -> Rect {
+    let glyph = header_glyph_rect(header);
+    Rect::from_center_size(glyph.center(), Vec2::splat(DOG))
 }
 
 /// Paint with `paint` where the `Shape::Noop` at `at` was added, under everything painted

@@ -9,6 +9,11 @@ pub fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
 
+/// Ease-in cubic: slow start, quick finish. For things fading away.
+pub fn ease_in(t: f32) -> f32 {
+    t.clamp(0.0, 1.0).powi(3)
+}
+
 /// Ease-in-out cubic: gathers, moves, settles. For things leaving the screen.
 pub fn ease_in_out(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);

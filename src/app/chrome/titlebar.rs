@@ -153,6 +153,8 @@ pub(in crate::app) struct TabStrip {
     /// was showing last frame.
     pub(in crate::app) dog_wake: Option<f64>,
     pub(in crate::app) dog_was_active: bool,
+    /// Where the Files tab's dog was drawn this frame (the connect handoff's dog glides there).
+    pub(in crate::app) dog_rect: Option<Rect>,
     /// Where each visible tab was drawn this frame (title bar or sidebar), by tab uid: where
     /// a dragged pane can be dropped into another tab.
     pub(in crate::app) tab_hits: Vec<(u64, Rect)>,
@@ -451,6 +453,15 @@ impl App {
     pub(in crate::app) fn files_dog(&mut self, ctx: &egui::Context, painter: &egui::Painter, r: Rect, theme: &Theme) {
         let now = ctx.input(|i| i.time);
         let active = self.home_active;
+        self.strip.dog_rect = Some(r);
+        // The connect handoff's dog is on its way here: it paints the dog until it ends, and
+        // the tile carries on from the same point of the blep.
+        if let Some(h) = self.handoff.as_ref().filter(|h| h.elapsed(now) < crate::app::animation::handoff::END) {
+            self.strip.dog_wake = Some(h.dog_wake());
+            self.strip.dog_was_active = active;
+            ctx.request_repaint();
+            return;
+        }
         match self.strip.dog_wake {
             None => self.strip.dog_wake = Some(now),
             // Switching to Files plays just the blep, unless the launch intro hasn't reached
