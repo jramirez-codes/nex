@@ -51,7 +51,10 @@ the code. Anything that needs fixing goes back to its builder.
 2. `gh pr checks {pr}`: none failing (pending is fine if there are none yet).
 3. `gh pr view {pr} --json mergeable -q .mergeable` is MERGEABLE (other features may have
    merged since it was opened).
-4. If all three hold: `gh pr merge {pr} --squash --delete-branch`, then
+4. If all three hold: `gh pr merge {pr} --squash`, then delete its branch on GitHub with
+   `git push origin --delete "$(gh pr view {pr} --json headRefName -q .headRefName)"`
+   (not `--delete-branch`: the builder's worktree still has the branch checked out, so gh
+   stops at the local delete), then
    nex-host done "merged PR {pr}: <one line>" --verdict approved --pr {pr}
 5. Otherwise do not merge. Finish with
    nex-host done "<exactly what to fix, or that it conflicts>" --verdict changes --pr {pr}

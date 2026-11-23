@@ -531,7 +531,16 @@ fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, O
                 let b = q.batch(&m.from, &joined);
                 for &i in &p.groups()[0] {
                     let s = &p.stages[i];
-                    let id = ctx.spawn(s, fill(&s.task, &joined, results), true)?;
+                    // One join that can't start doesn't end the run: the others are still
+                    // in line, and their reports still need the reviewer.
+                    let id = match ctx.spawn(s, fill(&s.task, &joined, results), true) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            println!("✗ {} couldn't start: {e}", s.name);
+                            let _ = client::request(&Request::Send { from: me.clone(), to: m.from.clone(), kind: MessageKind::Done, body: format!("The pipeline couldn't start {} on your task: {e}", s.name), reply_to: None, verdict: Some(Verdict::Failed), files: vec![], pr: None, force: false }, true);
+                            continue;
+                        }
+                    };
                     // Its own name (`build-2`), so the line tells the features apart.
                     let name = name_of(&id).unwrap_or_else(|| s.name.clone());
                     println!("▸ {name} ({}) is on it: {id}", ctx.kind(s).as_deref().unwrap_or("claude"));

@@ -156,6 +156,14 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- `nex-host pipe`: two features joining a run in the same second no longer end it. Their
+  worktrees got the same branch name, the second failed to start, and the run stopped, so
+  nothing reviewed or merged the PRs its builders went on to open. Worktrees made in the
+  same second now get `-2`, `-3`…, and a joined feature that can't start is reported to
+  whoever sent it while the run goes on.
+- The feature pipeline example deletes a merged PR's branch on GitHub with `git push
+  --delete`; `gh pr merge --delete-branch` stopped at the local branch, which the builder's
+  worktree still has checked out.
 - Agents pane: clicking a team's or pipeline's dropdown arrow opens and closes its list of
   agents (it used to jump to the lead instead, and an open list couldn't be closed with the
   mouse). A card lifted off the grid also takes clicks where it's drawn.
