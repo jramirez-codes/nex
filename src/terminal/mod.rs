@@ -114,6 +114,11 @@ pub struct Terminal {
     /// Foreground process at the time the title was set; the title only applies while that
     /// process is still in the foreground (so a shell's prompt title doesn't label `node`).
     osc_title_owner: String,
+    /// The directory the last `user@host: dir` title named while an `ssh` session (or a
+    /// remote pane's shell) was in the foreground, with that process's pid. Kept while a
+    /// program on the host shows a title of its own (Claude Code, vim, tmux), which would
+    /// otherwise leave nex not knowing where the remote shell is.
+    title_dir: Option<(u32, String)>,
     /// Name of the foreground process (e.g. `fish`, `node`, `nvim`).
     pub process: String,
     /// The foreground process's command line (to reconnect to an `ssh` session's host).
@@ -287,6 +292,7 @@ impl Terminal {
             cell_px,
             osc_title: None,
             osc_title_owner: String::new(),
+            title_dir: None,
             process: String::new(),
             process_argv: Vec::new(),
             job: None,
@@ -359,6 +365,11 @@ impl Terminal {
                 Event::Title(title) => {
                     self.refresh_process_info();
                     self.osc_title_owner = self.process.clone();
+                    if self.in_remote_session()
+                        && let Some(dir) = osc7::title_dir(&title)
+                    {
+                        self.title_dir = Some((self.foreground_pid(), dir.to_string()));
+                    }
                     self.osc_title = Some(title);
                 }
                 Event::ResetTitle => self.osc_title = None,
@@ -561,8 +572,9 @@ impl Terminal {
     }
 
     /// The directory this pane's `ssh` session is in on the remote host, as far as nex can
-    /// tell: what the remote shell last reported with OSC 7, else the directory in a
-    /// `user@host: dir` title. `None` when the remote side says neither.
+    /// tell: what the remote shell last reported with OSC 7, else the directory the last
+    /// `user@host: dir` title from this session named (even if a program running there has
+    /// set another title since). `None` when the remote side said neither.
     pub fn remote_cwd(&self) -> Option<String> {
         let report = self.osc7.lock().ok().and_then(|r| r.clone());
         // A pane whose shell is on a host nex connects to itself: every report is from there
@@ -571,10 +583,20 @@ impl Terminal {
         if let Some(r) = report.filter(|r| remote || !is_local_host(&r.host)) {
             return Some(r.path);
         }
-        if !remote && self.osc_title_owner != "ssh" {
-            return None;
-        }
-        self.osc_title.as_deref().and_then(osc7::title_dir).map(str::to_string)
+        // Only from this same session: not one that has ended, or an earlier `ssh`.
+        let (pid, dir) = self.title_dir.as_ref()?;
+        (self.in_remote_session() && *pid == self.foreground_pid()).then(|| dir.clone())
+    }
+
+    /// The shell in the foreground is on another host: this pane's own shell is there, or
+    /// it's running `ssh` (as of the last process poll).
+    fn in_remote_session(&self) -> bool {
+        self.remote.is_some() || self.process == "ssh"
+    }
+
+    /// The foreground process's pid (the shell's, at the prompt), as of the last poll.
+    fn foreground_pid(&self) -> u32 {
+        self.job.unwrap_or(self.pid)
     }
 
     /// The `nex-host` session this pane shows (it's running `ssh` to a host where
@@ -691,5 +713,41 @@ mod tests {
         assert_eq!(line(&["python3", "-m", "http.server", "--bind=127.0.0.1"]), "python3 -m http.server --bind=127.0.0.1");
         assert_eq!(line(&["echo", "a b", "it's", ""]), r"echo 'a b' 'it'\''s' ''");
         assert_eq!(line(&["ls", "~", "$HOME", "*.rs"]), "ls '~' '$HOME' '*.rs'");
+    }
+    /// Ctrl+G from a pane ssh'd into a host whose shell names its directory only in the
+    /// window title opened the Changes pane in the remote home as soon as a program there
+    /// (Claude Code, vim, tmux) put up a title of its own.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_ssh_session_keeps_its_directory_under_a_programs_title() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::{Duration, Instant};
+
+        let dir = std::env::temp_dir().join(format!("nex-remote-cwd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Stands in for `ssh`: the process is called that, and its output is what a remote
+        // shell's prompt and then a program it runs would send.
+        let ssh = dir.join("ssh");
+        std::fs::write(
+            &ssh,
+            "#!/bin/sh\nprintf '\\033]0;me@devbox: ~/src/nex\\007'\nprintf '\\033]0;\\342\\234\\263 Claude Code\\007'\nsleep 30\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let cfg = crate::config::Config::default();
+        let ctx = egui::Context::default();
+        let size = crate::terminal::GridSize { cols: 80, lines: 24 };
+        let mut t = super::Terminal::spawn(1, &cfg, Some(vec![ssh.to_string_lossy().into_owned()]), None, size, (8, 16), &ctx).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while t.osc_title.as_deref() != Some("\u{2733} Claude Code") {
+            assert!(Instant::now() < deadline, "no title from the fake ssh (got {:?})", t.osc_title);
+            std::thread::sleep(Duration::from_millis(20));
+            t.process_events(&ctx, &cfg);
+        }
+        assert_eq!(t.process, "ssh");
+        assert_eq!(t.remote_cwd().as_deref(), Some("~/src/nex"));
+        drop(t);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

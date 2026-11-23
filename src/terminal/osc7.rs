@@ -377,12 +377,14 @@ mod pty {
 }
 
 /// The directory in a title like `user@host: ~/src` (what Debian and Ubuntu's bash sets for
-/// xterm-style terminals), for remote shells that don't send OSC 7.
+/// xterm-style terminals) or `user@host:~/src` (oh-my-zsh's), for remote shells that don't
+/// send OSC 7.
 pub fn title_dir(title: &str) -> Option<&str> {
-    let (who, dir) = title.split_once(": ")?;
+    // Ubuntu's bash puts a space after the colon; oh-my-zsh (`%n@%m:%~`) doesn't.
+    let (who, dir) = title.split_once(':')?;
     let (user, host) = who.split_once('@')?;
     let word = |s: &str| !s.is_empty() && !s.contains(char::is_whitespace);
-    let dir = dir.trim_end();
+    let dir = dir.strip_prefix(' ').unwrap_or(dir).trim_end();
     (word(user) && word(host) && (dir.starts_with('/') || dir == "~" || dir.starts_with("~/"))).then_some(dir)
 }
 
@@ -481,5 +483,9 @@ mod tests {
         assert_eq!(title_dir("vim: notes.md"), None);
         assert_eq!(title_dir("me@devbox: notes"), None);
         assert_eq!(title_dir("a b@devbox: /x"), None);
+        // oh-my-zsh's title.
+        assert_eq!(title_dir("me@devbox:~/src/nex"), Some("~/src/nex"));
+        assert_eq!(title_dir("me@devbox:/srv/app"), Some("/srv/app"));
+        assert_eq!(title_dir("me@devbox:notes"), None);
     }
 }

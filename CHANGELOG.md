@@ -6,6 +6,12 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Ctrl+G in a pane ssh'd into a host opens the Changes pane in the folder the remote shell is
+  in, not the remote home, while a program there (Claude Code, vim, tmux) has set its own
+  window title. Titles like oh-my-zsh's `user@host:~/src` count too.
+
 ## [0.12.2] - 2026-11-23
 
 ### Added
