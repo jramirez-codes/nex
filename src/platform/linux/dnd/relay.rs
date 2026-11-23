@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::{Shared, log};
+use super::{Shared, lock, log};
 use crate::file_explorer::fs::ops::parse_paths;
 
 fn socket_path(pid: u32) -> Option<PathBuf> {
@@ -65,7 +65,7 @@ fn apply(shared: &Mutex<Shared>, msg: &str) {
     let mut num = || words.next().and_then(|w| w.parse::<f64>().ok());
     let at = num().zip(num());
     log(format_args!("relayed to this window: {cmd} {at:?}"));
-    let mut s = shared.lock().unwrap();
+    let mut s = lock(shared);
     match (cmd, at) {
         ("hover", Some(at)) => s.hover = Some(at),
         ("leave", _) => s.hover = None,

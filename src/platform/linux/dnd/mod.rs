@@ -30,7 +30,7 @@ use std::io::{Read, Write};
 use std::os::fd::{AsFd, FromRawFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use egui::{DroppedFile, Event, HoveredFile, PointerButton, Pos2, RawInput, TouchDeviceId, TouchId, TouchPhase};
@@ -73,6 +73,13 @@ const DROP_IMAGE_TYPES: [(&str, &str); 4] = [(PNG, "png"), ("image/jpeg", "jpg")
 
 /// A paste key was pressed in the window since the last frame (set by `note_paste_key`).
 static PASTE_KEY: AtomicBool = AtomicBool::new(false);
+
+/// Lock state shared between the UI thread and the Wayland thread. A panic on either side while
+/// it holds the lock poisons it; the state is still usable, so the other side carries on
+/// rather than panicking too.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The data device made by `prepare`, before eframe opened the window, waiting for `Dnd::new`.
 static EARLY: Mutex<Option<Early>> = Mutex::new(None);
@@ -281,7 +288,7 @@ impl Dnd {
         let Ok(handle) = event_loop.display_handle() else { return };
         let RawDisplayHandle::Wayland(display) = handle.as_raw() else { return };
         match Early::connect(display.display.as_ptr()) {
-            Ok(early) => *EARLY.lock().unwrap() = Some(early),
+            Ok(early) => *lock(&EARLY) = Some(early),
             Err(e) => trace!("prepare: {e}"),
         }
     }
@@ -294,7 +301,7 @@ impl Dnd {
     }
 
     fn connect(ctx: egui::Context, display: *mut std::ffi::c_void, surface: *mut std::ffi::c_void) -> Result<Self, String> {
-        let early = EARLY.lock().unwrap().take().filter(|e| e.display == display as usize);
+        let early = lock(&EARLY).take().filter(|e| e.display == display as usize);
         let Early { conn, mut queue, mut state, manager, device, .. } = match early {
             Some(e) => e,
             None => {
@@ -378,14 +385,14 @@ impl Dnd {
 
     /// The types the clipboard's current owner offers.
     fn clipboard_types(&self) -> Option<Vec<String>> {
-        let offer = self.shared.lock().unwrap().selection.clone()?;
-        let types = offer.data::<OfferData>()?.types.lock().unwrap().clone();
+        let offer = lock(&self.shared).selection.clone()?;
+        let types = lock(&offer.data::<OfferData>()?.types).clone();
         Some(types)
     }
 
     /// The clipboard's contents as `mime`, waiting at most `timeout` for its owner.
     fn read_clipboard(&self, mime: &str, timeout: Duration) -> Option<Vec<u8>> {
-        let offer = self.shared.lock().unwrap().selection.clone()?;
+        let offer = lock(&self.shared).selection.clone()?;
         let (reader, writer) = std::io::pipe().ok()?;
         offer.receive(mime.into(), writer.as_fd());
         drop(writer);
@@ -397,7 +404,7 @@ impl Dnd {
     /// is dragging them now (at `at`, in egui points), showing `image` under the pointer.
     /// Returns false if there's no press to continue.
     pub fn start_drag(&mut self, paths: &[PathBuf], at: Pos2, image: Option<DragImage>) -> bool {
-        let Some(serial) = self.shared.lock().unwrap().press_serial else {
+        let Some(serial) = lock(&self.shared).press_serial else {
             trace!("start_drag: no press serial yet");
             return false;
         };
@@ -428,7 +435,11 @@ impl Dnd {
             icon.surface.damage(0, 0, i32::MAX, i32::MAX);
             icon.surface.commit();
             // Kept until the drag ends (see the source's events).
-            *source.data::<SourceData>().expect("source data").icon.lock().unwrap() = Some(icon);
+            match source.data::<SourceData>() {
+                Some(data) => *lock(&data.icon) = Some(icon),
+                // Not a source of ours (it always is): nothing would destroy the icon later.
+                None => icon.destroy(),
+            }
         }
         self.handed_off = Some(at);
         self.conn.flush().is_ok()
@@ -483,7 +494,7 @@ impl Dnd {
                 raw.events.push(Event::Paste(text));
             }
         let (hover, dropped) = {
-            let mut s = self.shared.lock().unwrap();
+            let mut s = lock(&self.shared);
             let size = ctx.content_rect().size() * ctx.zoom_factor();
             s.size = Some((size.x as f64, size.y as f64));
             (s.hover, std::mem::take(&mut s.dropped))
@@ -564,7 +575,7 @@ impl OfferData {
     /// to save it under. A browser's image drag offers the image's URL as `text/uri-list`
     /// (an `https://` one, not a file) and the image itself as `image/png` and the like.
     fn image_type(&self) -> Option<(String, String)> {
-        let types = self.types.lock().unwrap();
+        let types = lock(&self.types);
         for (mime, ext) in DROP_IMAGE_TYPES {
             if types.iter().any(|t| t == mime) {
                 return Some((mime.to_string(), ext.to_string()));
@@ -607,7 +618,7 @@ enum Dest {
 
 impl State {
     fn set_hover(&self, hover: Option<(f64, f64)>) {
-        self.shared.lock().unwrap().hover = hover;
+        lock(&self.shared).hover = hover;
         self.ctx.request_repaint();
     }
 
@@ -615,7 +626,7 @@ impl State {
     /// sway leaves with this window), it's relayed to the nex window under it, if any.
     fn track(&mut self, at: (f64, f64)) {
         self.at = Some(at);
-        if self.shared.lock().unwrap().on_window(at) {
+        if lock(&self.shared).on_window(at) {
             self.stop_relaying();
             self.set_hover(Some(at));
             return;
@@ -690,7 +701,7 @@ impl State {
             let _ = conn.flush();
             match dest {
                 Dest::Here(at) if !paths.is_empty() => {
-                    shared.lock().unwrap().dropped.push((paths, at, moves));
+                    lock(&shared).dropped.push((paths, at, moves));
                     ctx.request_repaint();
                 }
                 Dest::Relay(pid, (x, y)) => {
@@ -754,7 +765,7 @@ impl Dispatch<WlPointer, ()> for State {
     fn event(state: &mut Self, _: &WlPointer, event: wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let wl_pointer::Event::Button { serial, state: WEnum::Value(wl_pointer::ButtonState::Pressed), .. } = event {
             trace!("pointer press, serial {serial}");
-            state.shared.lock().unwrap().press_serial = Some(serial);
+            lock(&state.shared).press_serial = Some(serial);
         }
     }
 }
@@ -764,7 +775,7 @@ impl Dispatch<WlTouch, ()> for State {
         match event {
             wl_touch::Event::Down { serial, id, x, y, .. } => {
                 trace!("touch down #{id} at ({x:.0}, {y:.0}), serial {serial}");
-                state.shared.lock().unwrap().press_serial = Some(serial);
+                lock(&state.shared).press_serial = Some(serial);
             }
             wl_touch::Event::Up { id, .. } => trace!("touch up #{id}"),
             wl_touch::Event::Cancel => trace!("touch cancel"),
@@ -828,7 +839,7 @@ impl Dispatch<WlDataDevice, ()> for State {
                 let at = state.at;
                 trace!("drop at {at:?}, files: {}", state.offer.is_some());
                 if let (Some(offer), Some(at)) = (state.offer.take(), at) {
-                    let dest = if state.shared.lock().unwrap().on_window(at) {
+                    let dest = if lock(&state.shared).on_window(at) {
                         Some(Dest::Here(at))
                     } else {
                         state.relay_target(at).map(|(pid, at)| Dest::Relay(pid, at))
@@ -846,7 +857,7 @@ impl Dispatch<WlDataDevice, ()> for State {
             }
             wl_data_device::Event::Selection { id } => {
                 trace!("clipboard offered: {}", id.is_some());
-                if let Some(old) = std::mem::replace(&mut state.shared.lock().unwrap().selection, id) {
+                if let Some(old) = std::mem::replace(&mut lock(&state.shared).selection, id) {
                     old.destroy();
                 }
             }
@@ -866,7 +877,7 @@ impl Dispatch<WlDataOffer, OfferData> for State {
                 if mime_type == URI_LIST {
                     data.uris.store(true, Ordering::Relaxed);
                 }
-                data.types.lock().unwrap().push(mime_type);
+                lock(&data.types).push(mime_type);
             }
             wl_data_offer::Event::Action { dnd_action: WEnum::Value(action) } => {
                 trace!("offer: compositor chose {action:?}");
@@ -887,7 +898,7 @@ impl Dispatch<WlDataSource, SourceData> for State {
                 let _ = std::fs::File::from(fd).write_all(body.as_bytes());
             }
             wl_data_source::Event::Cancelled | wl_data_source::Event::DndFinished => {
-                if let Some(icon) = data.icon.lock().unwrap().take() {
+                if let Some(icon) = lock(&data.icon).take() {
                     icon.destroy();
                 }
                 source.destroy();
@@ -918,6 +929,20 @@ fn file_uri(path: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_poisoned_lock_still_opens() {
+        let shared = Arc::new(Mutex::new(Shared::default()));
+        let held = shared.clone();
+        let panicked = std::thread::spawn(move || {
+            let _guard = lock(&held);
+            panic!("poison the lock");
+        })
+        .join();
+        assert!(panicked.is_err() && shared.is_poisoned());
+        lock(&shared).hover = Some((1.0, 2.0));
+        assert_eq!(lock(&shared).hover, Some((1.0, 2.0)));
+    }
 
     #[test]
     fn file_uris_round_trip() {
