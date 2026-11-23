@@ -49,6 +49,8 @@ All notable changes to nex are documented here. The format follows
 - Ctrl+G in a pane ssh'd into a host opens the Changes pane in the folder the remote shell is
   in, not the remote home, while a program there (Claude Code, vim, tmux) has set its own
   window title. Titles like oh-my-zsh's `user@host:~/src` count too.
+- Swiping right on the first tab opens the Agents tab on touch screens, even before it has
+  been opened.
 
 ## [0.12.2] - 2026-11-23
 
