@@ -27,10 +27,11 @@ impl App {
         let mut shortcut_ran = false;
         for event in events {
             match event {
-                // Ctrl armed by double-tapping the keyboard button: this key is Ctrl+key, for
-                // the program (not a nex shortcut), and its text is dropped.
+                // Ctrl armed by double-tapping the keyboard button: this key is Ctrl+key, as
+                // if Ctrl were held (a nex shortcut such as Ctrl+E, else the program gets
+                // it), and its text is dropped.
                 Event::Key { key, pressed: true, modifiers, .. } if self.take_armed_ctrl() => {
-                    self.key_to_pane(key, modifiers | Modifiers::CTRL);
+                    self.on_key(key, modifiers | Modifiers::CTRL);
                     shortcut_ran = true;
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => shortcut_ran = self.on_key(key, modifiers),
@@ -98,9 +99,11 @@ impl App {
         true
     }
 
-    /// Typed `text` with an armed Ctrl applied to its first character: that character goes to
-    /// the terminal as its control code and the rest is returned to type as usual (`None`
-    /// when nothing is left). Without an armed Ctrl, `text` is returned as it is.
+    /// Typed `text` with an armed Ctrl applied to its first character, as a held Ctrl would
+    /// be: Ctrl+that character runs its nex shortcut if it has one (`e` → Ctrl+E, the file
+    /// explorer), else the character goes to the terminal as its control code. The rest is
+    /// returned to type as usual (`None` when nothing is left). Without an armed Ctrl, `text`
+    /// is returned as it is.
     fn armed_ctrl_text(&mut self, text: &str) -> Option<String> {
         if !self.keyboard_button.ctrl_armed {
             return (!text.is_empty()).then(|| text.to_owned());
@@ -109,6 +112,10 @@ impl App {
         let first = chars.next()?;
         self.take_armed_ctrl();
         let rest = chars.as_str().to_owned();
+        if let Some(action) = Self::ctrl_shortcut(&self.bindings, first) {
+            self.pending.push(action);
+            return (!rest.is_empty()).then_some(rest);
+        }
         let bytes = match input::ctrl_char(first) {
             Some(b) => vec![b],
             None => first.to_string().into_bytes(),
@@ -117,6 +124,13 @@ impl App {
             t.input(bytes);
         }
         (!rest.is_empty()).then_some(rest)
+    }
+
+    /// The shortcut for Ctrl + the key that types `c` (either case: `e` and `E` are Ctrl+E),
+    /// if there is one.
+    fn ctrl_shortcut(bindings: &[keymap::Binding], c: char) -> Option<Action> {
+        let key = Key::from_name(&c.to_ascii_uppercase().to_string())?;
+        keymap::lookup(bindings, key, Modifiers::CTRL)
     }
 
     /// A paste key egui made no `Paste` event for: the clipboard holds no text (an image, say).

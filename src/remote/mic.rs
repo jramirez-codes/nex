@@ -880,6 +880,7 @@ mod tests {
         std::fs::remove_dir_all(&h).unwrap();
     }
 
+    #[cfg(target_os = "linux")]
     fn start_waiting(h: &Path) -> Child {
         Command::new("sh")
             .args(["-c", &wait_script()])
@@ -890,6 +891,7 @@ mod tests {
             .unwrap()
     }
 
+    #[cfg(target_os = "linux")]
     fn wait_for(path: &Path) {
         let start = Instant::now();
         while !path.exists() {
@@ -899,8 +901,11 @@ mod tests {
     }
 
     /// The waiting session, run here with a local `sh` standing in for ssh and a reader
-    /// standing in for a program opening the mic.
+    /// standing in for a program opening the mic. Linux only, as the hosts it runs on are:
+    /// `remove_script` finds a waiting session through `/proc`, so elsewhere the next one is
+    /// never ended and this waits forever (it hung the v0.11.0 macOS release).
     #[test]
+    #[cfg(target_os = "linux")]
     fn wait_script_streams_whole_blocks_until_the_reader_closes() {
         let h = home("wait");
         std::fs::create_dir_all(h.join(".nex")).unwrap();
