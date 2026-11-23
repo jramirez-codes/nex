@@ -78,10 +78,14 @@ extern "system" fn commit(mut env: JNIEnv, _class: JClass, text: JString) {
 extern "system" fn type_text(mut env: JNIEnv, _class: JClass, delete: jni::sys::jint, text: JString, composing: jni::sys::jboolean) {
     let Ok(text) = env.get_string(&text) else { return };
     let (delete, text): (usize, String) = (delete.max(0) as usize, text.into());
-    if let Ok(mut word) = WORD.lock() {
-        word.typed(delete, &text, composing != 0);
+    // Less a space right after the one nex typed after a glided word.
+    let text = match WORD.lock() {
+        Ok(mut word) => word.typed(delete, &text, composing != 0).to_owned(),
+        Err(_) => text,
+    };
+    if delete > 0 || !text.is_empty() {
+        push(Typed::Text { delete, text });
     }
-    push(Typed::Text { delete, text });
 }
 
 /// `NexInput.wordDone`: the keyboard `committed` the word it was composing, or gave it up. A

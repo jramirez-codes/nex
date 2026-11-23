@@ -4,7 +4,8 @@
 //! (see `android/java/NexInput.java`), so the keyboard never sees a word before the cursor to
 //! space away from. [`AutoSpace`] follows what the keyboard types into the word it is
 //! composing, and says when a word that ends should get a space after it: only a glided word,
-//! never tapped characters.
+//! never tapped characters. A space typed right after that one is dropped, so tapping space
+//! after a glided word (out of habit) doesn't make two.
 
 /// The word the keyboard is composing, and whether it was glided.
 #[derive(Debug, Default)]
@@ -15,18 +16,25 @@ pub struct AutoSpace {
     /// Whether a composing update put in more than one character at once: a glided word
     /// (tapping composes a character at a time).
     glided: bool,
+    /// A space was just typed after a glided word, and nothing since.
+    spaced: bool,
 }
 
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 impl AutoSpace {
     pub const fn new() -> Self {
-        Self { word: String::new(), glided: false }
+        Self { word: String::new(), glided: false, spaced: false }
     }
 
     /// The keyboard took back `delete` characters, then typed `text`; `composing` when this
     /// was the word it's still composing (rather than text it committed in one go: a tap, a
-    /// suggestion, a pasted word).
-    pub fn typed(&mut self, delete: usize, text: &str, composing: bool) {
+    /// suggestion, a pasted word). Returns the text to type: `text`, less a space right after
+    /// the one typed after a glided word.
+    pub fn typed<'a>(&mut self, delete: usize, text: &'a str, composing: bool) -> &'a str {
+        let text = match std::mem::take(&mut self.spaced) {
+            true if delete == 0 => text.strip_prefix(' ').unwrap_or(text),
+            _ => text,
+        };
         for _ in 0..delete {
             self.word.pop();
         }
@@ -34,6 +42,7 @@ impl AutoSpace {
             self.glided = true;
         }
         self.word.push_str(text);
+        text
     }
 
     /// The keyboard is done with the word: it `committed` it, or gave it up (a new input
@@ -41,7 +50,7 @@ impl AutoSpace {
     /// in one already.
     pub fn word_done(&mut self, committed: bool) -> bool {
         let space = committed && self.glided && self.word.chars().last().is_some_and(|c| !c.is_whitespace());
-        *self = Self::new();
+        *self = Self { spaced: space, ..Self::new() };
         space
     }
 }
@@ -49,6 +58,43 @@ impl AutoSpace {
 #[cfg(test)]
 mod tests {
     use super::AutoSpace;
+
+    #[test]
+    fn a_space_tapped_after_a_glided_word_is_not_doubled() {
+        let mut a = AutoSpace::default();
+        a.typed(0, "hello", true);
+        assert!(a.word_done(true));
+        // Gboard commits the tapped space on its own.
+        assert_eq!(a.typed(0, " ", false), "");
+        assert!(!a.word_done(true));
+        // Only the one: a second tap is a second space.
+        assert_eq!(a.typed(0, " ", false), " ");
+    }
+
+    #[test]
+    fn only_the_next_text_loses_its_space() {
+        let mut a = AutoSpace::default();
+        a.typed(0, "hello", true);
+        assert!(a.word_done(true));
+        assert_eq!(a.typed(0, "x", false), "x");
+        assert!(!a.word_done(true));
+        assert_eq!(a.typed(0, " ", false), " ");
+
+        // Backspace over the auto-space, then a space: that one is typed.
+        a.typed(0, "hello", true);
+        assert!(a.word_done(true));
+        assert_eq!(a.typed(1, "", false), "");
+        assert_eq!(a.typed(0, " ", false), " ");
+    }
+
+    #[test]
+    fn the_next_glided_word_is_typed_whole() {
+        let mut a = AutoSpace::default();
+        a.typed(0, "hello", true);
+        assert!(a.word_done(true));
+        assert_eq!(a.typed(0, "world", true), "world");
+        assert!(a.word_done(true));
+    }
 
     #[test]
     fn a_glided_word_gets_a_space() {

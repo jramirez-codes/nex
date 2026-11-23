@@ -38,7 +38,8 @@ All notable changes to nex are documented here. The format follows
 - Android: swipe (glide) typing on the on-screen keyboard types into the terminal. Words go
   in as you swipe, and the keyboard's corrections replace them.
   - A swiped word gets a space after it, as in other apps, so the next word you swipe
-    doesn't run into it. Tapped characters don't.
+    doesn't run into it. Tapped characters don't. Tapping space after a swiped word
+    doesn't add a second one.
 - Files and Changes panes on ssh hosts. Ctrl+E or Ctrl+G in a terminal that's ssh'd into a
   host opens the explorer or the Changes pane in the session's folder **on that host**. This
   works for panes running `ssh` and for panes on a host the window is connected to itself
