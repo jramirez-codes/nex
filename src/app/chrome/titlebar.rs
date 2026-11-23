@@ -341,7 +341,8 @@ impl App {
                     p.multiply_opacity(f.content);
                     icons::app_tile(&p, d.icon, &g.process, g.mark.as_deref());
                     let color = if d.active { theme.text_bright } else { theme.text_dim };
-                    let width = d.close.left() - 2.0 - d.text_left;
+                    let right = if self.strip.scroll.on { d.rect.right() - 10.0 } else { d.close.left() - 2.0 };
+                    let width = right - d.text_left;
                     paint::faded_text(&p, Pos2::new(d.text_left, d.rect.center().y), &g.title, FontId::proportional(13.5), color, width, 26.0);
                 }
                 let end = painter.add(Shape::Noop);
@@ -570,7 +571,8 @@ impl App {
         }
     }
 
-    /// One tab: icon (or pane deck), title, hover close button; click to show, drag to reorder.
+    /// One tab: icon (or pane deck), title, hover close button (not on phones); click to show,
+    /// drag to reorder.
     /// In the vertical (sidebar) strip a tab is just a large icon, its title a tooltip.
     /// Returns `true` if the tabs were reordered (the rest of the strip is drawn next frame).
     fn tab_item(&mut self, ui: &Ui, slots: &TabSlots, i: usize, theme: &Theme) -> bool {
@@ -653,7 +655,10 @@ impl App {
         let title = icons::title_mark(&process, &title).1;
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
         self.strip.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
-        let text_right = if hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
+        // Phones have no hover (a tap counts as one), so no ×: tabs close from the pane
+        // header's × instead, and the title gets the whole tab.
+        let closable = !self.strip.scroll.on;
+        let text_right = if closable && hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
         let title_color = if active { theme.text_bright } else { theme.text_dim };
         paint::faded_text(painter, Pos2::new(text_left, r.center().y), title, FontId::proportional(13.5), title_color, text_right - text_left, 26.0);
 
@@ -662,7 +667,8 @@ impl App {
         }
 
         // Close button only on hover, like Safari/Finder tabs.
-        let close_clicked = (hovered || ui.rect_contains_pointer(close_r))
+        let close_clicked = closable
+            && (hovered || ui.rect_contains_pointer(close_r))
             && IconButton::new(close_r, Id::new(("tab-close", uid)), theme.text_dim, theme.text_bright)
                 .icon_rect(close_r.shrink(3.0))
                 .hover(HoverShape::Circle(9.0), HOVER_STRONG)

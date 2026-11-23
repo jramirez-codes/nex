@@ -134,6 +134,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- Android: title-bar tabs no longer show a close (×) button, which a tap set off as a hover;
+  the title fills the tab. Close a tab from its pane header's × (closing its last pane closes
+  the tab).
 - Android: switching tabs slides the way the swipe goes: the next tab comes in from the
   right and the old one leaves to the left (the previous tab, the reverse). Desktops and the
   sidebar keep their direction.
