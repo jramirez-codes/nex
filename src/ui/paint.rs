@@ -46,10 +46,20 @@ pub fn glass_pill(p: &Painter, r: Rect, radius: u8) {
 /// A pane card: drop shadow, translucent fill, hairline border and a faint glass edge on top.
 /// `focus` (0 to 1) brightens the border and glass edge, so focus changes can fade.
 pub fn card(p: &Painter, r: Rect, radius: u8, fill: Color32, focus: f32, accent: Option<Color32>) {
-    let alpha = |from: f32, to: f32| (from + (to - from) * focus.clamp(0.0, 1.0)).round() as u8;
+    card_shadow(p, r, radius);
+    p.rect_filled(r, radius, fill);
+    card_edge(p, r, radius, focus, accent);
+}
+
+/// A pane card's drop shadow (the first layer of [`card`]).
+pub fn card_shadow(p: &Painter, r: Rect, radius: u8) {
     let shadow = Shadow { offset: [0, 3], blur: 16, spread: 0, color: Color32::from_black_alpha(70) };
     p.add(shadow.as_shape(r, radius));
-    p.rect_filled(r, radius, fill);
+}
+
+/// A pane card's hairline border and glass edge (the last layer of [`card`]).
+pub fn card_edge(p: &Painter, r: Rect, radius: u8, focus: f32, accent: Option<Color32>) {
+    let alpha = |from: f32, to: f32| (from + (to - from) * focus.clamp(0.0, 1.0)).round() as u8;
     let border = accent.unwrap_or(Color32::from_white_alpha(alpha(20.0, 30.0)));
     p.rect_stroke(r, radius, Stroke::new(1.0_f32, border), StrokeKind::Inside);
     let inset = radius as f32 + 2.0;
