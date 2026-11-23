@@ -147,8 +147,8 @@ fn a_double_tap_arms_ctrl_for_the_next_key() {
     // A keyboard that only sends text: the first character takes Ctrl, the rest are typed.
     tap(&mut app, &ctx, &mut t, c);
     tap(&mut app, &ctx, &mut t, c);
-    frame(&mut app, &ctx, &mut t, vec![Event::Text("ex".into())]);
-    assert_eq!(sent(&mut app), b"\x05x");
+    frame(&mut app, &ctx, &mut t, vec![Event::Text("ax".into())]);
+    assert_eq!(sent(&mut app), b"\x01x");
 
     // A second double-tap disarms it.
     tap(&mut app, &ctx, &mut t, c);
@@ -158,6 +158,40 @@ fn a_double_tap_arms_ctrl_for_the_next_key() {
     tap(&mut app, &ctx, &mut t, c);
     tap(&mut app, &ctx, &mut t, c);
     assert!(!app.keyboard_button.ctrl_armed);
+}
+
+#[test]
+fn armed_ctrl_runs_ctrl_shortcuts_like_a_held_ctrl() {
+    let ctx = egui::Context::default();
+    let mut app = phone(&ctx);
+    let mut t = 0.0;
+    wait(&mut app, &ctx, &mut t, 0.1);
+    let c = app.keyboard_button.rect.unwrap().center();
+    let shell = app.focused_pane().unwrap();
+    sent(&mut app);
+
+    // A keyboard that sends key events: armed Ctrl, then E, is Ctrl+E: the file explorer.
+    tap(&mut app, &ctx, &mut t, c);
+    tap(&mut app, &ctx, &mut t, c);
+    let key = Event::Key { key: Key::E, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+    frame(&mut app, &ctx, &mut t, vec![key, Event::Text("e".into())]);
+    wait(&mut app, &ctx, &mut t, 0.1);
+    assert!(!app.keyboard_button.ctrl_armed, "used up");
+    assert_eq!(app.explorers.len(), 1, "Ctrl+E opened the file explorer");
+    assert!(app.panes[&shell].written.lock().unwrap().is_empty(), "no ^E or e reached the shell");
+
+    // A keyboard that only sends text: armed Ctrl, then "g", is Ctrl+G: the Changes pane.
+    let mut app = phone(&ctx);
+    wait(&mut app, &ctx, &mut t, 0.1);
+    let shell = app.focused_pane().unwrap();
+    sent(&mut app);
+    tap(&mut app, &ctx, &mut t, c);
+    tap(&mut app, &ctx, &mut t, c);
+    frame(&mut app, &ctx, &mut t, vec![Event::Text("g".into())]);
+    wait(&mut app, &ctx, &mut t, 0.1);
+    assert!(!app.keyboard_button.ctrl_armed, "used up");
+    assert_eq!(app.diffs.len(), 1, "Ctrl+G opened the Changes pane");
+    assert!(app.panes[&shell].written.lock().unwrap().is_empty(), "no ^G or g reached the shell");
 }
 
 #[test]
