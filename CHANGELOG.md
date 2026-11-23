@@ -134,6 +134,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- Android: title-bar tabs no longer show a close (×) button, which a tap set off as a hover;
+  the title fills the tab. Close a tab from its pane header's × (closing its last pane closes
+  the tab).
 - Agents pane: each card and helper row shows the folder its agent works in (`nex`, or a
   worktree's own folder) instead of the host it runs on, so you can see which checkout each
   is in. The cards are calmer too: the title and folder sit together beside the tile, with a
