@@ -6,7 +6,7 @@
 export const FAQ: { q: string; a: string }[] = [
   {
     q: 'What is nex?',
-    a: 'nex is a free, open-source, GPU-accelerated terminal emulator for Linux and macOS, written in Rust. Tabs, split panes, a file explorer and a git Changes pane are built in, so you get a tmux-style layout, a file manager and a diff viewer in one native-feeling window. ssh sessions come along too: splits stay on the server, and files you drop or paste are uploaded. And an Agents pane keeps every Claude Code and Codex agent you run in view, saying which one needs you.',
+    a: 'nex is a free, open-source, GPU-accelerated terminal emulator for Linux and macOS, written in Rust, with an Android app and an iPhone beta. Tabs, split panes, a file explorer and a git Changes pane are built in, so you get a tmux-style layout, a file manager and a diff viewer in one native-feeling window. ssh sessions come along too: splits stay on the server, and files you drop or paste are uploaded. And an Agents pane keeps every Claude Code and Codex agent you run in view, saying which one needs you.',
   },
   {
     q: 'Which coding agents does nex work with?',
@@ -30,11 +30,11 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Is nex a tmux alternative?',
-    a: 'For layout, yes. nex splits panes right or down, zooms, resizes and moves focus between splits with the keyboard, and every pane has its own header showing the running program and folder. Splits of a pane running ssh open on the same server, in the same folder, so you do not need tmux on the remote side just to get a second shell there. nex does not detach sessions, so keep tmux if work has to survive a dropped connection.',
+    a: 'For layout, yes. nex splits panes right or down, zooms, resizes and moves focus between splits with the keyboard, and every pane has its own header showing the running program and folder. Splits of a pane running ssh open on the same server, in the same folder, so you do not need tmux on the remote side just to get a second shell there. Sessions survive too: on an ssh host, agents started through nex-host keep running when you close the pane or lose the connection, and with nex --remote (or the phone apps) every pane is a nex-host session that reconnects with its screen intact. A plain ssh pane on a local nex still ends with its connection, so keep tmux there if that matters.',
   },
   {
     q: 'How does nex work with SSH?',
-    a: 'Run plain ssh in a pane. Splitting it, or opening a new tab from it, opens another session on the same host in the same remote folder. Dropping files onto it, or pasting a copied image or files, uploads them to a new temp folder on the host and types the remote paths, so a remote program such as Claude Code can open them. nex reuses the pane\'s own ssh options and needs nothing installed on the server. Turn either part off with ssh-upload = false or ssh-follow = false.',
+    a: 'Run plain ssh in a pane. Splitting it, or opening a new tab from it, opens another session on the same host in the same remote folder. Dropping files onto it, or pasting a copied image or files, uploads them to a new temp folder on the host and types the remote paths, so a remote program such as Claude Code can open them. nex reuses the pane\'s own ssh options and needs only sh and tar for this (see below for the helper it installs for agents). Turn either part off with ssh-upload = false or ssh-follow = false.',
   },
   {
     q: 'Why does nex offer to edit ~/.ssh/config?',
@@ -58,7 +58,19 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Is nex available on Windows?',
-    a: 'Not yet. nex runs on Linux (Wayland and X11) and macOS. Next on the roadmap: custom keybindings, a command palette, themes and a signed, notarized Mac app.',
+    a: 'Not yet. nex runs on Linux (Wayland and X11) and macOS, and on phones: an Android app ships with every release, and an iPhone app is in beta (build it yourself from nex-ios). Next on the roadmap: custom keybindings, shell integration, themes, a command palette, color emoji and a signed, notarized Mac app.',
+  },
+  {
+    q: 'Is there a phone app?',
+    a: 'Yes. Every release includes nex-<version>-android-arm64.apk: install it on the phone, or with adb install -r. The phone runs only nex\'s window and every pane works on your ssh host. You type your password once; the app then adds a key for the phone that expires after 30 days. Panes survive network drops, the keyboard button doubles as an arrow-key joystick and a Ctrl key (double-tap), swipe typing works, holding the button talks to Claude Code\'s voice mode, and the Agents pane lists the agents on the server. An iPhone app is in beta with no download yet: build it with nex-ios/build-ipa.sh on a Mac with Xcode 15 or newer and an Apple Developer account.',
+  },
+  {
+    q: 'Does nex install anything on my servers?',
+    a: 'Only a small helper, and you can turn it off. With ssh-agents = true (the default), nex installs nex-host, one static binary, in ~/.nex on hosts its panes connect to, with no root needed, so agents can keep running after their pane closes. rm -rf ~/.nex removes it. With ssh-agents = false nothing is installed, and splits that follow ssh, uploads and pastes still work with plain sh and tar on the server. nex also offers, once per host, to add a few marked lines to your shell config so claude and codex start through the helper; that is up to you.',
+  },
+  {
+    q: 'What are nex-host pipelines?',
+    a: 'nex-host is the helper that runs agents on a host. A pipeline is a TOML file in .nex/pipelines/ listing stages, each an agent with a task whose done report feeds the stages after it. nex-host pipe NAME "task" runs it. Stages can run in parallel in their own git worktrees, retry until a reviewer approves, or queue behind one merger that takes pull requests first come, first served. Agents can also message each other directly with nex-host spawn, send, read, done and ls. Two examples ship with it: feature (build, open a PR, review, merge) and pr-team (three builders, one merger).',
   },
   {
     q: 'Is nex free?',

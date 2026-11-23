@@ -2,17 +2,17 @@ import Reveal from '../components/Reveal'
 import { DETAILS, SPOTLIGHT } from '../data/features'
 import DemoVideo from '../components/DemoVideo'
 import PlatformToggle from '../components/PlatformToggle'
-import { usePlatform } from '../platform'
+import { desktopOf, usePlatform } from '../platform'
 import './features.css'
 
 export default function Features() {
-  const platform = usePlatform()
+  const platform = desktopOf(usePlatform())
   return (
     <section className="section" id="features">
       <Reveal className="section-head">
         <p className="eyebrow">Features</p>
         <h2 className="title">Everything you reach for.{' '}<br />Already there.</h2>
-        <p className="lede">nex looks and feels like a native desktop app on macOS and Linux, and does the jobs you would normally bolt on with tmux and a file manager.</p>
+        <p className="lede">nex looks and feels like a native app on macOS, Linux and Android, and does the jobs you would normally bolt on with tmux and a file manager.</p>
         <div className="features-toggle">
           <span>Show shortcuts for</span>
           <PlatformToggle />

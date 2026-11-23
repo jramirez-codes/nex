@@ -1,9 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import CopyCommand from '../components/CopyCommand'
-import PlatformToggle from '../components/PlatformToggle'
 import Reveal from '../components/Reveal'
 import { REPO, RELEASES } from '../links'
-import { type Platform, usePlatform } from '../platform'
+import { ALL_PLATFORMS, IOS_SRC, type Platform, setPlatform, usePlatform } from '../platform'
 import './install.css'
 
 interface Method {
@@ -59,17 +58,41 @@ const METHODS: Record<Platform, Method[]> = {
       lines: [`git clone ${REPO}.git`, 'cd nex && ./install.sh'],
     },
   ],
+  android: [
+    {
+      id: 'apk',
+      label: 'APK',
+      note: <>Download <code>nex-v*-android-arm64.apk</code> from the <a href={RELEASES}>latest release</a> on the phone and open it (allow installs from your browser or file manager when asked). Or install it from a computer with USB debugging on:</>,
+      lines: ['adb install -r nex-v*-android-arm64.apk'],
+    },
+    {
+      id: 'src',
+      label: 'From source',
+      note: <>Needs the Android SDK and NDK, <code>cargo-apk</code> and a JDK, plus a static <code>nex-host</code> build for your server. See <a href={`${REPO}/tree/main/nex-android`}>nex-android</a>.</>,
+      lines: ['cargo build -p nex-host --release --target x86_64-unknown-linux-musl', 'cargo apk run -p nex-android --release'],
+    },
+  ],
+  ios: [
+    {
+      id: 'src',
+      label: 'Build it (beta)',
+      note: <>No download yet. Build it on a Mac with Xcode 15+ and an Apple Developer account, after adding your team ID to <code>nex-ios/xcode/Local.xcconfig</code>. See <a href={IOS_SRC}>nex-ios</a>.</>,
+      lines: [`git clone ${REPO}.git`, 'cd nex', 'rustup +1.88.0 target add aarch64-apple-ios aarch64-apple-ios-sim', 'nex-ios/build-ipa.sh   # writes target/ios/nex.ipa'],
+    },
+  ],
 }
 
 const SUPPORT: Record<Platform, string> = {
   mac: 'Universal build for Apple Silicon and Intel Macs.',
   linux: 'X11 or Wayland, on x86_64 and aarch64.',
+  android: 'arm64 phones. Every pane works on your ssh host.',
+  ios: 'Beta: build it yourself for now.',
 }
 
 export default function Install() {
   const platform = usePlatform()
   const methods = METHODS[platform]
-  const [picked, setPicked] = useState<Record<Platform, string>>({ mac: 'app', linux: 'deb' })
+  const [picked, setPicked] = useState<Record<Platform, string>>({ mac: 'app', linux: 'deb', android: 'apk', ios: 'src' })
   const method = methods.find(m => m.id === picked[platform]) ?? methods[0]
 
   return (
@@ -77,11 +100,25 @@ export default function Install() {
       <Reveal className="section-head">
         <p className="eyebrow">Install</p>
         <h2 className="title">Up and running in{' '}<br />one command.</h2>
-        <p className="lede">Free and open source, for macOS and Linux.</p>
+        <p className="lede">Free and open source, for macOS, Linux and Android, with an iPhone beta.</p>
       </Reveal>
       <Reveal className="glass install">
         <div className="install-os">
-          <PlatformToggle />
+          <div className="seg seg-compact" role="radiogroup" aria-label="Install on">
+            {ALL_PLATFORMS.map(p => (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={p.id === platform}
+                className={p.id === platform ? 'on' : ''}
+                onClick={() => setPlatform(p.id)}
+              >
+                <span className="seg-icon" aria-hidden="true">{p.icon}</span>
+                {p.label}
+              </button>
+            ))}
+          </div>
           <span className="install-support">{SUPPORT[platform]}</span>
         </div>
         <div className="seg" role="tablist" aria-label="Install method">

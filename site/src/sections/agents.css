@@ -125,6 +125,7 @@
 
 .agents-pipe h3 { margin: 0 0 8px; font-size: 22px; letter-spacing: -0.01em; }
 .agents-pipe p { margin: 0; color: var(--text-2); font-size: 15px; }
+.agents-pipe .agents-examples { margin-top: 12px; font-size: 14px; }
 .agents-code {
   margin: 18px 0 12px;
   padding: 16px 18px;
@@ -139,7 +140,7 @@
 
 .agents-points {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 32px;
   margin-top: 48px;
   padding: 0 8px;

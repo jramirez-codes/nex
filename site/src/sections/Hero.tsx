@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 import DemoVideo from '../components/DemoVideo'
-import { REPO, RELEASES } from '../links'
-import { platformName, setPlatform, usePlatform } from '../platform'
+import { REPO } from '../links'
+import { desktopOf, download, platformName, setPlatform, usePlatform } from '../platform'
 import './hero.css'
 
 export default function Hero() {
   const stage = useRef<HTMLDivElement>(null)
   const platform = usePlatform()
-  const other = platform === 'mac' ? 'linux' : 'mac'
+  // Phone visitors are offered the desktop they most likely use.
+  const other = desktopOf(platform) === 'mac' ? 'linux' : 'mac'
 
   // Tilt the window back a little and let it flatten as the page scrolls.
   useEffect(() => {
@@ -38,20 +39,22 @@ export default function Hero() {
         <span aria-hidden="true">→</span>
       </a>
       <h1 className="hero-title hero-in">
+        <span className="hero-kicker">nex — GPU terminal emulator with AI agents, SSH, files and git</span>
         The <span className="gradient-text">nex</span> terminal.
       </h1>
       <p className="lede hero-sub hero-in">
-        A fast, GPU-accelerated terminal for macOS and Linux, written in Rust, with agent
+        A fast, GPU-accelerated terminal for macOS, Linux and Android, written in Rust, with agent
         monitoring, SSH that follows you, a file explorer and git changes built in. No tmux,
         no plugins, no setup.
       </p>
       <div className="hero-actions hero-in">
-        <a className="btn btn-primary" href={RELEASES}>Download for {platformName(platform)}</a>
+        <a className="btn btn-primary" href={download(platform).href}>{download(platform).label}</a>
         <a className="btn btn-ghost" href={REPO}>View on GitHub →</a>
       </div>
       <p className="hero-platforms hero-in">
         <span className="chip"><span aria-hidden="true">⌘</span> macOS · Apple Silicon &amp; Intel</span>
         <span className="chip"><span aria-hidden="true">🐧</span> Linux · Wayland &amp; X11</span>
+        <a className="chip" href="#mobile"><span aria-hidden="true">📱</span> Android · iPhone beta</a>
         <button type="button" className="hero-switch" onClick={() => setPlatform(other)}>
           On {platformName(other)}?
         </button>

@@ -5,6 +5,7 @@ import Highlights from './sections/Highlights'
 import Agents from './sections/Agents'
 import Ssh from './sections/Ssh'
 import Mac from './sections/Mac'
+import Mobile from './sections/Mobile'
 import Features from './sections/Features'
 import Shortcuts from './sections/Shortcuts'
 import Performance from './sections/Performance'
@@ -24,6 +25,7 @@ export default function App() {
         <Ssh />
         <Agents />
         <Mac />
+        <Mobile />
         <Features />
         <Shortcuts />
         <Performance />
