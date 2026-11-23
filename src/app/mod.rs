@@ -320,6 +320,13 @@ impl eframe::App for App {
             for typed in crate::platform::typed_text() {
                 let text = match typed {
                     crate::platform::Typed::Paste(text) => text,
+                    crate::platform::Typed::Enter => {
+                        for pressed in [true, false] {
+                            let modifiers = egui::Modifiers::NONE;
+                            raw_input.events.push(egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed, repeat: false, modifiers });
+                        }
+                        continue;
+                    }
                     crate::platform::Typed::Text { delete, text } => {
                         for pressed in std::iter::repeat_n([true, false], delete).flatten() {
                             let modifiers = egui::Modifiers::NONE;

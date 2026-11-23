@@ -2,13 +2,14 @@
 //! window; every pane works on an ssh host (`LOCAL_SHELLS` is false). iOS lets an app write
 //! only inside its own container, so [`ios_setup`] points `HOME` and the XDG folders there.
 //!
-//! winit's view already takes the on-screen keyboard's typing (`UIKeyInput`) and egui shows
-//! and hides the keyboard itself (`set_ime_allowed`), so typed text arrives as key events and
-//! [`super::typed_text`] stays empty. `screen.rs` makes the window cover the whole screen and
+//! The on-screen keyboard types into a hidden text view of nex's own (`keyboard.rs`), which
+//! iOS treats as a real text field (holding delete repeats); its typing reaches nex through
+//! [`typed_text`], as on Android. `screen.rs` makes the window cover the whole screen and
 //! reports the part the notch, home indicator and keyboard leave free, as on Android.
 
 mod clipboard;
 mod haptics;
+mod keyboard;
 mod mic;
 mod screen;
 
@@ -24,7 +25,8 @@ pub use super::unix::{
 pub use clipboard::{clipboard_text, mirror_copies};
 pub use haptics::haptic;
 pub use mic::{ask_mic, mic_allowed, prepare_mic};
-pub use screen::{content_rect_px, soft_keyboard_visible, sync_soft_keyboard};
+pub use keyboard::{sync_soft_keyboard, typed_text};
+pub use screen::{content_rect_px, soft_keyboard_visible};
 
 use super::{ProcInfo, ShortcutStyle, WindowDefaults};
 

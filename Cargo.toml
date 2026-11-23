@@ -67,7 +67,7 @@ egui-wgpu = "0.33.3"
 objc2 = { version = "0.6", default-features = false, features = ["std"] }
 # The safe area and keyboard (platform/ios/screen.rs), the clipboard and haptics.
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSNotification", "NSValue", "NSGeometry", "NSDictionary", "block2", "NSOperation"] }
-objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "UIPasteboard", "UIApplication", "UIResponder", "UIWindow", "UIView", "UIScreen", "UIGeometry", "UIFeedbackGenerator", "UIImpactFeedbackGenerator", "UISelectionFeedbackGenerator", "UINotificationFeedbackGenerator", "objc2-core-foundation"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "UIPasteboard", "UIApplication", "UIResponder", "UIWindow", "UIView", "UIScreen", "UIGeometry", "UIFeedbackGenerator", "UIImpactFeedbackGenerator", "UISelectionFeedbackGenerator", "UINotificationFeedbackGenerator", "UITextView", "UIScrollView", "UITextInput", "UITextInputTraits", "UIColor", "objc2-core-foundation"] }
 block2 = "0.6"
 # The mic's permission and audio session (platform/ios/mic.rs); cpal's own version.
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes", "block2"] }

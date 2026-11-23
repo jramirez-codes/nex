@@ -105,7 +105,7 @@ fn observe_keyboard() {
 }
 
 /// winit's window, once it's open.
-fn winit_window(mtm: MainThreadMarker) -> Option<Retained<UIWindow>> {
+pub(super) fn winit_window(mtm: MainThreadMarker) -> Option<Retained<UIWindow>> {
     let cls = AnyClass::get(WINIT_WINDOW)?;
     #[allow(deprecated)]
     let windows = UIApplication::sharedApplication(mtm).windows();
@@ -137,8 +137,14 @@ pub fn soft_keyboard_visible() -> Option<bool> {
     *KEYBOARD_UP.lock().unwrap()
 }
 
-/// egui itself shows and hides the keyboard on iOS (winit's `set_ime_allowed`); this only
-/// keeps the context, to wake a frame when the keyboard moves.
-pub fn sync_soft_keyboard(ctx: &egui::Context) {
+/// Keep the context, to wake a frame when the keyboard moves or types.
+pub(super) fn remember(ctx: &egui::Context) {
     let _ = CTX.get_or_init(|| ctx.clone());
+}
+
+/// Ask for a frame, to read what changed.
+pub(super) fn wake() {
+    if let Some(ctx) = CTX.get() {
+        ctx.request_repaint();
+    }
 }

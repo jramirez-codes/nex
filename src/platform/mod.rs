@@ -22,7 +22,8 @@
 //!                 · menu.rs (app menu) · window.rs (traffic lights, title)
 //!   windows/      mod.rs · proc.rs (not yet implemented)
 //!   android/      mod.rs (app folders, no local shells: a thin client to ssh hosts)
-//!   ios/          mod.rs (the same thin client) · screen.rs (safe area, keyboard) · clipboard.rs · haptics.rs
+//!   ios/          mod.rs (the same thin client) · screen.rs (safe area, keyboard frame)
+//!                 · keyboard.rs (the view the keyboard types into) · clipboard.rs · haptics.rs
 //!                 · mic.rs (permission, audio session)
 //! ```
 //!
@@ -127,7 +128,7 @@ pub fn content_rect_px() -> Option<[f32; 4]> {
 
 /// Text the on-screen keyboard sent outside of key events.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(dead_code))]
 pub enum Typed {
     /// Typed (a key, a glided word, a suggestion): first `delete` characters are taken back
     /// with Backspace (the keyboard changed its mind about a word it's still composing), then
@@ -135,6 +136,9 @@ pub enum Typed {
     Text { delete: usize, text: String },
     /// Several characters committed at once from the keyboard's clipboard: a paste.
     Paste(String),
+    /// Return, where the keyboard types it as text rather than a key event (iOS).
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    Enter,
 }
 
 /// A touch of haptic feedback, for controls that should feel physical.
@@ -150,9 +154,8 @@ pub enum Haptic {
     Release,
 }
 
-/// Only Android has an on-screen keyboard that commits text outside of key events (on iOS,
-/// winit turns what the keyboard types into key events).
-#[cfg(not(target_os = "android"))]
+/// Only the phones have an on-screen keyboard that types outside of key events.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn typed_text() -> Vec<Typed> {
     Vec::new()
 }
