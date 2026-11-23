@@ -154,12 +154,14 @@ pub fn authorized_line(key: &PrivateKey, comment: &str, expires: Option<u64>) ->
     Ok(format!("{options}{algo} {data} {comment}"))
 }
 
-/// The host's OpenSSH version, for [`supports_expiry`].
+/// The host's OpenSSH version, for [`supports_expiry`]. An `sh` script: run it with
+/// `Client::run_sh`.
 pub const VERSION_COMMAND: &str = "ssh -V 2>&1; true";
 
 /// A script for the host that puts `line` in `~/.ssh/authorized_keys`, dropping any line that
 /// ends with `comment` (this device's previous key). The file is rewritten in place (`cat >`),
-/// so it keeps its owner, mode and SELinux label.
+/// so it keeps its owner, mode and SELinux label. It's `sh`, so it runs with `Client::run_sh`:
+/// the login shell (fish, csh) wouldn't read it.
 pub fn install_script(line: &str, comment: &str) -> String {
     let q = |s: &str| format!("'{}'", s.replace('\'', r"'\''"));
     format!(

@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use nex_host::proto::{self, Response, Session};
 
 use super::ssh::host::RemoteHost;
+use super::ssh::{Exec, ExecCloser};
 use super::{SshFailure, SshTarget, last_line, needs_login, posix_quote};
 
 /// Where the program goes on the host, for the remote shell (which expands `~`). This and
@@ -341,12 +342,15 @@ impl Default for Snapshot {
 pub struct Watch {
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
+    /// The `ssh` running the watch, killed to stop it.
     child: Arc<Mutex<Option<Child>>>,
+    /// The watch's command on nex's own connection ([`Watch::start_direct`]), closed to stop it.
+    closer: Arc<Mutex<Option<ExecCloser>>>,
 }
 
 impl Watch {
     pub fn start(target: SshTarget, wake: impl Fn() + Send + 'static) -> Self {
-        let w = Watch { snapshot: Arc::default(), stop: Arc::default(), child: Arc::default() };
+        let w = Watch::fake(Snapshot::default());
         let (snapshot, stop, child) = (w.snapshot.clone(), w.stop.clone(), w.child.clone());
         let _ = std::thread::Builder::new().name("nex-host-watch".into()).spawn(move || watch(&target, &snapshot, &stop, &child, &wake));
         w
@@ -356,20 +360,31 @@ impl Watch {
     /// connection: there's no `ssh` program to run, and login already put this nex's
     /// `nex-host` there.
     pub fn start_direct(host: Arc<RemoteHost>, wake: impl Fn() + Send + 'static) -> Self {
-        let w = Watch { snapshot: Arc::default(), stop: Arc::default(), child: Arc::default() };
-        let (snapshot, stop) = (w.snapshot.clone(), w.stop.clone());
-        let _ = std::thread::Builder::new().name("nex-host-watch".into()).spawn(move || watch_direct(&host, &snapshot, &stop, &wake));
+        let w = Watch::fake(Snapshot::default());
+        let (snapshot, stop, closer) = (w.snapshot.clone(), w.stop.clone(), w.closer.clone());
+        let _ = std::thread::Builder::new().name("nex-host-watch".into()).spawn(move || watch_direct(&host, &snapshot, &stop, &closer, &wake));
         w
     }
 
-    /// A watch that connects nowhere, showing `snapshot`, for tests.
-    #[cfg(test)]
+    /// A watch that connects nowhere, showing `snapshot`: what the others start from, and
+    /// for tests.
     pub fn fake(snapshot: Snapshot) -> Self {
-        Watch { snapshot: Arc::new(Mutex::new(snapshot)), stop: Arc::default(), child: Arc::default() }
+        Watch { snapshot: Arc::new(Mutex::new(snapshot)), stop: Arc::default(), child: Arc::default(), closer: Arc::default() }
     }
 
+    /// A copy of everything known about the host, its sessions included: for showing them.
+    /// To only look at it (its state, whether it has sessions), use [`Self::with_snapshot`].
     pub fn snapshot(&self) -> Snapshot {
-        self.snapshot.lock().map(|s| s.clone()).unwrap_or_default()
+        self.with_snapshot(Snapshot::clone)
+    }
+
+    /// What `read` makes of the snapshot, looked at in place: nothing is copied. `read` runs
+    /// with the snapshot locked, so it should only look.
+    pub fn with_snapshot<R>(&self, read: impl FnOnce(&Snapshot) -> R) -> R {
+        match self.snapshot.lock() {
+            Ok(s) => read(&s),
+            Err(_) => read(&Snapshot::default()),
+        }
     }
 
     /// The shim was just installed (by nex).
@@ -387,6 +402,12 @@ impl Drop for Watch {
             && let Some(c) = c.as_mut()
         {
             let _ = c.kill();
+        }
+        // The direct watch's thread is reading the command's output: closing it ends that read.
+        if let Ok(mut c) = self.closer.lock()
+            && let Some(c) = c.take()
+        {
+            c.close();
         }
     }
 }
@@ -478,7 +499,7 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
 
 /// What [`Watch::start_direct`]'s thread runs: `nex-host watch` on the connection, again
 /// whenever it ends, until told to stop.
-fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, wake: &dyn Fn()) {
+fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, closer: &Mutex<Option<ExecCloser>>, wake: &dyn Fn()) {
     let fail = |why: String| {
         if let Ok(mut s) = snapshot.lock() {
             s.state = State::Failed(HostError::Other(why));
@@ -488,7 +509,8 @@ fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool
     let mut retry = RETRY_MIN;
     while !stop.load(Ordering::Relaxed) {
         let exec = match host.client() {
-            Ok(client) => client.exec(DIRECT_WATCH),
+            // An `sh` script, so not for the login shell to read.
+            Ok(client) => client.exec_sh(DIRECT_WATCH),
             Err(e) => Err(std::io::Error::other(e.to_string())),
         };
         let exec = match exec {
@@ -500,22 +522,7 @@ fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool
                 continue;
             }
         };
-        let mut lines = 0;
-        for line in BufReader::new(exec.reader).lines() {
-            if stop.load(Ordering::Relaxed) {
-                return;
-            }
-            let Ok(line) = line else { break };
-            let Ok(r) = serde_json::from_str::<Response>(&line) else { continue };
-            lines += 1;
-            if let Ok(mut s) = snapshot.lock() {
-                s.state = State::Live;
-                s.sessions = r.sessions.unwrap_or_default();
-                s.home = r.home.or(s.home.take());
-                s.updated = Some(Instant::now());
-            }
-            wake();
-        }
+        let lines = read_direct(exec, snapshot, stop, closer, wake);
         if stop.load(Ordering::Relaxed) {
             break;
         }
@@ -525,7 +532,44 @@ fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool
     }
 }
 
-/// The watch, on a host the window is connected to itself.
+/// Read one run of `nex-host watch` on nex's own connection into `snapshot`, until it ends or
+/// the [`Watch`] is dropped: `closer` holds the command's closer meanwhile, which
+/// [`Watch`]'s `Drop` uses to end it (and so this read, which would otherwise wait for a line
+/// that may never come). Returns how many lines it read.
+fn read_direct(exec: Exec, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, closer: &Mutex<Option<ExecCloser>>, wake: &dyn Fn()) -> usize {
+    if let Ok(mut c) = closer.lock() {
+        *c = Some(exec.closer.clone());
+    }
+    // Dropped before the closer was there to use: end the command here.
+    if stop.load(Ordering::Relaxed) {
+        exec.closer.close();
+    }
+    let mut lines = 0;
+    for line in BufReader::new(exec.reader).lines() {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let Ok(line) = line else { break };
+        let Ok(r) = serde_json::from_str::<Response>(&line) else { continue };
+        lines += 1;
+        if let Ok(mut s) = snapshot.lock() {
+            s.state = State::Live;
+            s.sessions = r.sessions.unwrap_or_default();
+            s.home = r.home.or(s.home.take());
+            s.updated = Some(Instant::now());
+        }
+        wake();
+    }
+    if let Ok(mut c) = closer.lock() {
+        *c = None;
+    }
+    // Ended on the host too, however the read ended (nothing happens if it already has).
+    exec.closer.close();
+    lines
+}
+
+/// The watch, on a host the window is connected to itself. An `sh` script (`exec`, `$HOME`):
+/// it runs with `Client::exec_sh`.
 const DIRECT_WATCH: &str = "exec \"$HOME/.nex/bin/nex-host\" watch";
 
 /// Sleep `d`, waking early when told to stop.
@@ -550,6 +594,68 @@ mod tests {
         let (dir, file) = path.rsplit_once('/').unwrap();
         assert!(INSTALL_SCRIPT.starts_with(&format!("d=\"$HOME/{dir}\"")));
         assert!(INSTALL_SCRIPT.contains(&format!("\"$d/{file}\"")));
+    }
+
+    fn session(id: &str) -> Session {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "kind": "claude", "name": id, "cwd": "/", "argv": ["claude"], "pid": 1, "started": 0,
+            "last_output": 0, "last_input": 0, "status": "idle"
+        }))
+        .unwrap()
+    }
+
+    /// The direct watch's read, on a thread as `watch_direct` runs it; the receiver hears
+    /// how many lines it read once it has ended.
+    fn reading(w: &Watch, exec: Exec) -> std::sync::mpsc::Receiver<usize> {
+        let (snapshot, stop, closer) = (w.snapshot.clone(), w.stop.clone(), w.closer.clone());
+        let (tx, ended) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_direct(exec, &snapshot, &stop, &closer, &|| {}));
+        });
+        ended
+    }
+
+    /// Dropping the watch ends the direct connection's `nex-host watch`, and the thread
+    /// reading it, though no line is on its way.
+    #[test]
+    fn dropping_a_direct_watch_stops_its_command() {
+        let line = serde_json::to_string(&serde_json::json!({ "ok": true, "sessions": [session("a")], "home": "/home/me" })).unwrap();
+        let w = Watch::fake(Snapshot::default());
+        let ended = reading(&w, Exec::hanging(format!("{line}\n").as_bytes()));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !w.with_snapshot(|s| s.state == State::Live) {
+            assert!(Instant::now() < deadline, "the watch's line never arrived");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(w.with_snapshot(|s| (s.sessions.len(), s.home.clone())), (1, Some("/home/me".into())));
+        // Quiet from here on: the read is waiting, and stays so while the watch lives.
+        assert!(ended.recv_timeout(Duration::from_millis(200)).is_err(), "still watching");
+        let closer = w.closer.clone();
+        drop(w);
+        assert_eq!(ended.recv_timeout(Duration::from_secs(5)).expect("the read ended with the watch"), 1);
+        assert!(closer.lock().unwrap().is_none(), "nothing kept of the ended command");
+    }
+
+    /// A watch dropped while its thread was still connecting: the command that then starts
+    /// is ended at once.
+    #[test]
+    fn a_direct_watch_dropped_while_connecting_stops_too() {
+        let w = Watch::fake(Snapshot::default());
+        w.stop.store(true, Ordering::Relaxed);
+        let ended = reading(&w, Exec::hanging(b""));
+        assert_eq!(ended.recv_timeout(Duration::from_secs(5)).expect("the read ended"), 0);
+    }
+
+    /// Looking at a snapshot copies nothing (the sessions stay where they are), where
+    /// `snapshot()` copies every session on every call.
+    #[test]
+    fn with_snapshot_looks_without_copying() {
+        let sessions: Vec<Session> = (0..200).map(|i| session(&format!("s{i}"))).collect();
+        let w = Watch::fake(Snapshot { state: State::Live, sessions, ..Default::default() });
+        let held = w.with_snapshot(|s| s.sessions.as_ptr());
+        assert_eq!(w.with_snapshot(|s| s.sessions.as_ptr()), held, "the watch's own sessions, in place");
+        assert_ne!(w.snapshot().sessions.as_ptr(), held, "a snapshot is a copy");
+        assert_eq!(w.with_snapshot(|s| s.sessions.len()), 200);
     }
 
     fn target(dest: &str) -> SshTarget {

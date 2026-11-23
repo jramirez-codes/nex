@@ -16,6 +16,11 @@
 //! it runs on background threads, never in a frame. A command's input and output are plain
 //! `Read` / `Write` ([`Exec`]): tasks on the runtime move them to and from the channel.
 //!
+//! A command is run by the user's login shell on the host, which needn't be a POSIX one (fish,
+//! csh). Anything written in `sh` goes through [`Client::run_sh`] / [`Client::exec_sh`], which
+//! hand it to `sh` as one quoted word; [`Client::run`] / [`Client::exec`] are for a plain
+//! program and its arguments.
+//!
 //! Host keys are trusted on first use, but only with the user's say: a host nex hasn't
 //! seen fails with [`ConnectError::UnknownHost`] and its fingerprint. The user is shown that
 //! fingerprint, and trusting it saves it to `known_hosts` in nex's config folder. A host
@@ -284,6 +289,13 @@ fn check_key(server: &Server, key: &PublicKey, trust: Option<&str>) -> KeyCheck 
     }
 }
 
+/// The command that runs `script` under `sh`. A command sent to a host is run by the user's
+/// login shell there, which may be fish or csh: they don't read `sh` (`a=b`, `$(…)`, `2>&1`),
+/// but every shell runs a program with one quoted word the same way.
+pub fn sh_command(script: &str) -> String {
+    format!("sh -c {}", crate::remote::posix_quote(script))
+}
+
 /// A logged-in connection to a host. Commands on it run in channels of their own, any
 /// number at once.
 pub struct Client {
@@ -371,10 +383,25 @@ impl Client {
         Ok(Exec::start(channel, self.live.killed.subscribe()))
     }
 
+    /// Run `script` under `sh`, whatever the user's shell on the host is (see [`sh_command`]):
+    /// [`Self::exec`] for anything written in `sh`.
+    pub fn exec_sh(&self, script: &str) -> io::Result<Exec> {
+        self.exec(&sh_command(script))
+    }
+
     /// Run `command`, feeding it `stdin`, and wait for it to end: its exit status and what it
     /// printed to stdout.
     pub fn run(&self, command: &str, stdin: &[u8]) -> io::Result<(u32, Vec<u8>)> {
-        let mut exec = self.exec(command)?;
+        Self::finish(self.exec(command)?, stdin)
+    }
+
+    /// [`Self::run`] for a `script` written in `sh`, run under `sh` (see [`sh_command`]).
+    pub fn run_sh(&self, script: &str, stdin: &[u8]) -> io::Result<(u32, Vec<u8>)> {
+        Self::finish(self.exec_sh(script)?, stdin)
+    }
+
+    /// Feed a started command `stdin` and wait for it to end.
+    fn finish(mut exec: Exec, stdin: &[u8]) -> io::Result<(u32, Vec<u8>)> {
         exec.writer.write_all(stdin)?;
         drop(exec.writer);
         let mut out = Vec::new();
@@ -482,6 +509,25 @@ impl Exec {
     }
 }
 
+#[cfg(test)]
+impl Exec {
+    /// A command with no connection behind it, for tests: it prints `output` and then runs
+    /// until its closer is used, as one that never ends by itself would.
+    pub fn hanging(output: &[u8]) -> Exec {
+        let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>();
+        let (in_tx, _) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        let close = Arc::new(tokio::sync::Notify::new());
+        let closing = close.clone();
+        let _ = out_tx.send(output.to_vec());
+        runtime().spawn(async move {
+            closing.notified().await;
+            // Dropping `out_tx` ends the reader, as the closed channel does.
+            drop(out_tx);
+        });
+        Exec { reader: ExecReader { rx: out_rx, pending: Vec::new(), at: 0 }, writer: ExecWriter { tx: in_tx }, status: Arc::default(), closer: ExecCloser { close } }
+    }
+}
+
 /// A command's output. Reads block until something arrives, and return 0 once it has ended.
 pub struct ExecReader {
     rx: mpsc::Receiver<Vec<u8>>,
@@ -535,6 +581,41 @@ mod tests {
         assert_eq!(s.to_string(), "jr@home.lan");
         let s = Server { port: 2222, ..s };
         assert_eq!(s.to_string(), "jr@home.lan:2222");
+    }
+
+    /// A script reaches `sh` as one quoted word, which fish and csh pass on as `sh` would
+    /// (nothing of it is left outside the quotes for them to read their own way), and `sh`
+    /// gets it as it was written.
+    #[test]
+    fn scripts_are_one_quoted_word_for_sh() {
+        let script = "a='it''s'; t=$(printf '%s' \"$a\") && echo \"$t $HOME\" 2>&1";
+        let command = sh_command(script);
+        let word = command.strip_prefix("sh -c ").expect("sh runs it");
+        // Outside the single quotes there is only `\'`, an escaped quote.
+        let mut quoted = false;
+        let mut chars = word.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\'' => quoted = !quoted,
+                '\\' if !quoted => assert_eq!(chars.next(), Some('\'')),
+                c => assert!(quoted, "{c:?} is outside the quotes in {word}"),
+            }
+        }
+        assert!(!quoted);
+        #[cfg(unix)]
+        {
+            let out = std::process::Command::new("sh").arg("-c").arg(&command).env("HOME", "/h").output().unwrap();
+            assert_eq!(String::from_utf8_lossy(&out.stdout), "its /h\n");
+        }
+    }
+
+    #[test]
+    fn a_hanging_command_ends_when_closed() {
+        let Exec { mut reader, closer, .. } = Exec::hanging(b"hi\n");
+        let mut buf = [0u8; 8];
+        assert_eq!(reader.read(&mut buf).unwrap(), 3);
+        closer.close();
+        assert_eq!(reader.read(&mut buf).unwrap(), 0);
     }
 
     #[test]
