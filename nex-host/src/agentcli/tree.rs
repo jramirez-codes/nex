@@ -62,6 +62,7 @@ mod tests {
             parent: parent.map(Into::into),
             role: None,
             last_message: 0,
+            subagents: Vec::new(),
         }
     }
 

@@ -6,6 +6,15 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Agents pane shows the sub-agents a Claude Code or Codex agent is running (Claude
+  Code's Task tool, Codex's spawned threads) as a team in its card, like a pipeline's stages:
+  a capsule each, with what it was asked to do, a tick for two minutes once it finishes, and a
+  click jumps to its agent's pane. A pipeline stage's sub-agents sit under that stage, with a
+  count on its capsule. It works over ssh too: `nex-host list --json` reports each session's
+  `subagents`. Codex support reads its rollout files and is untested.
+
 ## [0.12.2] - 2026-11-23
 
 ### Added

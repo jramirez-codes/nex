@@ -391,6 +391,12 @@ impl Agent {
         };
         let kind = running.as_deref().unwrap_or(&self.kind);
         let claude = (kind == "claude" && exit.is_none()).then(|| nex_host::claude::read(agent_pid)).flatten();
+        let subagents = match (kind, &claude) {
+            _ if exit.is_some() => Vec::new(),
+            ("claude", Some(c)) => nex_host::subagents::claude(c),
+            ("codex", _) => nex_host::subagents::codex(agent_pid, &self.cwd),
+            _ => Vec::new(),
+        };
         let mut s = Session {
             id: self.id.clone(),
             kind: self.kind.clone(),
@@ -411,6 +417,7 @@ impl Agent {
             parent: self.parent.clone(),
             role: self.role.clone(),
             last_message: self.last_message.load(Ordering::Relaxed),
+            subagents,
         };
         s.status = s.compute_status(now);
         // Without a session file to say so (before it reaches its prompt, and in versions that
