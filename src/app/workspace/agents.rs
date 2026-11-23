@@ -106,7 +106,7 @@ impl App {
         for (target, snap) in self.ssh.remote_hosts.snapshots() {
             let host = target.host().to_string();
             for s in &snap.sessions {
-                let Some(kind) = AgentKind::from_name(&s.kind) else { continue };
+                let Some(kind) = AgentKind::from_name(s.agent_kind()) else { continue };
                 // One whose program ended has nothing left to show or attach to.
                 let Some(status) = Status::from_host(s.status) else { continue };
                 if !listed.insert((host.clone(), s.id.clone())) {

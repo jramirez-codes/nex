@@ -381,7 +381,16 @@ impl Agent {
             let m = self.meta.locked();
             (m.title.clone(), m.bell)
         };
-        let claude = (self.kind == "claude" && exit.is_none()).then(|| nex_host::claude::read(self.pid)).flatten();
+        // A shell someone typed `claude` or `codex` into is that agent while it runs (the
+        // shim skips shells nex-host already holds, so this is how those show up).
+        let job = (self.kind == proto::SHELL_KIND && exit.is_none()).then(|| pty::foreground(&self.pty, self.pid)).flatten();
+        let running = job.as_ref().and_then(|(_, argv)| detect_kind(argv)).map(str::to_string);
+        let agent_pid = match &job {
+            Some((pid, _)) if running.is_some() => *pid,
+            _ => self.pid,
+        };
+        let kind = running.as_deref().unwrap_or(&self.kind);
+        let claude = (kind == "claude" && exit.is_none()).then(|| nex_host::claude::read(agent_pid)).flatten();
         let mut s = Session {
             id: self.id.clone(),
             kind: self.kind.clone(),
@@ -397,6 +406,7 @@ impl Agent {
             last_input: self.last_input.load(Ordering::Relaxed),
             exit,
             claude,
+            running,
             status: Status::Idle,
             parent: self.parent.clone(),
             role: self.role.clone(),
@@ -407,7 +417,7 @@ impl Agent {
         // don't write one), Claude Code asking the user something shows only on its screen:
         // trusting the folder, a new MCP server, a tool's permission. Typing a message in
         // would answer it (Enter takes the default: "No, exit" when trusting the folder).
-        if s.status != Status::Exited && s.kind == "claude" && s.claude.is_none() && claude_dialog(&self.text(DIALOG_LINES)) {
+        if s.status != Status::Exited && s.agent_kind() == "claude" && s.claude.is_none() && claude_dialog(&self.text(DIALOG_LINES)) {
             s.status = Status::NeedsYou;
         }
         s

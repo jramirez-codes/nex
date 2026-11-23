@@ -125,6 +125,10 @@ pub struct Session {
     pub exit: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude: Option<Claude>,
+    /// For a [`SHELL_KIND`] session: the agent (`claude`, `codex`) its foreground job is,
+    /// when someone typed one at its prompt. See [`Session::agent_kind`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<String>,
     pub status: Status,
     /// The agent that started it with `spawn` (it ends when that one does).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -138,6 +142,11 @@ pub struct Session {
 }
 
 impl Session {
+    /// The agent it is: its `kind`, or for a shell, the agent running in it (`running`).
+    pub fn agent_kind(&self) -> &str {
+        self.running.as_deref().unwrap_or(&self.kind)
+    }
+
     /// The best guess at what it's doing at `now` (unix ms): ended, then Claude Code's own
     /// word, then the bell, then Claude's title mark (✳ waiting, a spinner frame working),
     /// then whether it has been printing on its own. nex's `agents::model::Probe::status`
@@ -153,7 +162,7 @@ impl Session {
         if let Some(s) = reported {
             return s;
         }
-        if self.kind == "claude"
+        if self.agent_kind() == "claude"
             && let Some(mark) = self.title.as_deref().and_then(title_mark)
         {
             return if mark == CLAUDE_IDLE_MARK { Status::Idle } else { Status::Working };
@@ -471,6 +480,7 @@ mod tests {
             last_input: 0,
             exit: None,
             claude: None,
+            running: None,
             status: Status::Idle,
             parent: None,
             role: None,

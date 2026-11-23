@@ -187,3 +187,51 @@ pub fn spawn_writer(mut stream: UnixStream) -> Sender<Out> {
     });
     tx
 }
+
+/// The foreground job on `pty` when it isn't `shell` itself (someone ran a program at the
+/// shell's prompt): its process group leader's pid and command line.
+pub fn foreground(pty: &File, shell: u32) -> Option<(u32, Vec<String>)> {
+    // SAFETY: `pty` is an open pty master; tcgetpgrp only reads it.
+    let pgrp = unsafe { libc::tcgetpgrp(pty.as_raw_fd()) };
+    let pid = u32::try_from(pgrp).ok().filter(|&p| p != 0 && p != shell)?;
+    Some((pid, args(pid)?))
+}
+
+/// A process's command line, from `/proc/<pid>/cmdline`.
+#[cfg(target_os = "linux")]
+fn args(pid: u32) -> Option<Vec<String>> {
+    let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    let out: Vec<String> = raw.split(|&b| b == 0).filter(|a| !a.is_empty()).map(|a| String::from_utf8_lossy(a).into_owned()).collect();
+    (!out.is_empty()).then_some(out)
+}
+
+/// A process's command line, from `KERN_PROCARGS2`: an `int` argc, the executable path, NUL
+/// padding, then the arguments, each ended by a NUL (then the environment, skipped).
+#[cfg(target_os = "macos")]
+fn args(pid: u32) -> Option<Vec<String>> {
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut len = buf.len();
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    // SAFETY: `buf` is valid for `len` bytes and the kernel writes at most that many.
+    let rc = unsafe { libc::sysctl(mib.as_mut_ptr(), 3, buf.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0) };
+    if rc != 0 {
+        return None;
+    }
+    let buf = buf.get(..len)?;
+    let argc = libc::c_int::from_ne_bytes(buf.get(..size_of::<libc::c_int>())?.try_into().ok()?);
+    let rest = &buf[size_of::<libc::c_int>()..];
+    let after_path = &rest[rest.iter().position(|&b| b == 0)?..];
+    let mut at = &after_path[after_path.iter().position(|&b| b != 0)?..];
+    let mut out = Vec::new();
+    for _ in 0..argc.max(0) {
+        let Ok(arg) = std::ffi::CStr::from_bytes_until_nul(at) else { break };
+        out.push(arg.to_string_lossy().into_owned());
+        at = &at[arg.to_bytes().len() + 1..];
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn args(_pid: u32) -> Option<Vec<String>> {
+    None
+}

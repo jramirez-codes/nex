@@ -57,6 +57,7 @@ mod tests {
             last_input: 0,
             exit: None,
             claude: None,
+            running: None,
             status: Status::Idle,
             parent: parent.map(Into::into),
             role: None,
