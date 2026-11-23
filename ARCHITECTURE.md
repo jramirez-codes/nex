@@ -127,7 +127,10 @@ Outside the Rust code:
   (`app/workspace/mod.rs`), opening it (`app/workspace/`), and reading it back from a session
   (`session/mod.rs`, `app/restore.rs`). The Changes pane (`git_diff/`) is a compact example.
 - **Something on an ssh host:** the work goes in `remote/` (no UI), the buttons, dialogs and
-  toasts in `app/ssh/`.
+  toasts in `app/ssh/`. nex reinstalls `nex-host` when its version differs (`remote/host.rs`);
+  the daemon already running hands over to the new one only once none of its agents is
+  running (`nex-host/src/daemon/retire.rs`, `nex-host/src/client.rs`), and until then
+  `watch` marks its lines with `daemon_version` so the Agents pane says an update is pending.
 - **A config option:** `config.rs`, then document it in `config.example` and the README.
 
 ## Demo recordings

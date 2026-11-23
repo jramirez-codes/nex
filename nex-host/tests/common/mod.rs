@@ -25,7 +25,12 @@ impl Host {
     }
 
     pub fn cmd(&self, args: &[&str]) -> Command {
-        let mut c = Command::new(env!("CARGO_BIN_EXE_nex-host"));
+        self.cmd_at(std::path::Path::new(env!("CARGO_BIN_EXE_nex-host")), args)
+    }
+
+    /// `cmd`, running the program at `exe`.
+    pub fn cmd_at(&self, exe: &std::path::Path, args: &[&str]) -> Command {
+        let mut c = Command::new(exe);
         c.args(args)
             .env("HOME", &self.home)
             .env("NEX_HOME", self.home.join(".nex"))
