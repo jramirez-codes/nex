@@ -50,9 +50,14 @@ pub fn clip(body: &str) -> (String, Option<usize>) {
     (kept, Some(lines))
 }
 
-/// The first line of `body`, at most 100 characters: what a reply quotes.
+/// The first line of `body` with text on it, trimmed, however long.
+pub fn first_text_line(body: &str) -> &str {
+    body.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim()
+}
+
+/// [`first_text_line`], at most 100 characters: what a reply quotes.
 pub fn first_line(body: &str) -> String {
-    let line = body.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    let line = first_text_line(body);
     let mut out: String = line.chars().take(100).collect();
     if out.len() < line.len() {
         out.push('…');
@@ -101,26 +106,26 @@ pub fn render(m: &Message) -> String {
         _ => format!("{} ({})", m.from_name, m.from),
     };
     let mut head = format!("<nex-message from=\"{}\" id=\"{}\" kind=\"{}\"", attr(&from), attr(&m.id), m.kind.label());
-    if let Some(v) = m.verdict {
+    if let Some(v) = m.payload.verdict {
         head.push_str(&format!(" verdict=\"{}\"", v.label()));
     }
-    if let Some(r) = &m.reply_to {
+    if let Some(r) = &m.payload.reply_to {
         head.push_str(&format!(" reply-to=\"{}\"", attr(r)));
     }
-    if let Some(pr) = &m.pr {
+    if let Some(pr) = &m.payload.pr {
         head.push_str(&format!(" pr=\"{}\"", attr(pr)));
     }
     head.push('>');
     let mut out = vec![head];
-    if let (Some(r), Some(re)) = (&m.reply_to, &m.re) {
+    if let (Some(r), Some(re)) = (&m.payload.reply_to, &m.re) {
         out.push(format!("<re>{} (you → {}): {}</re>", attr(r), attr(&m.from_name), body_text(re)));
     }
-    let body = body_text(m.body.trim_end());
+    let body = body_text(m.payload.body.trim_end());
     if !body.is_empty() {
         out.push(body);
     }
-    if !m.files.is_empty() {
-        out.push(format!("<files>{}</files>", body_text(&m.files.join(", "))));
+    if !m.payload.files.is_empty() {
+        out.push(format!("<files>{}</files>", body_text(&m.payload.files.join(", "))));
     }
     if let Some(path) = &m.more {
         let lines = m.more_lines.map(|n| format!(" lines=\"{n}\"")).unwrap_or_default();
@@ -148,7 +153,7 @@ pub fn paste(text: &str, bracketed: bool) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use nex_host::proto::Verdict;
+    use nex_host::proto::{Payload, Verdict};
 
     use super::*;
 
@@ -160,12 +165,8 @@ mod tests {
             to: "a1".into(),
             to_name: "lead".into(),
             kind,
-            body: body.into(),
-            reply_to: None,
+            payload: Payload::text(body),
             re: None,
-            verdict: None,
-            files: vec![],
-            pr: None,
             more: None,
             more_lines: None,
             sent: 0,
@@ -175,11 +176,11 @@ mod tests {
     #[test]
     fn a_done_report_carries_its_fields() {
         let mut m = msg(MessageKind::Done, "Two issues.\n");
-        m.verdict = Some(Verdict::Changes);
-        m.reply_to = Some("m9".into());
+        m.payload.verdict = Some(Verdict::Changes);
+        m.payload.reply_to = Some("m9".into());
         m.re = Some("Review the diff".into());
-        m.files = vec!["src/cli.rs".into()];
-        m.pr = Some("42".into());
+        m.payload.files = vec!["src/cli.rs".into()];
+        m.payload.pr = Some("42".into());
         assert_eq!(
             render(&m),
             "<nex-message from=\"reviewer (b7c1d2e3)\" id=\"m12\" kind=\"done\" verdict=\"changes\" reply-to=\"m9\" pr=\"42\">\n\
@@ -230,5 +231,6 @@ mod tests {
         assert_eq!(kept.lines().count(), BODY_KEEP_LINES + 1);
         assert_eq!(first_line("\n  Review the diff\nmore"), "Review the diff");
         assert!(first_line(&"x".repeat(300)).ends_with('…'));
+        assert_eq!(first_text_line(&"x".repeat(300)).len(), 300, "uncut");
     }
 }

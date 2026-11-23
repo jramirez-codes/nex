@@ -18,7 +18,7 @@
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use nex_host::proto::{self, MessageKind, Request, Session, Verdict};
+use nex_host::proto::{self, MessageKind, Payload, Request, Session, Verdict};
 
 use crate::{client, deliver, pipeline};
 
@@ -152,7 +152,8 @@ pub fn send(args: &[String]) -> io::Result<i32> {
         _ if a.value("--reply-to").is_some() => MessageKind::Reply,
         _ => MessageKind::Note,
     };
-    deliver_one(to, kind, body, a.value("--reply-to").map(Into::into), a.verdict()?, a.files(), a.pr(), a.flag("--force"), a.flag("--json"))
+    let payload = Payload { body, reply_to: a.value("--reply-to").map(Into::into), verdict: a.verdict()?, files: a.files(), pr: a.pr() };
+    deliver_one(to, kind, payload, a.flag("--force"), a.flag("--json"))
 }
 
 pub fn done(args: &[String]) -> io::Result<i32> {
@@ -162,12 +163,12 @@ pub fn done(args: &[String]) -> io::Result<i32> {
         return Err(bad("usage: nex-host done \"what you did\" [--verdict approved|changes|failed] [--files a,b] [--pr N|URL]"));
     }
     let to = a.value("--to").unwrap_or("@task").to_string();
-    deliver_one(&to, MessageKind::Done, body, None, a.verdict()?, a.files(), a.pr(), false, a.flag("--json"))
+    let payload = Payload { body, reply_to: None, verdict: a.verdict()?, files: a.files(), pr: a.pr() };
+    deliver_one(&to, MessageKind::Done, payload, false, a.flag("--json"))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn deliver_one(to: &str, kind: MessageKind, body: String, reply_to: Option<String>, verdict: Option<Verdict>, files: Vec<String>, pr: Option<String>, force: bool, json: bool) -> io::Result<i32> {
-    let r = client::request(&Request::Send { from: me(), to: to.into(), kind, body, reply_to, verdict, files, pr, force }, true)?;
+fn deliver_one(to: &str, kind: MessageKind, payload: Payload, force: bool, json: bool) -> io::Result<i32> {
+    let r = client::request(&Request::Send { from: me(), to: to.into(), kind, payload, force }, true)?;
     let ids = r.id.unwrap_or_default();
     if json {
         println!("{}", serde_json::json!({ "id": ids, "note": r.text }));
@@ -189,7 +190,7 @@ pub fn recv(args: &[String]) -> io::Result<i32> {
     let kind = a.value("--kind").map(|k| MessageKind::parse(k).ok_or_else(|| bad("--kind is task, ask, reply, done or note"))).transpose()?;
     let timeout = match a.value("--timeout") {
         Some(t) => pipeline::parse_duration(t).ok_or_else(|| bad("--timeout: like 30s, 10m or 1h"))?,
-        None => std::time::Duration::from_secs(600),
+        None => std::time::Duration::from_millis(proto::RECV_DEFAULT_MS),
     };
     let r = client::request(
         &Request::Recv { me: me(), from: a.value("--from").map(Into::into), reply_to: a.value("--reply-to").map(Into::into), kind, timeout_ms: Some(timeout.as_millis() as u64) },
@@ -250,7 +251,7 @@ pub fn pipe(args: &[String]) -> io::Result<i32> {
             let going = if parsed.joinable() { client::request(&Request::List, false).ok().and_then(|r| r.sessions).unwrap_or_default() } else { Vec::new() };
             if let Some(run) = pipeline::joins(&going, &file, &here, &repo_top) {
                 client::request(
-                    &Request::Send { from: me(), to: run.id.clone(), kind: MessageKind::Task, body: task, reply_to: None, verdict: None, files: vec![], pr: None, force: false },
+                    &Request::Send { from: me(), to: run.id.clone(), kind: MessageKind::Task, payload: Payload::text(task), force: false },
                     true,
                 )?;
                 if a.flag("--bg") {

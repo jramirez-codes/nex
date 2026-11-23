@@ -74,7 +74,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use nex_host::proto::{MessageKind, Request, Verdict};
+use nex_host::proto::{MessageKind, Payload, Request, Verdict};
 
 use crate::client;
 
@@ -137,6 +137,9 @@ pub struct Retry {
 /// What an `each` stage's task can use, so no stage can be called that.
 const RESERVED: [&str; 6] = ["task", "from", "report", "pr", "files", "merged"];
 
+/// How long a stage may take when the pipeline doesn't say.
+const STAGE_TIMEOUT: Duration = Duration::from_secs(2 * 3600);
+
 /// How many times an `each` stage can send one report back.
 pub(crate) const SEND_BACKS: u32 = 3;
 
@@ -148,14 +151,8 @@ fn three() -> u32 {
     3
 }
 
-/// What a stage reported.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Outcome {
-    pub body: String,
-    pub verdict: Option<Verdict>,
-    pub files: Vec<String>,
-    pub pr: Option<String>,
-}
+/// What a stage reported: its `done`'s whole text and fields.
+pub type Outcome = Payload;
 
 impl Pipeline {
     pub fn parse(text: &str) -> Result<Pipeline, String> {
@@ -228,7 +225,7 @@ impl Pipeline {
     }
 
     pub fn stage_timeout(&self) -> Duration {
-        self.timeout.as_deref().and_then(parse_duration).unwrap_or(Duration::from_secs(2 * 3600))
+        self.timeout.as_deref().and_then(parse_duration).unwrap_or(STAGE_TIMEOUT)
     }
 }
 
@@ -413,7 +410,7 @@ impl Ctx<'_> {
 
     /// Give agent `id` a new task.
     fn task(&self, id: &str, body: String) -> io::Result<()> {
-        client::request(&Request::Send { from: self.me.clone(), to: id.into(), kind: MessageKind::Task, body, reply_to: None, verdict: None, files: vec![], pr: None, force: false }, true)?;
+        client::request(&Request::Send { from: self.me.clone(), to: id.into(), kind: MessageKind::Task, payload: Payload::text(body), force: false }, true)?;
         Ok(())
     }
 
@@ -525,7 +522,7 @@ fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, O
         let mut actions = q.overdue(alive_fn, Instant::now());
         match recv_any(me.as_deref())? {
             Some(m) if m.kind == MessageKind::Task && p.joinable() => {
-                let body = message_body(&m.more, m.body);
+                let body = message_body(&m.more, m.payload.body);
                 let joined = body.trim().to_string();
                 println!("\n▸ {} joins with: {}", m.from_name, crate::deliver::first_line(&joined));
                 let b = q.batch(&m.from, &joined);
@@ -539,8 +536,8 @@ fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, O
                 }
             }
             Some(m) if m.kind == MessageKind::Done => {
-                let o = Outcome { body: message_body(&m.more, m.body), verdict: m.verdict, files: m.files, pr: m.pr };
-                actions.extend(q.done(&m.from, o, alive_fn, Instant::now()));
+                let from = m.from.clone();
+                actions.extend(q.done(&from, outcome(m), alive_fn, Instant::now()));
             }
             _ => {}
         }
@@ -549,7 +546,8 @@ fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, O
                 each::Action::Say(line) => println!("{line}"),
                 each::Action::Tell { to, body, verdict } => {
                     if me.is_some() {
-                        let _ = client::request(&Request::Send { from: me.clone(), to, kind: MessageKind::Done, body, reply_to: None, verdict: Some(verdict), files: vec![], pr: None, force: false }, true);
+                        let payload = Payload { verdict: Some(verdict), ..Payload::text(body) };
+                        let _ = client::request(&Request::Send { from: me.clone(), to, kind: MessageKind::Done, payload, force: false }, true);
                     }
                 }
                 each::Action::SendBack { to, body } => ctx.task(&to, body)?,
@@ -584,6 +582,12 @@ pub fn fill_each(template: &str, from: &str, o: &Outcome, merged: &str) -> Strin
         .replace("{files}", &o.files.join(", "))
         .replace("{merged}", merged)
         .replace("{report}", o.body.trim())
+}
+
+/// What a `done` reported: its fields, and its whole body.
+fn outcome(m: nex_host::proto::Message) -> Outcome {
+    let body = message_body(&m.more, m.payload.body);
+    Outcome { body, reply_to: None, ..m.payload }
 }
 
 /// A message's whole body: what was cut short is in the file `more` names.
@@ -633,7 +637,7 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
-            return Ok(Outcome { body: format!("{id} didn't report in time"), verdict: Some(Verdict::Failed), files: vec![], pr: None });
+            return Ok(Outcome { verdict: Some(Verdict::Failed), ..Outcome::text(format!("{id} didn't report in time")) });
         }
         let r = client::request(
             &Request::Recv { me: me.map(Into::into), from: Some(id.into()), reply_to: None, kind: Some(MessageKind::Done), timeout_ms: Some(left.as_millis() as u64) },
@@ -642,7 +646,7 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
         match r {
             Ok(r) => {
                 if let Some(m) = r.messages.and_then(|m| m.into_iter().next()) {
-                    return Ok(Outcome { body: message_body(&m.more, m.body), verdict: m.verdict, files: m.files, pr: m.pr });
+                    return Ok(outcome(m));
                 }
             }
             Err(e) if e.to_string().starts_with("timed out") => {}
@@ -655,7 +659,7 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
 fn report(me: Option<&str>, body: &str, verdict: Option<Verdict>) {
     if me.is_some() {
         let _ = client::request(
-            &Request::Send { from: me.map(Into::into), to: "@task".into(), kind: MessageKind::Done, body: body.into(), reply_to: None, verdict, files: vec![], pr: None, force: false },
+            &Request::Send { from: me.map(Into::into), to: "@task".into(), kind: MessageKind::Done, payload: Payload { verdict, ..Payload::text(body) }, force: false },
             true,
         );
     }
@@ -685,7 +689,7 @@ mod tests {
     "#;
 
     fn done(body: &str, verdict: Option<Verdict>) -> Outcome {
-        Outcome { body: body.into(), verdict, files: vec![], pr: None }
+        Outcome { verdict, ..Outcome::text(body) }
     }
 
     #[test]
@@ -763,7 +767,7 @@ mod tests {
 
     #[test]
     fn each_tasks_get_the_report() {
-        let o = Outcome { body: " added --version \n".into(), verdict: None, files: vec!["a.rs".into()], pr: Some("7".into()) };
+        let o = Outcome { files: vec!["a.rs".into()], pr: Some("7".into()), ..Outcome::text(" added --version \n") };
         assert_eq!(fill_each("PR {pr} from {from}: {report} [{files}] after {merged} {x}", "build-a", &o, "PR 5"), "PR 7 from build-a: added --version [a.rs] after PR 5 {x}");
     }
 
@@ -783,7 +787,7 @@ mod tests {
     #[test]
     fn tasks_are_filled_from_reports() {
         let mut r = HashMap::new();
-        r.insert("plan".to_string(), Outcome { body: " the plan \n".into(), verdict: Some(Verdict::Approved), files: vec!["a.rs".into(), "b.rs".into()], pr: Some("42".into()) });
+        r.insert("plan".to_string(), Outcome { verdict: Some(Verdict::Approved), files: vec!["a.rs".into(), "b.rs".into()], pr: Some("42".into()), ..Outcome::text(" the plan \n") });
         r.insert("docs".to_string(), done("d", None));
         assert_eq!(fill("Do {task}. Plan: {plan} ({plan.verdict}; {plan.files}; PR {plan.pr})", "X", &r), "Do X. Plan: the plan (approved; a.rs, b.rs; PR 42)");
         assert_eq!(fill("{docs.pr}", "X", &r), "none");

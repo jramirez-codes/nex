@@ -418,10 +418,13 @@ impl Agent {
 /// How many lines at the bottom of the screen a Claude Code start-up dialog fits in.
 const DIALOG_LINES: usize = 40;
 
-/// Whether `screen` shows one of Claude Code's dialogs: asking to trust the folder, a choice
-/// confirmed with Enter, or asking permission for a tool.
+/// What Claude Code's dialogs show: asking to trust the folder, a choice confirmed with
+/// Enter, asking permission for a tool.
+const CLAUDE_DIALOG: [&str; 4] = ["trust this folder", "Enter to confirm", "Do you want to proceed?", "Esc to cancel"];
+
+/// Whether `screen` shows one of Claude Code's dialogs ([`CLAUDE_DIALOG`]).
 fn claude_dialog(screen: &str) -> bool {
-    ["trust this folder", "Enter to confirm", "Do you want to proceed?", "Esc to cancel"].iter().any(|s| screen.contains(s))
+    CLAUDE_DIALOG.iter().any(|s| screen.contains(s))
 }
 
 /// `claude` or `codex`, when `argv` runs one of them (directly or under node / bun).

@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use nex_host::proto::Verdict;
 
+use crate::deliver::first_text_line as first_line;
 use crate::pipeline::{Outcome, SEND_BACKS};
 
 /// What the runner should do next.
@@ -126,7 +127,7 @@ impl Queue {
             && now >= *due
         {
             let (i, report, _) = self.reviewing.take().unwrap();
-            let late = Outcome { body: format!("{} didn't report in time", self.stage), verdict: Some(Verdict::Failed), files: vec![], pr: None };
+            let late = Outcome { verdict: Some(Verdict::Failed), ..Outcome::text(format!("{} didn't report in time", self.stage)) };
             self.verdict(i, report, late, alive, now, &mut out);
         }
         for s in self.sources.iter_mut().filter(|s| s.working && now >= s.deadline) {
@@ -220,20 +221,16 @@ fn pr_note(o: &Outcome) -> String {
     o.pr.as_ref().map(|p| format!(" (PR {p})")).unwrap_or_default()
 }
 
-fn first_line(s: &str) -> &str {
-    s.trim().lines().next().unwrap_or("")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn report(body: &str, pr: &str) -> Outcome {
-        Outcome { body: body.into(), verdict: None, files: vec![], pr: Some(pr.into()) }
+        Outcome { pr: Some(pr.into()), ..Outcome::text(body) }
     }
 
     fn says(v: Verdict, body: &str) -> Outcome {
-        Outcome { body: body.into(), verdict: Some(v), files: vec![], pr: None }
+        Outcome { verdict: Some(v), ..Outcome::text(body) }
     }
 
     fn reviews(a: &[Action]) -> Vec<(&str, Option<&str>)> {
