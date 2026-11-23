@@ -682,7 +682,7 @@ impl App {
         let Some(title) = self.focused_pane().map(|id| self.pane_label(id).0).filter(|t| !t.is_empty()) else { return };
         if title != self.window_title {
             crate::platform::set_window_title(ctx, frame, &format!("{title} — nex"), buttons_height);
-            self.window_title = title;
+            self.window_title = title.into_owned();
         }
     }
 }

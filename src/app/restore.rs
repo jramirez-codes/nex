@@ -108,7 +108,7 @@ impl App {
     }
 
     fn tab_state(&self, tab: &Tab) -> TabState {
-        let focused = tab.root.panes().iter().position(|&p| p == tab.focused).unwrap_or(0);
+        let focused = tab.root.iter().position(|p| p == tab.focused).unwrap_or(0);
         TabState { root: self.pane_node(&tab.root), focused, zoomed: tab.zoomed }
     }
 
@@ -186,7 +186,7 @@ impl App {
         let root = build(&t.root, &ids, &mut 0)?;
         let focused = nearest_open(&ids, t.focused)?;
         let mut tab = Tab::new(self.alloc_pane_id(), focused);
-        tab.zoomed = zoomed && root.panes().len() > 1;
+        tab.zoomed = zoomed && root.len() > 1;
         tab.root = root;
         Some(tab)
     }

@@ -427,7 +427,6 @@ impl App {
         // Clipped to the card, which may still be growing out of a split.
         let painter = &pane_painter(ui, pane).with_clip_rect(pane.card);
         let id = pane.id;
-        let (title, process) = self.pane_label(id);
         let zoomed = self.cur_tab().is_some_and(|t| t.zoomed);
         let show_buttons = !pane.lifted && (pane.focused || ui.rect_contains_pointer(pane.card));
 
@@ -532,10 +531,16 @@ impl App {
         }
 
         let font = if self.cfg.sidebar() { 15.0 } else { 13.5 };
-        header_label(painter, header, &process, &title, title_color, bx - 4.0, font);
-        // The connect handoff draws the same label on its card as it lands here.
-        if let Some(f) = self.focused_card.as_mut().filter(|f| pane.focused && f.rect == pane.target) {
-            f.label = Some(HeaderLabel { process, title, color: title_color, right_inset: header.right() - (bx - 4.0), font });
+        // Borrowed from the pane, so read here, once the buttons are done changing things.
+        let (title, process) = self.pane_label(id);
+        header_label(painter, header, process, &title, title_color, bx - 4.0, font);
+        // The connect handoff draws the same label on its card as it lands here: a copy it
+        // keeps, made only while it plays.
+        if self.handoff.is_some() && self.focused_card.as_ref().is_some_and(|f| pane.focused && f.rect == pane.target) {
+            let label = HeaderLabel { process: process.to_string(), title: title.into_owned(), color: title_color, right_inset: header.right() - (bx - 4.0), font };
+            if let Some(f) = self.focused_card.as_mut() {
+                f.label = Some(label);
+            }
         }
         if pressed_in(ui, header) {
             self.pending.push(Action::FocusPane(id));
