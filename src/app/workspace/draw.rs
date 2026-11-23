@@ -422,7 +422,6 @@ impl App {
         // Clipped to the card, which may still be growing out of a split.
         let painter = &pane_painter(ui, pane).with_clip_rect(pane.card);
         let id = pane.id;
-        let (title, process) = self.pane_label(id);
         let zoomed = self.cur_tab().is_some_and(|t| t.zoomed);
         let show_buttons = !pane.lifted && (pane.focused || ui.rect_contains_pointer(pane.card));
 
@@ -527,7 +526,9 @@ impl App {
         }
 
         let font = if self.cfg.sidebar() { 15.0 } else { 13.5 };
-        header_label(painter, header, &process, &title, title_color, bx - 4.0, font);
+        // Borrowed from the pane, so read here, once the buttons are done changing things.
+        let (title, process) = self.pane_label(id);
+        header_label(painter, header, process, &title, title_color, bx - 4.0, font);
         if pressed_in(ui, header) {
             self.pending.push(Action::FocusPane(id));
         }

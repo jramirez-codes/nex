@@ -12,16 +12,7 @@ pub fn process_start(pid: u32) -> Option<String> {
 /// `node` shows "node" rather than "bash".
 pub fn proc_info(pid: u32) -> ProcInfo {
     let shell_cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok();
-    let fg_pid = std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .ok()
-        .and_then(|stat| {
-            // Fields after the `(comm)` part: state ppid pgrp session tty_nr tpgid ...
-            let rest = &stat[stat.rfind(')')? + 1..];
-            rest.split_whitespace().nth(5)?.parse::<i32>().ok()
-        })
-        .filter(|&p| p > 0)
-        .map(|p| p as u32)
-        .unwrap_or(pid);
+    let fg_pid = foreground_pid(pid);
 
     let name = std::fs::read_to_string(format!("/proc/{fg_pid}/comm"))
         .or_else(|_| std::fs::read_to_string(format!("/proc/{pid}/comm")))
@@ -34,6 +25,28 @@ pub fn proc_info(pid: u32) -> ProcInfo {
 
     let job = (fg_pid != pid).then_some(fg_pid);
     ProcInfo { name, cwd: fg_cwd.or(shell_cwd), argv, job }
+}
+
+/// The foreground process group of shell `pid`'s controlling terminal (`pid` itself if the
+/// kernel doesn't say): one read of `/proc/<pid>/stat`.
+fn foreground_pid(pid: u32) -> u32 {
+    std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|stat| {
+            // Fields after the `(comm)` part: state ppid pgrp session tty_nr tpgid ...
+            let rest = &stat[stat.rfind(')')? + 1..];
+            rest.split_whitespace().nth(5)?.parse::<i32>().ok()
+        })
+        .filter(|&p| p > 0)
+        .map(|p| p as u32)
+        .unwrap_or(pid)
+}
+
+/// What [`proc_info`]'s `job` would be, without reading the rest: cheap enough to ask on
+/// every title a program sets.
+pub fn foreground_job(pid: u32) -> Option<u32> {
+    let fg = foreground_pid(pid);
+    (fg != pid).then_some(fg)
 }
 
 /// `/proc/<pid>/cmdline`: the arguments, each ended by a NUL.

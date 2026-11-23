@@ -53,7 +53,7 @@ impl App {
         let mut scan = LocalScan::default();
         let tabs = self.tabs.iter().enumerate().map(|(i, t)| (Some(i), t)).chain(self.home_tab.iter().map(|t| (None, t)));
         for (index, tab) in tabs {
-            for id in tab.root.panes() {
+            for id in tab.root.iter() {
                 if !seen.insert(id) {
                     continue;
                 }
@@ -81,7 +81,7 @@ impl App {
                     AgentKind::Pipeline => Vec::new(),
                 };
                 let title = t.title();
-                let (mark, rest) = icons::title_mark(&t.process, &title);
+                let (mark, rest) = icons::title_mark(&t.process, title);
                 let lead = Probe {
                     pane: id,
                     tab: index,
@@ -153,7 +153,7 @@ impl App {
 
     /// Whether the special tab holds a file explorer rather than an Agents pane.
     pub(in crate::app) fn home_is_files(&self) -> bool {
-        self.home_tab.as_ref().is_some_and(|t| t.root.panes().iter().any(|id| self.explorers.contains_key(id)) && !t.root.panes().iter().any(|id| self.agents.contains_key(id)))
+        self.home_tab.as_ref().is_some_and(|t| t.root.iter().any(|id| self.explorers.contains_key(&id)) && !t.root.iter().any(|id| self.agents.contains_key(&id)))
     }
 
     /// Whether the special tab is worth keeping the window open for once the terminal tabs
@@ -162,14 +162,14 @@ impl App {
     pub(in crate::app) fn home_keeps_window(&self) -> bool {
         self.home_tab
             .as_ref()
-            .is_some_and(|t| t.root.panes().iter().any(|id| self.panes.contains_key(id) || self.explorers.contains_key(id)))
+            .is_some_and(|t| t.root.iter().any(|id| self.panes.contains_key(&id) || self.explorers.contains_key(&id)))
     }
 
     /// Ctrl+Shift+A: close the shown tab's Agents pane if it has one (focus goes back to the
     /// pane it was opened from), else split one off the focused pane.
     pub(in crate::app) fn toggle_agents(&mut self, ctx: &egui::Context) {
         let Some(tab) = self.cur_tab() else { return };
-        if let Some(id) = tab.root.panes().into_iter().find(|id| self.agents.contains_key(id)) {
+        if let Some(id) = tab.root.iter().find(|id| self.agents.contains_key(id)) {
             let origin = self.agents.get(&id).and_then(|a| a.origin);
             self.close_pane(ctx, id);
             if let Some(origin) = origin

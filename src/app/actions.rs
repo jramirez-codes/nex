@@ -211,7 +211,7 @@ impl App {
         if let Some(id) = pane {
             tab.focused = id;
         }
-        let zoomed = !tab.zoomed && tab.root.panes().len() > 1;
+        let zoomed = !tab.zoomed && tab.root.len() > 1;
         if zoomed == tab.zoomed {
             return;
         }
@@ -222,7 +222,7 @@ impl App {
             ids.into_iter()
                 .filter(|&id| id != focused)
                 .map(|id| {
-                    let (title, process) = self.pane_label(id);
+                    let (title, process) = self.pane_label_owned(id);
                     let shapes = self.panes.get(&id).map(|t| t.shapes()).unwrap_or_default();
                     (id, title, process, shapes)
                 })
