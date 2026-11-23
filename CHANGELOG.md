@@ -14,6 +14,16 @@ All notable changes to nex are documented here. The format follows
   click jumps to its agent's pane. A pipeline stage's sub-agents sit under that stage, with a
   count on its capsule. It works over ssh too: `nex-host list --json` reports each session's
   `subagents`. Codex support reads its rollout files and is untested.
+- Agents pane: a helper's row in an open team says which helper it is and what it's doing:
+  a tag in a small capsule (`Build-01`: its role or pipeline stage, else its name, and its
+  number; a sub-agent's is its type, `Explore-01`) and then the task from its terminal's
+  title, which follows along as the agent retitles it. The folder it works in is the quiet
+  line under it. The closed card's capsules say the same word (`Build`).
+- Agents pane: a pipeline's card says how its run stands and what happened last, e.g.
+  `Feature · 2 building · 1 in review · 3 merged` over `✓ build (PR 7) approved: …`. A
+  pipeline without an `each` stage says `stage 2 of 3: review`. `nex-host pipe` puts both in
+  its terminal's title, so the server needs this version's `nex-host`; with an older one the
+  card is as before.
 - The phone apps' connect screen (and `nex --remote`'s) shows the nex dog in its card's
   header, waking up as the screen appears. Once connected, the card glides into the first
   pane while the dog slides over to the Files tile with a blep, and the workspace fades in

@@ -39,6 +39,30 @@ pub const RECV_DEFAULT_MS: u64 = 600 * 1000;
 /// Claude Code's title glyph while it waits at its prompt; spinner frames replace it while
 /// it works.
 pub const CLAUDE_IDLE_MARK: char = '✳';
+/// What sits between the two halves of the terminal title a pipeline's runner sets, for the
+/// Agents pane's card: how its work stands (`2 building · 1 in review`), then the last
+/// thing that happened. See [`pipeline_title`].
+pub const TITLE_SEP: &str = " — ";
+/// The most characters of the last event a pipeline puts in its title.
+const TITLE_EVENT_MAX: usize = 160;
+
+/// The title a pipeline's runner sets: `counts`, then (when something has happened)
+/// [`TITLE_SEP`] and `event` on one line, cut to a length a title can carry.
+pub fn pipeline_title(counts: &str, event: &str) -> String {
+    let line: String = event.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut event: String = line.chars().filter(|c| !c.is_control()).take(TITLE_EVENT_MAX).collect();
+    if event.len() < line.len() {
+        event.push('…');
+    }
+    if event.is_empty() { counts.trim().to_string() } else { format!("{}{TITLE_SEP}{event}", counts.trim()) }
+}
+
+/// A [`pipeline_title`] taken apart again: its counts and its last event (either may be
+/// empty).
+pub fn split_pipeline_title(title: &str) -> (&str, &str) {
+    let (counts, event) = title.split_once(TITLE_SEP).unwrap_or((title, ""));
+    (counts.trim(), event.trim())
+}
 
 /// What `nex-host --version` prints: `nex-host 0.11.0 (protocol 2)`.
 pub fn version_line() -> String {
@@ -581,6 +605,20 @@ mod tests {
         let line = serde_json::to_string(&launch).unwrap();
         assert!(line.contains(r#""parent":"a1""#), "{line}");
         assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), launch);
+    }
+
+    #[test]
+    fn a_pipelines_title_is_its_counts_then_its_last_event() {
+        let t = pipeline_title("2 building · 1 in review", "\n✓ build (PR 7) approved:\tmerged\n");
+        assert_eq!(t, "2 building · 1 in review — ✓ build (PR 7) approved: merged");
+        assert_eq!(split_pipeline_title(&t), ("2 building · 1 in review", "✓ build (PR 7) approved: merged"));
+        // Nothing said yet: the counts alone. An event that has a dash of its own splits once.
+        assert_eq!(pipeline_title("1 building", "  "), "1 building");
+        assert_eq!(split_pipeline_title("1 building"), ("1 building", ""));
+        assert_eq!(split_pipeline_title("1 merged — ✓ done — really"), ("1 merged", "✓ done — really"));
+        assert_eq!(split_pipeline_title(&pipeline_title("", "✗ stopped")), ("", "✗ stopped"));
+        let long = pipeline_title("1 building", &"é".repeat(500));
+        assert_eq!(split_pipeline_title(&long).1.chars().count(), TITLE_EVENT_MAX + 1, "cut, with an ellipsis");
     }
 
     #[test]
