@@ -1,7 +1,8 @@
 //! The background process that owns the agents: one per user, listening on
 //! `~/.nex/run/sock`. Started by the first command that needs it (see `client::connect`), in
 //! a session of its own so ssh hanging up doesn't reach it. It exits once it has no agents
-//! and no one has been connected for a while.
+//! and no one has been connected for a while, or (see `retire.rs`) once a newer nex-host
+//! has been installed and none of its agents is running.
 //!
 //! ```text
 //! daemon/
@@ -9,6 +10,7 @@
 //!   serve.rs       one connection: its request and the answer
 //!   lifecycle.rs   agents starting (`spawn`), ending, and expiring
 //!   mail.rs        messages: sending, typing them in, reminders
+//!   retire.rs      handing over to a newer nex-host once nothing runs
 //! ```
 
 use std::collections::HashMap;
@@ -16,7 +18,8 @@ use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -29,10 +32,14 @@ use crate::locked::Locked;
 
 mod lifecycle;
 mod mail;
+mod retire;
 mod serve;
 
 /// How often the daemon looks for agents to expire and whether it's time to leave.
 const IDLE_TICK: Duration = Duration::from_secs(2);
+/// How long a new daemon waits for the lock while the one before it, no longer listening,
+/// finishes retiring.
+const LOCK_WAIT: Duration = Duration::from_secs(3);
 
 struct State {
     agents: Mutex<HashMap<String, Arc<Agent>>>,
@@ -42,6 +49,9 @@ struct State {
     /// Messages to type in once their recipient can take them: started up, and not asking
     /// the user something.
     pending: Mutex<Vec<(String, String)>>,
+    /// A newer nex-host is installed and this one is on its way out (see `retire.rs`): set
+    /// under the `agents` lock, after which nothing is started.
+    retiring: AtomicBool,
 }
 
 impl State {
@@ -73,12 +83,18 @@ pub fn run() -> io::Result<()> {
     std::fs::create_dir_all(&dir)?;
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
 
-    // One daemon at a time: whoever holds the lock owns the socket.
-    let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(paths::lock().unwrap())?;
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Ok(());
-    }
+    retire::remember_exe();
+    // One daemon at a time: whoever holds the lock owns the socket. Another that holds it
+    // and is listening is the daemon; one that isn't listening is retiring, and lets go soon.
     let sock = paths::socket().unwrap();
+    let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(paths::lock().unwrap())?;
+    let waiting = Instant::now();
+    while unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        if UnixStream::connect(&sock).is_ok() || waiting.elapsed() >= LOCK_WAIT {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
     let _ = std::fs::remove_file(&sock);
     let listener = UnixListener::bind(&sock)?;
     std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))?;
@@ -89,6 +105,7 @@ pub fn run() -> io::Result<()> {
         next_token: AtomicU64::new(1),
         broker: Broker::new(),
         pending: Mutex::new(Vec::new()),
+        retiring: AtomicBool::new(false),
     });
 
     let postman = state.clone();
@@ -102,6 +119,7 @@ pub fn run() -> io::Result<()> {
         loop {
             std::thread::sleep(IDLE_TICK);
             lifecycle::expire(&idle);
+            retire::check(&idle);
             let busy = !idle.agents.locked().is_empty() || idle.clients.load(Ordering::Relaxed) > 0;
             if busy {
                 idle_since = None;
