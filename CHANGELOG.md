@@ -137,6 +137,9 @@ All notable changes to nex are documented here. The format follows
 - Android: title-bar tabs no longer show a close (×) button, which a tap set off as a hover;
   the title fills the tab. Close a tab from its pane header's × (closing its last pane closes
   the tab).
+- Android: switching tabs slides the way the swipe goes: the next tab comes in from the
+  right and the old one leaves to the left (the previous tab, the reverse). Desktops and the
+  sidebar keep their direction.
 - Agents pane: each card and helper row shows the folder its agent works in (`nex`, or a
   worktree's own folder) instead of the host it runs on, so you can see which checkout each
   is in. The cards are calmer too: the title and folder sit together beside the tile, with a
@@ -169,6 +172,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Android: the pane header's pin (Ctrl armed with the keyboard button) is the same pin as
+  desktop's Shift pin: the same glyph, always from the built-in font, at the same size. The
+  button stays finger-sized.
 - `nex-host pipe`: two features joining a run in the same second no longer end it. Their
   worktrees got the same branch name, the second failed to start, and the run stopped, so
   nothing reviewed or merged the PRs its builders went on to open. Worktrees made in the

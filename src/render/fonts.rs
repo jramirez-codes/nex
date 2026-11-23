@@ -9,7 +9,7 @@ use egui::{FontData, FontDefinitions, FontFamily};
 
 use crate::config::Config;
 use crate::platform::{self, Family, FontFace, Weight};
-use crate::render::{FONT_BOLD, FONT_BOLD_ITALIC, FONT_ITALIC, FONT_REGULAR};
+use crate::render::{FONT_BOLD, FONT_BOLD_ITALIC, FONT_ICONS, FONT_ITALIC, FONT_REGULAR};
 use crate::ui::paint;
 
 /// Font files are memory-mapped, not read. egui uses borrowed font bytes as they are but
@@ -145,6 +145,8 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
         chain.extend(symbols.iter().cloned());
         defs.families.insert(FontFamily::Name(name.into()), chain);
     }
+
+    defs.families.insert(FontFamily::Name(FONT_ICONS.into()), vec![EMBEDDED_KEY.to_string()]);
 
     // UI chrome uses the system sans font.
     let mut ui = Vec::new();

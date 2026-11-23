@@ -148,3 +148,38 @@ fn it_survives_a_restart_as_one_pane() {
     assert_eq!(r.app.panes.len(), 3);
     let _ = sticky;
 }
+
+/// The pin `cfg` draws in the focused pane's header with Shift held: its font and where it is.
+fn shift_pin(cfg: crate::config::Config) -> (egui::FontId, Rect) {
+    let ctx = egui::Context::default();
+    let mut app = super::new_app(&ctx, cfg);
+    let mut shapes = Vec::new();
+    for i in 0..3 {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 700.0))),
+            time: Some(i as f64 * 0.016),
+            modifiers: egui::Modifiers::SHIFT,
+            ..Default::default()
+        };
+        shapes = ctx.run(input, |ctx| eframe::App::update(&mut app, ctx, &mut eframe::Frame::_new_kittest())).shapes;
+    }
+    shapes
+        .into_iter()
+        .find_map(|s| match s.shape {
+            egui::Shape::Text(t) if t.galley.text() == "\u{eba0}" => Some((t.galley.job.sections[0].format.font_id.clone(), t.visual_bounding_rect())),
+            _ => None,
+        })
+        .expect("Shift turns the × into a pin")
+}
+
+/// Mobile mode's header buttons are bigger, but the pin is the desktop's: same glyph from the
+/// same (embedded) font, at the same size.
+#[test]
+fn the_pin_is_the_same_on_mobile_and_desktop() {
+    use crate::config::{Config, TabBar};
+    let (desktop, desktop_rect) = shift_pin(Config::default());
+    let (mobile, mobile_rect) = shift_pin(Config { tab_bar: TabBar::Sidebar, ..Config::default() });
+    assert_eq!(desktop, mobile);
+    assert_eq!(desktop.family, egui::FontFamily::Name(crate::render::FONT_ICONS.into()));
+    assert_eq!(desktop_rect.size(), mobile_rect.size());
+}
