@@ -16,7 +16,7 @@ use crate::platform;
 use crate::remote::audio::CaptureError;
 use crate::config::SshMic;
 use crate::remote::mic::{Event, MicError, Share};
-use crate::remote::{self, SshTarget};
+use crate::remote::{self, RemoteError, SshTarget};
 use crate::terminal::Terminal;
 use crate::ui::toast::Toast;
 
@@ -253,8 +253,8 @@ impl App {
             MicError::Capture(e) => format!("Couldn't open the microphone: {e}"),
             // Shared automatically: these hosts just can't, and saying so for every pane on one
             // would be noise.
-            MicError::NeedsLogin | MicError::NotLinux | MicError::NoAlsa if !asked => return,
-            MicError::NeedsLogin => match self.login_help(host, "Share the microphone again") {
+            MicError::Remote(RemoteError::NeedsLogin) | MicError::NotLinux | MicError::NoAlsa if !asked => return,
+            MicError::Remote(RemoteError::NeedsLogin) => match self.login_help(host, "Share the microphone again") {
                 LoginHelp::LogInAgain => {
                     format!("Couldn't share the microphone: log out of {host} (type exit) and ssh back in, then share it again.")
                 }

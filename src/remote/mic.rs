@@ -38,10 +38,11 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use super::{SshFailure, SshTarget, last_line, needs_login, posix_quote};
-use super::audio::{self, Capture, CaptureError};
-use super::ssh::host::RemoteHost;
-use super::ssh::{Client, ExecCloser};
+use crate::remote::audio::{self, Capture, CaptureError};
+use crate::remote::error::{last_line, needs_login};
+use crate::remote::ssh::host::RemoteHost;
+use crate::remote::ssh::{Client, ExecCloser};
+use crate::remote::{RemoteError, SshTarget, posix_quote};
 
 /// The first line of nex's block in `~/.asoundrc`, and the last.
 const MARK: &str = "# Added by nex: microphone";
@@ -63,34 +64,30 @@ const LEAD: Duration = Duration::from_millis(200);
 /// What the remote host can't do, or why sharing stopped.
 #[derive(Debug, PartialEq, Eq)]
 pub enum MicError {
-    /// The host wants a password (or another prompt) nex's connection can't answer.
-    NeedsLogin,
+    /// The connection failed, or the host wants a password nex's connection can't answer.
+    Remote(RemoteError),
     /// Only Linux hosts have ALSA.
     NotLinux,
     /// The host has no ALSA library (`libasound.so.2`), so no program there can record.
     NoAlsa,
     /// This machine's microphone couldn't be opened.
     Capture(CaptureError),
-    Other(String),
 }
 
-impl From<SshFailure> for MicError {
-    fn from(f: SshFailure) -> Self {
-        match f {
-            SshFailure::NeedsLogin => MicError::NeedsLogin,
-            SshFailure::Other(e) => MicError::Other(e),
-        }
+impl From<RemoteError> for MicError {
+    fn from(e: RemoteError) -> Self {
+        MicError::Remote(e)
     }
 }
 
 impl std::fmt::Display for MicError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NeedsLogin => f.write_str("the host wants a password"),
+            Self::Remote(RemoteError::NeedsLogin) => f.write_str("the host wants a password"),
+            Self::Remote(RemoteError::Other(e)) => f.write_str(e),
             Self::NotLinux => f.write_str("only Linux hosts can use a shared microphone"),
             Self::NoAlsa => f.write_str("the host has no ALSA library (libasound2)"),
             Self::Capture(e) => write!(f, "{e}"),
-            Self::Other(e) => f.write_str(e),
         }
     }
 }
@@ -271,7 +268,7 @@ pub enum Via {
 impl Via {
     /// nex's own connection, logged in again if it dropped.
     fn client(host: &RemoteHost) -> Result<Arc<Client>, MicError> {
-        host.client().map_err(|e| MicError::Other(format!("not connected to {}: {e}", host.server.host)))
+        host.client().map_err(|e| RemoteError::Other(format!("not connected to {}: {e}", host.server.host)).into())
     }
 }
 
@@ -286,9 +283,9 @@ fn run(via: &Via, script: &str) -> Result<String, MicError> {
     let target = match via {
         Via::Ssh(target) => target,
         Via::Direct(host) => {
-            let (status, out) = Via::client(host)?.run(&direct_command(script), b"").map_err(|e| MicError::Other(e.to_string()))?;
+            let (status, out) = Via::client(host)?.run(&direct_command(script), b"").map_err(|e| RemoteError::Other(e.to_string()))?;
             if status != 0 {
-                return Err(MicError::Other(format!("the host's script exited with {status}")));
+                return Err(RemoteError::Other(format!("the host's script exited with {status}")).into());
             }
             return Ok(String::from_utf8_lossy(&out).into_owned());
         }
@@ -299,8 +296,8 @@ fn run(via: &Via, script: &str) -> Result<String, MicError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|e| MicError::Other(format!("couldn't run ssh: {e}")))?;
-    if let Some(failure) = SshFailure::of(out.status, &String::from_utf8_lossy(&out.stderr)) {
+        .map_err(|e| RemoteError::Other(format!("couldn't run ssh: {e}")))?;
+    if let Some(failure) = target.batch_failure(&out) {
         return Err(failure.into());
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -317,7 +314,7 @@ fn parse_setup(out: &str) -> Result<Mode, MicError> {
         Some("ok") => Ok(Mode::Alsa),
         Some("not-linux") => Err(MicError::NotLinux),
         Some("no-alsa") => Err(MicError::NoAlsa),
-        _ => Err(MicError::Other("the host didn't finish setting up the microphone".into())),
+        _ => Err(RemoteError::from("the host didn't finish setting up the microphone").into()),
     }
 }
 
@@ -430,7 +427,7 @@ impl Share {
             Ok(thread) => Self { stop, sessions, events, thread: Some(thread) },
             Err(e) => {
                 let (tx, rx) = mpsc::channel();
-                let _ = tx.send(Event::Failed(MicError::Other(e.to_string())));
+                let _ = tx.send(Event::Failed(RemoteError::Other(e.to_string()).into()));
                 Self { stop, sessions, events: rx, thread: None }
             }
         }
@@ -510,11 +507,11 @@ impl Drop for Session {
 fn ended(session: Session, started: Instant, fallback: &str) -> Result<(), MicError> {
     let err = session.finish();
     if needs_login(&err) {
-        return Err(MicError::NeedsLogin);
+        return Err(RemoteError::NeedsLogin.into());
     }
     match last_line(&err) {
         None if started.elapsed() > Duration::from_secs(30) => Ok(()),
-        why => Err(MicError::Other(why.unwrap_or_else(|| fallback.into()))),
+        why => Err(RemoteError::Other(why.unwrap_or_else(|| fallback.into())).into()),
     }
 }
 
@@ -595,7 +592,7 @@ impl Worker {
             match result {
                 Ok(()) => failures = 0,
                 Err(_) if self.stopped() => break,
-                Err(e @ (MicError::NeedsLogin | MicError::Capture(_))) => {
+                Err(e @ (MicError::Remote(RemoteError::NeedsLogin) | MicError::Capture(_))) => {
                     self.send(Event::Failed(e));
                     break;
                 }
@@ -620,7 +617,7 @@ impl Worker {
             Via::Ssh(target) => self.spawn_ssh(target, script, key)?,
             Via::Direct(host) => {
                 let client = Via::client(host)?;
-                let exec = client.exec(&direct_command(script)).map_err(|e| MicError::Other(e.to_string()))?;
+                let exec = client.exec(&direct_command(script)).map_err(|e| RemoteError::Other(e.to_string()))?;
                 let session = Session {
                     key,
                     sessions: self.sessions.clone(),
@@ -639,10 +636,10 @@ impl Worker {
         // one was stored, the flag shows it here.
         if self.stopped() {
             drop(session);
-            return Err(MicError::Other("stopped".into()));
+            return Err(RemoteError::from("stopped").into());
         }
         if session.stdin.is_none() || session.stdout.is_none() {
-            return Err(MicError::Other("couldn't talk to ssh".into()));
+            return Err(RemoteError::from("couldn't talk to ssh").into());
         }
         Ok(session)
     }
@@ -655,7 +652,7 @@ impl Worker {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| MicError::Other(format!("couldn't run ssh: {e}")))?;
+            .map_err(|e| RemoteError::Other(format!("couldn't run ssh: {e}")))?;
         let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
         let stderr = stderr.map(|mut e| {
             let (tx, rx) = mpsc::channel();

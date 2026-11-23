@@ -2,8 +2,11 @@
 //!
 //! ```text
 //! remote/
-//!   mod.rs     this file: reading a pane's ssh command line (SshTarget), the options nex's
-//!              own connections use, and connection sharing in ~/.ssh/config
+//!   mod.rs     this file: connection sharing in ~/.ssh/config, and the shell quoting and
+//!              `ssh` command every file here starts from
+//!   target.rs  SshTarget: a pane's ssh command line read, and the command lines nex builds
+//!              from it (a new session, an agent to attach to, nex's own batch connections)
+//!   error.rs   RemoteError: how an `ssh` of nex's own failed, read one way for every caller
 //!   mux.rs     one shared connection per host for all of nex's own, so only one logs in
 //!   upload.rs  files dropped or pasted into an ssh pane, copied to the remote host
 //!   exec.rs    shell scripts run on the host, for Files and Changes panes opened from an
@@ -23,42 +26,23 @@
 //! its connection, so nex's connections ride on the login typed into the pane.
 
 pub mod audio;
+mod error;
 pub mod exec;
 pub mod host;
 pub mod mic;
 mod mux;
 pub mod ssh;
+mod target;
 mod upload;
 
-pub use upload::{UploadError, remove_saved, save_png, upload};
+pub use error::RemoteError;
+pub use target::SshTarget;
+pub use upload::{remove_saved, save_png, upload};
 #[cfg(target_os = "linux")]
 pub use upload::save_image;
 
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-
-/// ssh options that take a value (from ssh's `getopt` string).
-const VALUE_OPTS: &str = "BbcDEeFIiJLlmOoPpQRSWw";
-/// Options that make ssh do something other than open a session (print its config, its
-/// version, a query or a control command, a stdio forward, a subsystem): no upload.
-const NOT_A_SESSION: &str = "GVQOWs";
-/// Options left off the upload's command line: forwardings (`L R D`), session and tty
-/// flags, backgrounding, becoming a control master, verbosity, the escape character.
-const DROPPED: &str = "LRDNTtfnMve";
-
-/// Options for nex's own connections (uploads, the mic), put before the user's own: ssh keeps
-/// the first value it sees for an option, so these win over the pane's `-o` options and the
-/// config file.
-const BATCH_OPTS: &[&str] = &[
-    "-T",
-    "-o", "BatchMode=yes",
-    "-o", "ConnectTimeout=8",
-    "-o", "ClearAllForwardings=yes",
-    "-o", "RemoteCommand=none",
-    "-o", "RequestTTY=no",
-    "-o", "PermitLocalCommand=no",
-    "-o", "ForwardX11=no",
-];
+use std::process::Command;
 
 /// The first line of the block nex adds to `~/.ssh/config`, to tell whether it's there.
 const SHARING_MARK: &str = "# Added by nex:";
@@ -76,145 +60,12 @@ Match exec \"test x$TERM_PROGRAM = xnex\"
   ControlPersist 60
 ";
 
-/// The host a pane's `ssh` is connected to, as the options needed to connect again.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SshTarget {
-    /// The pane's connection options, in order (`-p 2222`, `-J jump`, `-o …`).
-    pub opts: Vec<String>,
-    /// `host` or `user@host` (or an `ssh://` URI).
-    pub destination: String,
-}
-
-impl SshTarget {
-    /// Read `ssh`'s command line, if it is an interactive session to some host.
-    pub fn from_argv(argv: &[String]) -> Option<Self> {
-        let (prog, args) = argv.split_first()?;
-        if prog.rsplit('/').next()? != "ssh" {
-            return None;
-        }
-        let mut opts = Vec::new();
-        let mut i = 0;
-        while i < args.len() {
-            let arg = &args[i];
-            i += 1;
-            if arg == "--" {
-                let destination = args.get(i)?.clone();
-                return Some(Self { opts, destination });
-            }
-            let Some(flags) = arg.strip_prefix('-').filter(|f| !f.is_empty()) else {
-                // The destination; anything after it is the remote command.
-                return Some(Self { opts, destination: arg.clone() });
-            };
-            // A cluster of flags (`-tt`, `-4A`), possibly ending in one that takes a value,
-            // either the rest of this argument (`-p2222`) or the next one (`-p 2222`).
-            for (at, c) in flags.char_indices() {
-                if NOT_A_SESSION.contains(c) {
-                    return None;
-                }
-                if VALUE_OPTS.contains(c) {
-                    let rest = &flags[at + c.len_utf8()..];
-                    let value = if rest.is_empty() {
-                        i += 1;
-                        args.get(i - 1)?.clone()
-                    } else {
-                        rest.to_string()
-                    };
-                    if !DROPPED.contains(c) {
-                        opts.push(format!("-{c}"));
-                        opts.push(value);
-                    }
-                    break;
-                }
-                if !DROPPED.contains(c) {
-                    opts.push(format!("-{c}"));
-                }
-            }
-        }
-        None
-    }
-
-    /// The host part of the destination, for messages ("Uploaded to devbox").
-    pub fn host(&self) -> &str {
-        let d = self.destination.strip_prefix("ssh://").unwrap_or(&self.destination);
-        let d = d.rsplit('@').next().unwrap_or(d);
-        // `[::1]:22`, `host:22` (URI form only), `host`.
-        let d = d.split('/').next().unwrap_or(d);
-        match d.strip_prefix('[') {
-            Some(v6) => v6.split(']').next().unwrap_or(v6),
-            None if self.destination.starts_with("ssh://") => d.split(':').next().unwrap_or(d),
-            None => d,
-        }
-    }
-
-    /// The command line for a new pane that opens another session on this host, in remote
-    /// directory `dir` (else the remote home), for a split or new tab of an `ssh` pane.
-    ///
-    /// It runs under `sh` so that leaving the session (`exit`) drops to a local shell, as it
-    /// does in the pane it came from. With connection sharing on (see [`enable_sharing`]) the
-    /// session rides on the pane's existing login.
-    pub fn session_command(&self, dir: Option<&str>) -> Vec<String> {
-        // Run by the remote login shell, whatever it is: `cd` and `exec` work in sh, bash, zsh,
-        // fish and csh alike.
-        let mut remote = String::new();
-        if let Some(dir) = dir.filter(|d| !d.is_empty() && *d != "~") {
-            remote.push_str(&format!("cd {}; ", remote_dir(dir)));
-        }
-        remote.push_str("exec \"$SHELL\" -l");
-
-        let mut ssh: Vec<String> = ["ssh", "-t", "-o", "RemoteCommand=none"].map(String::from).to_vec();
-        ssh.extend(self.opts.iter().cloned());
-        ssh.push("--".into());
-        ssh.push(self.destination.clone());
-        ssh.push(remote);
-        let ssh = ssh.iter().map(|a| posix_quote(a)).collect::<Vec<_>>().join(" ");
-        // The local shell to come back to: a login shell on macOS, where terminals start one.
-        let login = if cfg!(target_os = "macos") { " -l" } else { "" };
-        // `set -m` runs ssh as the terminal's foreground job, so the pane sees `ssh` (for its
-        // title, uploads, and splitting it again) rather than `sh`.
-        vec!["/bin/sh".into(), "-c".into(), format!("set -m; {ssh}; exec \"${{SHELL:-/bin/sh}}\"{login}")]
-    }
-
-    /// The full `ssh` argument list (without the program name) for one of nex's own
-    /// connections to this host, running `script` under `sh` there.
-    #[cfg(test)]
-    fn batch_args(&self, script: &str) -> Vec<String> {
-        self.batch_args_via(None, script)
-    }
-
-    /// [`batch_args`](Self::batch_args), riding the master connection at `control` if given.
-    fn batch_args_via(&self, control: Option<&str>, script: &str) -> Vec<String> {
-        let mut args: Vec<String> = BATCH_OPTS.iter().map(|s| s.to_string()).collect();
-        // Share a master connection, but never become one here: see `mux`.
-        args.extend(["-o".into(), "ControlMaster=no".into()]);
-        if let Some(path) = control {
-            args.extend(["-o".into(), mux::control_path_opt(path)]);
-        }
-        args.extend(self.opts.iter().cloned());
-        args.push("--".into());
-        args.push(self.destination.clone());
-        // ssh hands this to the remote login shell (which may be fish or csh): one
-        // single-quoted word that every shell passes to `sh` unchanged.
-        args.push(format!("sh -c {}", posix_quote(script)));
-        args
-    }
-
-    /// A `Command` for [`batch_args`](Self::batch_args), with no stdin or stdout set. It
-    /// rides nex's shared connection to the host (see `mux`), starting it if need be, so only
-    /// the first one pays for a login.
-    fn batch_command(&self, script: &str) -> Command {
-        let control = mux::ensure_master(self);
-        let mut ssh = Command::new("ssh");
-        // So the sharing block in `~/.ssh/config` finds the pane's connection, whatever
-        // terminal nex itself was started from.
-        ssh.env("TERM_PROGRAM", "nex").args(self.batch_args_via(control.as_deref(), script));
-        ssh
-    }
-}
-
-/// ssh's error when every way it could log in without asking was refused:
-/// `user@host: Permission denied (publickey,password).`
-pub(super) fn needs_login(stderr: &str) -> bool {
-    stderr.lines().any(|l| l.contains("Permission denied ("))
+/// The `ssh` program, as every connection of nex's own runs it: with `TERM_PROGRAM=nex`, so
+/// the sharing block in `~/.ssh/config` applies whatever terminal nex itself was started from.
+fn ssh_command() -> Command {
+    let mut ssh = Command::new("ssh");
+    ssh.env("TERM_PROGRAM", "nex");
+    ssh
 }
 
 /// The user's ssh config file.
@@ -231,29 +82,18 @@ fn has_sharing(config: &str) -> bool {
     config.lines().any(|l| l.trim_start().starts_with(SHARING_MARK))
 }
 
-/// Whether a shared connection to `target`'s host is up, so a new session on it needs no
-/// login. Asks the control socket only (`ssh -O check`): quick, and never prompts.
+/// Whether a shared connection to `target`'s host is up at the control path the user's
+/// config names, so a new session on it needs no login. Asks the control socket only
+/// (`ssh -O check`): quick, and never prompts.
 pub fn shared_connection_live(target: &SshTarget) -> bool {
-    if !SHARING_SUPPORTED {
-        return false;
-    }
-    Command::new("ssh")
-        .env("TERM_PROGRAM", "nex")
-        .args(["-o", "BatchMode=yes", "-O", "check"])
-        .args(&target.opts)
-        .arg("--")
-        .arg(&target.destination)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    SHARING_SUPPORTED && mux::check(target, None)
 }
 
-/// A remote directory as a word for `cd`: quoted, but with a leading `~/` left bare so the
-/// remote shell still expands it.
-fn remote_dir(dir: &str) -> String {
+/// A remote directory as a word for `cd`: quoted, but with a leading `~` left bare so the
+/// remote shell still expands it. No directory is the remote home.
+pub fn cd_word(dir: &str) -> String {
     match dir.strip_prefix("~/") {
+        _ if dir.is_empty() || dir == "~" => "~".into(),
         Some("") => "~".into(),
         Some(rest) => format!("~/{}", posix_quote(rest)),
         None => posix_quote(dir),
@@ -301,35 +141,6 @@ fn sharing_addition(existing: &str) -> String {
     format!("{sep}{SHARING_BLOCK}")
 }
 
-/// Why one of nex's short ssh commands failed, read from its exit status and stderr the same
-/// way everywhere; each caller turns it into its own error type.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum SshFailure {
-    /// The host wants a password (or another prompt) nex's connections can't answer.
-    NeedsLogin,
-    /// ssh's last line of complaint, or its exit status.
-    Other(String),
-}
-
-impl SshFailure {
-    /// How ssh failed, or `None` if it succeeded.
-    pub(super) fn of(status: std::process::ExitStatus, stderr: &str) -> Option<SshFailure> {
-        if status.success() {
-            return None;
-        }
-        Some(if needs_login(stderr) {
-            SshFailure::NeedsLogin
-        } else {
-            SshFailure::Other(last_line(stderr).unwrap_or_else(|| format!("ssh exited with {status}")))
-        })
-    }
-}
-
-/// The last non-empty line of an error output.
-pub(super) fn last_line(s: &str) -> Option<String> {
-    s.lines().map(str::trim).rfind(|l| !l.is_empty()).map(str::to_string)
-}
-
 /// Quote for a POSIX shell (only when needed).
 pub(crate) fn posix_quote(s: &str) -> String {
     let safe = |c: char| c.is_ascii_alphanumeric() || "_./-+:,@%=~".contains(c);
@@ -340,137 +151,22 @@ pub(crate) fn posix_quote(s: &str) -> String {
 mod tests {
     use super::*;
 
-    fn parse(cmd: &str) -> Option<SshTarget> {
-        SshTarget::from_argv(&cmd.split_whitespace().map(String::from).collect::<Vec<_>>())
-    }
-
-    fn target(opts: &[&str], dest: &str) -> Option<SshTarget> {
-        Some(SshTarget { opts: opts.iter().map(|s| s.to_string()).collect(), destination: dest.into() })
-    }
-
-    /// The ssh part of a session command.
-    fn session(t: &SshTarget, dir: Option<&str>) -> String {
-        let cmd = t.session_command(dir);
-        assert_eq!(cmd[..2], ["/bin/sh", "-c"]);
-        let script = cmd[2].strip_prefix("set -m; ").unwrap();
-        script.split("; exec \"${SHELL:-/bin/sh}\"").next().unwrap().to_string()
-    }
-
     #[test]
-    fn session_commands() {
-        let t = target(&[], "host").unwrap();
-        assert_eq!(session(&t, None), r#"ssh -t -o RemoteCommand=none -- host 'exec "$SHELL" -l'"#);
-        assert_eq!(session(&t, Some("~")), r#"ssh -t -o RemoteCommand=none -- host 'exec "$SHELL" -l'"#);
-        assert_eq!(session(&t, Some("/var/log")), r#"ssh -t -o RemoteCommand=none -- host 'cd /var/log; exec "$SHELL" -l'"#);
-        assert_eq!(
-            session(&t, Some("~/my dir")),
-            r#"ssh -t -o RemoteCommand=none -- host 'cd ~/'\''my dir'\''; exec "$SHELL" -l'"#
-        );
-        let t = target(&["-p", "2222", "-J", "jump"], "me@host").unwrap();
-        assert_eq!(session(&t, Some("/srv")), r#"ssh -t -o RemoteCommand=none -p 2222 -J jump -- me@host 'cd /srv; exec "$SHELL" -l'"#);
-    }
-
-    #[test]
-    fn session_command_round_trips() {
-        // The new pane's ssh is what a split of *it* reads back.
-        let t = target(&["-p", "2222"], "me@host").unwrap();
-        let mut argv = vec!["ssh".to_string(), "-t".into(), "-o".into(), "RemoteCommand=none".into()];
-        argv.extend(t.opts.iter().cloned());
-        argv.extend(["--".into(), t.destination.clone(), "cd /x; exec \"$SHELL\" -l".into()]);
-        assert_eq!(SshTarget::from_argv(&argv), target(&["-o", "RemoteCommand=none", "-p", "2222"], "me@host"));
-    }
-
-    #[test]
-    fn batch_args_ride_a_master() {
-        let t = target(&["-p", "2222"], "host").unwrap();
-        let plain = t.batch_args("true");
-        assert!(plain.windows(2).any(|w| w == ["-o", "ControlMaster=no"]));
-        assert!(!plain.iter().any(|a| a.starts_with("ControlPath")));
-        let via = t.batch_args_via(Some("/home/me/.ssh/nex-ab"), "true");
-        let at = via.iter().position(|a| a == "ControlPath=/home/me/.ssh/nex-ab").expect("control path");
-        // Before the pane's options, so it wins over them.
-        assert!(at < via.iter().position(|a| a == "2222").unwrap());
-        assert!(via.windows(2).any(|w| w == ["-o", "ControlMaster=no"]));
-    }
-
-    #[test]
-    fn remote_dirs() {
-        assert_eq!(remote_dir("~/src"), "~/src");
-        assert_eq!(remote_dir("~/"), "~");
-        assert_eq!(remote_dir("/a b"), "'/a b'");
-        assert_eq!(remote_dir("~/it's"), r"~/'it'\''s'");
-    }
-
-    #[test]
-    fn plain_hosts() {
-        assert_eq!(parse("ssh host"), target(&[], "host"));
-        assert_eq!(parse("/usr/bin/ssh user@host"), target(&[], "user@host"));
-        assert_eq!(parse("ssh ssh://user@host:2222"), target(&[], "ssh://user@host:2222"));
-    }
-
-    #[test]
-    fn keeps_connection_options() {
-        assert_eq!(parse("ssh -p 2222 user@host"), target(&["-p", "2222"], "user@host"));
-        assert_eq!(parse("ssh -p2222 -i ~/.ssh/k host"), target(&["-p", "2222", "-i", "~/.ssh/k"], "host"));
-        assert_eq!(parse("ssh -o Port=22 -J jump host"), target(&["-o", "Port=22", "-J", "jump"], "host"));
-        assert_eq!(parse("ssh -4A host"), target(&["-4", "-A"], "host"));
-        assert_eq!(parse("ssh -Cl me host"), target(&["-C", "-l", "me"], "host"));
-    }
-
-    #[test]
-    fn drops_forwardings_tty_and_command() {
-        assert_eq!(parse("ssh -t host tmux attach"), target(&[], "host"));
-        assert_eq!(parse("ssh -tt -v host"), target(&[], "host"));
-        assert_eq!(parse("ssh -L 8080:localhost:80 -R9000:x:9000 host"), target(&[], "host"));
-        assert_eq!(parse("ssh -J jump host -- ls -la"), target(&["-J", "jump"], "host"));
-        assert_eq!(parse("ssh -p 22 -- host"), target(&["-p", "22"], "host"));
-    }
-
-    #[test]
-    fn not_a_session() {
-        assert_eq!(parse("ssh"), None);
-        assert_eq!(parse("ssh -V"), None);
-        assert_eq!(parse("ssh -G host"), None);
-        assert_eq!(parse("ssh -W host:22 jump"), None);
-        assert_eq!(parse("ssh -O check host"), None);
-        assert_eq!(parse("ssh -p"), None);
-        assert_eq!(parse("mosh host"), None);
-        assert_eq!(parse("sshd -D"), None);
-    }
-
-    #[test]
-    fn hosts() {
-        assert_eq!(parse("ssh me@devbox").unwrap().host(), "devbox");
-        assert_eq!(parse("ssh ssh://me@devbox:2222").unwrap().host(), "devbox");
-        assert_eq!(parse("ssh ssh://[::1]:22").unwrap().host(), "::1");
-        assert_eq!(parse("ssh fe80::1").unwrap().host(), "fe80::1");
+    fn cd_words() {
+        assert_eq!(cd_word(""), "~");
+        assert_eq!(cd_word("~"), "~");
+        assert_eq!(cd_word("~/"), "~");
+        assert_eq!(cd_word("~/src"), "~/src");
+        assert_eq!(cd_word("~/my dir"), "~/'my dir'");
+        assert_eq!(cd_word("~/it's"), r"~/'it'\''s'");
+        assert_eq!(cd_word("/srv/app"), "/srv/app");
+        assert_eq!(cd_word("/a b"), "'/a b'");
     }
 
     #[test]
     fn quoting() {
         assert_eq!(posix_quote("/tmp/nex.ab12/a.png"), "/tmp/nex.ab12/a.png");
         assert_eq!(posix_quote("/tmp/x/it's here"), r"'/tmp/x/it'\''s here'");
-        assert_eq!(last_line("warning\nPermission denied (publickey).\n\n").as_deref(), Some("Permission denied (publickey)."));
-    }
-
-    #[test]
-    fn login_errors() {
-        assert!(needs_login("jr@10.0.0.2: Permission denied (publickey,password).\n"));
-        assert!(!needs_login("ssh: connect to host x port 22: Connection refused\n"));
-        assert!(!needs_login("tar: a.txt: Cannot open: Permission denied\n"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn reads_how_ssh_failed() {
-        let status = |code: i32| std::process::Command::new("sh").args(["-c", &format!("exit {code}")]).status().unwrap();
-        assert_eq!(SshFailure::of(status(0), "Permission denied (publickey).\n"), None);
-        assert_eq!(SshFailure::of(status(255), "me@x: Permission denied (publickey,password).\n"), Some(SshFailure::NeedsLogin));
-        assert_eq!(
-            SshFailure::of(status(255), "ssh: connect to host x port 22: Connection refused\n\n"),
-            Some(SshFailure::Other("ssh: connect to host x port 22: Connection refused".into()))
-        );
-        assert!(matches!(SshFailure::of(status(1), ""), Some(SshFailure::Other(e)) if e.starts_with("ssh exited with")));
     }
 
     #[test]

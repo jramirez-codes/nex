@@ -35,6 +35,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Pos2, Rect};
 
+use crate::remote::RemoteError;
 use crate::remote::exec::{ExecError, Transport};
 use crate::terminal::tilde;
 
@@ -337,7 +338,7 @@ impl FileExplorer {
                 let hidden = self.show_hidden;
                 Ok(l.entries.into_iter().filter(|e| hidden || !e.name.starts_with('.')).collect())
             }
-            Err(ExecError::NeedsLogin) => {
+            Err(ExecError::Remote(RemoteError::NeedsLogin)) => {
                 let host = r.transport.label();
                 if !std::mem::replace(&mut r.told_login, true) {
                     self.requests.push(Request::NeedsLogin(host.clone()));

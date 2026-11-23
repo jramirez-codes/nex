@@ -9,14 +9,20 @@
 //! up there, nex starts one itself (`ssh -M -N -f`, logging in like every batch connection:
 //! keys or an agent, never a prompt), which stays up [`PERSIST`] after its last session.
 //! When that can't be done, connections go direct, as they did before.
+//!
+//! Whether the master is up is asked of its socket (`ssh -O check`, a process of its own),
+//! and a yes is believed for [`CHECK_FOR`]: a listing, a Changes refresh and the commands
+//! around them share one check instead of each paying for its own. A command that ssh itself
+//! fails takes the answer back (see [`note_exit`]), so the next one asks again.
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use super::{BATCH_OPTS, SHARING_SUPPORTED, SshTarget};
+use crate::remote::target::BATCH_OPTS;
+use crate::remote::{SHARING_SUPPORTED, SshTarget, ssh_command};
 
 /// nex's control path, when the user's config has none for the host.
 const OUR_PATH: &str = "~/.ssh/nex-%C";
@@ -24,6 +30,10 @@ const OUR_PATH: &str = "~/.ssh/nex-%C";
 const PERSIST: &str = "ControlPersist=120";
 /// After starting a master failed, go direct for this long before trying again.
 const RETRY_AFTER: Duration = Duration::from_secs(60);
+/// How long a master that answered is taken to still be up, without asking again. Short
+/// against [`PERSIST`], and a master that dies inside it costs one command a direct
+/// connection (or a failure that asks again, see [`note_exit`]).
+const CHECK_FOR: Duration = Duration::from_secs(5);
 
 /// What's known about sharing a connection to one host.
 #[derive(Default)]
@@ -36,41 +46,130 @@ struct HostMux {
     may_start: bool,
     /// When starting one last failed.
     failed: Option<Instant>,
+    /// When the master last answered at `path`.
+    live: Option<Instant>,
 }
 
-fn hosts() -> &'static Mutex<HashMap<SshTarget, Arc<Mutex<HostMux>>>> {
-    static HOSTS: OnceLock<Mutex<HashMap<SshTarget, Arc<Mutex<HostMux>>>>> = OnceLock::new();
-    HOSTS.get_or_init(Default::default)
+/// What the mux asks of `ssh`. Tests put their own in its place.
+trait Ssh: Send + Sync {
+    /// Which socket to use for `target`, and whether nex may start a master on it.
+    fn resolve(&self, target: &SshTarget) -> (Option<String>, bool);
+    /// Whether a master is listening at `path`.
+    fn check(&self, target: &SshTarget, path: &str) -> bool;
+    /// Start a master at `path`; whether one is listening there now.
+    fn start(&self, target: &SshTarget, path: &str) -> bool;
+}
+
+/// The `ssh` program.
+struct SystemSsh;
+
+impl Ssh for SystemSsh {
+    fn resolve(&self, target: &SshTarget) -> (Option<String>, bool) {
+        resolve(target)
+    }
+    fn check(&self, target: &SshTarget, path: &str) -> bool {
+        check(target, Some(path))
+    }
+    fn start(&self, target: &SshTarget, path: &str) -> bool {
+        start(target, path)
+    }
+}
+
+/// No multiplexing: every connection goes direct.
+struct Unshared;
+
+impl Ssh for Unshared {
+    fn resolve(&self, _: &SshTarget) -> (Option<String>, bool) {
+        (None, false)
+    }
+    fn check(&self, _: &SshTarget, _: &str) -> bool {
+        false
+    }
+    fn start(&self, _: &SshTarget, _: &str) -> bool {
+        false
+    }
+}
+
+/// The shared connections, one per host.
+struct Mux {
+    ssh: Box<dyn Ssh>,
+    hosts: Mutex<HashMap<SshTarget, Arc<Mutex<HostMux>>>>,
+}
+
+impl Mux {
+    fn new(ssh: Box<dyn Ssh>) -> Self {
+        Mux { ssh, hosts: Mutex::default() }
+    }
+
+    fn host(&self, target: &SshTarget) -> Option<Arc<Mutex<HostMux>>> {
+        Some(self.hosts.lock().ok()?.entry(target.clone()).or_default().clone())
+    }
+
+    /// See [`ensure_master`].
+    fn ensure_master(&self, target: &SshTarget) -> Option<String> {
+        let slot = self.host(target)?;
+        // Held while starting the master, so two connections at once don't both start one.
+        let mut h = slot.lock().ok()?;
+        if !h.resolved {
+            h.resolved = true;
+            (h.path, h.may_start) = self.ssh.resolve(target);
+        }
+        let path = h.path.clone()?;
+        if h.live.is_some_and(|t| t.elapsed() < CHECK_FOR) {
+            return Some(path);
+        }
+        if self.ssh.check(target, &path) {
+            h.live = Some(Instant::now());
+            return Some(path);
+        }
+        h.live = None;
+        if !h.may_start || h.failed.is_some_and(|t| t.elapsed() < RETRY_AFTER) {
+            return None;
+        }
+        if self.ssh.start(target, &path) {
+            h.failed = None;
+            h.live = Some(Instant::now());
+            Some(path)
+        } else {
+            h.failed = Some(Instant::now());
+            None
+        }
+    }
+
+    /// Stop believing the master to `target` is up: the next connection asks its socket.
+    fn forget(&self, target: &SshTarget) {
+        if let Some(slot) = self.host(target)
+            && let Ok(mut h) = slot.lock()
+        {
+            h.live = None;
+        }
+    }
+}
+
+fn mux() -> &'static Mux {
+    static MUX: OnceLock<Mux> = OnceLock::new();
+    // Tests never connect anywhere.
+    MUX.get_or_init(|| Mux::new(if cfg!(test) || !SHARING_SUPPORTED { Box::new(Unshared) } else { Box::new(SystemSsh) }))
 }
 
 /// The control socket a batch connection to `target` should ride, making sure a master is
 /// listening on it. `None`: connect directly. Blocks for a login when it starts the master.
 pub(super) fn ensure_master(target: &SshTarget) -> Option<String> {
-    // Tests never connect anywhere.
-    if !SHARING_SUPPORTED || cfg!(test) {
-        return None;
+    mux().ensure_master(target)
+}
+
+/// A batch connection to `target` ended with `status`. When that is ssh's own failure (255,
+/// or killed) rather than its script's, the master it rode may be gone: ask again next time.
+pub(super) fn note_exit(target: &SshTarget, status: ExitStatus) {
+    if ssh_failed(status) {
+        mux().forget(target);
     }
-    let slot = hosts().lock().ok()?.entry(target.clone()).or_default().clone();
-    // Held while starting the master, so two connections at once don't both start one.
-    let mut h = slot.lock().ok()?;
-    if !h.resolved {
-        h.resolved = true;
-        (h.path, h.may_start) = resolve(target);
-    }
-    let path = h.path.clone()?;
-    if check(target, &path) {
-        return Some(path);
-    }
-    if !h.may_start || h.failed.is_some_and(|t| t.elapsed() < RETRY_AFTER) {
-        return None;
-    }
-    if start(target, &path) {
-        h.failed = None;
-        Some(path)
-    } else {
-        h.failed = Some(Instant::now());
-        None
-    }
+}
+
+/// Whether `status` is ssh's own failure: it exits 255 for those, and with its script's
+/// status otherwise.
+fn ssh_failed(status: ExitStatus) -> bool {
+    matches!(status.code(), Some(255) | None)
 }
 
 /// The value for `-o`, quoted when the path has spaces (ssh splits option values on them).
@@ -99,8 +198,8 @@ fn resolve(target: &SshTarget) -> (Option<String>, bool) {
 
 /// `ssh -G` for `target` (with `control` as its control path), or `None` if it failed.
 fn config(target: &SshTarget, control: Option<&str>) -> Option<String> {
-    let mut ssh = Command::new("ssh");
-    ssh.env("TERM_PROGRAM", "nex").arg("-G");
+    let mut ssh = ssh_command();
+    ssh.arg("-G");
     if let Some(path) = control {
         ssh.args(["-o", &control_path_opt(path)]);
     }
@@ -113,11 +212,15 @@ fn setting<'a>(config: &'a str, key: &str) -> Option<&'a str> {
     config.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix(' ')).map(str::trim).filter(|v| !v.is_empty() && *v != "none")
 }
 
-/// Whether a master is listening at `path` (asks the socket only: quick, never prompts).
-fn check(target: &SshTarget, path: &str) -> bool {
-    Command::new("ssh")
-        .env("TERM_PROGRAM", "nex")
-        .args(["-o", "BatchMode=yes", "-o", &control_path_opt(path), "-O", "check"])
+/// Whether a master is listening at `path`, or with `None`, at the control path the config
+/// names for the host (asks the socket only: quick, never prompts).
+pub(super) fn check(target: &SshTarget, path: Option<&str>) -> bool {
+    let mut ssh = ssh_command();
+    ssh.args(["-o", "BatchMode=yes"]);
+    if let Some(path) = path {
+        ssh.args(["-o", &control_path_opt(path)]);
+    }
+    ssh.args(["-O", "check"])
         .args(&target.opts)
         .arg("--")
         .arg(&target.destination)
@@ -147,8 +250,7 @@ fn start(target: &SshTarget, path: &str) -> bool {
             return false;
         }
     }
-    let started = Command::new("ssh")
-        .env("TERM_PROGRAM", "nex")
+    let started = ssh_command()
         .args(["-M", "-N", "-f"])
         .args(BATCH_OPTS)
         .args(["-o", PERSIST, "-o", &control_path_opt(path)])
@@ -165,12 +267,13 @@ fn start(target: &SshTarget, path: &str) -> bool {
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|s| s.success());
-    started && check(target, path)
+    started && check(target, Some(path))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[test]
     fn reads_ssh_config_output() {
@@ -194,6 +297,79 @@ mod tests {
         let t = |opts: &[&str]| SshTarget { opts: opts.iter().map(|s| s.to_string()).collect(), destination: "host".into() };
         assert_eq!(resolve(&t(&["-S", "/tmp/sock"])), (None, false));
         assert_eq!(resolve(&t(&["-o", "ControlPath=none"])), (None, false));
+    }
+
+    /// A stand-in for ssh that counts what it's asked, with a master that is up or not.
+    #[derive(Default)]
+    struct Counting {
+        checks: AtomicUsize,
+        starts: AtomicUsize,
+        up: AtomicBool,
+    }
+
+    impl Ssh for Arc<Counting> {
+        fn resolve(&self, _: &SshTarget) -> (Option<String>, bool) {
+            (Some("/tmp/nex-test-sock".into()), true)
+        }
+        fn check(&self, _: &SshTarget, _: &str) -> bool {
+            self.checks.fetch_add(1, Ordering::Relaxed);
+            self.up.load(Ordering::Relaxed)
+        }
+        fn start(&self, _: &SshTarget, _: &str) -> bool {
+            self.starts.fetch_add(1, Ordering::Relaxed);
+            self.up.store(true, Ordering::Relaxed);
+            true
+        }
+    }
+
+    fn counting() -> (Arc<Counting>, Mux, SshTarget) {
+        let ssh = Arc::new(Counting::default());
+        (ssh.clone(), Mux::new(Box::new(ssh)), SshTarget { opts: vec![], destination: "host".into() })
+    }
+
+    /// What the cache is for: a burst of commands asks the socket once, not once each.
+    #[test]
+    fn a_burst_of_commands_checks_the_master_once() {
+        let (ssh, mux, t) = counting();
+        ssh.up.store(true, Ordering::Relaxed);
+        for _ in 0..20 {
+            assert_eq!(mux.ensure_master(&t).as_deref(), Some("/tmp/nex-test-sock"));
+        }
+        assert_eq!((ssh.checks.load(Ordering::Relaxed), ssh.starts.load(Ordering::Relaxed)), (1, 0));
+        // Another host has its own answer.
+        let other = SshTarget { opts: vec![], destination: "other".into() };
+        mux.ensure_master(&other);
+        assert_eq!(ssh.checks.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn a_master_nex_started_is_not_checked_again_at_once() {
+        let (ssh, mux, t) = counting();
+        assert!(mux.ensure_master(&t).is_some() && mux.ensure_master(&t).is_some());
+        assert_eq!((ssh.checks.load(Ordering::Relaxed), ssh.starts.load(Ordering::Relaxed)), (1, 1));
+    }
+
+    #[test]
+    fn a_failed_command_or_a_few_seconds_ask_again() {
+        let (ssh, mux, t) = counting();
+        ssh.up.store(true, Ordering::Relaxed);
+        mux.ensure_master(&t);
+        mux.forget(&t);
+        mux.ensure_master(&t);
+        assert_eq!(ssh.checks.load(Ordering::Relaxed), 2, "asked again after a failure");
+        // The answer has aged past `CHECK_FOR`.
+        let Some(then) = Instant::now().checked_sub(CHECK_FOR) else { return };
+        mux.host(&t).unwrap().lock().unwrap().live = Some(then);
+        mux.ensure_master(&t);
+        assert_eq!((ssh.checks.load(Ordering::Relaxed), ssh.starts.load(Ordering::Relaxed)), (3, 0));
+    }
+
+    /// Only ssh's own failure says anything about the master: a script's status doesn't.
+    #[cfg(unix)]
+    #[test]
+    fn only_sshs_own_failure_drops_the_answer() {
+        let exit = |code: i32| std::process::Command::new("sh").args(["-c", &format!("exit {code}")]).status().unwrap();
+        assert!(!ssh_failed(exit(0)) && !ssh_failed(exit(1)) && ssh_failed(exit(255)));
     }
 
     /// ssh's own reading: with no path in the config, nex's, expanded.

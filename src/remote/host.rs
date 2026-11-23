@@ -1,5 +1,6 @@
 //! `nex-host` on a pane's ssh host (see `nex-host/README.md`): installing it, watching the
-//! agents it keeps running there, and the commands that attach to one or drop one.
+//! agents it keeps running there, and ending one. (The command line that attaches a pane to
+//! one is `SshTarget::attach_command`, in `target.rs`.)
 //!
 //! nex installs it in `~/.nex/bin` over its own batch connection (see the module above):
 //! `uname` says which build the host needs, the version it prints says whether it's
@@ -17,13 +18,14 @@ use std::time::{Duration, Instant};
 
 use nex_host::proto::{self, Response, Session};
 
-use super::ssh::host::RemoteHost;
-use super::{SshFailure, SshTarget, last_line, needs_login, posix_quote};
+use crate::remote::error::last_line;
+use crate::remote::ssh::host::RemoteHost;
+use crate::remote::{RemoteError, SshTarget, posix_quote};
 
 /// Where the program goes on the host, for the remote shell (which expands `~`). This and
 /// the scripts below spell out [`nex_host::paths::INSTALL_PATH`] so they read as plain shell;
 /// `install_paths_agree` checks they all name it.
-const REMOTE_BIN: &str = "~/.nex/bin/nex-host";
+pub(super) const REMOTE_BIN: &str = "~/.nex/bin/nex-host";
 /// The same, for `sh` scripts.
 const REMOTE_BIN_SH: &str = "\"$HOME/.nex/bin/nex-host\"";
 /// Wait this long before trying a host again after it failed, doubling up to [`RETRY_MAX`].
@@ -33,28 +35,24 @@ const RETRY_MAX: Duration = Duration::from_secs(60);
 /// Why a host can't be watched.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostError {
-    /// It wants a password (or another prompt) nex's connections can't answer.
-    NeedsLogin,
+    /// The connection failed, or the host wants a password nex's connections can't answer.
+    Remote(RemoteError),
     /// nex has no `nex-host` built for it (`uname -sm` said this).
     Unsupported(String),
-    Other(String),
 }
 
-impl From<SshFailure> for HostError {
-    fn from(f: SshFailure) -> Self {
-        match f {
-            SshFailure::NeedsLogin => HostError::NeedsLogin,
-            SshFailure::Other(e) => HostError::Other(e),
-        }
+impl From<RemoteError> for HostError {
+    fn from(e: RemoteError) -> Self {
+        HostError::Remote(e)
     }
 }
 
 impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HostError::NeedsLogin => write!(f, "needs a login"),
+            HostError::Remote(RemoteError::NeedsLogin) => write!(f, "needs a login"),
+            HostError::Remote(RemoteError::Other(e)) => write!(f, "{e}"),
             HostError::Unsupported(system) => write!(f, "no nex-host for {system}"),
-            HostError::Other(e) => write!(f, "{e}"),
         }
     }
 }
@@ -214,13 +212,13 @@ fn install(mut run: impl FnMut(&str, Option<&[u8]>) -> Result<String, HostError>
     let triple = target_triple(&uname).ok_or_else(|| HostError::Unsupported(uname.clone()))?;
     let mut bytes = binary(triple).map_err(|e| HostError::Unsupported(format!("{uname} ({e})")))?;
     if gzip {
-        bytes = gzipped(&bytes).map_err(|e| HostError::Other(format!("compressing nex-host: {e}")))?;
+        bytes = gzipped(&bytes).map_err(|e| RemoteError::Other(format!("compressing nex-host: {e}")))?;
     }
     let installed = HostInfo { uname, gzip, ..HostInfo::parse(&run(&install_script(gzip), Some(&bytes))?) };
     if installed.current() {
         Ok(installed)
     } else {
-        Err(HostError::Other(format!("installed nex-host says {:?}", installed.version.unwrap_or_default())))
+        Err(RemoteError::Other(format!("installed nex-host says {:?}", installed.version.unwrap_or_default())).into())
     }
 }
 
@@ -240,17 +238,12 @@ fn run(target: &SshTarget, script: &str, stdin: Option<&[u8]>) -> Result<String,
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| HostError::Other(format!("ssh: {e}")))?;
+        .map_err(|e| RemoteError::Other(format!("ssh: {e}")))?;
     if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        pipe.write_all(bytes).map_err(|e| HostError::Other(format!("sending nex-host: {e}")))?;
+        pipe.write_all(bytes).map_err(|e| RemoteError::Other(format!("sending nex-host: {e}")))?;
     }
-    let out = child.wait_with_output().map_err(|e| HostError::Other(e.to_string()))?;
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    // A login prompt counts even when ssh exits 0 (unlike `SshFailure::of`).
-    if needs_login(&stderr) {
-        return Err(HostError::NeedsLogin);
-    }
-    if let Some(failure) = SshFailure::of(out.status, &stderr) {
+    let out = child.wait_with_output().map_err(|e| RemoteError::Other(e.to_string()))?;
+    if let Some(failure) = target.batch_failure(&out) {
         return Err(failure.into());
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -266,45 +259,6 @@ pub fn install_shim(target: &SshTarget) -> Result<(), HostError> {
     run(target, &format!("{REMOTE_BIN_SH} shim install"), None).map(drop)
 }
 
-impl SshTarget {
-    /// The same host without the options nex adds to its own panes' command lines, so a
-    /// pane nex opened and the one it came from count as one host.
-    pub fn normalized(&self) -> SshTarget {
-        let mut opts = Vec::with_capacity(self.opts.len());
-        let mut i = 0;
-        while i < self.opts.len() {
-            if self.opts[i] == "-o" && self.opts.get(i + 1).is_some_and(|v| v == "RemoteCommand=none") {
-                i += 2;
-                continue;
-            }
-            opts.push(self.opts[i].clone());
-            i += 1;
-        }
-        SshTarget { opts, destination: self.destination.clone() }
-    }
-
-    /// The command line for a pane showing agent `id` on this host: `ssh -t` running
-    /// `nex-host attach`. When the agent ends (or another pane takes it), ssh ends, and so
-    /// does the pane.
-    pub fn attach_command(&self, id: &str) -> Vec<String> {
-        let mut ssh: Vec<String> = ["ssh", "-t", "-o", "RemoteCommand=none"].map(String::from).to_vec();
-        ssh.extend(self.opts.iter().cloned());
-        ssh.push("--".into());
-        ssh.push(self.destination.clone());
-        ssh.push(format!("{REMOTE_BIN} attach {}", posix_quote(id)));
-        ssh
-    }
-
-    /// The agent a pane running `argv` (an `ssh` command line) attaches to, if it's one of
-    /// [`attach_command`](Self::attach_command)'s.
-    pub fn attach_id(argv: &[String]) -> Option<String> {
-        let words: Vec<&str> = argv.last()?.split_whitespace().collect();
-        match words.as_slice() {
-            [bin, "attach", id] if bin.ends_with("nex-host") => Some(id.trim_matches('\'').to_string()),
-            _ => None,
-        }
-    }
-}
 
 /// How watching a host is going.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -347,6 +301,47 @@ impl Snapshot {
 impl Default for Snapshot {
     fn default() -> Self {
         Self { state: State::Connecting, sessions: Vec::new(), home: None, updated: None, shim: None, daemon_version: None }
+    }
+}
+
+/// Take a line `watch` sent into the snapshot.
+fn apply_response(snapshot: &Mutex<Snapshot>, r: Response) {
+    if let Ok(mut s) = snapshot.lock() {
+        s.update(r);
+    }
+}
+
+/// How long to wait before trying a host again: [`RETRY_MIN`], doubling up to [`RETRY_MAX`]
+/// while it keeps failing.
+struct Backoff {
+    wait: Duration,
+}
+
+impl Backoff {
+    fn new() -> Self {
+        Backoff { wait: RETRY_MIN }
+    }
+
+    /// The wait before the next try.
+    fn wait(&self) -> Duration {
+        self.wait
+    }
+
+    /// The host failed again: wait twice as long next time.
+    fn grow(&mut self) {
+        self.wait = (self.wait * 2).min(RETRY_MAX);
+    }
+
+    /// The host answered: start over.
+    fn reset(&mut self) {
+        self.wait = RETRY_MIN;
+    }
+
+    /// A watch ended. The wait before the next one: short again if this one `heard` from the
+    /// host, longer than the last if it didn't.
+    fn ended(&mut self, heard: bool) -> Duration {
+        if heard { self.reset() } else { self.grow() }
+        self.wait
     }
 }
 
@@ -415,14 +410,14 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
             wake();
         }
     };
-    let mut retry = RETRY_MIN;
+    let mut retry = Backoff::new();
     while !stop.load(Ordering::Relaxed) {
         let child = target.batch_command(&watch_script()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn();
         let mut child = match child {
             Ok(c) => c,
             Err(e) => {
-                set_state(State::Failed(HostError::Other(format!("ssh: {e}"))));
-                sleep(stop, retry);
+                set_state(State::Failed(RemoteError::Other(format!("ssh: {e}")).into()));
+                sleep(stop, retry.wait());
                 continue;
             }
         };
@@ -446,9 +441,7 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
                 continue;
             };
             lines += 1;
-            if let Ok(mut s) = snapshot.lock() {
-                s.update(r);
-            }
+            apply_response(snapshot, r);
             wake();
         }
         let status = slot.lock().ok().and_then(|mut c| c.take()).and_then(|mut c| c.wait().ok());
@@ -459,8 +452,8 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
         if let Some(e) = stderr.as_mut() {
             let _ = e.read_to_string(&mut err);
         }
-        if needs_login(&err) {
-            set_state(State::Failed(HostError::NeedsLogin));
+        if status.and_then(|s| target.batch_exit(s, &err)) == Some(RemoteError::NeedsLogin) {
+            set_state(State::Failed(RemoteError::NeedsLogin.into()));
         } else if status.and_then(|s| s.code()) == Some(NEEDS_INSTALL) {
             match install(|script, stdin| run(target, script, stdin), HostInfo::parse(&check)) {
                 Ok(info) => {
@@ -468,22 +461,21 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
                         s.shim = info.shim;
                     }
                     // Straight back to watching, now that it's there.
-                    retry = RETRY_MIN;
+                    retry.reset();
                     continue;
                 }
                 Err(e) => {
-                    let wait = if matches!(e, HostError::Unsupported(_)) { RETRY_MAX * 5 } else { retry };
+                    let wait = if matches!(e, HostError::Unsupported(_)) { RETRY_MAX * 5 } else { retry.wait() };
                     set_state(State::Failed(e));
                     sleep(stop, wait);
-                    retry = (retry * 2).min(RETRY_MAX);
+                    retry.grow();
                     continue;
                 }
             }
         } else {
-            set_state(State::Failed(HostError::Other(last_line(&err).unwrap_or_else(|| "connection lost".into()))));
+            set_state(State::Failed(RemoteError::Other(last_line(&err).unwrap_or_else(|| "connection lost".into())).into()));
         }
-        retry = if lines > 0 { RETRY_MIN } else { (retry * 2).min(RETRY_MAX) };
-        sleep(stop, retry);
+        sleep(stop, retry.ended(lines > 0));
     }
 }
 
@@ -492,11 +484,11 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
 fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, wake: &dyn Fn()) {
     let fail = |why: String| {
         if let Ok(mut s) = snapshot.lock() {
-            s.state = State::Failed(HostError::Other(why));
+            s.state = State::Failed(RemoteError::Other(why).into());
         }
         wake();
     };
-    let mut retry = RETRY_MIN;
+    let mut retry = Backoff::new();
     while !stop.load(Ordering::Relaxed) {
         let exec = match host.client() {
             Ok(client) => client.exec(DIRECT_WATCH),
@@ -506,8 +498,8 @@ fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool
             Ok(e) => e,
             Err(e) => {
                 fail(e.to_string());
-                sleep(stop, retry);
-                retry = (retry * 2).min(RETRY_MAX);
+                sleep(stop, retry.wait());
+                retry.grow();
                 continue;
             }
         };
@@ -519,17 +511,14 @@ fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool
             let Ok(line) = line else { break };
             let Ok(r) = serde_json::from_str::<Response>(&line) else { continue };
             lines += 1;
-            if let Ok(mut s) = snapshot.lock() {
-                s.update(r);
-            }
+            apply_response(snapshot, r);
             wake();
         }
         if stop.load(Ordering::Relaxed) {
             break;
         }
         fail("connection lost".into());
-        retry = if lines > 0 { RETRY_MIN } else { (retry * 2).min(RETRY_MAX) };
-        sleep(stop, retry);
+        sleep(stop, retry.ended(lines > 0));
     }
 }
 
@@ -560,6 +549,39 @@ mod tests {
     }
 
     #[test]
+    fn a_watch_line_goes_into_the_shared_snapshot() {
+        let snapshot = Mutex::new(Snapshot { shim: Some(true), ..Default::default() });
+        apply_response(&snapshot, serde_json::from_str(r#"{"ok":true,"sessions":[],"home":"/home/u"}"#).unwrap());
+        let s = snapshot.lock().unwrap();
+        assert_eq!((s.state.clone(), s.home.as_deref(), s.shim), (State::Live, Some("/home/u"), Some(true)));
+        assert!(s.updated.is_some());
+    }
+
+    #[test]
+    fn backoff_doubles_to_a_ceiling_and_starts_over() {
+        let mut b = Backoff::new();
+        assert_eq!(b.wait(), RETRY_MIN);
+        b.grow();
+        assert_eq!(b.wait(), RETRY_MIN * 2);
+        // A watch that heard nothing waits longer each time, up to the ceiling.
+        assert_eq!(b.ended(false), RETRY_MIN * 4);
+        for _ in 0..10 {
+            b.ended(false);
+        }
+        assert_eq!(b.wait(), RETRY_MAX);
+        // One that heard from the host starts over.
+        assert_eq!(b.ended(true), RETRY_MIN);
+    }
+
+    /// Each error says ssh's failure in its own words.
+    #[test]
+    fn host_errors_read() {
+        assert_eq!(HostError::from(RemoteError::NeedsLogin).to_string(), "needs a login");
+        assert_eq!(HostError::from(RemoteError::Other("connection lost".into())).to_string(), "connection lost");
+        assert_eq!(HostError::Unsupported("FreeBSD amd64".into()).to_string(), "no nex-host for FreeBSD amd64");
+    }
+
+    #[test]
     fn install_paths_agree() {
         let path = nex_host::paths::INSTALL_PATH;
         assert_eq!(REMOTE_BIN, format!("~/{path}"));
@@ -569,10 +591,6 @@ mod tests {
         let (dir, file) = path.rsplit_once('/').unwrap();
         assert!(INSTALL_SCRIPT.starts_with(&format!("d=\"$HOME/{dir}\"")));
         assert!(INSTALL_SCRIPT.contains(&format!("\"$d/{file}\"")));
-    }
-
-    fn target(dest: &str) -> SshTarget {
-        SshTarget { opts: vec!["-p".into(), "2222".into()], destination: dest.into() }
     }
 
     #[test]
@@ -657,16 +675,6 @@ mod tests {
         let info = HostInfo::parse(&String::from_utf8_lossy(&out.stdout));
         assert!(!info.uname.is_empty() && info.version.is_none());
         std::fs::remove_dir_all(&home).unwrap();
-    }
-
-    #[test]
-    fn attach_commands_round_trip() {
-        let argv = target("me@devbox").attach_command("3fa91c0e");
-        assert_eq!(argv, ["ssh", "-t", "-o", "RemoteCommand=none", "-p", "2222", "--", "me@devbox", "~/.nex/bin/nex-host attach 3fa91c0e"]);
-        assert_eq!(SshTarget::attach_id(&argv).as_deref(), Some("3fa91c0e"));
-        // The pane's ssh reads as a session on the same host, so uploads and the mic work.
-        assert_eq!(SshTarget::from_argv(&argv).map(|t| t.normalized()), Some(target("me@devbox")));
-        assert_eq!(SshTarget::attach_id(&["ssh".into(), "devbox".into()]), None);
     }
 
     /// The whole path against a stand-in `ssh` that runs the "remote" side here, in a home

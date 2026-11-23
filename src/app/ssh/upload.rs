@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use crate::layout::PaneId;
 use crate::platform::ClipboardFiles;
-use crate::remote::{self, SshTarget, UploadError};
+use crate::remote::{self, RemoteError, SshTarget};
 use crate::ui::toast::Toast;
 
 use crate::app::App;
@@ -24,7 +24,7 @@ pub(in crate::app) struct Upload {
     fallback: Vec<PathBuf>,
     /// The temp file a pasted image was saved to, removed once the upload is done.
     temp: Option<PathBuf>,
-    rx: Receiver<Result<Vec<String>, UploadError>>,
+    rx: Receiver<Result<Vec<String>, RemoteError>>,
 }
 
 impl App {
@@ -115,10 +115,10 @@ impl App {
         }
     }
 
-    fn upload_failed(&mut self, ctx: &egui::Context, host: &str, e: UploadError) {
+    fn upload_failed(&mut self, ctx: &egui::Context, host: &str, e: RemoteError) {
         let msg = match e {
-            UploadError::Other(e) => format!("Couldn't upload to {host}: {e}"),
-            UploadError::NeedsLogin => match self.login_help(host, "Drop the file again") {
+            RemoteError::Other(e) => format!("Couldn't upload to {host}: {e}"),
+            RemoteError::NeedsLogin => match self.login_help(host, "Drop the file again") {
                 LoginHelp::LogInAgain => {
                     format!("Couldn't upload: log out of {host} (type exit) and ssh back in, then drop the file again.")
                 }

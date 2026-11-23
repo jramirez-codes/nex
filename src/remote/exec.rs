@@ -15,8 +15,9 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::ssh::host::RemoteHost;
-use super::{SshTarget, last_line, needs_login, posix_quote};
+use crate::remote::error::last_line;
+use crate::remote::ssh::host::RemoteHost;
+use crate::remote::{RemoteError, SshTarget, posix_quote};
 
 /// How long a quick script (a listing, a `git status`) may take before it's given up on.
 pub const QUICK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -44,21 +45,26 @@ impl PartialEq for Transport {
 /// Why a script didn't run to the end.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecError {
-    /// The host wants a password nex's own connections can't type.
-    NeedsLogin,
+    /// No connection, ssh's own complaint, or the host wants a password nex's own
+    /// connections can't type.
+    Remote(RemoteError),
     Timeout,
     Cancelled,
-    /// No connection, or ssh's own complaint.
-    Failed(String),
+}
+
+impl From<RemoteError> for ExecError {
+    fn from(e: RemoteError) -> Self {
+        ExecError::Remote(e)
+    }
 }
 
 impl std::fmt::Display for ExecError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExecError::NeedsLogin => write!(f, "nex can't log in to the host without a password"),
+            ExecError::Remote(RemoteError::NeedsLogin) => write!(f, "nex can't log in to the host without a password"),
+            ExecError::Remote(RemoteError::Other(e)) => write!(f, "{e}"),
             ExecError::Timeout => write!(f, "The host took too long to answer"),
             ExecError::Cancelled => write!(f, "Cancelled"),
-            ExecError::Failed(e) => write!(f, "{e}"),
         }
     }
 }
@@ -161,9 +167,9 @@ impl Transport {
         }
         let out = self.run(&many_script(commands))?;
         if !out.ok() {
-            return Err(ExecError::Failed(out.reason()));
+            return Err(RemoteError::Other(out.reason()).into());
         }
-        parse_many(&out.out, commands.len()).ok_or_else(|| ExecError::Failed("The host's answer was cut short".into()))
+        parse_many(&out.out, commands.len()).ok_or_else(|| RemoteError::from("The host's answer was cut short").into())
     }
 
     fn start(&self, script: &str) -> Result<Started, ExecError> {
@@ -182,7 +188,7 @@ fn start_ssh(target: &SshTarget, script: &str) -> Result<Started, ExecError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| ExecError::Failed(format!("ssh: {e}")))?;
+        .map_err(|e| RemoteError::Other(format!("ssh: {e}")))?;
     let out = Arc::new(Mutex::new(Vec::new()));
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -204,6 +210,7 @@ fn start_ssh(target: &SshTarget, script: &str) -> Result<Started, ExecError> {
     let child = Arc::new(Mutex::new(child));
     let (tx, done) = mpsc::channel();
     let waiter = child.clone();
+    let target = target.clone();
     std::thread::spawn(move || {
         let status = loop {
             let polled = waiter.lock().unwrap_or_else(|e| e.into_inner()).try_wait();
@@ -211,24 +218,14 @@ fn start_ssh(target: &SshTarget, script: &str) -> Result<Started, ExecError> {
                 Ok(Some(status)) => break status,
                 Ok(None) => std::thread::sleep(Duration::from_millis(5)),
                 Err(e) => {
-                    let _ = tx.send(Err(ExecError::Failed(e.to_string())));
+                    let _ = tx.send(Err(RemoteError::Other(e.to_string()).into()));
                     return;
                 }
             }
         };
         let _ = reader.join();
         let stderr = errors.join().unwrap_or_default();
-        let code = status.code().unwrap_or(255);
-        // A login prompt counts even when the script itself got to run.
-        let result = if needs_login(&stderr) {
-            Err(ExecError::NeedsLogin)
-        } else if code == 255 {
-            // ssh's own failure (the script's would have its own status).
-            Err(ExecError::Failed(last_line(&stderr).unwrap_or_else(|| "ssh couldn't reach the host".into())))
-        } else {
-            Ok(code)
-        };
-        let _ = tx.send(result);
+        let _ = tx.send(ssh_result(status.code().unwrap_or(255), target.batch_exit(status, &stderr), &stderr));
     });
     let abort = Box::new(move || {
         let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
@@ -236,11 +233,25 @@ fn start_ssh(target: &SshTarget, script: &str) -> Result<Started, ExecError> {
     Ok(Started { out, done, abort })
 }
 
+/// What an `ssh` that exited with `code` comes to: the script's own status is the caller's
+/// to read, and 255 is ssh's own failure, which `failure` (see [`RemoteError::of`]) and
+/// `stderr` explain.
+fn ssh_result(code: i32, failure: Option<RemoteError>, stderr: &str) -> Result<i32, ExecError> {
+    if code != 255 {
+        return Ok(code);
+    }
+    Err(match failure {
+        Some(RemoteError::NeedsLogin) => RemoteError::NeedsLogin,
+        _ => RemoteError::Other(last_line(stderr).unwrap_or_else(|| "ssh couldn't reach the host".into())),
+    }
+    .into())
+}
+
 /// Run `script` on a channel of nex's own connection to `host`.
 fn start_nex(host: &Arc<RemoteHost>, script: &str) -> Result<Started, ExecError> {
-    let client = host.client().map_err(|e| ExecError::Failed(format!("Not connected to {}: {e}", host.server.host)))?;
+    let client = host.client().map_err(|e| RemoteError::Other(format!("Not connected to {}: {e}", host.server.host)))?;
     // The command goes through the user's login shell: hand the script to `sh` whatever that is.
-    let exec = client.exec(&format!("sh -c {}", posix_quote(script))).map_err(|e| ExecError::Failed(e.to_string()))?;
+    let exec = client.exec(&format!("sh -c {}", posix_quote(script))).map_err(|e| RemoteError::Other(e.to_string()))?;
     let crate::remote::ssh::Exec { mut reader, writer, status, .. } = exec;
     // Nothing to send: end its input.
     drop(writer);
@@ -290,7 +301,7 @@ fn wait(
                 let out = std::mem::take(&mut *out.lock().unwrap_or_else(|e| e.into_inner()));
                 return Ok(Output { code, out });
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => return Err(ExecError::Failed("The connection to the host ended".into())),
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Err(RemoteError::from("The connection to the host ended").into()),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         if let Some((flag, stop)) = &mut cancel
@@ -344,14 +355,6 @@ fn parse_many(mut bytes: &[u8], n: usize) -> Option<Vec<Output>> {
     Some(outs)
 }
 
-/// A remote directory as a word for `cd`: quoted, with a leading `~` left for the shell.
-pub fn cd_word(dir: &str) -> String {
-    if dir.is_empty() || dir == "~" {
-        return "~".into();
-    }
-    super::remote_dir(dir)
-}
-
 /// `path` quoted for the host's shell.
 pub fn quote(path: &std::path::Path) -> String {
     posix_quote(&path.to_string_lossy())
@@ -380,12 +383,23 @@ mod tests {
         assert_eq!(parse_many(b"0 3\nabc", 2), None);
     }
 
+    /// A script's own status and stderr are its caller's to read; only ssh's failure (255)
+    /// is an error, and only then does `Permission denied (…)` mean the host wants a login.
     #[test]
-    fn cd_words() {
-        assert_eq!(cd_word(""), "~");
-        assert_eq!(cd_word("~"), "~");
-        assert_eq!(cd_word("~/my dir"), "~/'my dir'");
-        assert_eq!(cd_word("/srv/app"), "/srv/app");
+    fn only_a_failed_ssh_needs_a_login() {
+        let denied = "git@github.com: Permission denied (publickey).\n";
+        assert_eq!(ssh_result(0, None, denied), Ok(0));
+        assert_eq!(ssh_result(128, Some(RemoteError::NeedsLogin), denied), Ok(128));
+        assert_eq!(ssh_result(255, Some(RemoteError::NeedsLogin), denied), Err(ExecError::Remote(RemoteError::NeedsLogin)));
+        let refused = "ssh: connect to host x port 22: Connection refused\n";
+        assert_eq!(ssh_result(255, Some(RemoteError::Other(refused.trim().into())), refused), Err(RemoteError::from(refused.trim()).into()));
+        assert_eq!(ssh_result(255, None, ""), Err(RemoteError::from("ssh couldn't reach the host").into()));
+    }
+
+    #[test]
+    fn exec_errors_read() {
+        assert_eq!(ExecError::from(RemoteError::NeedsLogin).to_string(), "nex can't log in to the host without a password");
+        assert_eq!(ExecError::from(RemoteError::from("No such directory")).to_string(), "No such directory");
     }
 
     #[test]

@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::remote::exec::{ExecError, Transport, cd_word};
+use crate::remote::exec::{ExecError, Transport};
+use crate::remote::{RemoteError, cd_word};
 use crate::remote::posix_quote;
 
 /// Longest a single `git` call may take before it is killed (a huge repo, a hung hook).
@@ -460,7 +461,7 @@ fn remote_git(dir: &str, args: &[&str]) -> String {
 /// What a remote failure looks like in the pane.
 fn remote_failure(e: ExecError) -> Status {
     match e {
-        ExecError::NeedsLogin => Status::NeedsLogin,
+        ExecError::Remote(RemoteError::NeedsLogin) => Status::NeedsLogin,
         other => Status::Failed(other.to_string()),
     }
 }

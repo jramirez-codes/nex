@@ -16,36 +16,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::{SshFailure, SshTarget, last_line, posix_quote};
-
-/// Why an upload failed.
-#[derive(Debug, PartialEq, Eq)]
-pub enum UploadError {
-    /// The host wants a password (or another prompt) the upload can't answer.
-    NeedsLogin,
-    Other(String),
-}
-
-impl From<SshFailure> for UploadError {
-    fn from(f: SshFailure) -> Self {
-        match f {
-            SshFailure::NeedsLogin => UploadError::NeedsLogin,
-            SshFailure::Other(e) => UploadError::Other(e),
-        }
-    }
-}
-
-impl From<String> for UploadError {
-    fn from(e: String) -> Self {
-        Self::Other(e)
-    }
-}
-
-impl From<&str> for UploadError {
-    fn from(e: &str) -> Self {
-        Self::Other(e.to_string())
-    }
-}
+use crate::remote::error::last_line;
+use crate::remote::{RemoteError, SshTarget, posix_quote};
 
 /// Make a folder for the upload, unpack the stream into it, and print its path.
 const REMOTE_SCRIPT: &str = r#"d=$(mktemp -d "${TMPDIR:-/tmp}/nex.XXXXXX") && tar xf - -C "$d" && printf '%s\n' "$d""#;
@@ -94,8 +66,10 @@ fn worth_gzipping(paths: &[PathBuf]) -> bool {
 }
 
 /// Copy `paths` (files or folders) to a new folder on the remote host. Returns each one's
-/// remote path, quoted for a shell. Blocks until done: run it on a worker thread.
-pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, UploadError> {
+/// remote path, quoted for a shell. Blocks until done: run it on a worker thread. It fails
+/// with [`RemoteError::NeedsLogin`] when the host wants a password (or another prompt) the
+/// upload can't answer.
+pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, RemoteError> {
     let mut tar = Command::new("tar");
     // macOS's tar would otherwise add `._name` files for extended attributes.
     tar.env("COPYFILE_DISABLE", "1").arg("-chf").arg("-");
@@ -142,8 +116,8 @@ pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, Uplo
     }
     let tar_ok = tar.wait().is_ok_and(|s| s.success());
 
-    if let Some(failure) = SshFailure::of(out.status, &String::from_utf8_lossy(&out.stderr)) {
-        return Err(failure.into());
+    if let Some(failure) = target.batch_failure(&out) {
+        return Err(failure);
     }
     if !tar_ok {
         return Err(last_line(&tar_err).unwrap_or_else(|| "tar failed".into()).into());
