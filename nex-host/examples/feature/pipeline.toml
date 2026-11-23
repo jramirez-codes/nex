@@ -1,0 +1,70 @@
+# Copy to ~/.config/nex/pipelines/feature.toml (every repository) or .nex/pipelines/feature.toml
+# (one repository).
+#
+# Features: build each in a worktree, open a PR, and one reviewer merges them one at a
+# time. Works in any GitHub repository. Run it from the repository, once per feature, as
+# many as you like: the first starts the run, the rest join it (one group, one reviewer,
+# one line of PRs). Press Enter in the run to end it.
+#   nex-host pipe feature "add a stats command" --bg
+#
+# The agents may edit files and run git, gh pr, nex-host and the usual build and test tools
+# without asking; anything else still asks you (the team card shows "Needs you").
+
+timeout = "90m"
+
+[[stage]]
+name = "build"
+worktree = true
+command = [
+  "claude",
+  "--allowedTools", "Bash(git:*)", "Bash(gh pr:*)", "Bash(gh repo view:*)", "Bash(nex-host:*)",
+  "Bash(cargo:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(pnpm:*)", "Bash(yarn:*)", "Bash(bun:*)",
+  "Bash(pytest:*)", "Bash(python3 -m pytest:*)", "Bash(python3 -m unittest:*)", "Bash(go:*)",
+  "Bash(make:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(grep:*)",
+  "Bash(rg:*)", "Bash(find:*)", "Bash(wc:*)",
+  "--permission-mode", "acceptEdits",
+]
+task = """
+Build this in this repository: {task}
+
+You are in a git worktree, on a branch of your own. Other agents may be building other
+features at the same time in theirs. Read the repository's own instructions first
+(CLAUDE.md, CONTRIBUTING.md) and follow them. Keep the change to what was asked, with tests.
+
+When its build and tests pass: commit, `git push -u origin HEAD`, open a PR against the
+default branch with `gh pr create --fill`, then finish with
+nex-host done "<what you built, in a line or two>" --pr <the PR number>
+
+If the review sends it back, fix what it says on the same branch, push, and report again
+the same way.
+"""
+
+[[stage]]
+name = "merge"
+each = true
+worktree = true
+command = [
+  "claude",
+  "--allowedTools", "Bash(git:*)", "Bash(gh pr:*)", "Bash(gh repo view:*)", "Bash(nex-host:*)",
+  "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(grep:*)", "Bash(rg:*)",
+  "--permission-mode", "acceptEdits",
+]
+task = """
+Review and merge pull request {pr}, from {from}: {report}
+Merged before it in this run: {merged}.
+
+You are this run's reviewer: PRs come to you one at a time, each as a new task like this
+one. You work in a checkout of your own. You only review and merge here; you never change
+the code. Anything that needs fixing goes back to its builder.
+
+1. `gh pr checkout {pr}`, then `gh pr view {pr}` and `gh pr diff {pr}`: it does what it
+   says, stays on topic, has tests, and follows the repository's own instructions
+   (CLAUDE.md, CONTRIBUTING.md).
+2. `gh pr checks {pr}`: none failing (pending is fine if there are none yet).
+3. `gh pr view {pr} --json mergeable -q .mergeable` is MERGEABLE (other features may have
+   merged since it was opened).
+4. If all three hold: `gh pr merge {pr} --squash --delete-branch`, then
+   nex-host done "merged PR {pr}: <one line>" --verdict approved --pr {pr}
+5. Otherwise do not merge. Finish with
+   nex-host done "<exactly what to fix, or that it conflicts>" --verdict changes --pr {pr}
+"""
