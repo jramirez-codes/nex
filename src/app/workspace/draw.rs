@@ -24,6 +24,9 @@ use crate::app::animation::tab_switch::Shown;
 use crate::app::{App, PANE_GAP};
 
 pub(in crate::app) const PANE_RADIUS: u8 = 12;
+/// A pane header button on desktop, and how far its icon sits inside it.
+const DESKTOP_BUTTON: f32 = 28.0;
+const DESKTOP_INSET: f32 = 4.5;
 const BLINK_INTERVAL: Duration = Duration::from_millis(600);
 /// How long a pane's border flashes after the terminal bell.
 const BELL_FLASH: Duration = Duration::from_millis(200);
@@ -439,7 +442,8 @@ impl App {
 
         // Buttons, laid out right to left: 28px buttons like the tab bar's +, with smaller (~12px)
         // glyphs so the header stays quiet. Mobile mode makes them finger-sized.
-        let (size, step, inset) = if self.cfg.sidebar() { (36.0, 38.0, 7.0) } else { (28.0, 30.0, 4.5) };
+        // The pin keeps the desktop's size there, though: the same pin looks the same on both.
+        let (size, step, inset) = if self.cfg.sidebar() { (36.0, 38.0, 7.0) } else { (DESKTOP_BUTTON, 30.0, DESKTOP_INSET) };
         let mut bx = header.right() - if self.cfg.sidebar() { 26.0 } else { 22.0 };
         let pinned = self.is_sticky(id);
         // Holding Shift turns the × into a pin: the pane follows the user to every tab. On
@@ -452,8 +456,8 @@ impl App {
         let shown = if show_buttons { 4 } else if pinned { 1 } else { 0 };
         if shown > 0 {
             let close: (&str, Action, Action, &IconFn<'_>) = match (pinned, shift) {
-                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(id), Action::ToggleSticky(id), &|p, r, c| icons::icon_pin(p, r, c)),
-                (false, true) => ("Pin to every tab", Action::ToggleSticky(id), Action::ToggleSticky(id), &|p, r, c| icons::icon_pin(p, r, c)),
+                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(id), Action::ToggleSticky(id), &pane_pin),
+                (false, true) => ("Pin to every tab", Action::ToggleSticky(id), Action::ToggleSticky(id), &pane_pin),
                 _ => ("Close  (Shift: pin to every tab)", Action::ClosePane(0), Action::ClosePane(id), &icons::icon_close),
             };
             // (label, the shortcut's action for the focused pane, this button's action, icon)
@@ -527,6 +531,13 @@ impl App {
 }
 
 /// Process glyph and title at the left of a pane header, the title fading out before `right`.
+/// The pane header's pin, in button icon rect `r`: always at the desktop's icon size, so mobile
+/// mode's bigger buttons keep a finger-sized target without a bigger pin.
+fn pane_pin(p: &Painter, r: Rect, c: Color32) {
+    let side = DESKTOP_BUTTON - 2.0 * DESKTOP_INSET;
+    icons::icon_pin(p, Rect::from_center_size(r.center(), Vec2::splat(side)), c);
+}
+
 fn header_label(painter: &Painter, header: Rect, process: &str, title: &str, color: Color32, right: f32, font: f32) {
     let cy = header.center().y + 1.0;
     let glyph = Rect::from_center_size(Pos2::new(header.left() + 20.0, cy), Vec2::splat(13.0));

@@ -38,6 +38,10 @@ pub const FONT_REGULAR: &str = "term-regular";
 pub const FONT_BOLD: &str = "term-bold";
 pub const FONT_ITALIC: &str = "term-italic";
 pub const FONT_BOLD_ITALIC: &str = "term-bold-italic";
+/// The embedded Nerd Font alone, whatever font the grid uses: for chrome icons that must look
+/// the same everywhere (an installed Nerd Font of another version can draw a codepoint as a
+/// different glyph, and Android only ever has the embedded one).
+pub const FONT_ICONS: &str = "icons";
 
 pub fn font_for(flags: Flags, size: f32) -> FontId {
     let name = match (flags.contains(Flags::BOLD), flags.contains(Flags::ITALIC)) {

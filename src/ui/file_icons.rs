@@ -122,7 +122,11 @@ pub const LINK_MARK: char = '\u{f0337}';
 /// Draw glyph `ch` about `width` wide, centered on `center`. The Nerd Font is a monospace
 /// font, so every icon is one cell wide; the font size is picked to make that cell `width`.
 pub fn paint_glyph(p: &Painter, center: Pos2, width: f32, ch: char, color: Color32) {
-    let family = FontFamily::Name(FONT_REGULAR.into());
+    paint_glyph_in(p, FontFamily::Name(FONT_REGULAR.into()), center, width, ch, color);
+}
+
+/// [`paint_glyph`] from font `family`.
+pub fn paint_glyph_in(p: &Painter, family: FontFamily, center: Pos2, width: f32, ch: char, color: Color32) {
     let probe = p.layout_no_wrap(ch.to_string(), FontId::new(width, family.clone()), color).size().x;
     let size = if probe > 0.0 { width * width / probe } else { width };
     p.text(center, Align2::CENTER_CENTER, ch, FontId::new(size, family), color);
