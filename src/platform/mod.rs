@@ -38,6 +38,7 @@
 //! | `LOCAL_SHELLS` | whether panes can run shells on this machine (not on Android: every pane works on an ssh host) |
 //! | `FALLBACK_FAMILIES` | system fonts tried for glyphs the grid font lacks |
 //! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |
+//! | `foreground_job(pid)` | just [`ProcInfo::job`], cheaply: whether the foreground process changed |
 //! | `process_start(pid)` | when a process started, as Claude Code's session file records it |
 //! | `content_rect_px()` | the part of the window system bars leave free (Android: the window covers the whole screen) |
 //! | `typed_text()` / `sync_soft_keyboard(ctx)` / `soft_keyboard_visible()` / `haptic(kind)` | text the on-screen keyboard typed or pasted, showing or hiding it, whether it's up, and haptic feedback |

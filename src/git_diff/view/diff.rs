@@ -70,7 +70,7 @@ impl GitDiff {
             right = counts_text(p, Pos2::new(right, cy), added, removed, 11.5, c, false) - 10.0;
         }
         let color = change_color(file.change, c);
-        let kind = p.layout_no_wrap(file.change.describe().to_string(), ui_font(11.0), color);
+        let kind = p.layout_no_wrap(file.change.describe().to_string(), FontId::proportional(11.0), color);
         let pill = Rect::from_min_size(Pos2::new(right - kind.size().x - 16.0, cy - 10.0), Vec2::new(kind.size().x + 16.0, 20.0));
         if pill.left() > x + 120.0 {
             p.rect_filled(pill, 10, color.gamma_multiply(0.14));
@@ -87,13 +87,19 @@ impl GitDiff {
             Some(orig) => format!("{} ← {}", file.name(), orig.rsplit('/').next().unwrap_or(orig)),
             None => file.name().to_string(),
         };
-        let name_w = p.layout_no_wrap(name.clone(), name_font.clone(), c.text_bright).size().x;
+        // Laid out once: drawn as it is when it fits, faded out at the end when it doesn't.
+        let name_galley = p.layout_no_wrap(name.clone(), name_font.clone(), c.text_bright);
+        let name_w = name_galley.size().x;
         let room = (right - x).max(0.0);
-        paint::faded_text(p, Pos2::new(x, cy), &name, name_font, c.text_bright, room, 20.0);
+        if name_w <= room {
+            p.galley(Pos2::new(x, cy - name_galley.size().y / 2.0), name_galley, c.text_bright);
+        } else {
+            paint::faded_text(p, Pos2::new(x, cy), &name, name_font, c.text_bright, room, 20.0);
+        }
         let folder = file.folder();
         if !folder.is_empty() && room - name_w > 40.0 {
             let fx = x + name_w + 10.0;
-            paint::faded_text(p, Pos2::new(fx, cy + 0.5), folder, ui_font(12.0), c.text_dim, right - fx, 20.0);
+            paint::faded_text(p, Pos2::new(fx, cy + 0.5), folder, FontId::proportional(12.0), c.text_dim, right - fx, 20.0);
         }
     }
 
@@ -102,8 +108,7 @@ impl GitDiff {
     fn diff_body(&mut self, f: &Frame, p: &Painter, view: Rect, d: &FileDiff, key: usize) {
         let c = f.c;
         let ui = f.ui;
-        let ctx = ui.ctx().clone();
-        let fade = self.view.fade.value(&ctx, 1.0);
+        let fade = self.view.fade.value(ui.ctx(), 1.0);
         let mut p = p.with_clip_rect(view.intersect(f.clip));
         p.multiply_opacity(fade);
 
@@ -116,12 +121,36 @@ impl GitDiff {
             return;
         }
 
+        let l = self.diff_layout(f, &p, view, d, key);
+        for (h, &top) in d.hunks.iter().zip(&l.tops) {
+            let card_top = l.origin + top;
+            let card = Rect::from_min_max(Pos2::new(l.card_x0, card_top), Pos2::new(l.card_x1, card_top + l.card_height(h)));
+            if card.bottom() < view.top() || card.top() > view.bottom() {
+                continue;
+            }
+            hunk_card(&p, card, h, c);
+            hunk_lines(&p, view, card, h, &l, c);
+        }
+        if d.truncated {
+            let y = l.origin + l.content_h - 30.0;
+            p.text(Pos2::new(view.center().x, y), Align2::CENTER_CENTER, format!("Diff cut off after {} lines", d.line_count()), FontId::proportional(12.0), c.text_dim);
+        }
+        let span = ScrollSpan { offset: self.diff_scroll.pos, content: l.content_h, view: view.height() };
+        if let Some(to) = overlay_scrollbar(ui, &p, view, f.id("diff-bar"), span, &mut self.view.diff_active) {
+            self.diff_scroll.set(to);
+        }
+    }
+
+    /// Measure the diff, place its hunk cards and apply this frame's scrolling (the wheel,
+    /// keys (eased), a finger), leaving what `ViewState` keeps of it up to date.
+    fn diff_layout(&mut self, f: &Frame, p: &Painter, view: Rect, d: &FileDiff, key: usize) -> DiffLayout {
+        let ui = f.ui;
         let size = f.code;
         let code = mono(size);
         let small = mono((size - 1.5).max(7.0));
         let line_h = (size * 1.6).round();
-        let char_w = p.layout_no_wrap("0".into(), code.clone(), c.text).size().x;
-        let num_w = p.layout_no_wrap("0".into(), small.clone(), c.text).size().x;
+        let char_w = p.layout_no_wrap("0".into(), code.clone(), f.c.text).size().x;
+        let num_w = p.layout_no_wrap("0".into(), small.clone(), f.c.text).size().x;
         self.view.line_height = line_h;
         self.view.diff_view_height = view.height();
 
@@ -133,17 +162,18 @@ impl GitDiff {
         let card_x1 = view.right() - SIDE;
         let gutter = 6.0 + col_w * 2.0;
         let code_x = card_x0 + gutter + 12.0;
+        let mut l = DiffLayout { code, small, line_h, col_w, gutter, card_x0, card_x1, code_x, tops: Vec::with_capacity(d.hunks.len()), content_h: 0.0, origin: 0.0, sx: 0.0 };
 
         // Positions of every hunk card, in content coordinates.
-        let mut tops = Vec::with_capacity(d.hunks.len());
         let mut y = 0.0;
         for h in &d.hunks {
             y += HUNK_GAP;
-            tops.push(y);
-            y += HUNK_CAPTION_H + h.lines.len() as f32 * line_h + HUNK_PAD_BOTTOM;
+            l.tops.push(y);
+            y += l.card_height(h);
         }
-        let content_h = y + HUNK_GAP + if d.truncated { 40.0 } else { 0.0 };
-        self.view.hunk_tops = tops.iter().map(|t| t - HUNK_GAP).collect();
+        l.content_h = y + HUNK_GAP + if d.truncated { 40.0 } else { 0.0 };
+        self.view.hunk_tops.clear();
+        self.view.hunk_tops.extend(l.tops.iter().map(|t| t - HUNK_GAP));
 
         // Scrolling: the wheel, keys (eased), the scrollbar.
         let hovered = ui.rect_contains_pointer(view);
@@ -160,12 +190,12 @@ impl GitDiff {
             self.diff_scroll.by(pan);
             self.view.diff_active = ui.input(|i| i.time);
         }
-        let max = (content_h - view.height()).max(0.0);
+        let max = (l.content_h - view.height()).max(0.0);
         if self.diff_scroll.target < 0.0 || self.diff_scroll.target > max {
             self.view.diff_pan.stop();
         }
         self.diff_scroll.clamp(max);
-        if self.diff_scroll.step(&ctx) {
+        if self.diff_scroll.step(ui.ctx()) {
             self.view.diff_active = ui.input(|i| i.time);
         }
         let widest = match self.view.widest {
@@ -178,70 +208,84 @@ impl GitDiff {
         };
         let max_x = (widest as f32 * char_w + 40.0 - (card_x1 - code_x)).max(0.0);
         self.diff_scroll_x = self.diff_scroll_x.clamp(0.0, max_x);
-        let scroll = self.diff_scroll.pos;
-        let sx = self.diff_scroll_x;
-        let origin = view.top() - scroll;
+        l.sx = self.diff_scroll_x;
+        l.origin = view.top() - self.diff_scroll.pos;
         // The background colorer works from the topmost hunk on screen down.
-        let first_visible = tops.iter().zip(&d.hunks).position(|(&t, h)| origin + t + HUNK_CAPTION_H + h.lines.len() as f32 * line_h + HUNK_PAD_BOTTOM >= view.top());
+        let first_visible = l.tops.iter().zip(&d.hunks).position(|(&t, h)| l.origin + t + l.card_height(h) >= view.top());
         self.color_focus.store(first_visible.unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+        l
+    }
+}
 
-        for (h, &top) in d.hunks.iter().zip(&tops) {
-            let card_top = origin + top;
-            let card_h = HUNK_CAPTION_H + h.lines.len() as f32 * line_h + HUNK_PAD_BOTTOM;
-            let card = Rect::from_min_max(Pos2::new(card_x0, card_top), Pos2::new(card_x1, card_top + card_h));
-            if card.bottom() < view.top() || card.top() > view.bottom() {
-                continue;
-            }
-            hunk_card(&p, card, h, c);
-            let inner = p.with_clip_rect(card.shrink(1.0).intersect(view));
-            let lines_top = card.top() + HUNK_CAPTION_H;
-            let first = (((view.top() - lines_top) / line_h).floor().max(0.0)) as usize;
-            let last = ((((view.bottom() - lines_top) / line_h).ceil()) as usize).min(h.lines.len());
-            let code_clip = inner.with_clip_rect(Rect::from_min_max(Pos2::new(card_x0 + gutter + 4.0, view.top()), Pos2::new(card_x1 - 1.0, view.bottom())).intersect(card));
-            for (k, line) in h.lines.iter().enumerate().take(last).skip(first) {
-                let ly = lines_top + k as f32 * line_h;
-                let row = Rect::from_min_size(Pos2::new(card.left(), ly), Vec2::new(card.width(), line_h));
-                let (tint, mark) = match line.kind {
-                    LineKind::Added => (Some(c.green), "+"),
-                    LineKind::Removed => (Some(c.red), "−"),
-                    LineKind::Context => (None, ""),
-                };
-                if let Some(t) = tint {
-                    inner.rect_filled(row, 0, t.gamma_multiply(0.11));
-                    let gut = Rect::from_min_size(row.min, Vec2::new(gutter, line_h));
-                    inner.rect_filled(gut, 0, t.gamma_multiply(0.08));
-                    inner.rect_filled(Rect::from_min_size(row.min, Vec2::new(3.0, line_h)), 0, t.gamma_multiply(0.9));
-                }
-                let cy = row.center().y;
-                let num_color = match tint {
-                    Some(t) => t.gamma_multiply(0.75),
-                    None => c.text_dim.gamma_multiply(0.65),
-                };
-                for (n, col) in [(line.old_no, 0.0), (line.new_no, 1.0)] {
-                    if let Some(n) = n {
-                        let right = card.left() + 6.0 + col_w * (col + 1.0) - 6.0;
-                        inner.text(Pos2::new(right, cy), Align2::RIGHT_CENTER, n.to_string(), small.clone(), num_color);
-                    }
-                }
-                if let Some(t) = tint {
-                    inner.text(Pos2::new(code_x - 9.0, cy), Align2::CENTER_CENTER, mark, small.clone(), t.gamma_multiply(0.9));
-                }
-                let job = code_job(line, code.clone(), c, tint, line.kind == LineKind::Removed);
-                let galley = code_clip.layout_job(job);
-                let gy = cy - galley.size().y / 2.0;
-                let end_x = code_x - sx + galley.size().x;
-                code_clip.galley(Pos2::new(code_x - sx, gy), galley, c.text);
-                if line.no_newline {
-                    code_clip.text(Pos2::new(end_x + 10.0, cy), Align2::LEFT_CENTER, "No newline at end of file", ui_font(10.5), c.text_dim.gamma_multiply(0.7));
-                }
+/// Where a diff's parts go this frame, and the fonts they are drawn in.
+struct DiffLayout {
+    code: FontId,
+    /// Line numbers and the `+` / `−` marks.
+    small: FontId,
+    line_h: f32,
+    /// One line-number column's width.
+    col_w: f32,
+    /// Both line-number columns.
+    gutter: f32,
+    card_x0: f32,
+    card_x1: f32,
+    /// Where code starts, before horizontal scrolling.
+    code_x: f32,
+    /// Each hunk card's top, in content coordinates.
+    tops: Vec<f32>,
+    content_h: f32,
+    /// The screen y of content coordinate 0 (the view's top less the scroll position).
+    origin: f32,
+    /// How far the code is scrolled sideways.
+    sx: f32,
+}
+
+impl DiffLayout {
+    fn card_height(&self, h: &Hunk) -> f32 {
+        HUNK_CAPTION_H + h.lines.len() as f32 * self.line_h + HUNK_PAD_BOTTOM
+    }
+}
+
+/// The lines of `h` that show in `view`, drawn in its `card`: tint, numbers, mark and code.
+fn hunk_lines(p: &Painter, view: Rect, card: Rect, h: &Hunk, l: &DiffLayout, c: &Theme) {
+    let inner = p.with_clip_rect(card.shrink(1.0).intersect(view));
+    let lines_top = card.top() + HUNK_CAPTION_H;
+    let first = (((view.top() - lines_top) / l.line_h).floor().max(0.0)) as usize;
+    let last = ((((view.bottom() - lines_top) / l.line_h).ceil()) as usize).min(h.lines.len());
+    let code_clip = inner.with_clip_rect(Rect::from_min_max(Pos2::new(l.card_x0 + l.gutter + 4.0, view.top()), Pos2::new(l.card_x1 - 1.0, view.bottom())).intersect(card));
+    let plain_numbers = c.text_dim.gamma_multiply(0.65);
+    for (k, line) in h.lines.iter().enumerate().take(last).skip(first) {
+        let ly = lines_top + k as f32 * l.line_h;
+        let row = Rect::from_min_size(Pos2::new(card.left(), ly), Vec2::new(card.width(), l.line_h));
+        let (tint, mark) = match line.kind {
+            LineKind::Added => (Some(c.green), "+"),
+            LineKind::Removed => (Some(c.red), "−"),
+            LineKind::Context => (None, ""),
+        };
+        if let Some(t) = tint {
+            inner.rect_filled(row, 0, t.gamma_multiply(0.11));
+            let gut = Rect::from_min_size(row.min, Vec2::new(l.gutter, l.line_h));
+            inner.rect_filled(gut, 0, t.gamma_multiply(0.08));
+            inner.rect_filled(Rect::from_min_size(row.min, Vec2::new(3.0, l.line_h)), 0, t.gamma_multiply(0.9));
+        }
+        let cy = row.center().y;
+        let num_color = tint.map_or(plain_numbers, |t| t.gamma_multiply(0.75));
+        for (n, col) in [(line.old_no, 0.0), (line.new_no, 1.0)] {
+            if let Some(n) = n {
+                let right = card.left() + 6.0 + l.col_w * (col + 1.0) - 6.0;
+                // `text` makes the string itself: handing it one would only be copied again.
+                inner.text(Pos2::new(right, cy), Align2::RIGHT_CENTER, n, l.small.clone(), num_color);
             }
         }
-        if d.truncated {
-            let y = origin + content_h - 30.0;
-            p.text(Pos2::new(view.center().x, y), Align2::CENTER_CENTER, format!("Diff cut off after {} lines", d.line_count()), ui_font(12.0), c.text_dim);
+        if let Some(t) = tint {
+            inner.text(Pos2::new(l.code_x - 9.0, cy), Align2::CENTER_CENTER, mark, l.small.clone(), t.gamma_multiply(0.9));
         }
-        if let Some(to) = overlay_scrollbar(ui, &p, view, f.id("diff-bar"), ScrollSpan { offset: scroll, content: content_h, view: view.height() }, &mut self.view.diff_active) {
-            self.diff_scroll.set(to);
+        let galley = code_clip.layout_job(code_job(line, &l.code, c, tint, line.kind == LineKind::Removed));
+        let gy = cy - galley.size().y / 2.0;
+        let end_x = l.code_x - l.sx + galley.size().x;
+        code_clip.galley(Pos2::new(l.code_x - l.sx, gy), galley, c.text);
+        if line.no_newline {
+            code_clip.text(Pos2::new(end_x + 10.0, cy), Align2::LEFT_CENTER, "No newline at end of file", FontId::proportional(10.5), c.text_dim.gamma_multiply(0.7));
         }
     }
 }
@@ -286,7 +330,7 @@ fn hunk_card(p: &Painter, card: Rect, h: &Hunk, c: &Theme) {
     } else {
         h.context.clone()
     };
-    let font = if h.context.is_empty() { ui_font(12.0) } else { mono(11.5) };
+    let font = if h.context.is_empty() { FontId::proportional(12.0) } else { mono(11.5) };
     paint::faded_text(p, Pos2::new(cap.left() + 12.0, cy), &label, font, c.text_dim, (rx - cap.left() - 24.0).max(0.0), 20.0);
 }
 
@@ -311,7 +355,7 @@ fn brighten(color: Color32) -> Color32 {
 
 /// One line of code in its syntax colors, with its changed words on a stronger tint.
 /// `dim` softens the colors (removed lines, so the new code reads first).
-fn code_job(line: &Line, font: FontId, c: &Theme, tint: Option<Color32>, dim: bool) -> LayoutJob {
+fn code_job(line: &Line, font: &FontId, c: &Theme, tint: Option<Color32>, dim: bool) -> LayoutJob {
     use std::ops::Range;
     let text = line.text.as_str();
     let ok = |r: &Range<usize>| r.start < r.end && r.end <= text.len() && text.is_char_boundary(r.start) && text.is_char_boundary(r.end);
@@ -379,7 +423,7 @@ mod tests {
             no_newline: false,
         };
         let c = theme();
-        let job = code_job(&line, mono(12.0), &c, Some(c.green), false);
+        let job = code_job(&line, &mono(12.0), &c, Some(c.green), false);
         let parts: Vec<(&str, Color32, bool)> = job
             .sections
             .iter()

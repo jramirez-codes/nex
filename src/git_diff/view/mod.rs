@@ -17,7 +17,7 @@ use crate::ui::file_icons::{file_glyph, paint_glyph};
 use crate::ui::glide::Glide;
 use crate::ui::theme::{ACCENT, HAIRLINE, HOVER, Theme, white_alpha};
 use crate::ui::touch_pan::TouchPan;
-use crate::ui::widgets::{HoverShape, IconButton, ScrollSpan, overlay_scrollbar};
+use crate::ui::widgets::{HoverShape, IconButton, ScrollSpan, overlay_scrollbar, pressed_in};
 use crate::ui::{icons, paint};
 
 use super::git::{Change, FileChange, FileDiff, Hunk, Line, LineKind, Snapshot, Status};
@@ -118,10 +118,6 @@ fn mono(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(FONT_REGULAR.into()))
 }
 
-fn ui_font(size: f32) -> FontId {
-    FontId::proportional(size)
-}
-
 /// The badge color for a change.
 fn change_color(change: Change, c: &Theme) -> Color32 {
     match change {
@@ -220,10 +216,6 @@ fn sidebar_width(total: f32) -> f32 {
     (total * 0.3).clamp(210.0, 320.0)
 }
 
-fn pressed_in(ui: &Ui, r: Rect) -> bool {
-    crate::ui::widgets::pressed_in(ui, r)
-}
-
 /// The card color without its transparency (sticky headers hide what scrolls beneath).
 fn opaque(c: Color32) -> Color32 {
     let [r, g, b, _] = c.to_srgba_unmultiplied();
@@ -283,7 +275,7 @@ fn message(p: &Painter, area: Rect, c: &Theme, glyph: Glyph, title: &str, detail
     }
     p.text(center + Vec2::new(0.0, 6.0), Align2::CENTER_CENTER, title, paint::bold(15.0), c.text_bright);
     if !detail.is_empty() {
-        paint::caption(p, Rect::from_center_size(center + Vec2::new(0.0, 28.0), Vec2::new((area.width() - 40.0).max(0.0), 18.0)), detail, ui_font(12.5), c.text_dim);
+        paint::caption(p, Rect::from_center_size(center + Vec2::new(0.0, 28.0), Vec2::new((area.width() - 40.0).max(0.0), 18.0)), detail, FontId::proportional(12.5), c.text_dim);
     }
 }
 

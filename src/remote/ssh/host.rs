@@ -15,7 +15,8 @@ use super::device::{self, Profile};
 use super::{Client, ConnectError, Exec, Login, Server};
 use crate::remote::host as nex_host_install;
 
-/// What runs `nex-host connect` on the host (the remote shell expands `~`).
+/// What runs `nex-host connect` on the host (the remote shell expands `~`). A program and
+/// its argument, which any login shell runs: no `sh` in between.
 const CONNECT_COMMAND: &str = "~/.nex/bin/nex-host connect";
 
 /// Why logging in didn't work.
@@ -124,8 +125,9 @@ pub fn login(server: &Server, password: Option<&str>, trust: Option<&str>, key_d
         (None, Some(password)) => with_password(server, profile, password, trust, key_days)?,
         (None, None) => return Err(LoginError::NeedsPassword),
     };
+    // The check and install scripts are `sh`: not for the login shell to read.
     nex_host_install::ensure_with(|script, stdin| {
-        let (status, out) = client.run(script, stdin.unwrap_or_default()).map_err(|e| crate::remote::RemoteError::Other(e.to_string()))?;
+        let (status, out) = client.run_sh(script, stdin.unwrap_or_default()).map_err(|e| crate::remote::RemoteError::Other(e.to_string()))?;
         let out = String::from_utf8_lossy(&out).into_owned();
         if status == 0 { Ok(out) } else { Err(crate::remote::RemoteError::Other(format!("the install script failed ({status})")).into()) }
     })
@@ -142,13 +144,13 @@ fn with_password(server: &Server, mut profile: Profile, password: &str, trust: O
         Err(e) => return Err(e.into()),
     };
     let failed = |what: &str, e: String| LoginError::Failed(format!("Couldn't {what}: {e}."));
-    let (_, version) = client.run(device::VERSION_COMMAND, b"").map_err(|e| failed("ask the server's ssh version", e.to_string()))?;
+    let (_, version) = client.run_sh(device::VERSION_COMMAND, b"").map_err(|e| failed("ask the server's ssh version", e.to_string()))?;
     let now = device::now();
     let expires = device::expiry(now, key_days);
     let host_expiry = device::supports_expiry(&String::from_utf8_lossy(&version)).then_some(expires);
     let key = device::new_key(&profile.comment).map_err(|e| failed("make this device's key", e.to_string()))?;
     let line = device::authorized_line(&key, &profile.comment, host_expiry).map_err(|e| failed("write the key", e))?;
-    let (status, _) = client.run(&device::install_script(&line, &profile.comment), b"").map_err(|e| failed("add the key on the server", e.to_string()))?;
+    let (status, _) = client.run_sh(&device::install_script(&line, &profile.comment), b"").map_err(|e| failed("add the key on the server", e.to_string()))?;
     if status != 0 {
         return Err(failed("add the key to ~/.ssh/authorized_keys on the server", format!("the script failed ({status})")));
     }

@@ -8,6 +8,7 @@ pub(super) mod pane_drag;
 pub(super) mod sticky;
 pub(super) mod tab;
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -231,18 +232,25 @@ impl App {
             .unwrap_or_else(|| Location::Local(crate::platform::home_dir().unwrap_or_else(|| PathBuf::from("/"))))
     }
 
-    /// `(title, process)` for a pane's tab and header.
-    pub(in crate::app) fn pane_label(&self, id: PaneId) -> (String, String) {
+    /// `(title, process)` for a pane's tab and header, read every frame: a terminal's are
+    /// borrowed from it (see [`Terminal::title`]).
+    pub(in crate::app) fn pane_label(&self, id: PaneId) -> (Cow<'_, str>, &str) {
         match self.pane_kind(id) {
             Some(PaneKind::Terminal) => {
                 let t = &self.panes[&id];
-                (t.title(), t.process.clone())
+                (Cow::Borrowed(t.title()), &t.process)
             }
-            Some(PaneKind::Explorer) => (self.explorers[&id].title(), icons::EXPLORER_PROCESS.into()),
-            Some(PaneKind::Diff) => (self.diffs[&id].title(), icons::DIFF_PROCESS.into()),
-            Some(PaneKind::Agents) => (self.agents[&id].title(), icons::AGENTS_PROCESS.into()),
+            Some(PaneKind::Explorer) => (Cow::Owned(self.explorers[&id].title()), icons::EXPLORER_PROCESS),
+            Some(PaneKind::Diff) => (Cow::Owned(self.diffs[&id].title()), icons::DIFF_PROCESS),
+            Some(PaneKind::Agents) => (Cow::Owned(self.agents[&id].title()), icons::AGENTS_PROCESS),
             None => Default::default(),
         }
+    }
+
+    /// [`pane_label`](Self::pane_label) to keep: for the ghost of a pane or tab that is closing.
+    pub(in crate::app) fn pane_label_owned(&self, id: PaneId) -> (String, String) {
+        let (title, process) = self.pane_label(id);
+        (title.into_owned(), process.to_string())
     }
 
     /// The pane whose label names `tab` in the tab strip (see [`Tab::header_pane`]).
@@ -356,7 +364,7 @@ impl App {
     /// it was opened from), else split one off the focused pane, showing its repository.
     pub(in crate::app) fn toggle_git_diff(&mut self, ctx: &egui::Context) {
         let Some(tab) = self.cur_tab() else { return };
-        if let Some(id) = tab.root.panes().into_iter().find(|id| self.diffs.contains_key(id)) {
+        if let Some(id) = tab.root.iter().find(|id| self.diffs.contains_key(id)) {
             let origin = self.diffs.get(&id).and_then(|d| d.origin);
             self.close_pane(ctx, id);
             if let Some(origin) = origin
@@ -586,7 +594,7 @@ impl App {
         if let Some(n) = self.detach_notice(id) {
             self.notice = Some(n);
         }
-        let (title, process) = self.pane_label(id);
+        let (title, process) = self.pane_label_owned(id);
         let shapes = self.panes.get_mut(&id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
         if let Some(tab) = self.home_tab.as_mut().filter(|t| t.contains(id)) {
@@ -617,7 +625,7 @@ impl App {
         if index >= self.tabs.len() {
             return;
         }
-        if let Some(n) = self.tabs[index].root.panes().into_iter().find_map(|id| self.detach_notice(id)) {
+        if let Some(n) = self.tabs[index].root.iter().find_map(|id| self.detach_notice(id)) {
             self.notice = Some(n);
         }
         let tab = self.take_tab(index);
@@ -625,7 +633,7 @@ impl App {
             for g in self.strip.tab_ghosts.iter_mut().filter(|g| g.index > index) {
                 g.index -= 1;
             }
-            let (title, process) = label.unwrap_or_else(|| self.pane_label(self.tab_header_pane(&tab)));
+            let (title, process) = label.unwrap_or_else(|| self.pane_label_owned(self.tab_header_pane(&tab)));
             let (mark, title) = icons::title_mark(&process, &title);
             let (mark, title) = (mark.map(str::to_string), title.to_string());
             let drawn = TabDrawn { active: drawn.active && !self.home_active, ..drawn };

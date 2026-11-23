@@ -93,13 +93,13 @@ impl Hosts {
         // Forget hosts that turned out to have no agents left.
         let mut changed = false;
         for (target, w) in &self.watches {
-            let s = w.snapshot();
-            let has_agents = !s.sessions.is_empty();
+            // Looked at in place: this runs every frame, and a copy would clone every session.
+            let (has_agents, live) = w.with_snapshot(|s| (!s.sessions.is_empty(), s.state == State::Live));
             let known = self.remembered.contains(target);
             if has_agents && !known {
                 self.remembered.push(target.clone());
                 changed = true;
-            } else if !has_agents && known && s.state == State::Live {
+            } else if !has_agents && known && live {
                 self.remembered.retain(|t| t != target);
                 changed = true;
             }
@@ -158,16 +158,13 @@ impl Hosts {
         self.watches
             .iter()
             .filter(|(t, _)| panes.contains(*t) && !self.offered.contains(*t) && !self.declined.contains(*t))
-            .find(|(_, w)| {
-                let s = w.snapshot();
-                s.state == State::Live && s.shim == Some(false)
-            })
+            .find(|(_, w)| w.with_snapshot(|s| s.state == State::Live && s.shim == Some(false)))
             .map(|(t, _)| t.clone())
     }
 
     /// A host a pane is on that nex can't log into without a password.
     fn needs_login(&self, panes: &HashSet<SshTarget>) -> Option<&SshTarget> {
-        self.watches.iter().find(|(t, w)| panes.contains(*t) && w.snapshot().state == State::Failed(HostError::Remote(RemoteError::NeedsLogin))).map(|(t, _)| t)
+        self.watches.iter().find(|(t, w)| panes.contains(*t) && w.with_snapshot(|s| s.state == State::Failed(HostError::Remote(RemoteError::NeedsLogin)))).map(|(t, _)| t)
     }
 
     fn decline(&mut self, target: SshTarget) {

@@ -116,7 +116,7 @@ impl App {
 
     /// Close the sticky pane `id`: it leaves every tab (collapsing out of the shown one).
     pub(in crate::app) fn close_sticky(&mut self, ctx: &egui::Context, id: PaneId) {
-        let (title, process) = self.pane_label(id);
+        let (title, process) = self.pane_label_owned(id);
         let shapes = self.panes.get_mut(&id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
         self.sticky = None;
@@ -159,10 +159,10 @@ impl Tab {
             return false;
         }
         if self.focused == pane {
-            self.focused = self.root.panes()[0];
+            self.focused = self.root.iter().next().unwrap_or(self.focused);
             self.zoomed = false;
         }
-        self.zoomed &= self.root.panes().len() > 1;
+        self.zoomed &= self.root.len() > 1;
         true
     }
 }
