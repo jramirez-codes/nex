@@ -1,11 +1,12 @@
 //! Small vector icons and glossy per-process app tiles (tab icons, pane header glyphs).
 
 use egui::epaint::{PathShape, Shadow};
-use egui::{Align2, Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
+use egui::{Align2, Color32, FontFamily, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
 
 use crate::layout::Axis;
+use crate::render::FONT_ICONS;
 
-use super::file_icons::paint_glyph;
+use super::file_icons::{paint_glyph, paint_glyph_in};
 use super::paint::{bold, top_radius};
 
 /// Pseudo process name for file-explorer panes, so they get a folder tile and header glyph.
@@ -357,9 +358,11 @@ pub fn icon_mic(p: &Painter, r: Rect, c: Color32, filled: bool) {
 }
 
 /// A pin, upright and a little smaller than the other header glyphs. Pinned or not, it's
-/// the same pin: the button's colour tells them apart.
+/// the same pin: the button's colour tells them apart. Always from the embedded font, so
+/// desktop (which may have a Nerd Font installed) and Android draw the same glyph.
 pub fn icon_pin(p: &Painter, r: Rect, c: Color32) {
-    paint_glyph(p, r.center(), r.width() * GLYPH_SHARE * PIN_SCALE, COD_PINNED, c);
+    let family = FontFamily::Name(FONT_ICONS.into());
+    paint_glyph_in(p, family, r.center(), r.width() * GLYPH_SHARE * PIN_SCALE, COD_PINNED, c);
 }
 
 pub fn icon_split(p: &Painter, r: Rect, c: Color32, axis: Axis) {

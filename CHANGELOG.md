@@ -166,6 +166,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Android: the pane header's pin (Ctrl armed with the keyboard button) is the same pin as
+  desktop's Shift pin: the same glyph, always from the built-in font, at the same size. The
+  button stays finger-sized.
 - `nex-host pipe`: two features joining a run in the same second no longer end it. Their
   worktrees got the same branch name, the second failed to start, and the run stopped, so
   nothing reviewed or merged the PRs its builders went on to open. Worktrees made in the
