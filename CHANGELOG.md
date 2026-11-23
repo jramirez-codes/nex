@@ -15,9 +15,10 @@ All notable changes to nex are documented here. The format follows
   count on its capsule. It works over ssh too: `nex-host list --json` reports each session's
   `subagents`. Codex support reads its rollout files and is untested.
 - The phone apps' connect screen (and `nex --remote`'s) shows the nex dog in its card's
-  header, waking up as the screen appears. Once connected, the card glides into the first
-  pane while the dog slides over to the Files tile with a blep, and the workspace fades in
-  (skipped with `animations = false`).
+  header, waking up as the screen appears. Once connected, the card becomes the first pane
+  in one motion: its fields fade, it glides into the pane's place as its title turns into the
+  pane's, the sidebar and tabs rise in around it, and the terminal shows through, while the dog
+  slides over to the Files tile with a blep (skipped with `animations = false`).
 
 ### Fixed
 
