@@ -96,6 +96,24 @@ pub struct Claude {
     pub cwd: Option<String>,
 }
 
+/// A sub-agent an agent is running inside its own process: Claude Code's Task tool, or a
+/// thread Codex spawned. See `crate::subagents`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubAgent {
+    /// Its id, unique within its agent.
+    pub id: String,
+    /// What it was asked to do (Claude Code's `description`).
+    pub name: String,
+    /// Its type (`Explore`), if it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// When it started (unix ms).
+    pub started: u64,
+    /// It finished (it's shown with a tick for a while, then dropped).
+    #[serde(default)]
+    pub done: bool,
+}
+
 /// One agent the daemon holds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
@@ -139,6 +157,9 @@ pub struct Session {
     /// Unix ms of the last message it was sent, 0 if none.
     #[serde(default)]
     pub last_message: u64,
+    /// The sub-agents it is running (or just finished) inside its own process.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagents: Vec<SubAgent>,
 }
 
 impl Session {
@@ -485,6 +506,7 @@ mod tests {
             parent: None,
             role: None,
             last_message: 0,
+            subagents: Vec::new(),
         }
     }
 
@@ -493,6 +515,7 @@ mod tests {
         let old = r#"{"id":"a","kind":"claude","name":"n","cwd":"/","argv":[],"pid":1,"started":0,"last_output":0,"last_input":0,"status":"idle"}"#;
         let s: Session = serde_json::from_str(old).unwrap();
         assert_eq!((s.parent, s.role, s.last_message), (None, None, 0));
+        assert!(s.subagents.is_empty());
     }
 
     #[test]

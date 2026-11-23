@@ -1,5 +1,6 @@
-//! Teams: an agent on an ssh host that started others (`nex-host spawn`), or a pipeline and
-//! its stages, is shown as one card with its helpers inside it.
+//! Teams: an agent on an ssh host that started others (`nex-host spawn`), a pipeline and
+//! its stages, or a Claude Code / Codex agent running sub-agents, is shown as one card with
+//! its helpers inside it. A sub-agent of a helper or stage sits under that one.
 //!
 //! A team sits in the section of its most urgent member, so a helper that needs you brings
 //! the whole team up to Needs You. Inside, helpers keep the order they started in, and a
@@ -11,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::layout::PaneId;
 
-use super::model::{Agent, AgentKind};
+use super::model::{Agent, AgentKind, Status};
 
 /// One helper in a team, and how far down the tree it is (1: started by the team's lead).
 #[derive(Clone, Debug)]
@@ -48,6 +49,12 @@ impl Group {
         self.members.iter().filter(|m| m.depth == 1)
     }
 
+    /// How many sub-agents the member with card `pane` is running (or just finished): the
+    /// badge on its capsule.
+    pub fn subs_of(&self, pane: PaneId) -> usize {
+        self.members.iter().position(|m| m.agent.pane == pane).map_or(0, |i| self.under(i).filter(|m| m.agent.team.sub).count())
+    }
+
     /// Member `i`'s own helpers: the members right after it, deeper down.
     pub fn under(&self, i: usize) -> impl Iterator<Item = &Member> {
         let depth = self.members[i].depth;
@@ -59,7 +66,7 @@ impl Group {
     pub fn strip(&self) -> Vec<Step<'_>> {
         let mut out = Vec::new();
         for (i, m) in self.members.iter().enumerate().filter(|(_, m)| m.depth == 1) {
-            let stages: Vec<&Member> = self.under(i).collect();
+            let stages: Vec<&Member> = self.under(i).filter(|s| !s.agent.team.sub).collect();
             if self.is_pipeline() {
                 out.push(Step::Stage(&m.agent));
             } else if m.agent.kind == AgentKind::Pipeline && !stages.is_empty() {
@@ -72,19 +79,24 @@ impl Group {
         out
     }
 
-    /// The size the card's header gives: `2 stages` for a pipeline, else its helpers and
-    /// pipelines (a nested pipeline counted once, not as its stages).
+    /// The size the card's header gives: `2 stages` for a pipeline, else its helpers,
+    /// pipelines and sub-agents (a nested pipeline counted once, not as its stages; a
+    /// helper's or stage's sub-agents are on its capsule instead).
     pub fn size(&self) -> String {
         let n = |k: usize, what: &str| format!("{k} {what}{}", if k == 1 { "" } else { "s" });
         if self.is_pipeline() {
-            return n(self.members.len(), "stage");
+            return n(self.direct().filter(|m| !m.agent.team.sub).count(), "stage");
         }
-        let (pipes, helpers) = self.direct().fold((0, 0), |(p, h), m| if m.agent.kind == AgentKind::Pipeline { (p + 1, h) } else { (p, h + 1) });
-        match (helpers, pipes) {
-            (h, 0) => n(h, "helper"),
-            (0, p) => n(p, "pipeline"),
-            (h, p) => format!("{} · {}", n(h, "helper"), n(p, "pipeline")),
+        let (mut helpers, mut pipes, mut subs) = (0, 0, 0);
+        for m in self.direct() {
+            match () {
+                _ if m.agent.team.sub => subs += 1,
+                _ if m.agent.kind == AgentKind::Pipeline => pipes += 1,
+                _ => helpers += 1,
+            }
         }
+        let parts: Vec<String> = [(helpers, "helper"), (pipes, "pipeline"), (subs, "sub-agent")].into_iter().filter(|(k, _)| *k > 0).map(|(k, w)| n(k, w)).collect();
+        if parts.is_empty() { n(0, "helper") } else { parts.join(" · ") }
     }
 }
 
@@ -148,7 +160,9 @@ pub fn groups(agents: &[Agent]) -> Vec<Group> {
         }
         // A pipeline's own state is its runner's printing; its stages' is what matters (a
         // pipeline nested in a team too).
-        let counts = |a: &Agent| a.kind != AgentKind::Pipeline || !children.contains_key(&a.pane);
+        // A sub-agent only keeps its team working (its finishing isn't the team's: its
+        // agent says when that is done).
+        let counts = |a: &Agent| (a.kind != AgentKind::Pipeline || !children.contains_key(&a.pane)) && (!a.team.sub || a.status == Status::Working);
         let status = members.iter().map(|m| &m.agent).filter(|a| counts(a)).map(|a| a.status).chain(counts(lead).then_some(lead.status)).min().unwrap_or(lead.status);
         Group { lead: Agent { status, ..lead.clone() }, members }
     };
@@ -187,7 +201,7 @@ mod tests {
             status,
             since: Instant::now(),
             source: Source::Local,
-            team: Team { parent, role: None, started },
+            team: Team { parent, role: None, started, sub: false },
         }
     }
 
@@ -264,6 +278,55 @@ mod tests {
             .collect();
         assert_eq!(strip, ["feature:", "stage build", "stage build-2", "stage merge", "helper a6"]);
         assert!(same_step(&agents[2], &agents[3]) && !same_step(&agents[3], &agents[4]), "build and build-2 are one step");
+    }
+
+    fn sub(pane: PaneId, status: Status, parent: PaneId, started: u64) -> Agent {
+        let mut a = agent(pane, status, Some(parent), started);
+        a.team.sub = true;
+        a.team.role = Some("Explore".into());
+        a
+    }
+
+    #[test]
+    fn sub_agents_are_in_their_agents_card() {
+        let agents = vec![agent(1, Status::Idle, None, 0), sub(2, Status::Working, 1, 10), sub(3, Status::Done, 1, 20)];
+        let g = groups(&agents);
+        assert_eq!(shape(&g), vec![(1, Status::Working, vec![(2, 1), (3, 1)])], "a background sub-agent keeps its agent working");
+        assert_eq!(g[0].size(), "2 sub-agents");
+        assert!(g[0].strip().iter().all(|s| matches!(s, Step::Helper(_))));
+
+        // One that finished doesn't make its agent's card done.
+        let g = groups(&[agent(1, Status::Working, None, 0), sub(3, Status::Done, 1, 20)]);
+        assert_eq!(g[0].lead.status, Status::Working);
+        let g = groups(&[agent(1, Status::Idle, None, 0), sub(3, Status::Done, 1, 20), agent(4, Status::Idle, Some(1), 5)]);
+        assert_eq!((g[0].lead.status, g[0].size()), (Status::Idle, "1 helper · 1 sub-agent".to_string()));
+    }
+
+    #[test]
+    fn a_stages_sub_agents_sit_under_it_not_among_the_steps() {
+        let mut pipe = agent(1, Status::Working, None, 0);
+        pipe.kind = AgentKind::Pipeline;
+        let stage = |pane, started| {
+            let mut a = agent(pane, Status::Idle, Some(1), started);
+            a.team.role = Some(format!("s{pane}"));
+            a
+        };
+        let agents = vec![pipe.clone(), stage(2, 10), stage(3, 20), sub(4, Status::Working, 2, 15), sub(5, Status::Working, 2, 16)];
+        let g = groups(&agents);
+        assert_eq!(shape(&g), vec![(1, Status::Working, vec![(2, 1), (4, 2), (5, 2), (3, 1)])]);
+        assert_eq!(g[0].size(), "2 stages");
+        let steps: Vec<PaneId> = g[0].strip().iter().filter_map(|s| s.agent()).map(|a| a.pane).collect();
+        assert_eq!(steps, [2, 3]);
+        assert_eq!((g[0].subs_of(2), g[0].subs_of(3)), (2, 0));
+
+        // The same pipeline started by an agent: its stages are steps, their sub-agents aren't.
+        let mut nested = agents.clone();
+        nested[0].team.parent = Some(9);
+        nested.push(agent(9, Status::Idle, None, 0));
+        let g = groups(&nested);
+        let steps: Vec<String> = g[0].strip().iter().map(|s| s.agent().map_or("heading".into(), |a| a.pane.to_string())).collect();
+        assert_eq!(steps, ["heading", "2", "3"]);
+        assert_eq!(g[0].subs_of(2), 2);
     }
 
     #[test]

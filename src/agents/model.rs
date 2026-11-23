@@ -69,7 +69,8 @@ impl AgentKind {
 
 /// Where an agent sits in a team: who started it (`nex-host spawn`, or a pipeline running
 /// it as a stage), what for, and when, so a team's members keep the order they started in.
-/// Only agents on ssh hosts have one; local panes' agents are always on their own.
+/// Agents on ssh hosts have one, and so does every sub-agent (one a Claude Code or Codex
+/// agent runs inside its own process: the Task tool, a spawned thread).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Team {
     /// The card of the agent that started it.
@@ -78,6 +79,9 @@ pub struct Team {
     pub role: Option<String>,
     /// When it started (unix ms).
     pub started: u64,
+    /// It's a sub-agent of `parent`, inside that agent's process: it has no pane, program
+    /// or bell of its own (see [`Source::Sub`]).
+    pub sub: bool,
 }
 
 /// What an agent is doing. Ordered by how much it wants the user: the list shows agents
@@ -138,6 +142,13 @@ pub enum Source {
         /// The pane showing it right now, if one is.
         pane: Option<PaneId>,
     },
+    /// Inside another agent's process: a sub-agent (see [`Team::sub`]).
+    Sub {
+        /// The card of the agent running it.
+        lead: PaneId,
+        /// The pane showing that agent, if one is.
+        pane: Option<PaneId>,
+    },
 }
 
 /// The key a remote agent's card goes by: never a real pane's id (those count up from 1),
@@ -152,6 +163,20 @@ pub fn remote_key(host: &str, session: &str) -> PaneId {
 /// Whether `key` is a remote agent's (see [`remote_key`]) rather than a pane's.
 pub fn is_remote_key(key: PaneId) -> bool {
     key & (1 << 63) != 0
+}
+
+/// Whether `key` is a sub-agent's (see [`sub_key`]).
+pub fn is_sub_key(key: PaneId) -> bool {
+    key & (1 << 62) != 0 && !is_remote_key(key)
+}
+
+/// The key sub-agent `id` of the agent with card `lead` goes by: never a pane's or a remote
+/// agent's (see [`remote_key`]), and the same every poll.
+pub fn sub_key(lead: PaneId, id: &str) -> PaneId {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (lead, id).hash(&mut h);
+    (h.finish() & !(1 << 63)) | (1 << 62)
 }
 
 /// What the app knows about one agent pane at a poll.
@@ -234,7 +259,7 @@ impl Probe {
 fn shown_pane(key: PaneId, source: &Source) -> Option<PaneId> {
     match source {
         Source::Local => Some(key),
-        Source::Remote { pane, .. } => *pane,
+        Source::Remote { pane, .. } | Source::Sub { pane, .. } => *pane,
     }
 }
 
@@ -343,11 +368,13 @@ impl Tracker {
                 let mut status = p.status(now);
                 // A pipeline prints a line per stage: that's not it finishing (its stages
                 // finishing is what counts, and they have cards of their own).
-                let finishes = p.kind != AgentKind::Pipeline;
+                // A sub-agent says itself whether it finished, and its agent's pane is where
+                // anything that wants you shows.
+                let finishes = p.kind != AgentKind::Pipeline && !p.team.sub;
                 if finishes && status == Status::Idle && matches!(was, Some(Status::Working | Status::Done)) && !looked_at {
                     status = Status::Done;
                 }
-                let changed_into = was.is_some() && was != Some(status) && matches!(status, Status::Done | Status::NeedsYou);
+                let changed_into = !p.team.sub && was.is_some() && was != Some(status) && matches!(status, Status::Done | Status::NeedsYou);
                 if !looked_at && (changed_into || self.unseen.contains(&p.pane)) {
                     self.alerted |= !self.unseen.contains(&p.pane);
                     unseen.insert(p.pane);
@@ -416,10 +443,11 @@ impl Tracker {
         &self.agents
     }
 
-    /// How many agents are in each state (a pipeline isn't one: its stages are).
+    /// How many agents are in each state (a pipeline isn't one: its stages are; nor is a
+    /// sub-agent: its agent is).
     pub fn counts(&self) -> Counts {
         let mut c = Counts::default();
-        for a in self.agents.iter().filter(|a| a.kind != AgentKind::Pipeline) {
+        for a in self.agents.iter().filter(|a| a.kind != AgentKind::Pipeline && !a.team.sub) {
             match a.status {
                 Status::NeedsYou => c.needs_you += 1,
                 Status::Done => c.done += 1,

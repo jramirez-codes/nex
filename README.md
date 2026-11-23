@@ -694,6 +694,14 @@ Claude Code's status and session name come from its own session file
 (`~/.claude/sessions/<pid>.json`); a card is titled with the task Claude Code puts in the
 terminal title when there is one.
 
+An agent running sub-agents (Claude Code's Task tool, or threads Codex spawns) gets a team
+card: each sub-agent is a capsule saying what it was asked to do, open the card to list them,
+and click one to jump to its agent's pane. A finished one shows a tick for two minutes, then
+drops off. In a pipeline, a stage's sub-agents sit under that stage (its capsule says how
+many) rather than among the steps. Claude Code's come from the files it keeps beside each
+conversation (`~/.claude/projects/<folder>/<session>/subagents/`); Codex's from its rollouts
+(`~/.codex/sessions/`).
+
 | Action                       | Keys / mouse                                          |
 | ---------------------------- | ----------------------------------------------------- |
 | Pick an agent                | Arrows (or `h` / `j` / `k` / `l`), `Home` / `End`     |

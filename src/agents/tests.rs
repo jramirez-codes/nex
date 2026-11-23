@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use egui::{Key, Modifiers};
 
 use super::AgentsPane;
-use super::model::{AgentKind, Counts, Probe, Source, Status, Team, Tracker, elapsed, is_remote_key, remote_key};
+use super::model::{AgentKind, Counts, Probe, Source, Status, Team, Tracker, elapsed, is_remote_key, is_sub_key, remote_key, sub_key};
 
 fn v(s: &[&str]) -> Vec<String> {
     s.iter().map(|s| s.to_string()).collect()
@@ -343,4 +343,29 @@ fn an_agent_over_ssh_lights_the_tab_of_the_pane_showing_it() {
     t.update(vec![remote("devbox", "b", Status::Working, at)], at);
     t.update(vec![remote("devbox", "b", Status::Idle, at)], at);
     assert_eq!(status_of(&t, remote_key("devbox", "b")), Status::Done);
+}
+
+#[test]
+fn sub_agents_are_not_counted_and_never_ask_for_you() {
+    let now = Instant::now();
+    let lead = probe(1, 0, AgentKind::Claude, now);
+    let sub = |id: &str, status| Probe {
+        pane: sub_key(1, id),
+        title: format!("task {id}"),
+        source: Source::Sub { lead: 1, pane: Some(1) },
+        reported: Some(status),
+        team: Team { parent: Some(1), role: Some("Explore".into()), started: 0, sub: true },
+        ..lead.clone()
+    };
+    let mut t = Tracker::default();
+    t.update(vec![lead.clone(), sub("a", Status::Working)], now);
+    assert_eq!(t.counts().total(), 1, "the agent, not its sub-agent");
+    t.update(vec![lead.clone(), sub("a", Status::Done)], now + Duration::from_secs(5));
+    assert!(!t.take_alerted() && !t.wants_you(1), "its agent's pane says when it wants you");
+    assert_eq!(t.agents().iter().find(|a| a.team.sub).map(|a| a.status), Some(Status::Done));
+
+    let k = sub_key(remote_key("h", "s"), "a");
+    assert!(is_sub_key(k) && !is_remote_key(k) && !is_sub_key(remote_key("h", "s")) && !is_sub_key(7));
+    assert_eq!(k, sub_key(remote_key("h", "s"), "a"));
+    assert_ne!(k, sub_key(remote_key("h", "s"), "b"));
 }

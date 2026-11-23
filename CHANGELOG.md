@@ -8,6 +8,12 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- The Agents pane shows the sub-agents a Claude Code or Codex agent is running (Claude
+  Code's Task tool, Codex's spawned threads) as a team in its card, like a pipeline's stages:
+  a capsule each, with what it was asked to do, a tick for two minutes once it finishes, and a
+  click jumps to its agent's pane. A pipeline stage's sub-agents sit under that stage, with a
+  count on its capsule. It works over ssh too: `nex-host list --json` reports each session's
+  `subagents`. Codex support reads its rollout files and is untested.
 - The phone apps' connect screen (and `nex --remote`'s) shows the nex dog in its card's
   header, waking up as the screen appears. Once connected, the card glides into the first
   pane while the dog slides over to the Files tile with a blep, and the workspace fades in

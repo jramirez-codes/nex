@@ -6,6 +6,7 @@
 //!   lib.rs      this file
 //!   proto.rs    what nex and nex-host say to each other (shared with nex)
 //!   claude.rs   Claude Code's session file (~/.claude/sessions/<pid>.json)
+//!   subagents.rs  the sub-agents Claude Code and Codex run inside their own process
 //!   paths.rs    where nex-host keeps its socket and lock (~/.nex/run)
 //!   main.rs     the `nex-host` program: its subcommands
 //!   daemon/     the background process that owns the agents
@@ -17,9 +18,10 @@
 //!   locked.rs   taking a lock a panicked thread left poisoned
 //! ```
 //!
-//! Without the default `daemon` feature only `proto`, `claude` and `paths` are built: that's
+//! Without the default `daemon` feature only `proto`, `claude`, `subagents` and `paths` are built: that's
 //! what nex itself uses.
 
 pub mod claude;
 pub mod paths;
 pub mod proto;
+pub mod subagents;

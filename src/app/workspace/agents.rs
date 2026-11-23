@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::agents::AgentsPane;
-use crate::agents::model::{AgentKind, Probe, Source, Status, Team, is_remote_key, remote_key};
+use crate::agents::model::{AgentKind, Probe, Source, Status, Team, is_remote_key, remote_key, sub_key};
 use crate::layout::{Axis, PaneId};
 use crate::remote::SshTarget;
 use crate::session::claude;
@@ -75,9 +75,14 @@ impl App {
                 let Some((pid, argv)) = t.foreground_job() else { continue };
                 let Some(kind) = AgentKind::detect(&t.process, argv) else { continue };
                 let session = (kind == AgentKind::Claude).then(|| claude::session_info(pid)).flatten().unwrap_or_default();
+                let subagents = match kind {
+                    AgentKind::Claude => claude::subagents(&session),
+                    AgentKind::Codex => codex_subagents(pid, t.cwd.as_deref()),
+                    AgentKind::Pipeline => Vec::new(),
+                };
                 let title = t.title();
                 let (mark, rest) = icons::title_mark(&t.process, &title);
-                scan.probes.push(Probe {
+                let lead = Probe {
                     pane: id,
                     tab: index,
                     kind,
@@ -92,7 +97,9 @@ impl App {
                     source: Source::Local,
                     reported: None,
                     team: Team::default(),
-                });
+                };
+                scan.probes.extend(sub_probes(&lead, Some(id), &subagents));
+                scan.probes.push(lead);
             }
         }
         scan
@@ -115,7 +122,7 @@ impl App {
                 let shown = showing.get(&s.id).copied();
                 let title = s.title.clone().unwrap_or_default();
                 let (mark, rest) = icons::title_mark(kind.process(), &title);
-                probes.push(Probe {
+                let lead = Probe {
                     pane: remote_key(&host, &s.id),
                     tab: shown.and_then(|(_, tab, _)| tab),
                     kind,
@@ -129,8 +136,10 @@ impl App {
                     last_input: now,
                     source: Source::Remote { host: host.clone(), target: target.clone(), session: s.id.clone(), pane: shown.map(|(p, _, _)| p) },
                     reported: Some(status),
-                    team: Team { parent: s.parent.as_deref().map(|p| remote_key(&host, p)), role: s.role.clone(), started: s.started },
-                });
+                    team: Team { parent: s.parent.as_deref().map(|p| remote_key(&host, p)), role: s.role.clone(), started: s.started, sub: false },
+                };
+                probes.extend(sub_probes(&lead, shown.map(|(p, _, _)| p), &s.subagents));
+                probes.push(lead);
             }
         }
         probes
@@ -205,11 +214,15 @@ impl App {
     /// Show the agent behind card `key`: jump to its pane, or, for an agent on an ssh host
     /// that no pane shows, open a tab attached to it.
     pub(in crate::app) fn focus_agent(&mut self, ctx: &egui::Context, key: PaneId) {
-        if !is_remote_key(key) {
+        if !is_remote_key(key) && !crate::agents::model::is_sub_key(key) {
             self.focus_pane(key);
             return;
         }
         let Some(agent) = self.agent_tracker.agents().iter().find(|a| a.pane == key) else { return };
+        // A sub-agent is shown in its agent's pane.
+        if let Source::Sub { lead, .. } = agent.source {
+            return self.focus_agent(ctx, lead);
+        }
         let Source::Remote { target, session, pane, .. } = agent.source.clone() else { return };
         match pane {
             Some(p) => self.focus_pane(p),
@@ -270,6 +283,43 @@ impl App {
             tab.zoomed = false;
         }
     }
+}
+
+/// The cards of the sub-agents `lead` is running (see `nex_host::subagents`), each shown in
+/// `pane`, the pane showing `lead`, if one is.
+fn sub_probes(lead: &Probe, pane: Option<PaneId>, subs: &[nex_host::proto::SubAgent]) -> Vec<Probe> {
+    subs.iter()
+        .map(|sa| Probe {
+            pane: sub_key(lead.pane, &sa.id),
+            tab: lead.tab,
+            kind: lead.kind,
+            title: sa.name.clone(),
+            mark: None,
+            cwd: lead.cwd.clone(),
+            session_name: None,
+            session_status: None,
+            attention: false,
+            last_output: lead.last_output,
+            last_input: lead.last_input,
+            source: Source::Sub { lead: lead.pane, pane },
+            reported: Some(if sa.done { Status::Done } else { Status::Working }),
+            team: Team { parent: Some(lead.pane), role: sa.role.clone(), started: sa.started, sub: true },
+        })
+        .collect()
+}
+
+/// The sub-agents the Codex process `pid` (in `cwd`) spawned, with Codex's home on this
+/// machine: `$CODEX_HOME`, else `~/.codex`.
+fn codex_subagents(pid: u32, cwd: Option<&std::path::Path>) -> Vec<nex_host::proto::SubAgent> {
+    let home = match std::env::var_os("CODEX_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        Some(h) => h,
+        None => match crate::platform::home_dir() {
+            Some(h) => h.join(".codex"),
+            None => return Vec::new(),
+        },
+    };
+    let cwd = cwd.map(|c| c.to_string_lossy().into_owned()).unwrap_or_default();
+    nex_host::subagents::codex_in(&home, pid, &cwd, nex_host::subagents::now_ms())
 }
 
 /// `dir` on a host whose home is `home`, as `~/…` when it's in there.

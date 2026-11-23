@@ -140,8 +140,12 @@ fn row_rect(r: Rect, i: usize) -> Rect {
     Rect::from_min_size(Pos2::new(list.left(), list.top() + i as f32 * ROW_H), Vec2::new(list.width(), ROW_H))
 }
 
-/// What a helper is called in its team: its role (or pipeline stage), else its name.
+/// What a helper is called in its team: its role (or pipeline stage), else its name. A
+/// sub-agent goes by what it was asked to do (its role is only its type: `Explore`).
 fn member_label(a: &Agent) -> &str {
+    if a.team.sub {
+        return &a.name;
+    }
     a.team.role.as_deref().filter(|r| !r.is_empty()).unwrap_or(&a.name)
 }
 
@@ -625,6 +629,11 @@ fn card_detail(a: &Agent, team_size: Option<&str>) -> String {
 /// The line under a helper's label: its folder, then its own name when the label is its
 /// role (else what kind of agent it is, when there's no folder).
 fn member_detail(a: &Agent) -> String {
+    // A sub-agent works in its agent's folder: what kind it is says more.
+    if a.team.sub {
+        let kind = a.team.role.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| "Sub-agent".into());
+        return format!("{kind} \u{00b7} {}", a.kind.label());
+    }
     let label = member_label(a);
     let mut parts: Vec<String> = folder(a).into_iter().collect();
     if a.name != label {
@@ -692,7 +701,12 @@ fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group) {
                 (g, w)
             }
             Step::Stage(a) | Step::Helper(a) => {
-                let g = p.layout_no_wrap(member_label(a).to_string(), font.clone(), c.text_bright);
+                // A stage or helper running sub-agents says how many.
+                let label = match g.subs_of(a.pane) {
+                    0 => member_label(a).to_string(),
+                    n => format!("{} \u{00b7}{n}", member_label(a)),
+                };
+                let g = p.layout_no_wrap(label, font.clone(), c.text_bright);
                 let w = g.size().x + 30.0;
                 (g, w)
             }
@@ -822,7 +836,7 @@ mod tests {
             status: Status::Idle,
             since: Instant::now(),
             source: Source::Local,
-            team: Team { parent, role: None, started: pane },
+            team: Team { parent, role: None, started: pane, sub: false },
         }
     }
 

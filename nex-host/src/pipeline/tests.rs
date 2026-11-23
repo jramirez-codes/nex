@@ -77,6 +77,7 @@ fn a_second_pipe_joins_the_run_going_in_its_repository() {
         parent: None,
         role: None,
         last_message: 0,
+        subagents: Vec::new(),
     };
     // Folders under /repo are one repository (its worktrees too); /other is another.
     let top = |d: &Path| if d.starts_with("/repo") || d.starts_with("/trees") { PathBuf::from("/repo/.git") } else { d.to_path_buf() };
