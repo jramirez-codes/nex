@@ -31,7 +31,9 @@ impl Host {
             .env("NEX_HOME", self.home.join(".nex"))
             .env("SHELL", "/bin/sh")
             .env("NEX_HOST_IDLE_EXIT", "1")
-            .env_remove("CLAUDE_CONFIG_DIR");
+            .env_remove("CLAUDE_CONFIG_DIR")
+            // CI runners set it, and pipelines are looked for there before $HOME/.config.
+            .env_remove("XDG_CONFIG_HOME");
         c
     }
 

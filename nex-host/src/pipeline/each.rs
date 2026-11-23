@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use nex_host::proto::Verdict;
 
-use super::{Outcome, SEND_BACKS};
+use crate::pipeline::{Outcome, SEND_BACKS};
 
 /// What the runner should do next.
 #[derive(Debug, PartialEq, Eq)]
