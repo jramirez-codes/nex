@@ -128,6 +128,35 @@ fn logs_in_with_the_device_key_and_keeps_a_shell_through_a_dropped_connection() 
     // Known from now on.
     drop(Client::connect(&server, Login::Key(&key), None).expect("known host"));
 
+    // A script that outlasts its time is stopped on the host, not just given up on.
+    let pid_file = dir.join("home/quick.pid");
+    let slow = crate::remote::exec::Transport::Nex(remote.clone()).run(r#"echo $$ > "$HOME/quick.pid"; exec sleep 300"#);
+    assert_eq!(slow, Err(crate::remote::exec::ExecError::Timeout));
+    let proc = PathBuf::from(format!("/proc/{}", std::fs::read_to_string(&pid_file).unwrap().trim()));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while proc.exists() {
+        assert!(Instant::now() < deadline, "the script outlived its timeout");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // The Agents pane's watch on this connection ends on the host when it's dropped.
+    let watching = || {
+        let pattern = format!("^{}/home/.nex/bin/nex-host watch$", dir.display());
+        Command::new("pgrep").args(["-f", &pattern]).stdout(Stdio::null()).status().unwrap().success()
+    };
+    let watch = crate::remote::host::Watch::start_direct(remote.clone(), || {});
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !watch.with_snapshot(|s| s.state == crate::remote::host::State::Live) || !watching() {
+        assert!(Instant::now() < deadline, "the watch never started: {:?}", watch.snapshot().state);
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(watch);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while watching() {
+        assert!(Instant::now() < deadline, "`nex-host watch` outlived its Watch");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
     // Another key is turned down: without a password that's NeedsPassword.
     let other = device::new_key("someone-else").unwrap();
     assert!(matches!(Client::connect(&server, Login::Key(&other), None), Err(ConnectError::Denied)));
@@ -200,7 +229,7 @@ fn the_closer_ends_a_command_blocked_on_a_fifo() {
     let client = Client::connect(&server, Login::Key(&key), Some(&fingerprint)).expect("key login");
 
     let script = r#"f="$HOME/blocked.fifo"; rm -f "$f"; mkfifo "$f" || exit 1; echo $$; exec 3>"$f""#;
-    let exec = client.exec(&format!("sh -c {}", crate::remote::posix_quote(script))).unwrap();
+    let exec = client.exec_sh(script).unwrap();
     let super::Exec { mut reader, writer, closer, .. } = exec;
     let mut pid = Vec::new();
     let mut byte = [0u8];
