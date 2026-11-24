@@ -7,7 +7,7 @@
   padding-top: env(safe-area-inset-top);
 }
 .nav.scrolled {
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(13, 13, 16, 0.72);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-bottom-color: var(--hairline);
