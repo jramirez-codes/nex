@@ -12,9 +12,12 @@
   font-display: swap;
 }
 
-/* One restrained palette: near-black, one blue, a few neutral greys. */
+/* One restrained palette: deep graphite, one blue, a few neutral greys. */
 :root {
-  --bg: #000;
+  --bg: #0d0d10;
+  --band: #141418; /* every other section, for rhythm */
+  --glow-blue: rgba(41, 151, 255, 0.16);
+  --glow-violet: rgba(140, 110, 255, 0.12);
   --surface: #161617;
   --fill: rgba(255, 255, 255, 0.06);
   --hairline: rgba(255, 255, 255, 0.12);
@@ -41,7 +44,11 @@ html { scroll-behavior: smooth; scroll-padding-top: 64px; -webkit-text-size-adju
 
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(1100px 620px at 50% -120px, var(--glow-blue), transparent 70%),
+    radial-gradient(700px 480px at 85% 8%, var(--glow-violet), transparent 70%),
+    var(--bg);
+  background-repeat: no-repeat;
   color: var(--text);
   font-family: var(--font);
   font-size: 17px;
@@ -112,6 +119,17 @@ a.chip:hover { color: var(--text); text-decoration: none; }
 
 /* A section: one headline, one short lede, one large recording. */
 .section { width: var(--page); margin: 0 auto; padding-top: var(--gap); }
+/* Every other section after the highlights sits on a slightly lighter band that runs edge
+   to edge (the shadow paints the band; clip-path keeps it to the section's own height). */
+main > section:nth-of-type(2n + 3) {
+  padding-bottom: var(--gap);
+  margin-top: var(--gap);
+  padding-top: var(--gap);
+  background: var(--band);
+  box-shadow: 0 0 0 100vmax var(--band);
+  clip-path: inset(0 -100vmax);
+}
+main > section:nth-of-type(2n + 3) + section { padding-top: var(--gap); }
 .section-head { width: var(--text-w); max-width: 100%; margin: 0 auto 56px; text-align: center; }
 .eyebrow {
   font-size: 17px;
@@ -143,6 +161,11 @@ a.chip:hover { color: var(--text); text-decoration: none; }
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--hairline);
+  /* A soft light behind each recording, so it sits on the page instead of in a hole. */
+  box-shadow:
+    0 30px 80px -30px var(--glow-blue),
+    0 0 120px -40px var(--glow-violet),
+    0 1px 0 rgba(255, 255, 255, 0.06) inset;
 }
 .frame video { display: block; width: 100%; height: auto; }
 
