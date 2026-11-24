@@ -30,8 +30,17 @@
   letter-spacing: -0.01em;
 }
 .nav-brand:hover { text-decoration: none; }
-.nav-links { display: flex; gap: 28px; margin-left: auto; }
-.nav-links a { color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.nav-links { display: flex; gap: 24px; margin-left: auto; }
+.nav-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.nav-links a .icon { opacity: 0.8; }
+.nav-links a:hover .icon { opacity: 1; }
 .nav-links a:hover { color: var(--text); text-decoration: none; }
 .nav-icon {
   display: grid;
