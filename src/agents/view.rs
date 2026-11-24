@@ -13,6 +13,10 @@
 //! ([`member_tag`]: `Build-01`): its word on its capsule, the whole tag in a small capsule
 //! leading its row, before the task its terminal's title says it's on.
 //!
+//! A card whose agent is on screen says so (`viewing`): a "Viewing" pill left of its status
+//! and a soft accent ring, fuller (with a glow) for the agent in the focused pane than for
+//! one sharing its tab.
+//!
 //! A frame copies no agent: the teams are worked out when the tracker's list changes (its
 //! generation) and kept, shared, until it changes again.
 //!
@@ -37,8 +41,10 @@ use crate::ui::{icons, paint};
 
 use super::AgentsPane;
 use super::group::{Group, Member, Step, groups, same_step};
-use super::model::{Agent, AgentKind, Agents, Source, Status, elapsed};
+use super::model::{Agent, AgentKind, Agents, Seen, Source, Status, Viewing, elapsed};
 use super::motion::{Motion, TeamMotion};
+
+mod viewing;
 
 const SIDE: f32 = 18.0;
 const CARD_H: f32 = 74.0;
@@ -82,11 +88,13 @@ pub(super) struct ViewState {
     /// The agents as teams, and the generation of the list they were made from: made again
     /// only when that changes.
     grouped: Option<(u64, Arc<[Arc<Group>]>)>,
+    /// How each card was last on screen, for its "Viewing" pill to fade out as.
+    seen: HashMap<PaneId, Seen>,
 }
 
 impl ViewState {
     pub(super) fn new() -> ViewState {
-        ViewState { reveal_selection: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None }
+        ViewState { reveal_selection: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None, seen: HashMap::new() }
     }
 
     /// `agents` as teams: the ones made last time, unless the list changed since.
@@ -108,6 +116,8 @@ struct Frame<'a> {
     c: &'a Theme,
     focused: bool,
     pane: u64,
+    /// Which agents are on screen, for their cards' "Viewing" mark.
+    viewing: &'a Viewing,
     /// Where interaction is allowed (the pane's visible content).
     clip: Rect,
     now: Instant,
@@ -246,15 +256,17 @@ impl AgentsPane {
     /// Draw the pane into `rect` (below the pane header, edge to edge of the card), showing
     /// `agents` (all of them, sorted), under `notes` (one line per ssh host that can't be
     /// watched). `shown_tab` is the terminal tab on screen (`None` for the Agents / Files
-    /// tab): switching to one bubbles the cards of the agents on it.
+    /// tab): switching to one bubbles the cards of the agents on it. `viewing`: which agents
+    /// are on screen, whose cards say so.
     #[allow(clippy::too_many_arguments)]
-    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: u64, focused: bool, c: &Theme, agents: &Agents, notes: &[String], shown_tab: Option<usize>) {
+    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: u64, focused: bool, c: &Theme, agents: &Agents, notes: &[String], shown_tab: Option<usize>, viewing: &Viewing) {
         let ctx = ui.ctx().clone();
         let f = Frame {
             ui,
             c,
             focused,
             pane,
+            viewing,
             clip: rect.intersect(painter.clip_rect()),
             now: Instant::now(),
             time: ctx.input(|i| i.time),
@@ -287,6 +299,7 @@ impl AgentsPane {
             self.view.teams.insert(g.key(), Arc::clone(g));
         }
         self.view.teams.retain(|k, _| motion.cards.contains_key(k));
+        self.view.seen.retain(|k, _| motion.cards.contains_key(k));
         let switched = self.view.shown_tab.replace(shown_tab).is_some_and(|was| was != shown_tab);
         if switched
             && f.animate
@@ -426,9 +439,33 @@ impl AgentsPane {
             }
             let hover = ui.ctx().animate_bool_with_time(f.id(("hover", id)), hovered, 0.12);
             let selected = !card.leaving && self.selected == Some(id);
-            let (border, border_width) = border_for(card.agent.status, selected, f.focused, hovered, f.c);
+            // On screen: the agent itself, or for a team its lead or one of its helpers.
+            let seen = if card.leaving {
+                None
+            } else {
+                match &team {
+                    Some(g) => viewing::team_seen(f.viewing, g),
+                    None => f.viewing.of(&card.agent),
+                }
+            };
+            let (border, border_width) = border_for(card.agent.status, selected, f.focused, hovered, seen, f.c);
             card.set_colors(now, border, border_width, status_color(card.agent.status, f.c), f.animate);
-            let look = Look { hover, lift, border: card.border.get(now), border_width: card.border_width.get(now), tint: card.tint.get(now) };
+            let fade = |what: &str, on: bool| if f.animate { ui.ctx().animate_bool_with_time(f.id((what, id)), on, 0.3) } else { f32::from(u8::from(on)) };
+            let glow = fade("viewing-glow", seen == Some(Seen::Primary));
+            // The pill fades out as the kind it was when last on screen.
+            let kind = seen.unwrap_or_else(|| self.view.seen.get(&id).copied().unwrap_or(Seen::Shared));
+            if let Some(s) = seen {
+                self.view.seen.insert(id, s);
+            }
+            let look = Look {
+                hover,
+                lift,
+                border: card.border.get(now),
+                border_width: card.border_width.get(now),
+                tint: card.tint.get(now),
+                glow,
+                seen: (kind, fade("viewing-pill", seen.is_some())),
+            };
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
             match team {
@@ -568,7 +605,11 @@ impl AgentsPane {
             if self.selected == Some(id) && f.focused && !m.leaving {
                 rp.rect_stroke(inner, 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
             }
-            helper_row(f, &rp, row, &m.member, &m.tag);
+            let seen = (!m.leaving).then(|| f.viewing.of(&m.member.agent)).flatten();
+            if let Some(seen) = seen {
+                viewing::row_rule(&rp, inner, seen);
+            }
+            helper_row(f, &rp, row, &m.member, &m.tag, seen);
         }
         if g.members.len() > ROWS_SHOWN {
             let more = Rect::from_min_size(Pos2::new(list.left(), list.top() + rows.len() as f32 * ROW_H), Vec2::new(list.width(), MORE_H));
@@ -666,13 +707,21 @@ struct Look {
     border: Color32,
     border_width: f32,
     tint: Color32,
+    /// The accent glow of the agent in the focused pane (0 to 1).
+    glow: f32,
+    /// How it's on screen, and how far its "Viewing" pill is in (0 to 1).
+    seen: (Seen, f32),
 }
 
 /// The border a card heads for: the accent when it's the selected one in the focused pane,
-/// amber when its agent needs you, blue when it's done, a quiet hairline otherwise (brighter under the pointer).
-fn border_for(status: Status, selected: bool, focused: bool, hovered: bool, c: &Theme) -> (Color32, f32) {
+/// a softer accent ring when its agent is on screen (`seen`, see [`viewing::ring`]), amber
+/// when its agent needs you, blue when it's done, a quiet hairline otherwise (brighter under
+/// the pointer).
+fn border_for(status: Status, selected: bool, focused: bool, hovered: bool, seen: Option<Seen>, c: &Theme) -> (Color32, f32) {
     if selected && focused {
         (ACCENT.gamma_multiply(0.85), 1.5)
+    } else if let Some(seen) = seen {
+        viewing::ring(seen)
     } else if status == Status::NeedsYou {
         (c.yellow.gamma_multiply(0.45), 1.0)
     } else if status == Status::Done {
@@ -688,7 +737,8 @@ fn border_for(status: Status, selected: bool, focused: bool, hovered: bool, c: &
 
 /// A card's glass: its shadow (deeper when lifted), fill, top edge and border.
 fn card_body(p: &Painter, r: Rect, look: &Look) {
-    let Look { hover, lift, border, border_width, .. } = *look;
+    let Look { hover, lift, border, border_width, glow, .. } = *look;
+    viewing::glow(p, r, glow);
     let shadow = Shadow {
         offset: [0, (2.0 + 6.0 * lift) as i8],
         blur: (12.0 + 14.0 * lift) as u8,
@@ -738,9 +788,17 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
         title_right = at.x - 12.0;
     }
 
+    // "Viewing", left of them, while the agent is on screen (only its eye on a narrow card).
+    let x = tile.right() + 13.0;
+    let (seen, shown) = look.seen;
+    if shown > 0.01 {
+        let right = title_right + 4.0;
+        let left = viewing::pill(p, right, pill.center().y, seen, shown, viewing::compact(p, x, right));
+        title_right = title_right + (left - 8.0 - title_right) * shown;
+    }
+
     // The task, and the checkout it's working in. A pipeline's counts follow its name in
     // lighter type.
-    let x = tile.right() + 13.0;
     let title_room = (title_right - x).max(0.0);
     let HeaderText { title, counts, detail } = header_text(agent, team.map(|(size, _)| size));
     paint::faded_text(p, Pos2::new(x, r.top() + TITLE_Y), &title, paint::bold(14.0), c.text_bright, title_room, 18.0);
@@ -965,7 +1023,7 @@ fn row_indent(depth: usize) -> f32 {
 /// One helper's row in an open team: tile (indented for a helper's own helpers), its `tag`
 /// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
 /// in, and its status with how long it has been in it.
-fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, tag: &str) {
+fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, tag: &str, seen: Option<Seen>) {
     let c = f.c;
     let a = &m.agent;
     let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + row_indent(m.depth) + 13.0, row.center().y), Vec2::splat(26.0));
@@ -983,7 +1041,13 @@ fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, tag: &str) {
     p.galley(Pos2::new(label_x, row.center().y - label_g.size().y / 2.0), label_g, color);
     p.galley(Pos2::new(since_x, row.center().y - since_g.size().y / 2.0), since_g, c.text_dim);
 
-    let room = (dot.x - 14.0 - x).max(0.0);
+    // An eye left of the status while it's on screen.
+    let mut end = dot.x;
+    if let Some(seen) = seen {
+        end -= 18.0;
+        viewing::row_eye(p, Pos2::new(end, row.center().y), seen);
+    }
+    let room = (end - 14.0 - x).max(0.0);
     // The tag: a soft capsule, quieter than the task beside it. In a narrow row it gives way
     // to the fade like the text does.
     let line_y = row.top() + 16.0;
@@ -1102,6 +1166,20 @@ mod tests {
         assert!(narrow.cards.iter().all(|(_, r)| r.width() == 320.0));
     }
 
+    #[test]
+    fn a_viewed_card_has_an_accent_ring_under_the_keyboards_own() {
+        let c = Theme::from_config(&crate::config::Config::default());
+        let (primary, shared) = (viewing::ring(Seen::Primary), viewing::ring(Seen::Shared));
+        assert_eq!(border_for(Status::Working, false, true, false, Some(Seen::Primary), &c), primary);
+        assert_eq!(border_for(Status::Working, false, true, false, Some(Seen::Shared), &c), shared);
+        assert!(primary.1 > shared.1 && primary.0.a() > shared.0.a(), "the focused pane's agent is ringed more strongly");
+        // It says viewed over "needs you" (its pill still says that), but the selected card in
+        // the focused Agents pane keeps its own ring.
+        assert_eq!(border_for(Status::NeedsYou, false, true, false, Some(Seen::Shared), &c), shared);
+        assert_eq!(border_for(Status::Working, true, true, false, Some(Seen::Primary), &c), border_for(Status::Working, true, true, false, None, &c));
+        assert_ne!(border_for(Status::Idle, false, true, false, None, &c), shared);
+    }
+
     /// Paints `pane` showing `agents` in an 800×600 window, with `events`.
     fn frame(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, events: Vec<egui::Event>) {
         *time += 0.05;
@@ -1110,7 +1188,7 @@ mod tests {
         let _ = ctx.run(input, |ctx| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
                 let rect = ui.max_rect();
-                pane.paint(ui, ui.painter(), rect, 1, true, &theme, agents, &[], None);
+                pane.paint(ui, ui.painter(), rect, 1, true, &theme, agents, &[], None, &Viewing::default());
             });
         });
     }

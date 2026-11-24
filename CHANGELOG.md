@@ -6,6 +6,15 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Agents pane: the agents on screen say so. Each card whose agent is in the terminal tab
+  you're on (or the one you go back to from the Agents tab, where clicking a card took you)
+  has a "Viewing" pill with an eye and a soft accent ring: the one in the focused pane fully,
+  with a glow, and one sharing its tab (the other half of a split) more faintly. A zoomed tab
+  counts only its focused pane. In an open team a viewed helper's row has an accent rule and
+  an eye; on a narrow card the pill keeps only its eye.
+
 ## [0.13.0] - 2026-11-24
 
 ### Added

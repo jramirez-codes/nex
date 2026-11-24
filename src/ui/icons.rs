@@ -467,6 +467,29 @@ pub fn icon_grid(p: &Painter, r: Rect, c: Color32) {
     }
 }
 
+/// An eye (an agent being viewed): an almond outline around its pupil, a filled one when
+/// `on`, a ring when not.
+pub fn icon_eye(p: &Painter, r: Rect, c: Color32, on: bool) {
+    let ctr = r.center();
+    let w = r.width() / 2.0;
+    let h = r.height() * 0.36;
+    const N: usize = 10;
+    // Two arcs meeting at the corners: the upper lid left to right, the lower one back.
+    let lid = |t: f32, sign: f32| {
+        let x = -w + 2.0 * w * t;
+        ctr + Vec2::new(x, sign * h * (1.0 - (x / w).powi(2)))
+    };
+    let mut pts: Vec<Pos2> = (0..=N).map(|i| lid(i as f32 / N as f32, -1.0)).collect();
+    pts.extend((1..N).map(|i| lid(1.0 - i as f32 / N as f32, 1.0)));
+    p.add(Shape::closed_line(pts, Stroke::new(1.3_f32, c)));
+    let pupil = h * 0.62;
+    if on {
+        p.circle_filled(ctr, pupil, c);
+    } else {
+        p.circle_stroke(ctr, pupil - 0.4, Stroke::new(1.2_f32, c));
+    }
+}
+
 /// A round selection check: an outline when off, a filled disc with a tick when on.
 pub fn icon_check(p: &Painter, r: Rect, c: Color32, on: bool) {
     let ctr = r.center();

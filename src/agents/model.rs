@@ -309,6 +309,39 @@ impl Agent {
     }
 }
 
+/// The panes the Agents pane marks "Viewing": those of the terminal tab you're on, or the
+/// one you go back to from the Agents tab (where clicking a card takes you). Every pane of a
+/// split counts; the one with focus is the primary.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Viewing {
+    /// In the tab's layout order (only the focused one when it's zoomed).
+    pub panes: Vec<PaneId>,
+    /// The pane with focus (when that's the Agents pane itself, the one it was opened from).
+    pub primary: Option<PaneId>,
+}
+
+/// How an agent is on screen: in the focused pane, or in another pane of the same tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Seen {
+    Primary,
+    Shared,
+}
+
+impl Viewing {
+    /// Whether `a` is on screen, by the pane that shows it (a helper by its lead's; an agent
+    /// on an ssh host by the pane attached to it, so a detached one never is).
+    pub fn of(&self, a: &Agent) -> Option<Seen> {
+        let pane = a.shown_pane()?;
+        if self.primary == Some(pane) {
+            Some(Seen::Primary)
+        } else if self.panes.contains(&pane) {
+            Some(Seen::Shared)
+        } else {
+            None
+        }
+    }
+}
+
 /// The agents as the [`Tracker`] sorted them, shared rather than copied: whoever draws them
 /// holds the same `Arc`s. Reads as a slice of them.
 #[derive(Clone, Debug, Default)]

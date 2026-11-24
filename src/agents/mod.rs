@@ -7,7 +7,9 @@
 //! row: its tag (`Build-01`: what it's for and which one) and the task its
 //! terminal's title says it's on, live, over its folder. A pipeline's card says how its run
 //! stands (`Feature · 2 building · 1 in review`) over the last thing that happened, from the
-//! title `nex-host pipe` gives its terminal.
+//! title `nex-host pipe` gives its terminal. The agents on screen (in the terminal tab you're
+//! on, or go back to) say so: a "Viewing" pill and an accent ring, strongest for the one in
+//! the focused pane ([`model::Viewing`]).
 //!
 //! `model` (which panes are agents and what they're doing), `group` (teams), `motion` (how
 //! cards, rows and capsules move), `view` (drawing and the mouse), and here: the pane's state
