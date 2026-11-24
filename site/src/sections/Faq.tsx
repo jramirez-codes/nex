@@ -11,7 +11,7 @@ export default function Faq() {
       </Reveal>
       <Reveal className="faq">
         {FAQ.map(item => (
-          <details key={item.q} className="glass faq-item">
+          <details key={item.q} className="faq-item">
             <summary><h3>{item.q}</h3></summary>
             <p>{item.a}</p>
           </details>

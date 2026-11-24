@@ -43,7 +43,7 @@ export default function Performance() {
 
       <div className="perf-grid">
         {METRICS.map((m, i) => (
-          <Reveal key={m.key} delay={i * 90} className="glass perf-card">
+          <Reveal key={m.key} delay={i * 90} className="perf-card">
             <h3>{m.title}</h3>
             <p className="perf-what">{m.what}</p>
             <Chart metricKey={m.key} format={m.format} />
@@ -54,7 +54,7 @@ export default function Performance() {
       <p className="perf-note">
         {machine.cpu} · {machine.gpu} · Linux {machine.kernel} (Wayland).{' '}
         {Object.values(versions).join(', ')}. Default settings for each terminal.{' '}
-        <a href={BENCH_DOC}>How it was measured, and how to run it yourself →</a>
+        <a href={BENCH_DOC}>How it was measured, and how to run it yourself <span aria-hidden="true">›</span></a>
       </p>
     </section>
   )

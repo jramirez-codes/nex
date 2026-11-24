@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import CopyCommand from '../components/CopyCommand'
+import Icon from '../components/Icon'
 import Reveal from '../components/Reveal'
 import { REPO, RELEASES } from '../links'
 import { ALL_PLATFORMS, IOS_SRC, type Platform, setPlatform, usePlatform } from '../platform'
@@ -114,7 +115,7 @@ export default function Install() {
                 className={p.id === platform ? 'on' : ''}
                 onClick={() => setPlatform(p.id)}
               >
-                <span className="seg-icon" aria-hidden="true">{p.icon}</span>
+                <Icon name={p.icon} size={16} />
                 {p.label}
               </button>
             ))}
@@ -140,7 +141,7 @@ export default function Install() {
           <CopyCommand lines={method.lines} />
         </div>
         <p className="install-foot">
-          Each release ships a <code>SHA256SUMS</code> file to verify downloads. <a href={`${REPO}#installation`}>Full install guide →</a>
+          Each release ships a <code>SHA256SUMS</code> file to verify downloads. <a href={`${REPO}#installation`}>Full install guide <span aria-hidden="true">›</span></a>
         </p>
       </Reveal>
     </section>

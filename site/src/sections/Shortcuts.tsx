@@ -18,20 +18,20 @@ export default function Shortcuts() {
           plain Ctrl keys stay with your shell.
         </p>
       </Reveal>
-      <Reveal className="glass shortcuts">
+      <Reveal className="shortcuts">
         <div className="shortcuts-bar">
           <PlatformToggle />
         </div>
-        <dl className="shortcut-list">
+        <dl className="keylist">
           {SHORTCUTS.map(s => (
-            <div key={s.action} className="shortcut">
+            <div key={s.action}>
               <dt>{s.action}</dt>
               <dd><Keys combo={s[platform]} /></dd>
             </div>
           ))}
         </dl>
         <p className="shortcuts-more">
-          <a href={`${REPO}#keybindings`}>Every shortcut, including the file explorer →</a>
+          <a href={`${REPO}#keybindings`}>Every shortcut, including the file explorer <span aria-hidden="true">›</span></a>
         </p>
       </Reveal>
     </section>

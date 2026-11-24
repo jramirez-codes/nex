@@ -1,6 +1,6 @@
+import DemoVideo from '../components/DemoVideo'
+import Points from '../components/Points'
 import Reveal from '../components/Reveal'
-import { desktopOf, usePlatform } from '../platform'
-import './ssh.css'
 
 /** Copy follows the README's "SSH, built in" and "Agents on ssh hosts" sections, and CHANGELOG.md 0.10.0–0.12.0. */
 const POINTS = [
@@ -14,7 +14,7 @@ const POINTS = [
   },
   {
     title: 'Files and Changes on the host',
-    body: 'Ctrl+E or Ctrl+G (Cmd on a Mac) in an ssh pane opens the file explorer or the git Changes pane in that session’s folder on the host. git runs there, too.',
+    body: 'Ctrl+E or Ctrl+G (Cmd on a Mac) in an ssh pane opens the file explorer or the git Changes pane in that session’s folder on the host.',
   },
   {
     title: 'Your mic, on the server',
@@ -22,11 +22,11 @@ const POINTS = [
   },
   {
     title: 'One login',
-    body: 'Keys and agents just work. For password hosts, nex offers to turn on connection sharing once, and everything after rides on the login you typed.',
+    body: 'Keys and agents just work. For password hosts, nex offers to turn on connection sharing once, and everything after rides on that login.',
   },
   {
     title: 'Plain ssh, one small helper',
-    body: 'No wrapper command. nex reuses the pane’s own ssh options, and installs its helper, nex-host, in ~/.nex on the host (no root) so agents outlive the pane. With ssh-agents = false, nothing is installed and plain ssh still works.',
+    body: 'No wrapper command. nex installs its helper, nex-host, in ~/.nex on the host (no root) so agents outlive the pane. ssh-agents = false skips it.',
   },
 ]
 
@@ -37,68 +37,46 @@ Match exec "test x$TERM_PROGRAM = xnex"
   ControlPersist 60`
 
 export default function Ssh() {
-  const platform = desktopOf(usePlatform())
-  const paste = platform === 'mac' ? 'Cmd+V' : 'Ctrl+V'
   return (
-    <section className="section ssh" id="ssh">
-      <Reveal className="glass ssh-card">
-        <div className="ssh-intro">
-          <p className="eyebrow">Built in · SSH</p>
-          <h2 className="title">SSH that{' '}<br />follows you.</h2>
-          <p className="lede">
-            Run plain <code>ssh</code> and the rest of nex comes with you: splits open on the same
-            server, and files you drop or paste land there too. Paste a screenshot into a remote
-            Claude Code and it just gets a path it can open.
-          </p>
-        </div>
-
-        {/* A pane running ssh, split once, with a file dropped into the new split. */}
-        <div className="ssh-demo" role="img" aria-label={`An ssh pane split in two: both halves are on devbox in ~/app, and a dropped screenshot is uploaded and its remote path typed. Paste works the same with ${paste}.`}>
-          <div className="ssh-pane">
-            <div className="ssh-head"><span className="ssh-dot" />ssh devbox <span className="ssh-dir">~/app</span></div>
-            <pre className="ssh-body" aria-hidden="true">
-              <span className="p">you@devbox</span>:<span className="d">~/app</span>$ git pull{'\n'}
-              Already up to date.{'\n'}
-              <span className="p">you@devbox</span>:<span className="d">~/app</span>$ <span className="ssh-cursor" />
-            </pre>
-          </div>
-          <div className="ssh-pane ssh-pane-new">
-            <div className="ssh-head"><span className="ssh-dot" />ssh devbox <span className="ssh-dir">~/app</span></div>
-            <pre className="ssh-body" aria-hidden="true">
-              <span className="p">you@devbox</span>:<span className="d">~/app</span>$ claude{'\n'}
-              <span className="ssh-typed">/tmp/nex.k3Fa9Q/screenshot.png</span>
-            </pre>
-            <div className="ssh-file" aria-hidden="true">
-              <span className="ssh-file-icon" />screenshot.png
-            </div>
-            <div className="ssh-toast" aria-hidden="true">Uploaded to devbox</div>
-          </div>
-        </div>
+    <section className="section" id="ssh">
+      <Reveal className="section-head">
+        <p className="eyebrow">SSH</p>
+        <h2 className="title">SSH that{' '}<br />follows you.</h2>
+        <p className="lede">
+          Run plain <code>ssh</code> and the rest of nex comes with you: splits open on the same
+          server, Files and Changes work there, and files you drop or paste land there too.
+        </p>
       </Reveal>
 
-      <div className="ssh-points">
-        {POINTS.map((p, i) => (
-          <Reveal key={p.title} delay={i * 70} className="ssh-point">
-            <h3>{p.title}</h3>
-            <p>{p.body}</p>
-          </Reveal>
-        ))}
-      </div>
+      <Reveal>
+        <DemoVideo
+          name="ssh"
+          label="ssh localhost, then a split right opens on the same host and folder; Ctrl+E opens the file explorer and Ctrl+G the git Changes pane, both on the host"
+          fallback={{
+            name: 'hero',
+            label: 'Over ssh, new tabs open on the same server: one with the git Changes pane, another with a file explorer, both on the host',
+          }}
+          width={1200}
+          height={750}
+        />
+      </Reveal>
 
-      <Reveal className="ssh-config">
-        <div className="ssh-config-text">
-          <h3>Password hosts, asked once</h3>
+      <Points items={POINTS} />
+
+      <Reveal className="aside">
+        <div>
+          <h3>Password hosts, asked once.</h3>
           <p>
             Uploads and new sessions never type a password. When a host wants one, nex offers to
             add this block to the end of <code>~/.ssh/config</code>. It only matches ssh started
             inside nex, your own settings still win, and deleting it undoes it.
           </p>
-          <p className="ssh-off">
+          <p>
             Rather not? <code>ssh-upload = false</code> and <code>ssh-follow = false</code> turn
             each half off.
           </p>
         </div>
-        <pre className="ssh-code"><code>{SHARING}</code></pre>
+        <pre className="code"><code>{SHARING}</code></pre>
       </Reveal>
     </section>
   )

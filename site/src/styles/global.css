@@ -12,22 +12,26 @@
   font-display: swap;
 }
 
+/* One restrained palette: near-black, one blue, a few neutral greys. */
 :root {
-  --bg: #0b0a0d;
-  --surface: rgba(28, 25, 32, 0.62);
-  --surface-solid: #17151b;
-  --hairline: rgba(255, 255, 255, 0.09);
-  --text: #f5f2f6;
-  --text-2: #b9b3bf;
-  --text-3: #7d7783;
-  --accent: #6ca8ff;
-  --violet: #c792ea;
-  --grad: linear-gradient(120deg, #c792ea 0%, #8fa6ff 50%, #6cb6ff 100%);
-  --radius: 22px;
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+  --bg: #000;
+  --surface: #161617;
+  --fill: rgba(255, 255, 255, 0.06);
+  --hairline: rgba(255, 255, 255, 0.12);
+  --text: #f5f5f7;
+  --text-2: #a1a1a6;
+  --text-3: #6e6e73;
+  --accent: #2997ff;
+  --accent-hover: #0077ed;
+  --radius: 18px;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Inter',
+    'Segoe UI', Roboto, Arial, sans-serif;
   --mono: 'nex mono', 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
-  --page: min(1080px, 100% - 32px - env(safe-area-inset-left) - env(safe-area-inset-right));
+  /* Recordings get a little more room than text, which stops at 980px. */
+  --gutter: calc(32px + env(safe-area-inset-left) + env(safe-area-inset-right));
+  --page: min(1080px, 100% - var(--gutter));
+  --text-w: min(980px, 100% - var(--gutter));
+  --gap: 140px; /* between sections */
   color-scheme: dark;
 }
 
@@ -41,7 +45,8 @@ body {
   color: var(--text);
   font-family: var(--font);
   font-size: 17px;
-  line-height: 1.5;
+  line-height: 1.47;
+  letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
   -webkit-tap-highlight-color: transparent;
@@ -53,17 +58,17 @@ button { -webkit-tap-highlight-color: transparent; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 img { max-width: 100%; display: block; }
+.icon { flex: none; display: inline-block; vertical-align: -0.15em; }
 code, kbd { font-family: var(--mono); font-size: 0.88em; }
 kbd {
   padding: 1px 6px;
   border: 1px solid var(--hairline);
-  border-bottom-width: 2px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--fill);
   white-space: nowrap;
 }
 
-main { position: relative; z-index: 1; }
+main { padding-bottom: var(--gap); }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .keys { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
@@ -72,13 +77,10 @@ main { position: relative; z-index: 1; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 11px;
-  border-radius: 980px;
-  border: 1px solid var(--hairline);
-  background: rgba(255, 255, 255, 0.04);
   color: var(--text-2);
   white-space: nowrap;
 }
+a.chip:hover { color: var(--text); text-decoration: none; }
 
 /* Segmented control: install methods and the macOS / Linux switch. */
 .seg {
@@ -86,8 +88,7 @@ main { position: relative; z-index: 1; }
   gap: 2px;
   padding: 3px;
   border-radius: 11px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--hairline);
+  background: var(--fill);
 }
 .seg-compact { display: inline-flex; }
 .seg button {
@@ -107,71 +108,139 @@ main { position: relative; z-index: 1; }
   transition: color 0.2s, background 0.2s;
 }
 .seg button:hover { color: var(--text); }
-.seg button.on {
-  color: var(--text);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 2px 8px rgba(0, 0, 0, 0.35);
-}
-.seg-icon { font-size: 13px; line-height: 1; }
+.seg button.on { color: var(--text); background: rgba(255, 255, 255, 0.14); }
 
-.section { width: var(--page); margin: 0 auto; padding: 120px 0; }
-.section-head { text-align: center; max-width: 720px; margin: 0 auto 64px; }
+/* A section: one headline, one short lede, one large recording. */
+.section { width: var(--page); margin: 0 auto; padding-top: var(--gap); }
+.section-head { width: var(--text-w); max-width: 100%; margin: 0 auto 56px; text-align: center; }
 .eyebrow {
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--violet);
-  margin: 0 0 12px;
+  color: var(--text-2);
+  margin: 0 0 8px;
 }
 .title {
-  font-size: clamp(36px, 6vw, 64px);
-  line-height: 1.05;
+  font-size: clamp(40px, 6.4vw, 64px);
+  line-height: 1.06;
   font-weight: 700;
   letter-spacing: -0.03em;
   margin: 0 0 20px;
   text-wrap: balance;
 }
 .lede {
-  font-size: clamp(18px, 2.2vw, 21px);
+  max-width: 720px;
+  margin: 0 auto;
+  font-size: clamp(19px, 2.2vw, 21px);
+  line-height: 1.4;
   color: var(--text-2);
-  margin: 0;
   text-wrap: pretty;
 }
-.gradient-text {
-  background: var(--grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.lede strong, .lede b { color: var(--text); font-weight: 600; }
+
+/* The plain rounded frame every recording sits in. */
+.frame {
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
 }
+.frame video { display: block; width: 100%; height: auto; }
+
+/* A short plain list of points under a recording: title and a line or two, no cards. */
+.points {
+  list-style: none;
+  width: var(--text-w);
+  max-width: 100%;
+  margin: 56px auto 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px 40px;
+}
+.points h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+.points p { margin: 0; color: var(--text-2); font-size: 15px; line-height: 1.5; }
+
+/* A plain list of shortcuts: what it does, then its keys. */
+.keylist {
+  width: var(--text-w);
+  max-width: 760px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 48px;
+}
+.keylist > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 52px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.keylist dt { color: var(--text); font-size: 15px; }
+.keylist dd { margin: 0; text-align: right; }
+
+/* A code block of real config. */
+.code {
+  margin: 0;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  font: 13.5px/1.65 var(--mono);
+  color: var(--text-2);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.aside {
+  width: var(--text-w);
+  max-width: 100%;
+  margin: 72px auto 0;
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 40px;
+  align-items: center;
+}
+.aside h3 { margin: 0 0 10px; font-size: 24px; letter-spacing: -0.02em; line-height: 1.2; }
+.aside p { margin: 0 0 12px; color: var(--text-2); font-size: 15px; }
+.aside p:last-child { margin-bottom: 0; }
+
+.note { width: var(--text-w); max-width: 100%; margin: 40px auto 0; text-align: center; font-size: 14px; color: var(--text-3); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 14px 24px; justify-content: center; align-items: center; margin-top: 32px; }
 
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 12px 22px;
+  padding: 11px 22px;
   border-radius: 980px;
   font-size: 17px;
-  font-weight: 500;
-  border: 1px solid transparent;
-  transition: transform 0.2s, background 0.2s;
+  font-weight: 400;
+  border: 0;
+  transition: background 0.2s;
 }
-.btn:hover { text-decoration: none; transform: translateY(-1px); }
-.btn-primary { background: var(--text); color: #0b0a0d; }
-.btn-primary:hover { background: #fff; }
-.btn-ghost { color: var(--text); border-color: var(--hairline); background: rgba(255, 255, 255, 0.04); }
-.btn-ghost:hover { background: rgba(255, 255, 255, 0.09); }
+.btn:hover { text-decoration: none; }
+.btn-primary { background: var(--accent-hover); color: #fff; }
+.btn-primary:hover { background: #0062cc; }
+/* Apple's secondary action: a plain link with a chevron. */
+.btn-link { padding: 11px 4px; color: var(--accent); }
+.btn-link:hover { text-decoration: underline; }
 
+/* Glass is the exception: only the Install card uses it. */
 .glass {
-  background: var(--surface);
+  background: rgba(28, 28, 30, 0.72);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
 }
 
 /* Hidden only once JS is known to run (index.html sets html.js), so prerendered content
    stays visible to crawlers and no-JS readers. */
-.js .reveal { opacity: 0; transform: translateY(32px); transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.js .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1); }
 .js .reveal.in { opacity: 1; transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -179,14 +248,22 @@ main { position: relative; z-index: 1; }
   .js .reveal { opacity: 1; transform: none; transition: none; }
 }
 
+@media (max-width: 860px) {
+  :root { --gap: 100px; }
+  .points { grid-template-columns: 1fr 1fr; }
+  .aside { grid-template-columns: 1fr; gap: 24px; }
+}
 @media (max-width: 640px) {
+  :root { --gap: 72px; --radius: 12px; }
   body { font-size: 16px; }
-  .section { padding: 72px 0; }
-  .section-head { margin-bottom: 36px; }
+  .section-head { margin-bottom: 32px; }
   .title { font-size: clamp(32px, 9vw, 44px); }
   .title br { display: none; }
   .lede { font-size: 17px; }
-  .btn { padding: 13px 22px; }
-  /* Phones repaint backdrop blur on every scroll frame; a denser fill looks the same and scrolls smoothly. */
-  .glass { background: rgba(24, 22, 28, 0.86); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .points { grid-template-columns: 1fr; gap: 20px; margin-top: 36px; }
+  .keylist { grid-template-columns: 1fr; }
+  .aside { margin-top: 48px; }
+  .code { font-size: 12.5px; padding: 16px; }
+  /* Phones repaint backdrop blur on every scroll frame; a solid fill looks the same and scrolls smoothly. */
+  .glass { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }

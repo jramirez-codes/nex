@@ -16,7 +16,7 @@ export default function Compare() {
         <h2 className="title">One app instead of three.</h2>
         <p className="lede">Other terminals leave layout to tmux and files to another window. nex does both, in the same GPU-drawn window.</p>
       </Reveal>
-      <Reveal className="glass compare-wrap">
+      <Reveal className="compare-wrap">
         <table className="compare">
           <thead>
             <tr>
