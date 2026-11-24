@@ -20,6 +20,12 @@
 //! An explorer opened from a terminal in an `ssh` session shows that session's folder on the
 //! host (see `fs/remote.rs`): listings load in the background, and file operations run there.
 //! Files can't be copied between the host and this machine, or opened with a local app.
+//!
+//! Folders are read off the UI thread wherever nobody is waiting for the answer: a folder on
+//! an ssh host always, and one on this machine when it is re-read because time passed or
+//! files changed (`refresh_if_stale`, which the app calls for the explorers on screen only).
+//! The listing shown, its selection and its scroll position stay as they are until the new
+//! one arrives. Opening a folder here reads it right away.
 
 pub mod fs;
 mod input;
@@ -30,7 +36,7 @@ mod view;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use egui::{Pos2, Rect};
@@ -69,19 +75,22 @@ pub enum Request {
     NeedsLogin(String),
 }
 
-/// What an explorer on an ssh host keeps: how to reach it, and the listing on its way.
+/// What an explorer on an ssh host keeps: how to reach it, and what its listings said.
 struct Remote {
     transport: Arc<Transport>,
     /// The home folder there, once a listing has said.
     home: Option<PathBuf>,
     ctx: egui::Context,
-    /// The listing being read, and which request it answers.
-    job: Option<mpsc::Receiver<(u64, Result<Listing, ExecError>)>>,
-    generation: u64,
     /// What to select once the next listing arrives.
     after: Option<After>,
     /// A login failure was reported to the app (once until a listing works again).
     told_login: bool,
+}
+
+/// What reading a folder in the background gave: this machine's, or an ssh host's.
+enum Answer {
+    Local(std::io::Result<Vec<Entry>>),
+    Remote(Result<Listing, ExecError>),
 }
 
 /// What to do with a listing still on its way, once it's there.
@@ -140,6 +149,12 @@ pub struct FileExplorer {
     layout: Option<Layout>,
     last_refresh: Instant,
     seen_generation: u64,
+    /// The listing being read in the background, and which request it answers.
+    listing: Option<mpsc::Receiver<(u64, Answer)>>,
+    listing_generation: u64,
+    /// The context to repaint when a background listing is in: the one this was last
+    /// painted in (an explorer on an ssh host has it from the start).
+    repaint: Arc<OnceLock<egui::Context>>,
     /// Watching `dir` (the folder it was made for), so changes show up right away.
     watch: Option<(PathBuf, crate::platform::DirWatch)>,
     press: Option<Press>,
@@ -151,6 +166,8 @@ pub struct FileExplorer {
     status: Option<(String, bool, Instant)>,
     /// Items waiting for the user to confirm they should be permanently deleted.
     confirm_delete: Option<Vec<PathBuf>>,
+    /// One of them is a folder (not a link to one), worked out when the dialog was asked for.
+    delete_has_folder: bool,
     /// Folders visited before and after this one (Back / Forward), most recent last.
     back: Vec<PathBuf>,
     forward: Vec<PathBuf>,
@@ -185,11 +202,15 @@ impl FileExplorer {
     /// An explorer showing `dir` on the host `transport` reaches. `dir` may start with `~`
     /// (it's read as the host's home folder).
     pub fn new_remote(ctx: &egui::Context, transport: Arc<Transport>, dir: PathBuf) -> Self {
-        let remote = Remote { transport, home: None, ctx: ctx.clone(), job: None, generation: 0, after: None, told_login: false };
+        let remote = Remote { transport, home: None, ctx: ctx.clone(), after: None, told_login: false };
         Self::make(dir, Some(remote))
     }
 
     fn make(dir: PathBuf, remote: Option<Remote>) -> Self {
+        let repaint = Arc::new(OnceLock::new());
+        if let Some(r) = &remote {
+            let _ = repaint.set(r.ctx.clone());
+        }
         let mut b = Self {
             dir,
             entries: Vec::new(),
@@ -209,6 +230,9 @@ impl FileExplorer {
             layout: None,
             last_refresh: Instant::now(),
             seen_generation: FS_GENERATION.load(Ordering::Relaxed),
+            listing: None,
+            listing_generation: 0,
+            repaint,
             watch: None,
             press: None,
             last_pos: None,
@@ -216,6 +240,7 @@ impl FileExplorer {
             jobs: Vec::new(),
             status: None,
             confirm_delete: None,
+            delete_has_folder: false,
             back: Vec::new(),
             forward: Vec::new(),
             location: None,
@@ -277,56 +302,90 @@ impl FileExplorer {
         self.remote.as_ref().map(|r| r.ctx.clone()).unwrap_or_default()
     }
 
-    /// The folder is still being read (on an ssh host).
+    /// The folder is still being read (on an ssh host; one on this machine keeps showing
+    /// what it has while it is re-read).
     pub fn loading(&self) -> bool {
-        self.remote.as_ref().is_some_and(|r| r.job.is_some())
+        self.remote.is_some() && self.listing.is_some()
     }
 
-    /// Re-read the directory, keeping the same entry selected if it still exists.
+    /// Re-read the directory, keeping the same entry selected if it still exists. A folder on
+    /// this machine is read right away (someone opened it and is waiting); one on an ssh
+    /// host in the background.
     pub fn refresh(&mut self) {
         self.last_refresh = Instant::now();
         if self.remote.is_some() {
             self.start_listing();
             return;
         }
-        if self.watch.as_ref().is_none_or(|(d, _)| *d != self.dir) {
-            self.watch = crate::platform::DirWatch::new(&self.dir).map(|w| (self.dir.clone(), w));
-        }
+        self.watch_dir();
+        // A background read on its way is older than this one: forget it.
+        self.listing = None;
+        self.listing_generation += 1;
         let entries = read_entries(&self.dir, self.show_hidden).map_err(|e| e.to_string());
         self.set_entries(entries);
     }
 
-    /// Read the folder on the host in the background; [`poll_listing`](Self::poll_listing)
-    /// takes the answer. A listing already on its way is forgotten.
+    /// Re-read the directory without holding up the UI thread, on this machine too: the
+    /// listing shown, its selection and scroll position stay until the new one is in.
+    pub(in crate::file_explorer) fn refresh_in_background(&mut self) {
+        self.last_refresh = Instant::now();
+        if self.remote.is_none() {
+            self.watch_dir();
+        }
+        self.start_listing();
+    }
+
+    /// Watch the folder shown, if it isn't watched yet.
+    fn watch_dir(&mut self) {
+        if self.watch.as_ref().is_none_or(|(d, _)| *d != self.dir) {
+            self.watch = crate::platform::DirWatch::new(&self.dir).map(|w| (self.dir.clone(), w));
+        }
+    }
+
+    /// Read the folder on another thread; [`poll_listing`](Self::poll_listing) takes the
+    /// answer. A listing already on its way is forgotten.
     fn start_listing(&mut self) {
-        let Some(r) = self.remote.as_mut() else { return };
-        r.generation += 1;
-        let (generation, transport, ctx, dir) = (r.generation, r.transport.clone(), r.ctx.clone(), self.dir.clone());
+        self.listing_generation += 1;
+        let (generation, dir, show_hidden) = (self.listing_generation, self.dir.clone(), self.show_hidden);
+        let (transport, repaint) = (self.transport().cloned(), self.repaint.clone());
         let (tx, rx) = mpsc::channel();
-        r.job = Some(rx);
+        self.listing = Some(rx);
         std::thread::spawn(move || {
-            let listing = fs::remote::list(&transport, &dir);
-            let _ = tx.send((generation, listing));
-            ctx.request_repaint();
+            let answer = match &transport {
+                Some(t) => Answer::Remote(fs::remote::list(t, &dir)),
+                None => Answer::Local(read_entries(&dir, show_hidden)),
+            };
+            let _ = tx.send((generation, answer));
+            // Looked up after sending: a paint that sets it later also polls later.
+            if let Some(ctx) = repaint.get() {
+                ctx.request_repaint();
+            }
         });
     }
 
-    /// Show a listing from the host once it's there.
+    /// Show a listing read in the background once it's there.
     pub(in crate::file_explorer) fn poll_listing(&mut self) {
-        let Some(r) = self.remote.as_mut() else { return };
-        let Some(rx) = &r.job else { return };
-        let (generation, listing) = match rx.try_recv() {
+        let Some(rx) = &self.listing else { return };
+        let (generation, answer) = match rx.try_recv() {
             Ok(answer) => answer,
             Err(mpsc::TryRecvError::Empty) => return,
             Err(mpsc::TryRecvError::Disconnected) => {
-                r.job = None;
+                self.listing = None;
                 return;
             }
         };
-        if generation != r.generation {
+        if generation != self.listing_generation {
             return;
         }
-        r.job = None;
+        self.listing = None;
+        let listing = match answer {
+            Answer::Local(entries) => {
+                self.set_entries(entries.map_err(|e| e.to_string()));
+                return;
+            }
+            Answer::Remote(listing) => listing,
+        };
+        let Some(r) = self.remote.as_mut() else { return };
         let after = r.after.take();
         let entries = match listing {
             Ok(l) => {
@@ -384,15 +443,17 @@ impl FileExplorer {
         self.marked.retain(|p| entries.iter().any(|e| &e.path == p));
     }
 
-    /// Refresh if the listing hasn't been read for a while, or a file operation finished.
+    /// Refresh, in the background, if the listing hasn't been read for a while or a file
+    /// operation finished. Also takes a listing that has arrived.
     pub fn refresh_if_stale(&mut self) {
+        self.poll_listing();
         let generation = FS_GENERATION.load(Ordering::Relaxed);
         let interval = if self.remote.is_some() { REMOTE_REFRESH_INTERVAL } else { REFRESH_INTERVAL };
-        // A slow host: one read at a time, unless files changed meanwhile.
-        let due = self.last_refresh.elapsed() >= interval && !self.loading();
+        // A slow host or disk: one read at a time, unless files changed meanwhile.
+        let due = self.last_refresh.elapsed() >= interval && self.listing.is_none();
         if generation != self.seen_generation || due {
             self.seen_generation = generation;
-            self.refresh();
+            self.refresh_in_background();
         }
     }
 
