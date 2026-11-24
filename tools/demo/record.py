@@ -30,6 +30,7 @@ OUTPUT = "NEXREC"
 W, H = 1440, 900  # window size, in pixels: big enough for btop in half the window
 # Pane animations last 0.12–0.18 s, so frames have to come often to show them: one grim
 # takes ~30 ms, and a few running side by side reach ~47 fps.
+OUT_W, OUT_MARGIN = 1920, 60  # the headless output's width, and the room around the window
 FPS = 50
 GRABBERS = 3
 # The promo's demo repo and the rc of its shell on the "server" (this machine, over ssh).
@@ -240,15 +241,24 @@ def cleanup_promo() -> None:
         shutil.rmtree(tree, ignore_errors=True)
 
 
-def add_output() -> tuple[int, int, int]:
+def add_output() -> tuple[int, int, int, int]:
     """Create the headless output to the right of the real monitors (so they keep their
-    positions). Returns (workspace, x, y)."""
+    positions). Returns (workspace, x, y, top): the output's place in the layout, and how
+    far down it the window has to start.
+
+    Hyprland draws your pointer on the headless output too, at the spot it has on your own
+    monitor. So the output is taller than any real monitor and the window goes below their
+    height, where the pointer can't follow."""
+    top = max(round(m["height"] / m["scale"]) for m in hypr_json("monitors")) + OUT_MARGIN
     hypr("output", "create", "headless", OUTPUT)
-    hypr("keyword", "monitor", f"{OUTPUT},1920x1080@60,auto-right,1")
+    hypr("keyword", "monitor", f"{OUTPUT},{OUT_W}x{top + H + OUT_MARGIN}@60,auto-right,1")
     time.sleep(1.0)
     for m in hypr_json("monitors"):
         if m["name"] == OUTPUT:
-            return m["activeWorkspace"]["id"], m["x"], m["y"]
+            if m["height"] < top + H:
+                raise SystemExit(f"the headless output came up {m['width']}x{m['height']}, too short "
+                                 f"to keep the window below your pointer's reach ({top + H} needed)")
+            return m["activeWorkspace"]["id"], m["x"], m["y"], top
     raise SystemExit("headless output never appeared")
 
 
@@ -278,13 +288,15 @@ def main() -> None:
         setup_promo()
     tmp = Path(tempfile.mkdtemp(prefix="nex-demo-"))
     write_config(tmp)
-    ws, _, _ = add_output()
+    ws, mon_x, mon_y, top = add_output()
     # Sending keys focuses the window, which would warp your pointer onto the hidden output
     # (and into the frames). Keep it where it is until we are done.
     warps = hypr_json("getoption", "cursor:no_warps")["int"]
     hypr("keyword", "cursor:no_warps", "true")
     try:
-        x, y = (1920 - W) // 2, (1080 - H) // 2  # window rules place relative to the monitor
+        # On the headless output, in layout coordinates: a `move` rule is absolute, and a
+        # window left over your own monitor is drawn there (and under your windows).
+        x, y = mon_x + (OUT_W - W) // 2, mon_y + top
         rules = f"workspace {ws} silent; float; size {W} {H}; move {x} {y}"
         # Its own state folder too: your saved session and remembered ssh hosts (whose
         # agents would show in the Agents pane) are left out of the take, and alone.
@@ -307,6 +319,9 @@ def main() -> None:
         time.sleep(1.5)  # first shell and prompt
         client = find_window(f"XDG_CONFIG_HOME={tmp}")
         cx, cy = client["at"]
+        if not (mon_x <= cx <= mon_x + OUT_W - W and cy >= mon_y + top):
+            raise SystemExit(f"nex is at {cx},{cy}, not at {x},{y} on the headless output: "
+                             "the take would show your own screen or pointer")
         geometry = f"{cx},{cy} {W}x{H}"
 
         rec = Recorder(geometry, out_dir / "take.mkv")
