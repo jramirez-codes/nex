@@ -81,6 +81,8 @@ pub struct App {
     term_rects: Vec<(PaneId, Rect)>,
     /// Card rects (including header), used for directional focus.
     card_rects: Vec<(PaneId, Rect)>,
+    /// The lists drawing the panes fills each frame, kept for their allocations.
+    draw_bufs: workspace::draw::DrawBuffers,
     /// Where the layout put the focused pane's card this frame, and how it looked (the
     /// connect handoff lands there).
     focused_card: Option<animation::handoff::FocusedCard>,
@@ -212,6 +214,7 @@ impl App {
             pending: Vec::new(),
             term_rects: Vec::new(),
             card_rects: Vec::new(),
+            draw_bufs: Default::default(),
             focused_card: None,
             handoff: None,
             hostname,

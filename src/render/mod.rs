@@ -125,8 +125,10 @@ pub struct FrameKey {
     pub focused: bool,
     pub cursor_visible: bool,
     pub bg_alpha: f32,
-    pub matches: Vec<Match>,
-    pub current_match: Option<Match>,
+    /// The search shown on this pane: its results' generation
+    /// ([`crate::terminal::search::Search::results_generation`]) and the focused match's
+    /// index. They stand for the matches, which can be thousands, without holding them.
+    pub search: Option<(u64, Option<usize>)>,
     pub link: Option<Match>,
     /// Changes when the glyph cache (and so every texture coordinate) is invalidated.
     pub glyph_epoch: (u64, [usize; 2]),
