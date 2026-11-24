@@ -5,8 +5,8 @@ import AnimatedLogo from './AnimatedLogo'
 import Icon, { type IconName } from './Icon'
 import './nav.css'
 
-/** The site header's short list. It scrolls away; ProductBar, under it, stays at the top
- *  with the product's own sections (Overview, Agents, SSH, Specs). */
+/** The site's one header, sticky at the top: the brand, a short list of sections, GitHub and
+ *  Download (a burger sheet under 700px). global.css's scroll-padding-top clears its height. */
 const LINKS: [string, string, IconName][] = [
   ['Agents', '#agents', 'agents'],
   ['Features', '#features', 'features'],

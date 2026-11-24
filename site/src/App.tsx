@@ -1,5 +1,4 @@
 import Nav from './components/Nav'
-import ProductBar from './components/ProductBar'
 import Hero from './sections/Hero'
 import Highlights from './sections/Highlights'
 import Agents from './sections/Agents'
@@ -18,7 +17,6 @@ export default function App() {
   return (
     <>
       <Nav />
-      <ProductBar />
       <main>
         <Hero />
         <Highlights />

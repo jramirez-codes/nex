@@ -50,7 +50,7 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; scroll-padding-top: 60px; -webkit-text-size-adjust: 100%; }
+html { scroll-behavior: smooth; scroll-padding-top: calc(56px + env(safe-area-inset-top)); /* the sticky Nav (44px) + a little air */ -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
