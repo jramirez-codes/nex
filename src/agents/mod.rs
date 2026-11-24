@@ -2,17 +2,18 @@
 //! or Codex pane, grouped by what it's doing (needs you, done, working, idle), with how long it
 //! has been at it. Clicking a card (or Enter) jumps to the agent's pane. An agent on an ssh
 //! host that started others, or a pipeline, is one card for its whole team: its helpers show
-//! as capsules (a pipeline's as steps), and open into a list inside the card. There each
-//! helper is a row: its tag (`Build-01`: what it's for and which one) and the task its
+//! as capsules (a pipeline's as steps), and open into a list inside the card, the ones that
+//! need you first (a helper changing state glides to its new place). There each helper is a
+//! row: its tag (`Build-01`: what it's for and which one) and the task its
 //! terminal's title says it's on, live, over its folder. A pipeline's card says how its run
 //! stands (`Feature · 2 building · 1 in review`) over the last thing that happened, from the
 //! title `nex-host pipe` gives its terminal.
 //!
-//! `model` (which panes are agents and what they're doing), `group` (teams), `view` (drawing
-//! and the mouse), and here: the pane's state and keys. The app keeps one
-//! [`model::Tracker`] for every Agents pane, updated with the process poll. Its agents are
-//! shared (`Arc`) down to the cards, and the teams made from them are kept until the list
-//! changes: a frame copies none of them.
+//! `model` (which panes are agents and what they're doing), `group` (teams), `motion` (how
+//! cards, rows and capsules move), `view` (drawing and the mouse), and here: the pane's state
+//! and keys. The app keeps one [`model::Tracker`] for every Agents pane, updated with the
+//! process poll. Its agents are shared (`Arc`) down to the cards, and the teams made from
+//! them are kept until the list changes: a frame copies none of them.
 
 mod group;
 pub mod model;

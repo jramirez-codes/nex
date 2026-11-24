@@ -11,6 +11,7 @@ use crate::terminal::Terminal;
 use crate::app::App;
 use crate::app::actions::Action;
 use crate::app::input::keymap::{self, ClipboardKey};
+use crate::app::workspace::PaneMut;
 
 impl App {
     pub(in crate::app) fn handle_keyboard(&mut self, ctx: &egui::Context) {
@@ -153,13 +154,20 @@ impl App {
     /// to the remote host (their remote paths are typed once there). Returns whether it did.
     fn upload_pasted_files(&mut self, ctx: &egui::Context, id: crate::layout::PaneId) -> bool {
         let Some(target) = self.ssh_target(id) else { return false };
-        let files = match &self.dnd {
+        let files = match &mut self.dnd {
             Some(dnd) => dnd.clipboard_files(),
             None => platform::clipboard_files(),
         };
         let Some(files) = files else { return false };
         self.upload_clipboard(ctx, id, target, files);
         true
+    }
+
+    /// Whether a paste now would upload the clipboard's files or image (see
+    /// `upload_pasted_files`): asked when a paste key goes down, by the `Dnd` that reads the
+    /// clipboard off the UI thread, to know what to read for when the paste lands.
+    pub(in crate::app) fn paste_uploads_files(&mut self) -> bool {
+        self.focused_pane().filter(|id| self.panes.contains_key(id)).is_some_and(|id| self.ssh_target(id).is_some())
     }
 
     pub(in crate::app) fn focused_terminal(&mut self) -> Option<&mut Terminal> {
@@ -188,26 +196,25 @@ impl App {
     /// A key for the focused pane (no shortcut lookup): its own keys for an Agents, Changes or
     /// file explorer pane, the search field while it's open, else the shell.
     pub(in crate::app) fn key_to_pane(&mut self, key: Key, modifiers: Modifiers) {
-        let focused = self.focused_pane();
-        match focused.and_then(|id| self.pane_kind(id).map(|kind| (id, kind))) {
-            Some((id, PaneKind::Agents)) => {
-                self.agents.get_mut(&id).unwrap().key(key, modifiers);
+        let searching = self.search.is_some();
+        match self.focused_pane().and_then(|id| self.pane_mut(id)) {
+            Some(PaneMut::Agents(a)) => {
+                a.key(key, modifiers);
             }
-            Some((id, PaneKind::Diff)) => {
-                self.diffs.get_mut(&id).unwrap().key(key, modifiers);
+            Some(PaneMut::Diff(d)) => {
+                d.key(key, modifiers);
             }
-            Some((id, PaneKind::Explorer)) => {
-                self.explorers.get_mut(&id).unwrap().key(key, modifiers);
+            Some(PaneMut::Explorer(b)) => {
+                b.key(key, modifiers);
             }
-            Some((_, PaneKind::Terminal)) | None if self.search.is_some() => self.search_key(key, modifiers),
-            Some((_, PaneKind::Terminal)) | None => {
-                if let Some(t) = self.focused_terminal() {
-                    let mode = *t.term.lock().mode();
-                    if let Some(bytes) = input::encode_key(key, modifiers, mode) {
-                        t.input(bytes);
-                    }
+            Some(PaneMut::Terminal(_)) | None if searching => self.search_key(key, modifiers),
+            Some(PaneMut::Terminal(t)) => {
+                let mode = *t.term.lock().mode();
+                if let Some(bytes) = input::encode_key(key, modifiers, mode) {
+                    t.input(bytes);
                 }
             }
+            None => {}
         }
     }
 

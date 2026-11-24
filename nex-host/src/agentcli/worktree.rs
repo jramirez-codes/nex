@@ -28,7 +28,7 @@ pub fn worktree(dir: &Path, name: &str) -> io::Result<PathBuf> {
         .map(|n| if n == 1 { format!("{name}-{stamp}") } else { format!("{name}-{stamp}-{n}") })
         .map(|s| (format!("nex/{s}"), trees.join(format!("{repo}-{s}"))))
         .find(|(b, p)| !taken(b, p))
-        .unwrap();
+        .ok_or_else(|| io::Error::other("--worktree: no branch name is free"))?;
     let out = git(&["worktree", "add", "-b", &branch, &path.to_string_lossy()])?;
     if !out.status.success() {
         return Err(io::Error::other(format!("git worktree add: {}", String::from_utf8_lossy(&out.stderr).trim())));

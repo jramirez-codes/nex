@@ -1,4 +1,8 @@
 //! Drawing the panes of the current tab: cards, headers, terminals, file explorers, search.
+//!
+//! An idle window costs nothing here: a terminal's shapes are rebuilt only when its
+//! [`FrameKey`] changes, the lists a frame needs are kept between frames ([`DrawBuffers`]), and
+//! the next frame is scheduled for the cursor's blink only while something is blinking.
 
 use std::time::Duration;
 
@@ -55,15 +59,50 @@ struct PaneView {
     scale_content: bool,
 }
 
+/// The lists `panes_area` fills each frame. They stay on `App` between frames, like
+/// `term_rects`, so a frame reuses their allocations instead of making new ones.
+#[derive(Default)]
+pub(in crate::app) struct DrawBuffers {
+    /// Where the layout puts each pane of the shown tab.
+    rects: Vec<(PaneId, Rect)>,
+    dividers: Vec<Divider>,
+    /// The panes to draw, in paint order, apart from those in `lifted`.
+    views: Vec<PaneView>,
+    /// The dragged card, drawn over the others.
+    lifted: Vec<PaneView>,
+}
+
+impl DrawBuffers {
+    fn clear(&mut self) {
+        self.rects.clear();
+        self.dividers.clear();
+        self.views.clear();
+        self.lifted.clear();
+    }
+}
+
+/// How long until the cursor's next blink, `now` seconds into the app's run.
+fn next_blink(now: f64) -> Duration {
+    let (ms, interval) = (now * 1000.0, BLINK_INTERVAL.as_millis() as f64);
+    Duration::from_millis((interval - ms % interval) as u64 + 1)
+}
+
 impl App {
     pub(in crate::app) fn panes_area(&mut self, ui: &mut Ui, area: Rect, theme: &Theme) {
+        let mut bufs = std::mem::take(&mut self.draw_bufs);
+        self.panes_area_with(ui, area, theme, &mut bufs);
+        self.draw_bufs = bufs;
+    }
+
+    /// [`Self::panes_area`], with the frame's lists in `bufs`.
+    fn panes_area_with(&mut self, ui: &mut Ui, area: Rect, theme: &Theme, bufs: &mut DrawBuffers) {
         self.term_rects.clear();
         self.card_rects.clear();
         self.focused_card = None;
         let ctx = ui.ctx().clone();
         let headers = self.cfg.pane_headers.then(|| self.header_height());
         let ppp = ctx.pixels_per_point();
-        let zoom = self.zoom_scale(area, ppp);
+        let zoom = self.zoom_scale(area, ppp, bufs);
         self.set_zoom_font(&ctx, zoom);
         let Some(tab_uid) = self.cur_tab().map(|t| t.uid) else { return };
         // A newly shown tab takes over from the last one (`tab-animation`).
@@ -76,14 +115,14 @@ impl App {
             style: self.cfg.tab_animation,
         };
         let sheet = self.switch.begin(ui, &shown);
-        let mut rects = Vec::new();
-        let mut dividers = Vec::new();
+        bufs.clear();
+        let DrawBuffers { rects, dividers, views, lifted } = bufs;
         match self.cur_tab() {
             Some(tab) if tab.zoomed => rects.push((tab.focused, area)),
-            Some(tab) => tab.root.layout(area, PANE_GAP, &mut rects, &mut dividers),
+            Some(tab) => tab.root.layout(area, PANE_GAP, rects, dividers),
             None => return,
         }
-        let DragFrame { goals, held, mini, dropped } = self.track_pane_drag(&ctx, area, &rects);
+        let DragFrame { goals, held, mini, dropped } = self.track_pane_drag(&ctx, area, rects);
         let dragging = held.map(|(id, _)| id);
         if dragging.is_some() {
             ctx.set_cursor_icon(CursorIcon::Grabbing);
@@ -94,11 +133,8 @@ impl App {
         let Some(tab) = self.cur_tab_mut() else { return };
         let focused = tab.focused;
         let multi = rects.len() > 1;
-        let mut views: Vec<PaneView> = tab
-            .motion
-            .frame(&ctx, &rects, &goals, held)
-            .into_iter()
-            .map(|p| PaneView {
+        for p in tab.motion.frame(&ctx, rects, &goals, held) {
+            views.push(PaneView {
                 id: p.id,
                 card: p.card,
                 target: p.target,
@@ -109,18 +145,17 @@ impl App {
                 alpha: p.alpha,
                 on_top: p.on_top,
                 scale_content: p.scale_content || (mini && Some(p.id) == dragging),
-            })
-            .collect();
+            });
+        }
         // The dragged card goes over the others (and a pane shrinking out of a zoom over
         // the panes fading back in).
         views.sort_by_key(|v| (v.lifted, v.on_top));
         // Drawn after the tab's sheet, so a tab switch doesn't carry them off with the old
         // tab: the sticky pane (it glides to its place in the new tab), then the dragged card.
         let pinned = sticky.and_then(|s| views.iter().position(|v| v.id == s)).map(|i| views.remove(i));
-        let lifted: Vec<PaneView> = match views.iter().position(|v| v.lifted) {
-            Some(i) => views.drain(i..).collect(),
-            None => Vec::new(),
-        };
+        if let Some(i) = views.iter().position(|v| v.lifted) {
+            lifted.extend(views.drain(i..));
+        }
         // Closed panes fade out underneath the panes growing into their space.
         let now = ctx.input(|i| i.time);
         for g in tab.motion.ghosts() {
@@ -130,7 +165,7 @@ impl App {
         for (id, t) in &self.panes {
             t.set_visible(rects.iter().any(|(r, _)| r == id) || visitor.is_some_and(|(v, _)| v == *id));
         }
-        self.drag_dividers(ui, tab_uid, &dividers);
+        self.drag_dividers(ui, tab_uid, dividers);
 
         let blink_on = {
             let ms = ui.input(|i| i.time * 1000.0) as u128;
@@ -143,8 +178,10 @@ impl App {
             ring: if v.multi { v.focus } else { 0.0 },
             label: None,
         });
-        for pane in &views {
-            self.draw_pane(ui, pane, theme, blink_on);
+        // Whether anything drawn blinks, and so needs the next frame on time.
+        let mut blinks = false;
+        for pane in views.iter() {
+            blinks |= self.draw_pane(ui, pane, theme, blink_on);
         }
         self.switch.end(ui, sheet);
         match pinned {
@@ -152,38 +189,43 @@ impl App {
                 let (card, gliding) = self.sticky_glide.frame(&ctx, tab_uid, pane.card);
                 pane.card = card;
                 pane.scale_content |= gliding;
-                self.draw_pane(ui, &pane, theme, blink_on);
+                blinks |= self.draw_pane(ui, &pane, theme, blink_on);
             }
             None => self.sticky_glide.hidden(),
         }
-        for pane in &lifted {
-            self.draw_pane(ui, pane, theme, blink_on);
+        for pane in lifted.iter() {
+            blinks |= self.draw_pane(ui, pane, theme, blink_on);
         }
         if let Some((id, card)) = visitor {
             self.visiting_pane(ui, id, card, mini, theme, blink_on);
         }
 
-        // Keep blinking cursors blinking.
-        let ms = ui.input(|i| i.time * 1000.0);
-        let next = BLINK_INTERVAL.as_millis() as f64 - ms % BLINK_INTERVAL.as_millis() as f64;
-        ui.ctx().request_repaint_after(Duration::from_millis(next as u64 + 1));
+        // Keep blinking cursors blinking. Nothing blinks in an idle or unfocused window, and
+        // it is left asleep rather than woken every interval to draw the same frame.
+        if blinks {
+            ui.ctx().request_repaint_after(next_blink(ui.input(|i| i.time)));
+        }
     }
 
     /// One pane of the shown tab: a terminal, a file explorer, a Changes or an Agents pane.
-    fn draw_pane(&mut self, ui: &mut Ui, pane: &PaneView, theme: &Theme, blink_on: bool) {
-        let Some(kind) = self.pane_kind(pane.id) else { return };
-        self.draw_content(ui, kind, pane, theme, blink_on);
+    /// Returns whether it shows something blinking.
+    fn draw_pane(&mut self, ui: &mut Ui, pane: &PaneView, theme: &Theme, blink_on: bool) -> bool {
+        let Some(kind) = self.pane_kind(pane.id) else { return false };
+        let blinks = self.draw_content(ui, kind, pane, theme, blink_on);
         self.card_rects.push((pane.id, pane.target));
+        blinks
     }
 
-    /// The card of pane `pane`, a `kind` pane: its header and what it shows.
-    fn draw_content(&mut self, ui: &mut Ui, kind: PaneKind, pane: &PaneView, theme: &Theme, blink_on: bool) {
+    /// The card of pane `pane`, a `kind` pane: its header and what it shows. Returns whether
+    /// it shows something blinking (a terminal's cursor, the search field's caret).
+    fn draw_content(&mut self, ui: &mut Ui, kind: PaneKind, pane: &PaneView, theme: &Theme, blink_on: bool) -> bool {
         match kind {
-            PaneKind::Terminal => self.terminal_pane(ui, pane, theme, blink_on),
+            PaneKind::Terminal => return self.terminal_pane(ui, pane, theme, blink_on),
             PaneKind::Explorer => self.explorer_pane(ui, pane, theme),
             PaneKind::Diff => self.diff_pane(ui, pane, theme),
             PaneKind::Agents => self.agents_pane(ui, pane, theme),
         }
+        false
     }
 
     /// A pane dragged here from another tab, held at `card`. Its terminal keeps the size of
@@ -217,11 +259,11 @@ impl App {
 
     /// While the shown tab is zoomed: its zoomed pane and how much bigger its terminal area
     /// is than in its slot, so its text scales up to keep the same grid.
-    fn zoom_scale(&self, area: Rect, ppp: f32) -> Option<(PaneId, f32)> {
+    fn zoom_scale(&self, area: Rect, ppp: f32, bufs: &mut DrawBuffers) -> Option<(PaneId, f32)> {
         let tab = self.cur_tab().filter(|t| t.zoomed)?;
-        let mut rects = Vec::new();
-        tab.root.layout(area, PANE_GAP, &mut rects, &mut Vec::new());
-        let slot = rects.iter().find(|(id, _)| *id == tab.focused)?.1;
+        bufs.clear();
+        tab.root.layout(area, PANE_GAP, &mut bufs.rects, &mut bufs.dividers);
+        let slot = bufs.rects.iter().find(|(id, _)| *id == tab.focused)?.1;
         let (full, slot) = (self.term_rect_for(area, ppp), self.term_rect_for(slot, ppp));
         if !slot.is_positive() {
             return None;
@@ -279,7 +321,9 @@ impl App {
         }
     }
 
-    fn terminal_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme, blink_on: bool) {
+    /// A terminal pane. Returns whether it shows something blinking: its cursor, or the
+    /// search field's caret.
+    fn terminal_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme, blink_on: bool) -> bool {
         let ctx = ui.ctx().clone();
         let painter = &pane_painter(ui, pane);
         let id = pane.id;
@@ -295,28 +339,34 @@ impl App {
         let cell_px = cell_px(&ctx, m);
         let cols = ((term_rect.width() / m.width).floor() as usize).max(2);
         let lines = ((term_rect.height() / m.height).floor() as usize).max(1);
-        let Some(t) = self.panes.get_mut(&id) else { return };
+        let Some(t) = self.panes.get_mut(&id) else { return false };
         t.resize(GridSize { cols, lines }, cell_px);
         let typing = t.last_input.elapsed() < BLINK_INTERVAL;
 
-        // Keep search results in sync with the terminal contents.
-        let search = self.search.as_mut().filter(|s| s.pane == id).map(|s| {
-            let jump = s.refresh(&t.term.lock(), t.generation);
-            if let Some(p) = jump {
-                t.term.lock().scroll_to_point(p);
-            }
-            &*s
-        });
-        let link = self.hover_link.as_ref().filter(|(pid, _)| *pid == id).map(|(_, l)| &l.range);
-        // Read after the search refresh, which may scroll to a match.
-        let (offset, selection, blinking) = {
-            let term = t.term.lock();
+        // One lock for everything read from the terminal here.
+        let (search, offset, selection, blinking) = {
+            let mut term = t.term.lock();
+            // Keep search results in sync with the terminal contents.
+            let search = self.search.as_mut().filter(|s| s.pane == id).map(|s| {
+                if let Some(p) = s.refresh(&term, t.generation) {
+                    term.scroll_to_point(p);
+                }
+                &*s
+            });
+            // Read after the search refresh, which may scroll to a match.
             let selection = term.selection.as_ref().and_then(|s| s.to_range(&term));
-            (term.grid().display_offset(), selection, term.cursor_style().blinking)
+            (search, term.grid().display_offset(), selection, term.cursor_style().blinking)
         };
+        let link = self.hover_link.as_ref().filter(|(pid, _)| *pid == id).map(|(_, l)| &l.range);
+        let window_focused = ctx.input(|i| i.focused);
+        // What blinks: the focused pane's cursor, if its style says so, and the search field's
+        // caret, both only in a focused window. Whatever doesn't blink is shown steadily, as
+        // no frame is scheduled to bring it back.
+        let cursor_blinks = cursor_blinks(pane.focused, window_focused, blinking);
+        let caret_blinks = search.is_some() && window_focused;
         let opts = PaintOptions {
-            focused: pane.focused && ctx.input(|i| i.focused),
-            cursor_visible: !pane.focused || !blinking || typing || blink_on,
+            focused: pane.focused && window_focused,
+            cursor_visible: !cursor_blinks || typing || blink_on,
             bg_alpha: self.cfg.background_opacity,
             matches: search.map(|s| s.matches.as_slice()).unwrap_or_default(),
             current_match: search.and_then(|s| s.current()),
@@ -331,8 +381,7 @@ impl App {
             focused: opts.focused,
             cursor_visible: opts.cursor_visible,
             bg_alpha: opts.bg_alpha,
-            matches: opts.matches.to_vec(),
-            current_match: opts.current_match.cloned(),
+            search: search.map(|s| (s.results_generation(), s.index)),
             link: link.cloned(),
             glyph_epoch: self.glyphs.epoch(),
         };
@@ -359,7 +408,7 @@ impl App {
             }));
         }
         if let Some(s) = search {
-            search_bar(painter, pane.card, content_top, s, theme, blink_on);
+            search_bar(painter, pane.card, content_top, s, theme, !caret_blinks || blink_on);
         }
         self.dim_unfocused(painter, pane);
 
@@ -367,58 +416,69 @@ impl App {
             scrollback_badge(painter, pane.card, content_top, offset, theme);
         }
         self.term_rects.push((id, term_rect));
+        cursor_blinks || caret_blinks
+    }
+
+    /// What the explorer, Changes and Agents panes share: the card and header, a press
+    /// anywhere on the body focusing the pane, `paint` drawing the body, and the dimming of
+    /// an unfocused split over it. `paint` is given a painter clipped to the card and the
+    /// body's rect: inside the card's padding like a terminal's grid, or with `edge_to_edge`
+    /// the whole card below the header. It also hands on what the pane asked for while
+    /// painting, straight into `App`'s list of requests.
+    fn pane_body(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme, edge_to_edge: bool, paint: impl FnOnce(&mut Self, &Painter, Rect)) {
+        let top = self.pane_frame(ui, pane, theme, None);
+        let painter = pane_painter(ui, pane);
+        // An edge-to-edge body stays inside the card's border, but is pressed up to it.
+        let (pressable, content) = if edge_to_edge {
+            let below = Rect::from_min_max(Pos2::new(pane.card.left(), top), pane.card.max);
+            (below, below.shrink2(Vec2::new(1.0, 0.0)))
+        } else {
+            let padded = self.term_rect_for(pane.card, ui.ctx().pixels_per_point());
+            (padded, padded)
+        };
+        if pressed_in(ui, pressable) {
+            self.pending.push(Action::FocusPane(pane.id));
+        }
+        paint(self, &painter.with_clip_rect(pane.card.shrink(1.0)), content);
+        self.dim_unfocused(&painter, pane);
     }
 
     /// A file-explorer pane: the usual card and header, and the listing. It isn't added to
     /// `term_rects`, so terminal mouse handling ignores it.
     fn explorer_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme) {
-        self.pane_frame(ui, pane, theme, None);
-        let content = self.term_rect_for(pane.card, ui.ctx().pixels_per_point());
-        if pressed_in(ui, content) {
-            self.pending.push(Action::FocusPane(pane.id));
-        }
-        if let Some(b) = self.explorers.get_mut(&pane.id) {
-            b.paint(ui, &pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0)), content, pane.id, theme);
-            let requests: Vec<_> = b.requests.drain(..).map(|r| (pane.id, r)).collect();
-            self.explorer_requests.extend(requests);
-        }
-        self.dim_unfocused(&pane_painter(ui, pane), pane);
+        let id = pane.id;
+        self.pane_body(ui, pane, theme, false, |app, painter, content| {
+            if let Some(b) = app.explorers.get_mut(&id) {
+                b.paint(ui, painter, content, id, theme);
+                app.explorer_requests.extend(b.requests.drain(..).map(|r| (id, r)));
+            }
+        });
     }
 
     /// A Changes (git diff) pane: the usual card and header, then the pane's own toolbar,
     /// file list and diff, edge to edge of the card below the header.
     fn diff_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme) {
-        let top = self.pane_frame(ui, pane, theme, None);
-        let content = Rect::from_min_max(Pos2::new(pane.card.left(), top), pane.card.max);
-        if pressed_in(ui, content) {
-            self.pending.push(Action::FocusPane(pane.id));
-        }
-        let size = self.render_font(pane.id);
-        if let Some(d) = self.diffs.get_mut(&pane.id) {
-            let painter = pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0));
-            d.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, PANE_RADIUS - 1, theme, size);
-            let requests: Vec<_> = d.requests.drain(..).map(|r| (pane.id, r)).collect();
-            self.diff_requests.extend(requests);
-        }
-        self.dim_unfocused(&pane_painter(ui, pane), pane);
+        let (id, focused) = (pane.id, pane.focused);
+        let size = self.render_font(id);
+        self.pane_body(ui, pane, theme, true, |app, painter, content| {
+            if let Some(d) = app.diffs.get_mut(&id) {
+                d.paint(ui, painter, content, id, focused, PANE_RADIUS - 1, theme, size);
+                app.diff_requests.extend(d.requests.drain(..).map(|r| (id, r)));
+            }
+        });
     }
 
     /// An Agents pane: the usual card and header, then the pane's title, filter and agent
     /// cards, edge to edge of the card below the header.
     fn agents_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme) {
-        let top = self.pane_frame(ui, pane, theme, None);
-        let content = Rect::from_min_max(Pos2::new(pane.card.left(), top), pane.card.max);
-        if pressed_in(ui, content) {
-            self.pending.push(Action::FocusPane(pane.id));
-        }
-        if let Some(a) = self.agents.get_mut(&pane.id) {
-            let painter = pane_painter(ui, pane).with_clip_rect(pane.card.shrink(1.0));
-            let shown_tab = (!self.home_active).then_some(self.active);
-            a.paint(ui, &painter, content.shrink2(Vec2::new(1.0, 0.0)), pane.id, pane.focused, theme, self.agent_tracker.agents(), &self.ssh.agent_notes, shown_tab);
-            let requests: Vec<_> = a.requests.drain(..).map(|r| (pane.id, r)).collect();
-            self.agent_requests.extend(requests);
-        }
-        self.dim_unfocused(&pane_painter(ui, pane), pane);
+        let (id, focused) = (pane.id, pane.focused);
+        self.pane_body(ui, pane, theme, true, |app, painter, content| {
+            if let Some(a) = app.agents.get_mut(&id) {
+                let shown_tab = (!app.home_active).then_some(app.active);
+                a.paint(ui, painter, content, id, focused, theme, app.agent_tracker.agents(), &app.ssh.agent_notes, shown_tab);
+                app.agent_requests.extend(a.requests.drain(..).map(|r| (id, r)));
+            }
+        });
     }
 
     /// Process glyph, title, and (on the focused or hovered card only, keeping the other
@@ -548,6 +608,12 @@ impl App {
     }
 }
 
+/// Whether a pane's cursor blinks: only the focused pane's, in a focused window, when the
+/// terminal's cursor style blinks. Any other cursor is drawn steadily.
+fn cursor_blinks(pane_focused: bool, window_focused: bool, style_blinks: bool) -> bool {
+    pane_focused && window_focused && style_blinks
+}
+
 /// The pane header's pin, in button icon rect `r`: always at the desktop's icon size, so mobile
 /// mode's bigger buttons keep a finger-sized target without a bigger pin.
 fn pane_pin(p: &Painter, r: Rect, c: Color32) {
@@ -649,5 +715,88 @@ fn search_bar(painter: &Painter, card: Rect, top: f32, s: &Search, theme: &Theme
             [Pos2::new(caret_x, r.center().y - 7.0), Pos2::new(caret_x, r.center().y + 7.0)],
             Stroke::new(1.2_f32, theme.text),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{RawInput, ViewportId};
+
+    use super::*;
+    use crate::config::Config;
+
+    fn app(ctx: &egui::Context, cfg: Config) -> App {
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        App::new(&cc, cfg, crate::cli::Args { no_restore: true, ..Default::default() }, None, None, None)
+    }
+
+    /// One frame of `app`, `time` seconds in, in a window that has the keyboard focus or not.
+    /// Returns how long the app is content to sleep before its next frame.
+    fn frame(app: &mut App, ctx: &egui::Context, time: f64, focused: bool) -> Duration {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 800.0));
+        let input = RawInput { screen_rect: Some(screen), time: Some(time), focused, ..Default::default() };
+        let out = ctx.run(input, |ctx| {
+            let mut frame = eframe::Frame::_new_kittest();
+            eframe::App::update(app, ctx, &mut frame);
+        });
+        out.viewport_output[&ViewportId::ROOT].repaint_delay
+    }
+
+    /// The longest the app would sleep over two seconds of frames, once the animations of
+    /// its first seconds are over.
+    fn longest_sleep(app: &mut App, ctx: &egui::Context, focused: bool) -> Duration {
+        let frames = |from: f64| (0..40).map(move |i| from + f64::from(i) * 0.05);
+        for time in frames(0.0) {
+            frame(app, ctx, time, focused);
+        }
+        frames(2.0).map(|time| frame(app, ctx, time, focused)).max().unwrap()
+    }
+
+    /// A frame at each blink is scheduled only while something blinks: the focused
+    /// terminal's blinking cursor, in a focused window. Otherwise the window sleeps longer.
+    #[test]
+    fn blink_frames_are_scheduled_only_for_a_blinking_cursor_in_a_focused_window() {
+        let a_blink = BLINK_INTERVAL + Duration::from_millis(1);
+
+        let ctx = egui::Context::default();
+        let mut blinking = app(&ctx, Config::default());
+        assert!(longest_sleep(&mut blinking, &ctx, true) <= a_blink, "a blinking cursor needs a frame at every blink");
+        assert!(longest_sleep(&mut blinking, &ctx, false) > a_blink, "nothing blinks in an unfocused window");
+
+        let ctx = egui::Context::default();
+        let mut steady = app(&ctx, Config { cursor_blink: false, ..Config::default() });
+        assert!(longest_sleep(&mut steady, &ctx, true) > a_blink, "a steady cursor needs no frames");
+    }
+
+    #[test]
+    fn only_the_focused_cursor_of_a_focused_window_blinks() {
+        assert!(cursor_blinks(true, true, true));
+        assert!(!cursor_blinks(false, true, true), "an unfocused pane's cursor is steady");
+        assert!(!cursor_blinks(true, false, true), "so is every cursor of an unfocused window");
+        assert!(!cursor_blinks(true, true, false), "and one whose style doesn't blink");
+    }
+
+    #[test]
+    fn the_next_blink_is_at_the_next_multiple_of_the_interval() {
+        assert_eq!(next_blink(0.0), Duration::from_millis(601));
+        assert_eq!(next_blink(0.5), Duration::from_millis(101));
+        assert_eq!(next_blink(1.25), Duration::from_millis(551));
+    }
+
+    /// The frame's lists go back to `App` when it is drawn, and the next frame fills the
+    /// same allocations.
+    #[test]
+    fn frames_reuse_the_pane_lists() {
+        let ctx = egui::Context::default();
+        let mut app = app(&ctx, Config::default());
+        frame(&mut app, &ctx, 0.0, true);
+        let lists = |app: &App| (app.draw_bufs.rects.as_ptr(), app.draw_bufs.views.as_ptr());
+        let first = lists(&app);
+        assert_eq!(app.draw_bufs.rects.len(), 1, "the one pane's rect, kept after the frame");
+        assert_eq!(app.draw_bufs.views.len(), 1);
+        for i in 1..10 {
+            frame(&mut app, &ctx, f64::from(i) * 0.05, true);
+            assert_eq!(lists(&app), first, "frame {i} allocated new lists");
+        }
     }
 }

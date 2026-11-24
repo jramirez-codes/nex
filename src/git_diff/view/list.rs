@@ -1,6 +1,16 @@
 //! The Changes pane's file list: Staged and Changes sections, one row per file.
 
-use super::*;
+use egui::epaint::CornerRadius;
+use egui::text::{LayoutJob, TextFormat};
+use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2};
+
+use crate::git_diff::git::status::{Change, FileChange, Snapshot};
+use crate::git_diff::view::{Frame, LIST_PAD, ROW_H, SECTION_H, SIDE, change_color, counts_text};
+use crate::git_diff::{Column, Filter, GitDiff, Sel};
+use crate::ui::file_icons::{file_glyph, paint_glyph};
+use crate::ui::paint;
+use crate::ui::theme::{ACCENT, Theme, white_alpha};
+use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
 
 impl GitDiff {
     /// The sidebar: Staged and Changes sections, one row per file.

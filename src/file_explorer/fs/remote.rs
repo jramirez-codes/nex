@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
 use crate::file_explorer::Entry;
-use crate::file_explorer::fs::ops::invalid_name;
+use crate::file_explorer::fs::ops::{invalid_name, sort_entries};
 use crate::file_explorer::fs::transfer::{Op, Progress};
 use crate::remote::exec::{ExecError, Output, Transport, cd_word, quote};
 use crate::remote::posix_quote;
@@ -94,7 +94,7 @@ pub(in crate::file_explorer) fn parse_listing(out: &[u8]) -> Option<Listing> {
             })
         })
         .collect();
-    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    sort_entries(&mut entries);
     Some(Listing { dir, home, entries })
 }
 

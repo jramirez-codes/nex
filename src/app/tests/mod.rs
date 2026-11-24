@@ -8,6 +8,7 @@ use crate::config::Config;
 
 mod agents;
 mod drop;
+mod explorer_refresh;
 mod explorer_view;
 mod git_diff;
 mod keyboard_button;

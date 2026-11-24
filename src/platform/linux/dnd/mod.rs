@@ -20,10 +20,13 @@
 //!   client made, and egui's clipboard (smithay-clipboard) makes one as the window opens. So
 //!   `main` creates this one first (`prepare`, on its own event loop, before eframe opens the
 //!   window), and with it nex reads the clipboard itself: a paste key (see `note_paste_key`)
-//!   becomes a paste of the selection this device was offered.
+//!   becomes a paste of the selection this device was offered. The app holding the clipboard
+//!   can take seconds to send it, so it's read on a worker thread and lands on a later frame
+//!   (see `paste`, which also says how typing keeps its order meanwhile).
 //! - **Touch:** sway keeps a finger's drag on the window it started in, so this window passes
 //!   it on to the nex under the finger itself (see `relay`).
 
+mod paste;
 mod relay;
 
 use std::io::{Read, Write};
@@ -247,6 +250,10 @@ pub struct Dnd {
     touch_down: Option<(TouchDeviceId, TouchId, Pos2)>,
     /// The files fed to egui last were dropped as a move (not a copy).
     drop_moves: bool,
+    /// Pastes being read, and the typing held back behind them.
+    pastes: paste::Queue,
+    /// The copied files or image read for the paste that landed this frame.
+    pasted_files: Option<ClipboardFiles>,
     /// Dropped to tell the thread to stop (see [`Drop`] for `Dnd`).
     stop: Option<std::io::PipeWriter>,
     /// Disconnects when the thread has stopped.
@@ -345,59 +352,49 @@ impl Dnd {
             handed_off: None,
             touch_down: None,
             drop_moves: false,
+            pastes: paste::Queue::default(),
+            pasted_files: None,
             stop: Some(stop),
             stopped,
         })
     }
 
-    /// The clipboard's text, if it holds any: read from the app holding it, waiting at most
-    /// `PASTE_TIMEOUT`.
-    fn clipboard_text(&self) -> Option<String> {
-        let types = self.clipboard_types()?;
-        let Some(mime) = PASTE_TYPES.into_iter().find(|t| types.iter().any(|x| x == t)) else {
-            trace!("paste: no text in the clipboard ({types:?})");
-            return None;
-        };
-        let bytes = self.read_clipboard(mime, PASTE_TIMEOUT)?;
-        let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
-        trace!("paste: {} bytes as {mime}", text.len());
-        (!text.is_empty()).then_some(text)
-    }
-
-    /// Copied files (a file manager's copy) or an image (a screenshot), if the clipboard
-    /// holds either.
-    pub fn clipboard_files(&self) -> Option<ClipboardFiles> {
-        let types = self.clipboard_types()?;
+    /// Ask the app holding the clipboard for its contents: its text, and its copied files and
+    /// image too if `files` says the paste would use them (it's only asked when the clipboard
+    /// offers either). Doesn't wait for them: `Pipes::read` does, on a worker thread. The
+    /// requests are made here, on the UI thread, so the worker never touches the Wayland
+    /// connection (which may be gone before a slow read ends, see [`Drop`] for `Dnd`).
+    fn paste_pipes(&self, files: impl FnOnce() -> bool) -> paste::Pipes {
+        let Some(offer) = lock(&self.shared).selection.clone() else { return paste::Pipes::default() };
+        let Some(types) = offer.data::<OfferData>().map(|data| lock(&data.types).clone()) else { return paste::Pipes::default() };
         let has = |t: &str| types.iter().any(|x| x == t);
-        if has(URI_LIST) {
-            let paths = parse_paths(&String::from_utf8_lossy(&self.read_clipboard(URI_LIST, PASTE_TIMEOUT)?));
-            if !paths.is_empty() {
-                return Some(ClipboardFiles::Paths(paths));
-            }
+        let receive = |mime: &str| {
+            let (reader, writer) = std::io::pipe().ok()?;
+            offer.receive(mime.into(), writer.as_fd());
+            Some(reader)
+        };
+        let text = PASTE_TYPES.into_iter().find(|t| has(t));
+        if text.is_none() {
+            trace!("paste: no text in the clipboard ({types:?})");
         }
-        if has(PNG) {
-            let png = self.read_clipboard(PNG, IMAGE_TIMEOUT).filter(|b| !b.is_empty())?;
-            trace!("paste: {} bytes of {PNG}", png.len());
-            return Some(ClipboardFiles::Png(png));
+        let files = (has(URI_LIST) || has(PNG)) && files();
+        let pipes = paste::Pipes {
+            text: text.and_then(receive),
+            uris: (files && has(URI_LIST)).then(|| receive(URI_LIST)).flatten(),
+            png: (files && has(PNG)).then(|| receive(PNG)).flatten(),
+        };
+        // An unsent request is never answered: the read would only time out.
+        if self.conn.flush().is_err() {
+            return paste::Pipes::default();
         }
-        None
+        pipes
     }
 
-    /// The types the clipboard's current owner offers.
-    fn clipboard_types(&self) -> Option<Vec<String>> {
-        let offer = lock(&self.shared).selection.clone()?;
-        let types = lock(&offer.data::<OfferData>()?.types).clone();
-        Some(types)
-    }
-
-    /// The clipboard's contents as `mime`, waiting at most `timeout` for its owner.
-    fn read_clipboard(&self, mime: &str, timeout: Duration) -> Option<Vec<u8>> {
-        let offer = lock(&self.shared).selection.clone()?;
-        let (reader, writer) = std::io::pipe().ok()?;
-        offer.receive(mime.into(), writer.as_fd());
-        drop(writer);
-        self.conn.flush().ok()?;
-        read_until_closed(reader, timeout)
+    /// Copied files (a file manager's copy) or an image (a screenshot) on the clipboard, for
+    /// the paste that landed this frame: read with it if `feed` was told the paste would use
+    /// them, so this never waits. `None` on any other frame.
+    pub fn clipboard_files(&mut self) -> Option<ClipboardFiles> {
+        self.pasted_files.take()
     }
 
     /// Hand `paths` to the compositor as a drag out of this window, continuing the press that
@@ -488,11 +485,42 @@ impl Dnd {
 
     /// Before each frame: report an incoming drag to egui as winit does on X11, and a paste
     /// key egui couldn't paste for.
-    pub fn feed(&mut self, ctx: &egui::Context, raw: &mut RawInput) {
-        if PASTE_KEY.swap(false, Ordering::Relaxed) && !raw.events.iter().any(|e| matches!(e, Event::Paste(_)))
-            && let Some(text) = self.clipboard_text() {
-                raw.events.push(Event::Paste(text));
+    ///
+    /// The paste never waits for the clipboard here: the key starts a read on a worker thread
+    /// and the paste lands on the frame after the read ends, as an `Event::Paste`, or, with no
+    /// text read, as the paste key the app looks for (`platform::take_paste_key`). Keyboard
+    /// input typed meanwhile is held to follow it; `paste` has the rules. `uploads_files` says
+    /// whether a paste now would use the clipboard's copied files or image (then they're read
+    /// too, for `clipboard_files`); it's only called for a paste key.
+    pub fn feed(&mut self, ctx: &egui::Context, raw: &mut RawInput, uploads_files: impl FnOnce() -> bool) {
+        self.pasted_files = None;
+        let egui_pasted = raw.events.iter().any(|e| matches!(e, Event::Paste(_)));
+        let holding = self.pastes.len() > 0;
+        self.pastes.hold(raw);
+        if PASTE_KEY.swap(false, Ordering::Relaxed) {
+            // The app takes a paste key with no `Event::Paste` in its frame as a paste without
+            // text, so the key is kept from it until its paste lands.
+            if !egui_pasted {
+                let shift = crate::platform::take_paste_key().unwrap_or(raw.modifiers.shift);
+                let ctx = ctx.clone();
+                self.pastes.request(self.paste_pipes(uploads_files), shift, raw.modifiers, move || ctx.request_repaint());
+            } else if holding {
+                // egui pasted from its own clipboard, and that paste is held with the rest.
+                crate::platform::take_paste_key();
             }
+        }
+        let queued = self.pastes.len();
+        if let Some(landed) = self.pastes.release(raw) {
+            trace!("paste: landed ({})", if landed.text { "text" } else { "no text" });
+            self.pasted_files = landed.files;
+            if !landed.text {
+                crate::platform::paste_key_pressed(landed.shift);
+            }
+        }
+        // What is left that isn't waiting for a read goes in the next frame: draw one.
+        if (1..queued).contains(&self.pastes.len()) {
+            ctx.request_repaint();
+        }
         let (hover, dropped) = {
             let mut s = lock(&self.shared);
             let size = ctx.content_rect().size() * ctx.zoom_factor();
