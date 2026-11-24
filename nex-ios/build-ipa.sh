@@ -39,6 +39,11 @@ for triple in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
     var="CARGO_TARGET_$(echo "$triple" | tr 'a-z-' 'A-Z_')_LINKER"
     env "$var=rust-lld" cargo +1.88.0 build --manifest-path "$ROOT/Cargo.toml" -p nex-host --release --target "$triple"
 done
+# And for Mac hosts, built natively.
+for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+    rustup +1.88.0 target add "$triple" >/dev/null
+    cargo +1.88.0 build --manifest-path "$ROOT/Cargo.toml" -p nex-host --release --target "$triple"
+done
 rustup +1.88.0 target add aarch64-apple-ios >/dev/null
 
 mkdir -p "$OUT"

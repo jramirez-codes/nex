@@ -196,6 +196,8 @@ fn bundled(triple: &str) -> Option<&'static [u8]> {
     let bytes: &'static [u8] = match triple {
         "x86_64-unknown-linux-musl" => include_bytes!(concat!(env!("OUT_DIR"), "/nex-host-x86_64-unknown-linux-musl")),
         "aarch64-unknown-linux-musl" => include_bytes!(concat!(env!("OUT_DIR"), "/nex-host-aarch64-unknown-linux-musl")),
+        "aarch64-apple-darwin" => include_bytes!(concat!(env!("OUT_DIR"), "/nex-host-aarch64-apple-darwin")),
+        "x86_64-apple-darwin" => include_bytes!(concat!(env!("OUT_DIR"), "/nex-host-x86_64-apple-darwin")),
         _ => return None,
     };
     // `build.rs` leaves the file empty when there was no build to bundle.

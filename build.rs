@@ -10,7 +10,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const TRIPLES: &[&str] = &["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"];
+const TRIPLES: &[&str] = &[
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+];
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
