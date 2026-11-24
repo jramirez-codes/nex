@@ -78,14 +78,18 @@ First App Store release.
 ## App Review information
 
 - **Sign-in required:** yes, an ssh login to a server.
-- **Demo account:** TODO, choose one:
-  - (A, recommended) a disposable demo host: `host`, `user`, `password` for a throwaway
-    account on a small VPS with a sample git repo, kept up during review.
-  - (B) no account: a note that the app is an ssh client for the reviewer's own server, plus a
-    link to a screen recording of it working.
+- **Demo account:** a throwaway account on a demo VPS, kept up for the whole review (and
+  every later review). Enter it in App Store Connect only, never in this file:
+  - Host: TODO (put the host in the Notes too, since App Store Connect's sign-in fields are
+    only user name and password)
+  - User name: TODO
+  - Password: TODO
+  - The VPS needs: OpenSSH with password login allowed for this user, a non-root user with
+    no sudo, bash, git, and `~/demo` holding a small git repo with a few commits. Running
+    agents isn't needed. nex installs `nex-host` in `~/.nex` on first connect.
 - **Notes:**
-  > nex is a terminal and ssh client. Tap Connect, enter the demo host, user and password
-  > above, and trust the host key. The app opens a shell on that server. Try: `ls`, `git log`
+  > nex is a terminal and ssh client. Tap Connect, enter host TODO with the user name and
+  > password above, and trust the host key. The app opens a shell on that server. Try: `ls`, `git log`
   > in ~/demo, swipe a pane sideways to switch tabs, open the Agents and Files panes from the
   > menu. Holding the round keyboard button asks for the microphone, which nex shares with
   > the server for voice input; the app never records or stores audio.
