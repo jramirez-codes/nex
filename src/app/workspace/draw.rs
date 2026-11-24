@@ -510,7 +510,6 @@ impl App {
 
         // Buttons, laid out right to left: 28px buttons like the tab bar's +, with smaller (~12px)
         // glyphs so the header stays quiet. Mobile mode makes them finger-sized.
-        // The pin keeps the desktop's size there, though: the same pin looks the same on both.
         let (size, step, inset) = if self.cfg.sidebar() { (36.0, 38.0, 7.0) } else { (DESKTOP_BUTTON, 30.0, DESKTOP_INSET) };
         let mut bx = header.right() - if self.cfg.sidebar() { 26.0 } else { 22.0 };
         let pinned = self.is_sticky(id);
@@ -524,8 +523,8 @@ impl App {
         let shown = if show_buttons { 4 } else if pinned { 1 } else { 0 };
         if shown > 0 {
             let close: (&str, Action, Action, &IconFn<'_>) = match (pinned, shift) {
-                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(0), Action::ToggleSticky(id), &pane_pin),
-                (false, true) => ("Pin to every tab", Action::ToggleSticky(0), Action::ToggleSticky(id), &pane_pin),
+                (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(0), Action::ToggleSticky(id), &icons::icon_pin),
+                (false, true) => ("Pin to every tab", Action::ToggleSticky(0), Action::ToggleSticky(id), &icons::icon_pin),
                 _ => ("Close  (Shift: pin to every tab)", Action::ClosePane(0), Action::ClosePane(id), &icons::icon_close),
             };
             // (label, the shortcut's action for the focused pane, this button's action, icon)
@@ -612,13 +611,6 @@ impl App {
 /// terminal's cursor style blinks. Any other cursor is drawn steadily.
 fn cursor_blinks(pane_focused: bool, window_focused: bool, style_blinks: bool) -> bool {
     pane_focused && window_focused && style_blinks
-}
-
-/// The pane header's pin, in button icon rect `r`: always at the desktop's icon size, so mobile
-/// mode's bigger buttons keep a finger-sized target without a bigger pin.
-fn pane_pin(p: &Painter, r: Rect, c: Color32) {
-    let side = DESKTOP_BUTTON - 2.0 * DESKTOP_INSET;
-    icons::icon_pin(p, Rect::from_center_size(r.center(), Vec2::splat(side)), c);
 }
 
 /// Process glyph and title at the left of a pane header, the title fading out before `right`.

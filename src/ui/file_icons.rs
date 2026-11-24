@@ -4,12 +4,14 @@
 //!
 //! Icons are sized by their width, which takes knowing how wide the font draws each one: that
 //! is measured once per glyph and kept (`width_ratio`), not laid out again for every icon of
-//! every frame.
+//! every frame. The window chrome's codicons are sized and centered by their ink instead
+//! (`paint_glyph_ink`), so icons the font places differently in their cells still line up; that
+//! ink is measured once per glyph too (`ink_ratio`).
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-use egui::{Align2, Color32, Context, FontFamily, FontId, Id, Painter, Pos2};
+use egui::{Align2, Color32, Context, FontFamily, FontId, Galley, Id, Painter, Pos2, Rect, Vec2};
 
 use crate::render::FONT_REGULAR;
 
@@ -129,11 +131,7 @@ pub const LINK_MARK: char = '\u{f0337}';
 /// Draw glyph `ch` about `width` wide, centered on `center`. The Nerd Font is a monospace
 /// font, so every icon is one cell wide; the font size is picked to make that cell `width`.
 pub fn paint_glyph(p: &Painter, center: Pos2, width: f32, ch: char, color: Color32) {
-    paint_glyph_in(p, grid_family(), center, width, ch, color);
-}
-
-/// [`paint_glyph`] from font `family`.
-pub fn paint_glyph_in(p: &Painter, family: FontFamily, center: Pos2, width: f32, ch: char, color: Color32) {
+    let family = grid_family();
     let size = glyph_font_size(p.ctx(), &family, width, ch);
     p.text(center, Align2::CENTER_CENTER, ch, FontId::new(size, family), color);
 }
@@ -172,9 +170,67 @@ fn width_ratio(ctx: &Context, family: &FontFamily, ch: char) -> f32 {
     ratio
 }
 
-/// Forget the measured glyph widths: call when `ctx` is given new fonts.
+/// Draw glyph `ch` from `family` by its ink, not its cell: sized so the ink's larger side is
+/// `side` (whole pixels), with the ink's center on `center` and its bitmap on the pixel grid.
+/// Glyphs drawn this way at the same `side` line up, however differently the font places them
+/// in their cells.
+pub fn paint_glyph_ink(p: &Painter, family: FontFamily, center: Pos2, side: f32, ch: char, color: Color32) {
+    let (galley, origin) = ink_placement(p.ctx(), family, center, side, ch);
+    p.galley(origin, galley, color);
+}
+
+/// The layout [`paint_glyph_ink`] draws `ch` with, and where its top left goes.
+///
+/// The size comes from the ink measured once ([`ink_ratio`]). The position comes from this
+/// layout's own bitmap: at small sizes the font's baseline is rounded to a pixel, which moves
+/// the ink by up to a pixel from where the measurement would put it. The layout is the one
+/// painting needs anyway (and egui keeps it from frame to frame), so this costs nothing more.
+pub(super) fn ink_placement(ctx: &Context, family: FontFamily, center: Pos2, side: f32, ch: char) -> (Arc<Galley>, Pos2) {
+    let ppp = ctx.pixels_per_point();
+    let snap = |v: f32| (v * ppp).round() / ppp;
+    let ink = ink_ratio(ctx, &family, ch);
+    let larger = ink.width().max(ink.height());
+    let size = if larger > 0.0 { snap(side).max(1.0 / ppp) / larger } else { side };
+    let galley = ctx.fonts_mut(|f| f.layout_no_wrap(ch.to_string(), FontId::new(size, family), Color32::PLACEHOLDER));
+    let bounds = galley.mesh_bounds;
+    let ink_center = if bounds.is_positive() { bounds.center() } else { galley.rect.center() };
+    let origin = center - ink_center.to_vec2();
+    (galley, Pos2::new(snap(origin.x), snap(origin.y)))
+}
+
+/// Where each glyph's ink lies, as a share of the font size from the top left of its layout,
+/// per family, as measured so far. Kept beside [`WidthRatios`], and forgotten with them.
+#[derive(Clone, Default)]
+struct InkRatios(HashMap<FontFamily, HashMap<char, Rect>>);
+
+/// The size ink is measured at. A glyph's bitmap is whole pixels, so its edges are off by up
+/// to a pixel: large enough that this is a sliver of the small sizes icons are drawn at.
+const INK_PROBE_SIZE: f32 = 8.0 * PROBE_SIZE;
+
+/// The ink rect of `ch` in `family`, as a share of the font size: laid out once and
+/// remembered until the fonts change ([`fonts_changed`]).
+pub(super) fn ink_ratio(ctx: &Context, family: &FontFamily, ch: char) -> Rect {
+    let known = ctx.data_mut(|d| d.get_temp_mut_or_default::<InkRatios>(Id::NULL).0.get(family).and_then(|of| of.get(&ch)).copied());
+    if let Some(ink) = known {
+        return ink;
+    }
+    let galley = ctx.fonts_mut(|f| f.layout_no_wrap(ch.to_string(), FontId::new(INK_PROBE_SIZE, family.clone()), Color32::WHITE));
+    let bounds = galley.mesh_bounds;
+    let ink = if bounds.is_positive() {
+        Rect::from_min_max((bounds.min.to_vec2() / INK_PROBE_SIZE).to_pos2(), (bounds.max.to_vec2() / INK_PROBE_SIZE).to_pos2())
+    } else {
+        Rect::from_min_size(Pos2::ZERO, Vec2::ZERO)
+    };
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<InkRatios>(Id::NULL).0.entry(family.clone()).or_default().insert(ch, ink));
+    ink
+}
+
+/// Forget the measured glyph widths and ink: call when `ctx` is given new fonts.
 pub fn fonts_changed(ctx: &Context) {
-    ctx.data_mut(|d| d.remove_temp::<WidthRatios>(Id::NULL));
+    ctx.data_mut(|d| {
+        d.remove_temp::<WidthRatios>(Id::NULL);
+        d.remove_temp::<InkRatios>(Id::NULL);
+    });
 }
 
 #[cfg(test)]
@@ -242,7 +298,10 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.set_fonts(defs);
         let _ = ctx.run(Default::default(), |_| {});
-        let src = include_str!("file_icons.rs");
+        // Every glyph in this file, and the codicons the window chrome draws.
+        let codicons = include_str!("icons.rs").lines().filter(|l| l.starts_with("const COD_")).collect::<Vec<_>>();
+        assert!(codicons.len() >= 9, "only {} codicons found", codicons.len());
+        let src = format!("{}\n{}", include_str!("file_icons.rs"), codicons.join("\n"));
         let mut checked = 0;
         for part in src.split("'\\u{").skip(1) {
             let hex = &part[..part.find('}').unwrap()];
@@ -251,6 +310,6 @@ mod tests {
             assert!(has, "U+{hex} is missing from the embedded font");
             checked += 1;
         }
-        assert!(checked > 40, "only {checked} glyphs found");
+        assert!(checked > 50, "only {checked} glyphs found");
     }
 }

@@ -149,16 +149,18 @@ fn it_survives_a_restart_as_one_pane() {
     let _ = sticky;
 }
 
-/// The pin `cfg` draws in the focused pane's header with Shift held: its font and where it is.
-fn shift_pin(cfg: crate::config::Config) -> (egui::FontId, Rect) {
+/// The header glyph `ch` that `cfg` draws in the focused pane's header, with Shift held or
+/// not: its font and where its ink is.
+fn header_glyph(cfg: crate::config::Config, shift: bool, ch: char) -> (egui::FontId, Rect) {
     let ctx = egui::Context::default();
     let mut app = super::new_app(&ctx, cfg);
     let mut shapes = Vec::new();
+    let modifiers = if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
     for i in 0..3 {
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 700.0))),
             time: Some(i as f64 * 0.016),
-            modifiers: egui::Modifiers::SHIFT,
+            modifiers,
             ..Default::default()
         };
         shapes = ctx.run(input, |ctx| eframe::App::update(&mut app, ctx, &mut eframe::Frame::_new_kittest())).shapes;
@@ -166,22 +168,30 @@ fn shift_pin(cfg: crate::config::Config) -> (egui::FontId, Rect) {
     shapes
         .into_iter()
         .find_map(|s| match s.shape {
-            egui::Shape::Text(t) if t.galley.text() == "\u{eba0}" => Some((t.galley.job.sections[0].format.font_id.clone(), t.visual_bounding_rect())),
+            egui::Shape::Text(t) if t.galley.text() == ch.to_string() => {
+                Some((t.galley.job.sections[0].format.font_id.clone(), t.galley.mesh_bounds.translate(t.pos.to_vec2())))
+            }
             _ => None,
         })
-        .expect("Shift turns the × into a pin")
+        .unwrap_or_else(|| panic!("no U+{:x} in the header", ch as u32))
 }
 
-/// Mobile mode's header buttons are bigger, but the pin is the desktop's: same glyph from the
-/// same (embedded) font, at the same size.
+/// Shift turns the × into a pin of the same height in the same place, from the same (embedded)
+/// font on desktop and in mobile mode, where both are bigger with the bigger buttons.
 #[test]
-fn the_pin_is_the_same_on_mobile_and_desktop() {
+fn the_pin_is_drawn_like_the_close_button() {
     use crate::config::{Config, TabBar};
-    let (desktop, desktop_rect) = shift_pin(Config::default());
-    let (mobile, mobile_rect) = shift_pin(Config { tab_bar: TabBar::Sidebar, ..Config::default() });
-    assert_eq!(desktop, mobile);
-    assert_eq!(desktop.family, egui::FontFamily::Name(crate::render::FONT_ICONS.into()));
-    assert_eq!(desktop_rect.size(), mobile_rect.size());
+    let mut pins = Vec::new();
+    for cfg in [Config::default(), Config { tab_bar: TabBar::Sidebar, ..Config::default() }] {
+        let (pin_font, pin) = header_glyph(cfg.clone(), true, '\u{eba0}');
+        let (close_font, close) = header_glyph(cfg, false, '\u{ea76}');
+        assert_eq!(pin_font.family, egui::FontFamily::Name(crate::render::FONT_ICONS.into()));
+        assert_eq!(close_font.family, pin_font.family);
+        assert!((pin.height() - close.height()).abs() <= 1.0, "pin {pin:?}, close {close:?}");
+        assert!((pin.center() - close.center()).length() <= 1.0, "pin {pin:?}, close {close:?}");
+        pins.push(pin);
+    }
+    assert!(pins[1].height() > pins[0].height(), "mobile mode's pin is bigger: {pins:?}");
 }
 
 #[test]

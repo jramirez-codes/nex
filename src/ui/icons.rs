@@ -1,12 +1,14 @@
 //! Small vector icons and glossy per-process app tiles (tab icons, pane header glyphs).
 
 use egui::epaint::{PathShape, Shadow};
+use std::sync::OnceLock;
+
 use egui::{Align2, Color32, FontFamily, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2};
 
 use crate::layout::Axis;
 use crate::render::FONT_ICONS;
 
-use super::file_icons::{paint_glyph, paint_glyph_in};
+use super::file_icons::{paint_glyph, paint_glyph_ink};
 use super::paint::{bold, top_radius};
 
 /// Pseudo process name for file-explorer panes, so they get a folder tile and header glyph.
@@ -326,17 +328,17 @@ fn hexagon(p: &Painter, c: Pos2, radius: f32, stroke: Stroke, fill: Option<Color
     };
 }
 
-/// Codicons (VS Code's icon set) from the embedded Nerd Font, so the window chrome matches the
-/// terminal font. Each glyph's ink fills its cell width; it's drawn at this share of the rect.
-const GLYPH_SHARE: f32 = 0.64;
+/// Codicons (VS Code's icon set), from the embedded Nerd Font so the window chrome looks the
+/// same whatever font the grid uses, on desktop and Android alike.
+/// Each is drawn by its ink: the larger side of every one is this share of the icon rect, and
+/// the ink is centered on it, so the header's buttons share one height and one center line.
+const GLYPH_INK: f32 = 0.64;
 const COD_ADD: char = '\u{ea60}';
 const COD_CLOSE: char = '\u{ea76}';
 const COD_MIC: char = '\u{ec12}';
 const COD_MIC_FILLED: char = '\u{ec1c}';
 /// An upright pin (the sticky pane). Codicons' plain `pin` (U+EB2B) is tilted.
 const COD_PINNED: char = '\u{eba0}';
-/// The pin's glyph runs larger than the other header glyphs: drawn this much smaller.
-const PIN_SCALE: f32 = 0.8;
 const COD_SCREEN_FULL: char = '\u{eb4c}';
 const COD_SCREEN_NORMAL: char = '\u{eb4d}';
 /// Two panes side by side (a vertical divider).
@@ -344,8 +346,19 @@ const COD_SPLIT_HORIZONTAL: char = '\u{eb56}';
 /// Two panes stacked (a horizontal divider).
 const COD_SPLIT_VERTICAL: char = '\u{eb57}';
 
+/// The font the codicons come from. Made once: naming a family allocates, cloning one doesn't.
+fn icons_family() -> FontFamily {
+    static FAMILY: OnceLock<FontFamily> = OnceLock::new();
+    FAMILY.get_or_init(|| FontFamily::Name(FONT_ICONS.into())).clone()
+}
+
+/// The ink size codicons are drawn at in icon rect `r`.
+fn codicon_side(r: Rect) -> f32 {
+    r.width().min(r.height()) * GLYPH_INK
+}
+
 fn codicon(p: &Painter, r: Rect, c: Color32, ch: char) {
-    paint_glyph(p, r.center(), r.width() * GLYPH_SHARE, ch, c);
+    paint_glyph_ink(p, icons_family(), r.center(), codicon_side(r), ch, c);
 }
 
 pub fn icon_close(p: &Painter, r: Rect, c: Color32) {
@@ -357,12 +370,9 @@ pub fn icon_mic(p: &Painter, r: Rect, c: Color32, filled: bool) {
     codicon(p, r, c, if filled { COD_MIC_FILLED } else { COD_MIC });
 }
 
-/// A pin, upright and a little smaller than the other header glyphs. Pinned or not, it's
-/// the same pin: the button's colour tells them apart. Always from the embedded font, so
-/// desktop (which may have a Nerd Font installed) and Android draw the same glyph.
+/// An upright pin. Pinned or not, it's the same pin: the button's colour tells them apart.
 pub fn icon_pin(p: &Painter, r: Rect, c: Color32) {
-    let family = FontFamily::Name(FONT_ICONS.into());
-    paint_glyph_in(p, family, r.center(), r.width() * GLYPH_SHARE * PIN_SCALE, COD_PINNED, c);
+    codicon(p, r, c, COD_PINNED);
 }
 
 pub fn icon_split(p: &Painter, r: Rect, c: Color32, axis: Axis) {
@@ -517,7 +527,57 @@ pub fn icon_control(p: &Painter, r: Rect, c: Color32) {
 
 #[cfg(test)]
 mod tests {
-    use super::title_mark;
+    use super::*;
+
+    /// A context whose icon font is the embedded one, at `ppp` pixels per point.
+    fn icons_ctx(ppp: f32) -> egui::Context {
+        let font = include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-Regular.ttf");
+        let mut defs = egui::FontDefinitions::default();
+        defs.font_data.insert("nerd".into(), std::sync::Arc::new(egui::FontData::from_static(font)));
+        defs.families.insert(icons_family(), vec!["nerd".into()]);
+        let ctx = egui::Context::default();
+        ctx.set_fonts(defs);
+        ctx.set_pixels_per_point(ppp);
+        let _ = ctx.run(Default::default(), |_| {});
+        ctx
+    }
+
+    /// Every pane header icon, drawn in the same icon rect, has the same ink height and the
+    /// same ink center: in the desktop's and mobile mode's rects, at 1x and 2x.
+    #[test]
+    fn header_icons_share_one_height_and_center() {
+        use crate::ui::file_icons::{ink_placement, ink_ratio};
+        let header = [COD_CLOSE, COD_SCREEN_FULL, COD_SCREEN_NORMAL, COD_SPLIT_VERTICAL, COD_SPLIT_HORIZONTAL, COD_MIC, COD_MIC_FILLED, COD_PINNED];
+        for ppp in [1.0, 2.0] {
+            let ctx = icons_ctx(ppp);
+            // The desktop's icon rect (a 28px button less 4.5 each side) and mobile mode's (36, 7).
+            for (side, center) in [(19.0, Pos2::new(100.0, 40.5)), (22.0, Pos2::new(300.25, 41.0))] {
+                let r = Rect::from_center_size(center, Vec2::splat(side));
+                let target = codicon_side(r);
+                let mut heights = Vec::new();
+                for ch in header {
+                    let (galley, origin) = ink_placement(&ctx, icons_family(), r.center(), target, ch);
+                    let size = galley.job.sections[0].format.font_id.size;
+                    let what = format!("U+{:x} in {side}px at {ppp}x", ch as u32);
+                    // The outline's own height, and the bitmap drawn: it can be one (anti-aliased)
+                    // pixel taller where the outline's edges fall between pixels.
+                    let ink = ink_ratio(&ctx, &icons_family(), ch);
+                    let height = ink.height() * size;
+                    assert!((height - (target * ppp).round() / ppp).abs() <= 0.5, "{what}: ink {height} tall, for {target}");
+                    heights.push(height);
+                    let drawn = galley.mesh_bounds.translate(origin.to_vec2());
+                    assert!(drawn.height() >= height - 0.5 && drawn.height() <= height + 1.0 / ppp + 0.5, "{what}: drawn {drawn:?}, ink {height} tall");
+                    assert!((drawn.center() - r.center()).length() <= 0.5 * 2f32.sqrt(), "{what}: drawn {drawn:?}, centered on {:?}", r.center());
+                    // On the pixel grid.
+                    for v in [drawn.min.x, drawn.min.y] {
+                        assert!(((v * ppp).round() - v * ppp).abs() < 1e-3, "{what}: {drawn:?} is between pixels");
+                    }
+                }
+                let (lo, hi) = heights.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &h| (lo.min(h), hi.max(h)));
+                assert!(hi - lo <= 0.5, "in {side}px at {ppp}x, ink heights {heights:?}");
+            }
+        }
+    }
 
     #[test]
     fn leading_title_icon_moves_to_the_tile() {
