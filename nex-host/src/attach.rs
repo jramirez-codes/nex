@@ -8,8 +8,9 @@ use std::time::Duration;
 
 use nex_host::proto::{self, Request};
 
-use crate::{client, redraw};
-use crate::locked::Locked;
+use crate::client;
+use crate::daemon::redraw;
+use crate::util::Locked;
 
 /// How often the terminal's size is checked (sshd passes the pane's resizes on to it).
 const SIZE_POLL: Duration = Duration::from_millis(200);

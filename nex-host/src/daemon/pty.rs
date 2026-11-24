@@ -12,8 +12,8 @@ use std::sync::mpsc::{self, Sender};
 
 use nex_host::proto;
 
-use crate::agent::Out;
-use crate::redraw;
+use crate::daemon::agent::Out;
+use crate::daemon::redraw;
 
 /// The login shell to start programs under, so they get the user's `PATH` (`~/.local/bin`,
 /// nvm, …) even though the daemon was started by a non-interactive ssh command. Shells
@@ -78,7 +78,7 @@ pub fn spawn_in_pty(
             cmd
         }
         None => {
-            let script = format!("exec {}", argv.iter().map(|a| crate::agent::quote(a)).collect::<Vec<_>>().join(" "));
+            let script = format!("exec {}", argv.iter().map(|a| crate::daemon::agent::quote(a)).collect::<Vec<_>>().join(" "));
             let mut cmd = Command::new(login_shell());
             cmd.args(["-l", "-c", &script]);
             cmd
@@ -165,7 +165,7 @@ pub fn set_size(fd: i32, cols: u16, rows: u16) {
     unsafe { libc::ioctl(fd, libc::TIOCSWINSZ as _, &size) };
 }
 
-/// The connection to an attached pane: sends what [`crate::agent::Agent`] queues for it, in order, so a
+/// The connection to an attached pane: sends what [`crate::daemon::agent::Agent`] queues for it, in order, so a
 /// slow network never holds up reading the agent's output.
 pub fn spawn_writer(mut stream: UnixStream) -> Sender<Out> {
     let (tx, rx) = mpsc::channel::<Out>();

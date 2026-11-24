@@ -6,7 +6,8 @@ use nex_host::proto::{self, MessageKind, Payload, Request};
 
 use crate::agentcli::args::Args;
 use crate::agentcli::{bad, me, text};
-use crate::{client, deliver, pipeline};
+use crate::daemon::deliver;
+use crate::{client, pipeline};
 
 pub fn send(args: &[String]) -> io::Result<i32> {
     let a = Args::parse(args, &["--reply-to", "--files", "--verdict", "--kind", "--pr"], &["--ask", "--task", "--note", "--force", "--json"])?;

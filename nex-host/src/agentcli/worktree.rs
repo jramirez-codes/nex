@@ -22,7 +22,7 @@ pub fn worktree(dir: &Path, name: &str) -> io::Result<PathBuf> {
     let trees = nex_host::paths::worktrees().ok_or_else(|| io::Error::other("no home folder"))?;
     // The second it's made in, plus `-2`, `-3`… when another was made that second (two
     // features joining a run at once): no two share a branch or a folder.
-    let stamp = crate::agent::now_ms() / 1000;
+    let stamp = crate::util::now_ms() / 1000;
     let taken = |b: &str, p: &Path| p.exists() || git(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{b}")]).is_ok_and(|o| o.status.success());
     let (branch, path) = (1..)
         .map(|n| if n == 1 { format!("{name}-{stamp}") } else { format!("{name}-{stamp}-{n}") })
