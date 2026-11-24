@@ -27,6 +27,25 @@
 	<!-- Hold the keyboard button to talk: the phone's mic is shared with the ssh host. -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>nex shares your microphone with the ssh host while you hold the keyboard button, for voice input in apps like Claude Code.</string>
+	<!-- One window scene, run by NexSceneDelegate (scene.m): apps built with the iOS 27 SDK
+	     must use the scene life cycle. -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default</string>
+					<key>UISceneDelegateClassName</key>
+					<string>NexSceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<!-- Without a launch screen iOS runs the app letterboxed at an old phone's size. -->
 	<key>UILaunchScreen</key>
 	<dict>
