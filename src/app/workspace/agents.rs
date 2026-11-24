@@ -169,16 +169,21 @@ impl App {
     /// the one you go back to from the Agents tab (where clicking a card takes you); only the
     /// focused one while it's zoomed. The focused pane is the primary; when that's the Agents
     /// pane itself (split beside them), the pane it was opened from, else the tab's last
-    /// focused terminal.
+    /// focused terminal. From the Agents tab, a pane that tab holds too (the sticky pane,
+    /// pinned into every tab) isn't marked: it's there beside the Agents pane, not what
+    /// you go back to.
     pub(in crate::app) fn viewing(&self, id: PaneId) -> Viewing {
         let Some(tab) = self.tabs.get(self.active) else { return Viewing::default() };
-        let panes = if tab.zoomed { vec![tab.focused] } else { tab.root.panes() };
+        let home = self.home_tab.as_ref().filter(|_| self.home_active);
+        let marked = |p: &PaneId| !home.is_some_and(|h| h.contains(*p));
+        let mut panes = if tab.zoomed { vec![tab.focused] } else { tab.root.panes() };
+        panes.retain(marked);
         let primary = if tab.focused == id {
             self.agents.get(&id).and_then(|a| a.origin).filter(|o| tab.contains(*o)).or(tab.last_terminal)
         } else {
             Some(tab.focused)
         };
-        Viewing { panes, primary }
+        Viewing { panes, primary: primary.filter(marked) }
     }
 
     /// Ctrl+Shift+A: close the shown tab's Agents pane if it has one (focus goes back to the

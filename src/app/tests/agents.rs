@@ -280,3 +280,56 @@ fn the_agents_on_screen_are_marked_viewing_both_halves_of_a_split_and_where_a_ca
         run(&mut app, &ctx, width);
     }
 }
+
+#[test]
+fn from_the_agents_tab_a_pinned_agent_is_not_marked_viewing() {
+    use crate::agents::model::{Seen, Viewing};
+    use crate::layout::Axis;
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx, Config::default());
+    run(&mut app, &ctx, 1400.0);
+    let left = app.focused_pane().unwrap();
+    app.pending.push(Action::Split(Axis::Horizontal));
+    run(&mut app, &ctx, 1400.0);
+    let pinned = app.focused_pane().unwrap();
+    app.pending.push(Action::ToggleSticky(pinned));
+    run(&mut app, &ctx, 1400.0);
+
+    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    let pretend = |app: &mut crate::app::App| {
+        let agents = vec![probe(left, Some(0), AgentKind::Claude, "busy"), probe(pinned, Some(0), AgentKind::Codex, "busy")];
+        app.agent_tracker.update(agents, Instant::now());
+    };
+    let seen = |app: &crate::app::App, v: &Viewing, pane| v.of(app.agent_tracker.agents().iter().find(|a| a.pane == pane).unwrap());
+
+    // In the terminal tab, the pinned pane is one of its panes like any other.
+    app.pending.push(Action::ToggleAgents);
+    run(&mut app, &ctx, 1400.0);
+    let split = *app.agents.keys().next().unwrap();
+    pretend(&mut app);
+    let v = app.viewing(split);
+    assert_eq!(seen(&app, &v, pinned), Some(Seen::Primary));
+    assert_eq!(seen(&app, &v, left), Some(Seen::Shared));
+    app.pending.push(Action::ToggleAgents);
+    run(&mut app, &ctx, 1400.0);
+
+    // The Agents tab holds the pinned pane too: its card isn't ringed for that, while the
+    // tab's other agent still is.
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    assert!(app.home_active);
+    assert!(app.home_tab.as_ref().unwrap().contains(pinned));
+    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.agents.contains_key(p)).unwrap();
+    pretend(&mut app);
+    let v = app.viewing(id);
+    assert_eq!(seen(&app, &v, pinned), None);
+    assert_eq!(seen(&app, &v, left), Some(Seen::Shared));
+    run(&mut app, &ctx, 1400.0);
+
+    // Back in the terminal tab, it's marked again.
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    assert!(!app.home_active);
+    let v = app.viewing(id);
+    assert_eq!(seen(&app, &v, pinned), Some(Seen::Primary));
+}
