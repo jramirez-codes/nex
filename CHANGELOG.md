@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-24
+
 ### Changed
 
 - The website is redesigned: one near-black palette with a single blue, large type, and a
@@ -760,7 +762,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/jramirez-codes/nex/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/jramirez-codes/nex/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/jramirez-codes/nex/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/jramirez-codes/nex/compare/v0.12.1...v0.12.2

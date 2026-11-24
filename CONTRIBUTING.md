@@ -50,7 +50,7 @@ only when `nex-host/` (or `Cargo.toml`/`Cargo.lock`) changed. Pushes to main run
 2. Commit, then tag and push:
 
    ```sh
-   git tag v0.14.0 && git push origin v0.14.0
+   git tag v0.14.1 && git push origin v0.14.1
    ```
 
 The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 Linux binaries
