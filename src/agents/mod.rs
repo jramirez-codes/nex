@@ -106,7 +106,7 @@ impl AgentsPane {
             }
             Key::Enter | Key::Space => {
                 if let Some(pane) = selected {
-                    self.requests.push(Request::Focus(pane));
+                    self.jump(pane);
                 }
             }
             Key::Delete | Key::Backspace => {
@@ -119,6 +119,20 @@ impl AgentsPane {
         true
     }
 
+    /// The card (or helper row) drawn highlighted when the pane has focus: the selected one,
+    /// unless it was jumped to since a key last moved the highlight.
+    pub fn highlighted(&self) -> Option<PaneId> {
+        self.selected.filter(|_| !self.view.jumped)
+    }
+
+    /// Highlight `pane` and ask to jump to its agent. The highlight isn't drawn again until a
+    /// key moves it: you went to that agent, so its card isn't ringed when you come back.
+    fn jump(&mut self, pane: PaneId) {
+        self.selected = Some(pane);
+        self.view.jumped = true;
+        self.requests.push(Request::Focus(pane));
+    }
+
     /// Open or close the team `lead` leads. Closing it moves the highlight from a helper up
     /// to the team's card.
     fn toggle_team(&mut self, lead: PaneId) {
@@ -128,6 +142,7 @@ impl AgentsPane {
             self.selected = Some(lead);
         }
         self.view.reveal_selection = true;
+        self.view.jumped = false;
     }
 
     /// Next or previous in reading order (`isize::MIN` / `MAX`: first or last).
@@ -146,6 +161,7 @@ impl AgentsPane {
         };
         self.selected = Some(self.targets[next as usize].0);
         self.view.reveal_selection = true;
+        self.view.jumped = false;
     }
 
     /// The nearest card or helper row below (or above) the highlighted one, the closest to
@@ -165,6 +181,7 @@ impl AgentsPane {
         if let Some((p, _)) = best {
             self.selected = Some(*p);
             self.view.reveal_selection = true;
+            self.view.jumped = false;
         }
     }
 }

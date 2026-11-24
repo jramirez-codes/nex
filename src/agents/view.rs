@@ -75,6 +75,10 @@ const ROWS_SHOWN: usize = 6;
 pub(super) struct ViewState {
     /// Scroll so the highlighted card is in view on the next frame (after a key moved it).
     pub reveal_selection: bool,
+    /// A card (or helper row) jumped to its agent since a key last moved the highlight: the
+    /// highlight isn't drawn, so coming back from that agent's tab no card is ringed for
+    /// it. It's still where Enter goes.
+    pub(super) jumped: bool,
     scroll_active: f64,
     /// Scrolling the cards with a finger.
     pan: TouchPan,
@@ -94,7 +98,7 @@ pub(super) struct ViewState {
 
 impl ViewState {
     pub(super) fn new() -> ViewState {
-        ViewState { reveal_selection: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None, seen: HashMap::new() }
+        ViewState { reveal_selection: false, jumped: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None, seen: HashMap::new() }
     }
 
     /// `agents` as teams: the ones made last time, unless the list changed since.
@@ -430,15 +434,14 @@ impl AgentsPane {
                 let hit = f.interact(head, ("card", id));
                 hovered = hit.as_ref().is_some_and(|h| h.hovered());
                 if hit.as_ref().is_some_and(|h| h.clicked()) {
-                    self.selected = Some(id);
-                    self.requests.push(super::Request::Focus(id));
+                    self.jump(id);
                 }
                 if let Some(h) = hit {
                     h.on_hover_cursor(egui::CursorIcon::PointingHand);
                 }
             }
             let hover = ui.ctx().animate_bool_with_time(f.id(("hover", id)), hovered, 0.12);
-            let selected = !card.leaving && self.selected == Some(id);
+            let selected = !card.leaving && self.highlighted() == Some(id);
             // On screen: the agent itself, or for a team its lead or one of its helpers.
             let seen = if card.leaving {
                 None
@@ -593,8 +596,7 @@ impl AgentsPane {
             {
                 hovered = hit.hovered();
                 if hit.clicked() {
-                    self.selected = Some(id);
-                    self.requests.push(super::Request::Focus(id));
+                    self.jump(id);
                 }
                 hit.on_hover_cursor(egui::CursorIcon::PointingHand);
             }
@@ -602,7 +604,7 @@ impl AgentsPane {
             if hover > 0.0 {
                 rp.rect_filled(inner, 8, white_alpha((8.0 * hover) as u8));
             }
-            if self.selected == Some(id) && f.focused && !m.leaving {
+            if self.highlighted() == Some(id) && f.focused && !m.leaving {
                 rp.rect_stroke(inner, 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
             }
             let seen = (!m.leaving).then(|| f.viewing.of(&m.member.agent)).flatten();
@@ -1247,6 +1249,7 @@ mod tests {
         frame(&ctx, &mut pane, &agents, &mut time, vec![]);
         click(&ctx, &mut pane, &agents, &mut time, row_rect(open, 1).center());
         assert_eq!(pane.requests, vec![super::super::Request::Focus(3)]);
+        assert_eq!((pane.selected, pane.highlighted()), (Some(3), None), "a jump leaves no highlight drawn");
         pane.requests.clear();
         click(&ctx, &mut pane, &agents, &mut time, head.left_center() + Vec2::new(30.0, 0.0));
         assert_eq!(pane.requests, vec![super::super::Request::Focus(1)]);

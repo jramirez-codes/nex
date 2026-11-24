@@ -388,3 +388,54 @@ fn switching_to_the_agents_tab_clears_every_viewing_mark() {
         assert_eq!((seen(&app, &v, left), seen(&app, &v, right)), (None, None));
     }
 }
+
+#[test]
+fn a_card_jumped_to_from_the_agents_tab_is_not_left_highlighted() {
+    use crate::agents::model::Viewing;
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx, Config::default());
+    run(&mut app, &ctx, 1400.0);
+    let first = app.focused_pane().unwrap();
+    app.pending.push(Action::NewTab);
+    run(&mut app, &ctx, 1400.0);
+    let second = app.focused_pane().unwrap();
+    app.show_tab(0);
+    run(&mut app, &ctx, 1400.0);
+
+    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    let pretend = |app: &mut crate::app::App| {
+        let agents = vec![probe(first, Some(0), AgentKind::Claude, "busy"), probe(second, Some(1), AgentKind::Codex, "busy")];
+        app.agent_tracker.update(agents, Instant::now());
+    };
+
+    // On the Agents tab, the keyboard's highlight is on a card.
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.agents.contains_key(p)).unwrap();
+    pretend(&mut app);
+    run(&mut app, &ctx, 1400.0);
+    assert!(app.agents[&id].highlighted().is_some());
+
+    // Enter on the second tab's card swaps to that tab.
+    app.agents.get_mut(&id).unwrap().selected = Some(second);
+    app.agents.get_mut(&id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    run(&mut app, &ctx, 1400.0);
+    run(&mut app, &ctx, 1400.0);
+    assert!(!app.home_active);
+    assert_eq!(app.focused_pane(), Some(second));
+    assert_eq!(app.agents[&id].highlighted(), None, "the card it jumped from isn't left ringed");
+
+    // Back on the Agents tab, no card is ringed, neither as viewed nor as the highlight.
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    assert!(app.home_active);
+    pretend(&mut app);
+    run(&mut app, &ctx, 1400.0);
+    assert_eq!(app.viewing(id), Viewing::default());
+    assert_eq!(app.agents[&id].highlighted(), None);
+    assert_eq!(app.agents[&id].selected, Some(second), "Enter still goes where it went");
+
+    // A key brings the highlight back.
+    app.agents.get_mut(&id).unwrap().key(egui::Key::ArrowLeft, egui::Modifiers::NONE);
+    assert!(app.agents[&id].highlighted().is_some());
+}
