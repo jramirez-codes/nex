@@ -8,6 +8,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Jumping to an agent from its card (a click, or Enter) no longer leaves that card ringed by
+  the keyboard highlight: coming back to the Agents tab, no card has a highlighted border
+  until an arrow key moves the highlight again (Enter still goes to the card you last chose).
 - On the Agents tab, no agent card shows the "Viewing" ring any more: the terminal tab you
   go back to isn't on screen, so none of its agents count as viewed. An Agents pane split
   beside terminals still marks them as before.
