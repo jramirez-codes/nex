@@ -137,8 +137,10 @@ def promo(d) -> None:
     """Social post and site hero: every built-in in one quick pass. A pipeline of agents
     (stub agents, see agents/) starts over ssh first, so it works on while the rest plays:
     the Agents pane opens, narrows and is pinned; a new tab follows ssh to the same folder
-    and opens the Changes pane; another splits off a file explorer; then back to the run,
-    the pinned pane gliding along from tab to tab. record.py makes the demo repo (with an
+    and opens the Changes pane; another splits off a file explorer; then, from the pinned
+    pane (it is on every tab), the run's team opens and Enter on a helper jumps into that
+    agent: its own prompt in a new tab, its row marked as the one on screen. The clip never
+    goes back to the shell `nex-host pipe` runs in. record.py makes the demo repo (with an
     uncommitted change for Changes) and the remote shell's rc first."""
     from record import PROMO_RC
     d.extra_panes = 0
@@ -163,13 +165,11 @@ def promo(d) -> None:
     for k in ("Down", "space", "Down", "space"):
         d.key(k, after=0.15)
     d.wait(0.8)
-    d.key("1", "ALT", after=0.8)                 # back to the run
-    d.key("Right", CTRL_ALT, after=0.3)          # into the Agents pane
+    d.key("Right", CTRL_ALT, after=0.3)          # into the pinned Agents pane
     d.key("Down", after=0.3)
-    d.key("space", after=1.6)                    # open the team: plan, builders, merge
-    d.key("2", "ALT", after=0.9)                 # the pinned pane glides along
-    d.key("3", "ALT", after=0.9)
-    d.key("1", "ALT", after=1.6)
+    d.key("space", after=1.4)                    # open the team: plan, builders, merge
+    d.key("Down", after=0.7)                     # its first helper...
+    d.key("Return", after=3.0)                   # ...and into that agent
     d.mark("hero", "end")
     d.mark("promo", "end")
     # No way back to one tab from here worth scripting, so promo stays last: record.py
