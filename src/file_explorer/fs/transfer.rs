@@ -261,6 +261,8 @@ impl FileExplorer {
     pub fn request_delete(&mut self) {
         let paths = self.targets();
         if !paths.is_empty() {
+            // Worked out here, once, from the listing: the dialog is drawn every frame.
+            self.delete_has_folder = self.entries.iter().any(|e| e.is_dir && !e.is_symlink && paths.contains(&e.path));
             self.confirm_delete = Some(paths);
         }
     }
@@ -319,7 +321,7 @@ impl FileExplorer {
         let generation = FS_GENERATION.load(Ordering::Relaxed);
         if generation != self.seen_generation {
             self.seen_generation = generation;
-            self.refresh();
+            self.refresh_in_background();
         }
         if !self.jobs.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(100));

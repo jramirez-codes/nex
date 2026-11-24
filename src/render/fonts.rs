@@ -172,6 +172,8 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
     defs.families.insert(FontFamily::Name(paint::UI_BOLD.into()), ui_bold);
 
     ctx.set_fonts(defs);
+    // Icons are sized from glyph widths measured in the old fonts.
+    crate::ui::file_icons::fonts_changed(ctx);
 }
 
 #[cfg(test)]

@@ -3,8 +3,12 @@
 //! its helpers inside it. A sub-agent of a helper or stage sits under that one.
 //!
 //! A team sits in the section of its most urgent member, so a helper that needs you brings
-//! the whole team up to Needs You. Inside, helpers keep the order they started in, and a
-//! helper changing state never moves the card around: only the team's own status does.
+//! the whole team up to Needs You. Inside, helpers are ordered like the sections are: the
+//! ones that need you, then done, working and idle, each in the order they started (a
+//! helper's own helpers under it, sorted among themselves). A helper changing state moves
+//! its row and capsule (`motion` glides them), never the card: only the team's own status
+//! does. The closed card's steps keep the pipeline's order ([`Group::strip`]): only the
+//! agents of one step change places.
 //! Everything else (local panes' agents, agents nobody started) is a team of one: a card as
 //! before.
 
@@ -26,7 +30,7 @@ pub struct Member {
 pub struct Group {
     /// The lead (or pipeline) with `status` set to the team's: its most urgent member's.
     pub lead: Agent,
-    /// Its helpers, depth first, each level in the order they started.
+    /// Its helpers, depth first, each level by status and then in the order they started.
     pub members: Vec<Member>,
 }
 
@@ -61,17 +65,19 @@ impl Group {
         self.members[i + 1..].iter().take_while(move |m| m.depth > depth).filter(move |m| m.depth == depth + 1)
     }
 
-    /// The closed card's capsule row: the lead's helpers, with a pipeline among them opened
-    /// into its stages (its name first).
+    /// The closed card's capsule row: the lead's helpers (by status, as in `members`), with
+    /// a pipeline among them opened into its stages (its name first). Stages stay in the
+    /// pipeline's order whatever their status ([`by_step`]).
     pub fn strip(&self) -> Vec<Step<'_>> {
+        if self.is_pipeline() {
+            return by_step(self.direct().map(|m| &m.agent).collect()).into_iter().map(Step::Stage).collect();
+        }
         let mut out = Vec::new();
         for (i, m) in self.members.iter().enumerate().filter(|(_, m)| m.depth == 1) {
-            let stages: Vec<&Member> = self.under(i).filter(|s| !s.agent.team.sub).collect();
-            if self.is_pipeline() {
-                out.push(Step::Stage(&m.agent));
-            } else if m.agent.kind == AgentKind::Pipeline && !stages.is_empty() {
+            let stages: Vec<&Agent> = self.under(i).filter(|s| !s.agent.team.sub).map(|s| &s.agent).collect();
+            if m.agent.kind == AgentKind::Pipeline && !stages.is_empty() {
                 out.push(Step::Heading(&m.agent.name));
-                out.extend(stages.into_iter().map(|s| Step::Stage(&s.agent)));
+                out.extend(by_step(stages).into_iter().map(Step::Stage));
             } else {
                 out.push(Step::Helper(&m.agent));
             }
@@ -123,8 +129,25 @@ impl<'a> Step<'a> {
 /// Whether two helpers side by side in a row are one step (the same stage, like `build`
 /// and `build-2`) rather than one after the other.
 pub fn same_step(a: &Agent, b: &Agent) -> bool {
-    let role = |a: &Agent| a.team.role.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| a.name.clone());
-    role(a) == role(b)
+    step_of(a) == step_of(b)
+}
+
+/// The step of a pipeline a stage's agent belongs to: its role, else its name.
+fn step_of(a: &Agent) -> &str {
+    a.team.role.as_deref().filter(|r| !r.is_empty()).unwrap_or(&a.name)
+}
+
+/// A pipeline's `stages` (by status, as in [`Group::members`]) in the pipeline's order: the
+/// steps in the order their first agent started, so a builder started after the merge
+/// stage is still among the builders, and each step's agents in the order given.
+fn by_step(mut stages: Vec<&Agent>) -> Vec<&Agent> {
+    let mut first: HashMap<&str, (u64, PaneId)> = HashMap::new();
+    for a in &stages {
+        let at = (a.team.started, a.pane);
+        first.entry(step_of(a)).and_modify(|f| *f = (*f).min(at)).or_insert(at);
+    }
+    stages.sort_by_key(|a| first[step_of(a)]);
+    stages
 }
 
 /// `agents` (as the tracker sorted them) as cards: each agent under the one that started
@@ -139,7 +162,7 @@ pub fn groups(agents: &[Agent]) -> Vec<Group> {
         }
     }
     for kids in children.values_mut() {
-        kids.sort_by_key(|a| (a.team.started, a.pane));
+        kids.sort_by_key(|a| (a.status, a.team.started, a.pane));
     }
 
     let mut placed: HashSet<PaneId> = HashSet::new();
@@ -227,6 +250,63 @@ mod tests {
     }
 
     #[test]
+    fn helpers_are_ordered_by_status_then_by_start() {
+        let lead = agent(1, Status::Idle, None, 0);
+        let helpers = |second: Status| {
+            vec![
+                lead.clone(),
+                agent(2, Status::Working, Some(1), 10),
+                agent(3, second, Some(1), 20),
+                agent(4, Status::Idle, Some(1), 5),
+                agent(5, Status::Working, Some(1), 30),
+                // 3's own helpers stay under it, sorted among themselves.
+                agent(6, Status::Idle, Some(3), 40),
+                agent(7, Status::NeedsYou, Some(3), 50),
+            ]
+        };
+        let order = |agents: &[Agent]| groups(agents)[0].members.iter().map(|m| (m.agent.pane, m.depth)).collect::<Vec<_>>();
+        assert_eq!(order(&helpers(Status::Working)), [(2, 1), (3, 1), (7, 2), (6, 2), (5, 1), (4, 1)], "working ones in start order, idle last");
+        // 3 finishes: above the ones still working, its helpers with it.
+        assert_eq!(order(&helpers(Status::Done)), [(3, 1), (7, 2), (6, 2), (2, 1), (5, 1), (4, 1)]);
+        assert_eq!(order(&helpers(Status::NeedsYou))[0], (3, 1));
+        assert_eq!(order(&helpers(Status::Idle)), [(2, 1), (5, 1), (4, 1), (3, 1), (7, 2), (6, 2)]);
+        // The card itself is where its most urgent member puts it, as before.
+        assert_eq!(groups(&helpers(Status::Done))[0].lead.status, Status::NeedsYou);
+    }
+
+    #[test]
+    fn a_pipelines_steps_keep_their_order_whatever_their_agents_are_doing() {
+        let mut pipe = agent(1, Status::Working, None, 0);
+        pipe.kind = AgentKind::Pipeline;
+        let stage = |pane, role: &str, status, started| {
+            let mut a = agent(pane, status, Some(1), started);
+            a.team.role = Some(role.into());
+            a
+        };
+        let mut agents = vec![
+            pipe,
+            stage(2, "build", Status::Working, 10),
+            stage(3, "build", Status::Done, 20),
+            stage(4, "merge", Status::NeedsYou, 30),
+            // A builder started after the merge stage is still a builder.
+            stage(5, "build", Status::Idle, 40),
+        ];
+        let panes = |g: &Group| g.strip().iter().filter_map(|s| s.agent()).map(|a| a.pane).collect::<Vec<_>>();
+        let g = &groups(&agents)[0];
+        assert_eq!(g.members.iter().map(|m| m.agent.pane).collect::<Vec<_>>(), [4, 3, 2, 5], "the list is by status");
+        assert_eq!(panes(g), [3, 2, 5, 4], "the steps are build then merge, the builders by status");
+        assert!(g.strip().iter().all(|s| matches!(s, Step::Stage(_))));
+
+        // The same pipeline, asked for by an agent with a helper of its own that needs it.
+        agents[0].team.parent = Some(9);
+        agents.push(agent(9, Status::Idle, None, 0));
+        agents.push(agent(8, Status::NeedsYou, Some(9), 50));
+        let g = &groups(&agents)[0];
+        let steps: Vec<String> = g.strip().iter().map(|s| s.agent().map_or("heading".into(), |a| a.pane.to_string())).collect();
+        assert_eq!(steps, ["8", "heading", "3", "2", "5", "4"], "helpers by status, the stages in order");
+    }
+
+    #[test]
     fn a_team_takes_its_most_urgent_members_status_and_sorts_by_it() {
         let agents = vec![agent(9, Status::Working, None, 0), agent(1, Status::Idle, None, 0), agent(2, Status::NeedsYou, Some(1), 0)];
         let g = groups(&agents);
@@ -293,7 +373,7 @@ mod tests {
     fn sub_agents_are_in_their_agents_card() {
         let agents = vec![agent(1, Status::Idle, None, 0), sub(2, Status::Working, 1, 10), sub(3, Status::Done, 1, 20)];
         let g = groups(&agents);
-        assert_eq!(shape(&g), vec![(1, Status::Working, vec![(2, 1), (3, 1)])], "a background sub-agent keeps its agent working");
+        assert_eq!(shape(&g), vec![(1, Status::Working, vec![(3, 1), (2, 1)])], "a background sub-agent keeps its agent working");
         assert_eq!(g[0].size(), "2 sub-agents");
         assert!(g[0].strip().iter().all(|s| matches!(s, Step::Helper(_))));
 

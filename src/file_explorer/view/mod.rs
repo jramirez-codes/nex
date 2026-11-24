@@ -76,6 +76,8 @@ impl FileExplorer {
     /// scrolling and drops.
     pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: PaneId, c: &Theme) {
         let ctx = ui.ctx().clone();
+        // Before polling: see `start_listing`.
+        let _ = self.repaint.set(ctx.clone());
         self.poll_listing();
         self.poll_jobs(&ctx);
         self.expire_find(&ctx);
@@ -120,11 +122,7 @@ impl FileExplorer {
         let Some(paths) = &self.confirm_delete else { return };
         let s = sizes(self.touch, 1.0);
         let name = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.display().to_string());
-        let has_folder = if self.remote.is_some() {
-            self.entries.iter().any(|e| e.is_dir && !e.is_symlink && paths.contains(&e.path))
-        } else {
-            paths.iter().any(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir()))
-        };
+        let has_folder = self.delete_has_folder;
         let title = match paths.as_slice() {
             [one] => format!("Permanently delete “{}”?", name(one)),
             many => format!("Permanently delete {}?", count(many.len())),

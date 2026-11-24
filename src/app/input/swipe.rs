@@ -97,8 +97,9 @@ impl App {
         self.card_rects.iter().any(|(_, r)| r.contains(pos) && pos.y >= r.top() + header)
     }
 
-    /// The tab beside the shown one: the next (`forward`) or the previous. The home tab (Files
-    /// or Agents), when open, comes before the first; the ends don't wrap around.
+    /// The tab beside the shown one: the next (`forward`) or the previous. The home tab comes
+    /// before the first: Files or Agents when one is open, else Agents, opened as tapping its
+    /// label does. The ends don't wrap around.
     pub(in crate::app) fn swipe_tab(&mut self, forward: bool) {
         let n = self.tabs.len();
         match (self.home_active, forward) {
@@ -107,7 +108,8 @@ impl App {
             (false, true) if self.active + 1 < n => self.show_tab(self.active + 1),
             (false, false) if self.active > 0 => self.show_tab(self.active - 1),
             (false, false) if self.home_tab.is_some() => self.home_active = true,
-            (false, _) => {}
+            (false, false) => self.toggle_agents_tab(),
+            (false, true) => {}
         }
     }
 }

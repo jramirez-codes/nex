@@ -4,8 +4,9 @@
 //! terminal shows that terminal's repository. Opened from a terminal in an `ssh` session, it
 //! shows the repository there (git runs on the host).
 //!
-//! `git` (running it, parsing status and diffs), `view` (drawing and the mouse), and here:
-//! the state, background loading and keys.
+//! `git/` (running git here or on an ssh host: `status`, `diff`, `emphasis`, `remote`),
+//! `syntax` (syntax colors), `view/` (drawing and the mouse), `tests` (a real repository,
+//! syntax colors), and here: the state, background loading and keys.
 
 pub mod git;
 pub mod syntax;
@@ -24,7 +25,8 @@ use egui::{Key, Modifiers};
 use crate::layout::PaneId;
 use crate::remote::exec::Transport;
 
-use git::{FileChange, FileDiff, Status};
+use crate::git_diff::git::diff::FileDiff;
+use crate::git_diff::git::status::{FileChange, Status};
 
 /// What a diff job sends, tagged with its generation and file.
 type DiffResult = (u64, Sel, DiffMsg);
@@ -240,8 +242,8 @@ impl GitDiff {
         self.status_job = Some(rx);
         std::thread::spawn(move || {
             let status = match &remote {
-                Some(t) => git::load_status_remote(t, &dir),
-                None => git::load_status(&dir),
+                Some(t) => git::remote::load_status_remote(t, &dir),
+                None => git::status::load_status(&dir),
             };
             let _ = tx.send((generation, status));
             ctx.request_repaint();
@@ -281,8 +283,8 @@ impl GitDiff {
                 ok
             };
             let loaded = match &remote {
-                Some(t) => git::load_diff_remote(t, &root, &file),
-                None => git::load_diff(&root, &file),
+                Some(t) => git::remote::load_diff_remote(t, &root, &file),
+                None => git::diff::load_diff(&root, &file),
             };
             let mut d = match loaded {
                 Ok(d) if !d.binary => d,
@@ -412,7 +414,7 @@ impl GitDiff {
     }
 
     /// The snapshot, if the folder is a repository.
-    fn snapshot(&self) -> Option<&git::Snapshot> {
+    fn snapshot(&self) -> Option<&git::status::Snapshot> {
         match self.status.as_deref() {
             Some(Status::Ready(s)) => Some(s),
             _ => None,
@@ -575,7 +577,7 @@ impl GitDiff {
 }
 
 /// `sel`'s entry in the snapshot.
-fn find<'a>(snap: &'a git::Snapshot, sel: &Sel) -> Option<&'a FileChange> {
+fn find<'a>(snap: &'a git::status::Snapshot, sel: &Sel) -> Option<&'a FileChange> {
     let list = if sel.staged { &snap.staged } else { &snap.unstaged };
     list.iter().find(|f| f.path == sel.path)
 }

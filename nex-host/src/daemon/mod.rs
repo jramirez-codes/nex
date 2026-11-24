@@ -83,11 +83,18 @@ pub fn run() -> io::Result<()> {
     std::fs::create_dir_all(&dir)?;
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
 
+    // The daemon's output goes nowhere: a panic is written to its log instead.
+    let before = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log(&panic_line(info));
+        before(info);
+    }));
+
     retire::remember_exe();
     // One daemon at a time: whoever holds the lock owns the socket. Another that holds it
     // and is listening is the daemon; one that isn't listening is retiring, and lets go soon.
-    let sock = paths::socket().unwrap();
-    let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(paths::lock().unwrap())?;
+    let sock = dir.join("sock");
+    let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("lock"))?;
     let waiting = Instant::now();
     while unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
         if UnixStream::connect(&sock).is_ok() || waiting.elapsed() >= LOCK_WAIT {
@@ -132,16 +139,41 @@ pub fn run() -> io::Result<()> {
 
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        let state = state.clone();
-        state.clients.fetch_add(1, Ordering::Relaxed);
+        let client = Connected::new(state.clone());
         std::thread::spawn(move || {
-            if let Err(e) = serve::serve(&state, stream) {
+            if let Err(e) = serve::serve(&client.0, stream) {
                 log(&format!("connection: {e}"));
             }
-            state.clients.fetch_sub(1, Ordering::Relaxed);
         });
     }
     Ok(())
+}
+
+/// One connection, counted in [`State::clients`] for as long as this lives: until its
+/// thread is done with it, whether that returned or panicked.
+struct Connected(Arc<State>);
+
+impl Connected {
+    fn new(state: Arc<State>) -> Self {
+        state.clients.fetch_add(1, Ordering::Relaxed);
+        Self(state)
+    }
+}
+
+impl Drop for Connected {
+    fn drop(&mut self) {
+        self.0.clients.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// A panic as one line of the daemon's log: what it said and where.
+fn panic_line(info: &std::panic::PanicHookInfo) -> String {
+    let payload = info.payload();
+    let message = payload.downcast_ref::<&str>().copied().or_else(|| payload.downcast_ref::<String>().map(String::as_str)).unwrap_or("(no message)");
+    match info.location() {
+        Some(at) => format!("panic at {}:{}: {message}", at.file(), at.line()),
+        None => format!("panic: {message}"),
+    }
 }
 
 /// A short id nobody else has: 8 hex digits.
@@ -168,5 +200,55 @@ pub fn log(msg: &str) {
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{} {msg}", agent::now_ms() / 1000);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> Arc<State> {
+        Arc::new(State {
+            agents: Mutex::new(HashMap::new()),
+            clients: AtomicUsize::new(0),
+            next_token: AtomicU64::new(1),
+            broker: Broker::default(),
+            pending: Mutex::new(Vec::new()),
+            retiring: AtomicBool::new(false),
+        })
+    }
+
+    #[test]
+    fn a_connection_that_panics_is_no_longer_counted() {
+        let state = state();
+        let client = Connected::new(state.clone());
+        let also = Connected::new(state.clone());
+        assert_eq!(state.clients.load(Ordering::Relaxed), 2);
+        let served = std::thread::spawn(move || {
+            let _client = client;
+            panic!("serving went wrong");
+        });
+        assert!(served.join().is_err());
+        assert_eq!(state.clients.load(Ordering::Relaxed), 1, "the one that panicked is gone");
+        drop(also);
+        assert_eq!(state.clients.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_panic_is_one_line_saying_what_and_where() {
+        // The hook is the whole process's: other tests' panics pass through it meanwhile,
+        // so this looks only for its own.
+        static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        let before: Arc<dyn Fn(&std::panic::PanicHookInfo) + Send + Sync> = Arc::from(std::panic::take_hook());
+        let chained = before.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            let line = panic_line(info);
+            if line.contains("the daemon tripped") { LINES.locked().push(line) } else { chained(info) }
+        }));
+        let line = line!() + 1;
+        let _ = std::thread::spawn(|| panic!("the daemon tripped on {}", 7)).join();
+        let _ = std::thread::spawn(|| std::panic::panic_any(7)).join();
+        std::panic::set_hook(Box::new(move |info| before(info)));
+        assert_eq!(*LINES.locked(), [format!("panic at {}:{line}: the daemon tripped on 7", file!())]);
     }
 }

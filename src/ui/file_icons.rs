@@ -1,8 +1,15 @@
 //! Icons for files by type, drawn with the Nerd Font glyphs nex embeds (so they work with
 //! nothing installed): a colored glyph per language or kind of file, and small marks for the
 //! well-known folders.
+//!
+//! Icons are sized by their width, which takes knowing how wide the font draws each one: that
+//! is measured once per glyph and kept (`width_ratio`), not laid out again for every icon of
+//! every frame.
 
-use egui::{Align2, Color32, FontFamily, FontId, Painter, Pos2};
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+use egui::{Align2, Color32, Context, FontFamily, FontId, Id, Painter, Pos2};
 
 use crate::render::FONT_REGULAR;
 
@@ -122,14 +129,52 @@ pub const LINK_MARK: char = '\u{f0337}';
 /// Draw glyph `ch` about `width` wide, centered on `center`. The Nerd Font is a monospace
 /// font, so every icon is one cell wide; the font size is picked to make that cell `width`.
 pub fn paint_glyph(p: &Painter, center: Pos2, width: f32, ch: char, color: Color32) {
-    paint_glyph_in(p, FontFamily::Name(FONT_REGULAR.into()), center, width, ch, color);
+    paint_glyph_in(p, grid_family(), center, width, ch, color);
 }
 
 /// [`paint_glyph`] from font `family`.
 pub fn paint_glyph_in(p: &Painter, family: FontFamily, center: Pos2, width: f32, ch: char, color: Color32) {
-    let probe = p.layout_no_wrap(ch.to_string(), FontId::new(width, family.clone()), color).size().x;
-    let size = if probe > 0.0 { width * width / probe } else { width };
+    let size = glyph_font_size(p.ctx(), &family, width, ch);
     p.text(center, Align2::CENTER_CENTER, ch, FontId::new(size, family), color);
+}
+
+/// The grid's regular font, where the icons come from. Made once: naming a family allocates,
+/// cloning one doesn't.
+fn grid_family() -> FontFamily {
+    static FAMILY: OnceLock<FontFamily> = OnceLock::new();
+    FAMILY.get_or_init(|| FontFamily::Name(FONT_REGULAR.into())).clone()
+}
+
+/// The font size at which `family` draws `ch` `width` wide.
+fn glyph_font_size(ctx: &Context, family: &FontFamily, width: f32, ch: char) -> f32 {
+    let ratio = width_ratio(ctx, family, ch);
+    if ratio > 0.0 { width / ratio } else { width }
+}
+
+/// How wide each glyph is as a share of its font size, per family, as measured so far. Kept
+/// in the context's memory, so each context has its own (their fonts can differ).
+#[derive(Clone, Default)]
+struct WidthRatios(HashMap<FontFamily, HashMap<char, f32>>);
+
+/// The size the widths are measured at. Widths scale with the size, so any would do.
+const PROBE_SIZE: f32 = 16.0;
+
+/// How wide `family` draws `ch`, as a share of the font size. Measured the first time and
+/// remembered until the fonts change ([`fonts_changed`]).
+fn width_ratio(ctx: &Context, family: &FontFamily, ch: char) -> f32 {
+    // Looked up in place: reading a value out of the context's memory would clone the maps.
+    let known = ctx.data_mut(|d| d.get_temp_mut_or_default::<WidthRatios>(Id::NULL).0.get(family).and_then(|of| of.get(&ch)).copied());
+    if let Some(ratio) = known {
+        return ratio;
+    }
+    let ratio = ctx.fonts_mut(|f| f.glyph_width(&FontId::new(PROBE_SIZE, family.clone()), ch)) / PROBE_SIZE;
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<WidthRatios>(Id::NULL).0.entry(family.clone()).or_default().insert(ch, ratio));
+    ratio
+}
+
+/// Forget the measured glyph widths: call when `ctx` is given new fonts.
+pub fn fonts_changed(ctx: &Context) {
+    ctx.data_mut(|d| d.remove_temp::<WidthRatios>(Id::NULL));
 }
 
 #[cfg(test)]
@@ -149,6 +194,42 @@ mod tests {
         assert_eq!(folder_mark("Downloads", true), Some('\u{f01da}'));
         assert_eq!(folder_mark("Downloads", false), None);
         assert_eq!(folder_mark(".git", false), Some('\u{f02a2}'));
+    }
+
+    fn nerd_ctx() -> egui::Context {
+        let font = include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-Regular.ttf");
+        let mut defs = egui::FontDefinitions::default();
+        defs.font_data.insert("nerd".into(), std::sync::Arc::new(egui::FontData::from_static(font)));
+        defs.families.insert(grid_family(), vec!["nerd".into()]);
+        let ctx = Context::default();
+        ctx.set_fonts(defs);
+        let _ = ctx.run(Default::default(), |_| {});
+        ctx
+    }
+
+    fn measured(ctx: &Context) -> usize {
+        ctx.data(|d| d.get_temp::<WidthRatios>(Id::NULL)).map_or(0, |r| r.0.values().map(HashMap::len).sum())
+    }
+
+    /// The size an icon is drawn at is the one the per-icon probe layout used to give, and
+    /// each glyph is measured once however often and at whatever size it is drawn.
+    #[test]
+    fn icon_size_matches_a_probe_layout_and_is_measured_once() {
+        let ctx = nerd_ctx();
+        let family = grid_family();
+        for ch in ['\u{f1617}', LINK_MARK, '\u{e6b2}'] {
+            for width in [9.0_f32, 12.5, 15.0, 31.0] {
+                let probe = ctx.fonts_mut(|f| f.layout_no_wrap(ch.to_string(), FontId::new(width, family.clone()), Color32::WHITE)).size().x;
+                let by_probe = width * width / probe;
+                let size = glyph_font_size(&ctx, &family, width, ch);
+                // A layout's size is rounded to 1/32 of a point; the measured width is not.
+                assert!((size - by_probe).abs() < by_probe * 0.01, "U+{:x} at {width}: {size} vs {by_probe}", ch as u32);
+            }
+        }
+        assert_eq!(measured(&ctx), 3, "one measurement per glyph, not per call");
+        // New fonts can draw the glyphs at other widths.
+        fonts_changed(&ctx);
+        assert_eq!(measured(&ctx), 0);
     }
 
     /// Every glyph above must exist in the embedded font, or it would draw as a box.

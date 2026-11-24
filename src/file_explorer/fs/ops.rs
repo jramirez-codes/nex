@@ -326,8 +326,14 @@ pub(in crate::file_explorer) fn read_entries(dir: &Path, show_hidden: bool) -> s
             Some(Entry { name, path, is_dir, size, is_symlink, executable })
         })
         .collect();
-    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    sort_entries(&mut entries);
     Ok(entries)
+}
+
+/// Put a listing in the order it's shown in: folders first, then files, each by name
+/// whatever its case. Each name is lowercased once, not on every comparison.
+pub(in crate::file_explorer) fn sort_entries(entries: &mut [Entry]) {
+    entries.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
 }
 
 pub(in crate::file_explorer) fn human_size(bytes: u64) -> String {
@@ -361,6 +367,50 @@ mod tests {
 
     fn run(op: Op, sources: &[PathBuf], dest: &Path) -> Result<usize, String> {
         run_op(op, sources, dest, &Progress::default())
+    }
+
+    /// The shared sort gives the order the comparator it replaced gave (folders first, then
+    /// names whatever their case, ties as they came).
+    #[test]
+    fn sort_entries_orders_folders_first_then_by_name_ignoring_case() {
+        let entry = |name: &str, is_dir: bool| Entry { name: name.into(), path: PathBuf::from(name), is_dir, size: None, is_symlink: false, executable: false };
+        let listing: Vec<Entry> = [("zeta", false), ("Beta", true), ("apple", false), ("alpha", true), ("Apple", false), ("Ärger", false), ("beta", true), ("APPLE", false), ("10", false), ("9", true)]
+            .into_iter()
+            .map(|(n, d)| entry(n, d))
+            .collect();
+        let mut old = listing.clone();
+        old.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+        let mut new = listing;
+        sort_entries(&mut new);
+        assert_eq!(new, old);
+        let names: Vec<&str> = new.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["9", "alpha", "Beta", "beta", "10", "apple", "Apple", "APPLE", "zeta", "Ärger"]);
+    }
+
+    /// Measures the sort against the comparator it replaced: `cargo test --release sort_entries_measure -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a measurement, not a check"]
+    fn sort_entries_measure() {
+        let listing: Vec<Entry> = (0..20_000u32)
+            .map(|i| {
+                let name = format!("Some-Longer-File-Name-{:08x}.txt", i.wrapping_mul(2_654_435_761));
+                Entry { path: PathBuf::from(&name), name, is_dir: i % 7 == 0, size: None, is_symlink: false, executable: false }
+            })
+            .collect();
+        let time = |sort: &dyn Fn(&mut Vec<Entry>)| {
+            (0..5)
+                .map(|_| {
+                    let mut l = listing.clone();
+                    let t = std::time::Instant::now();
+                    sort(&mut l);
+                    t.elapsed()
+                })
+                .min()
+                .unwrap()
+        };
+        let old = time(&|l| l.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))));
+        let new = time(&|l| sort_entries(l));
+        eprintln!("20,000 entries: comparator {old:?}, sort_entries {new:?}");
     }
 
     #[test]

@@ -56,7 +56,8 @@ src/
 │   └── tests/            the folder fixture, unit tests and egui-driven UI tests
 ├── git_diff/         the Changes pane (Ctrl+G): read-only git diff viewer
 │   ├── mod.rs            state, background loading, keys
-│   ├── git.rs            running git (here, or on an ssh host), parsing status and diffs
+│   ├── git/              running git and reading what it prints: mod.rs (`run`), status.rs,
+│   │                     diff.rs, emphasis.rs (word-level highlights), remote.rs (on an ssh host)
 │   ├── syntax.rs         syntax colors (syntect with bat's grammars)
 │   └── view/             drawing and the mouse: the layout, toolbar, file list and diff
 ├── agents/           the Agents pane: every Claude Code / Codex agent at a glance
@@ -122,8 +123,9 @@ Outside the Rust code:
 
 - **A new action or shortcut:** `app/actions.rs` (the action), `app/input/keymap.rs` (the key).
 - **A new pane kind:** add it to `layout::PaneKind` and give it a map on `App` (`app/mod.rs`),
-  then follow the compiler through every `match` on `App::pane_kind` (drawing, labels, keys,
-  zoom, the title-bar deck). Beyond those: `pane_kind` and `forget_pane`
+  then add it to `PaneRef` and `PaneMut` and follow the compiler through every `match` on
+  `App::pane`, `App::pane_mut` and `App::pane_kind` (drawing, labels, keys, zoom, the
+  title-bar deck). Beyond those: `pane`, `pane_mut` and `forget_pane`
   (`app/workspace/mod.rs`), opening it (`app/workspace/`), and reading it back from a session
   (`session/mod.rs`, `app/restore.rs`). The Changes pane (`git_diff/`) is a compact example.
 - **Something on an ssh host:** the work goes in `remote/` (no UI), the buttons, dialogs and

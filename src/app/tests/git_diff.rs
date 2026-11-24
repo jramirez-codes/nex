@@ -74,3 +74,37 @@ fn ctrl_g_toggles_a_changes_pane_that_draws_and_restores() {
     assert_eq!(app.diffs.len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Zooming a Changes pane goes through `set_pane_font`: clamped to the font limits, with no
+/// entry of its own at the config size, and cell metrics ready for the size it lands on.
+#[test]
+fn a_changes_pane_zooms_within_the_font_limits() {
+    use crate::config::{FONT_MAX, FONT_MIN};
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx, Config::default());
+    run(&mut app, &ctx, 1400.0);
+    let shell = app.focused_pane().unwrap();
+    app.split_diff(&ctx, shell, crate::layout::Axis::Horizontal);
+    let id = app.focused_pane().unwrap();
+    assert!(app.diffs.contains_key(&id));
+    let base = app.cfg.font_size;
+
+    app.apply(&ctx, Action::FontBigger);
+    assert_eq!(app.pane_font(id), base + 1.0);
+    assert!(app.metrics.contains_key(&(base + 1.0).to_bits()));
+    assert_eq!(app.pane_font(shell), base, "only the Changes pane zooms");
+    app.apply(&ctx, Action::FontSmaller);
+    assert_eq!(app.pane_font(id), base);
+    assert!(!app.pane_fonts.contains_key(&id), "back at the config size, it follows the config again");
+    for _ in 0..200 {
+        app.apply(&ctx, Action::FontBigger);
+    }
+    assert_eq!(app.pane_font(id), FONT_MAX);
+    for _ in 0..200 {
+        app.apply(&ctx, Action::FontSmaller);
+    }
+    assert_eq!(app.pane_font(id), FONT_MIN);
+    app.apply(&ctx, Action::FontReset);
+    assert_eq!(app.pane_font(id), base);
+    assert!(!app.pane_fonts.contains_key(&id));
+}

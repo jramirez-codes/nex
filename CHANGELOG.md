@@ -30,6 +30,14 @@ All notable changes to nex are documented here. The format follows
   pane's, the sidebar and tabs rise in around it, and the terminal shows through, while the dog
   slides over to the Files tile with a blep (skipped with `animations = false`).
 
+### Changed
+
+- Agents pane: the helpers inside a team or pipeline card are sorted by status, like the
+  cards are (needs you, done, working, idle; each in the order they started), and glide to
+  their new place when one changes: its row in the open list slides over the others, its
+  capsule along the closed card's strip. A pipeline's steps keep their order (build before
+  merge); only the agents of one step change places. They jump with `animations = false`.
+
 ### Fixed
 
 - Updating nex now updates the nex-host daemon on ssh hosts too, not just the program on
@@ -41,6 +49,8 @@ All notable changes to nex are documented here. The format follows
 - Ctrl+G in a pane ssh'd into a host opens the Changes pane in the folder the remote shell is
   in, not the remote home, while a program there (Claude Code, vim, tmux) has set its own
   window title. Titles like oh-my-zsh's `user@host:~/src` count too.
+- Swiping right on the first tab opens the Agents tab on touch screens, even before it has
+  been opened.
 
 ## [0.12.2] - 2026-11-23
 

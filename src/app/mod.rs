@@ -81,6 +81,8 @@ pub struct App {
     term_rects: Vec<(PaneId, Rect)>,
     /// Card rects (including header), used for directional focus.
     card_rects: Vec<(PaneId, Rect)>,
+    /// The lists drawing the panes fills each frame, kept for their allocations.
+    draw_bufs: workspace::draw::DrawBuffers,
     /// Where the layout put the focused pane's card this frame, and how it looked (the
     /// connect handoff lands there).
     focused_card: Option<animation::handoff::FocusedCard>,
@@ -212,6 +214,7 @@ impl App {
             pending: Vec::new(),
             term_rects: Vec::new(),
             card_rects: Vec::new(),
+            draw_bufs: Default::default(),
             focused_card: None,
             handoff: None,
             hostname,
@@ -578,8 +581,6 @@ impl App {
         false
     }
 
-    /// Every so often: refresh process names / cwds, re-read stale file listings, and reload
-    /// the config if its file changed.
     /// Once startup (or a font change) is over, give the memory it freed back to the OS.
     fn trim_heap_when_due(&mut self) {
         if self.trim_heap_at.is_some_and(|at| Instant::now() >= at) {
@@ -588,6 +589,8 @@ impl App {
         }
     }
 
+    /// Every so often: refresh process names / cwds, re-read stale file listings, and reload
+    /// the config if its file changed.
     fn poll_background(&mut self) {
         if self.last_proc_poll.elapsed() <= PROCESS_POLL_INTERVAL {
             return;
@@ -599,14 +602,12 @@ impl App {
         for t in self.panes.values_mut() {
             t.refresh_process_info();
         }
-        // Only Changes panes (and Files panes on ssh hosts) on screen keep asking.
+        // Only Files and Changes panes on screen keep asking.
         let shown = self.cur_tab().map(|t| t.root.panes()).unwrap_or_default();
-        for (id, b) in self.explorers.iter_mut() {
-            if b.transport().is_none() || shown.contains(id) {
+        for id in shown {
+            if let Some(b) = self.explorers.get_mut(&id) {
                 b.refresh_if_stale();
             }
-        }
-        for id in shown {
             if let Some(d) = self.diffs.get_mut(&id) {
                 d.refresh_if_stale();
             }

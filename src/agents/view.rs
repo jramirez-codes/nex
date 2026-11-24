@@ -12,6 +12,11 @@
 //! uncovered as it does, and the capsules fade as the list comes in. A helper goes by a tag
 //! ([`member_tag`]: `Build-01`): its word on its capsule, the whole tag in a small capsule
 //! leading its row, before the task its terminal's title says it's on.
+//!
+//! Helpers are in the order `group` gives them (by status), and are drawn where `motion`
+//! has them: when one changes state, its row glides to its new slot over the others (which
+//! slide under it to make room) and its capsule slides along the strip. Clicks go where a
+//! row is drawn; the keys go by the slots the rows are headed for.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -22,14 +27,14 @@ use egui::{Align2, Color32, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, Stro
 use crate::layout::PaneId;
 use crate::ui::glide::animations;
 use crate::ui::touch_pan::TouchPan;
-use crate::ui::theme::{ACCENT, Theme, white_alpha};
+use crate::ui::theme::{ACCENT, Theme, lighten, white_alpha};
 use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
 use crate::ui::{icons, paint};
 
 use super::AgentsPane;
 use super::group::{Group, Member, Step, groups, same_step};
 use super::model::{Agent, AgentKind, Source, Status, elapsed};
-use super::motion::Motion;
+use super::motion::{Motion, TeamMotion};
 
 const SIDE: f32 = 18.0;
 const CARD_H: f32 = 74.0;
@@ -45,6 +50,8 @@ const DETAIL_Y: f32 = 47.0;
 /// A closed team's row of capsules, under its header.
 const STRIP_H: f32 = 40.0;
 const CAPSULE_H: f32 = 24.0;
+/// The `+N` capsule for the helpers that don't fit.
+const MORE_W: f32 = 44.0;
 /// The capsule a helper's tag sits in, leading its row.
 const TAG_H: f32 = 18.0;
 /// An open team's list: its rows, the margin around it, and the "Show all" row.
@@ -383,6 +390,8 @@ impl AgentsPane {
             let lift = card.lift(now, shown_tab);
             let r = Rect::from_center_size(r.center(), r.size() * (1.0 + 0.025 * lift));
             let team = self.view.teams.get(&id).filter(|g| g.is_team()).cloned();
+            // The width the card is laid out at (not the one it's drawn at while it lifts).
+            let laid_w = card.rect.target().width();
             // The part of the card that's the agent itself: a team's header.
             let head = if team.is_some() { Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H.min(r.height()))) } else { r };
             let mut hovered = false;
@@ -408,9 +417,14 @@ impl AgentsPane {
                 Some(g) => {
                     breathing |= g.lead.status == Status::Working;
                     let leaving = card.leaving;
-                    self.team_card(f, &p, r, &g, look, leaving);
+                    // Its rows and capsules slide, unless the card itself was resized.
+                    let inside = motion.teams.entry(id).or_default();
+                    let slide = f.animate && !inside.resized(laid_w);
+                    self.team_card(f, &p, r, &g, look, leaving, inside, slide);
+                    busy |= inside.busy(now);
                 }
                 None => {
+                    motion.teams.remove(&id);
                     breathing |= card.agent.status == Status::Working;
                     card_body(&p, r, &look);
                     agent_header(f, &p, r, &card.agent, &look, None);
@@ -422,7 +436,9 @@ impl AgentsPane {
 
     /// A team: its lead's header (with a disclosure chevron and the team's size), then its
     /// helpers as capsules (closed) or an inset list (open), cross-fading as the card grows.
-    fn team_card(&mut self, f: &Frame, p: &Painter, r: Rect, g: &Group, look: Look, leaving: bool) {
+    /// `inside`: where its rows and capsules are; `slide`: whether they glide to new places.
+    #[allow(clippy::too_many_arguments)]
+    fn team_card(&mut self, f: &Frame, p: &Painter, r: Rect, g: &Group, look: Look, leaving: bool, inside: &mut TeamMotion, slide: bool) {
         let key = g.key();
         let open = self.expanded.get(&key).copied();
         let closed_h = team_height(g, None);
@@ -459,28 +475,67 @@ impl AgentsPane {
             p.line_segment([Pos2::new(r.left() + 14.0, y), Pos2::new(r.right() - 14.0, y)], Stroke::new(1.0_f32, white_alpha((12.0 * sep_alpha) as u8)));
             let mut sp = p.clone();
             sp.multiply_opacity(sep_alpha);
-            capsules(f, &sp, Rect::from_min_size(Pos2::new(r.left() + 14.0, y), Vec2::new(r.width() - 28.0, STRIP_H)), g);
+            capsules(f, &sp, Rect::from_min_size(Pos2::new(r.left() + 14.0, y), Vec2::new(r.width() - 28.0, STRIP_H)), g, inside, slide);
+        } else {
+            inside.close_capsules();
         }
         if t > 0.01 {
             let mut lp = p.with_clip_rect(p.clip_rect().intersect(r.shrink(1.0)));
             lp.multiply_opacity(t);
-            self.helper_list(f, &lp, r, g, open.unwrap_or(false), t > 0.99 && !leaving);
+            self.helper_list(f, &lp, r, g, open.unwrap_or(false), t > 0.99 && !leaving, inside, slide);
+        } else {
+            inside.close_rows();
         }
     }
 
     /// An open team's helpers: one row each (tile, tag and task, folder, status), hairlines
     /// between, "Show all" when there are more than fit. `live`: settled, so rows take clicks.
-    fn helper_list(&mut self, f: &Frame, p: &Painter, r: Rect, g: &Group, all: bool, live: bool) {
+    /// Each row is drawn where `inside` has it on the way to its slot (`slide`: gliding
+    /// there), the one whose helper just changed state over the others.
+    #[allow(clippy::too_many_arguments)]
+    fn helper_list(&mut self, f: &Frame, p: &Painter, r: Rect, g: &Group, all: bool, live: bool, inside: &mut TeamMotion, slide: bool) {
         let list = list_rect(r);
         p.rect_filled(list, 10, white_alpha(6));
         let key = g.key();
+        let now = f.time;
         let rows = shown_members(g, all);
         let tags = member_tags(g);
+        let slots: Vec<(&Member, &str, f32)> = rows.iter().zip(&tags).enumerate().map(|(i, (m, tag))| (m, tag.as_str(), i as f32 * ROW_H)).collect();
+        inside.update_rows(now, slide, &slots);
+
+        // The hairlines stay where the slots are, each starting at its slot's text.
         for (i, m) in rows.iter().enumerate() {
-            let row = row_rect(r, i);
-            let id = m.agent.pane;
+            if i + 1 < rows.len() || g.members.len() > rows.len() {
+                let y = list.top() + (i + 1) as f32 * ROW_H;
+                p.line_segment([Pos2::new(row_text_x(list.left(), m.depth), y), Pos2::new(list.right(), y)], Stroke::new(1.0_f32, white_alpha(10)));
+            }
+        }
+
+        // Settled rows first, then the ones making room, then the ones whose helper changed
+        // state (the latest on top), each on a backing so it reads as it passes over.
+        let over = |id: &PaneId| inside.rows[id].status_change && inside.rows[id].sliding(now);
+        let mut order: Vec<PaneId> = inside.rows.keys().copied().collect();
+        order.sort_by(|a, b| {
+            let (ra, rb) = (&inside.rows[a], &inside.rows[b]);
+            (over(a), ra.sliding(now)).cmp(&(over(b), rb.sliding(now))).then(ra.changed.total_cmp(&rb.changed)).then(a.cmp(b))
+        });
+        let backing = lighten(f.c.card.to_opaque(), 0.07);
+        for id in order {
+            let m = &inside.rows[&id];
+            let row = Rect::from_min_size(Pos2::new(list.left(), list.top() + m.y.get(now)), Vec2::new(list.width(), ROW_H));
+            let mut rp = p.clone();
+            rp.multiply_opacity(m.opacity.get(now));
+            let inner = row.shrink2(Vec2::new(4.0, 3.0));
+            if over(&id) {
+                // In as it sets off, out as it lands.
+                let arc = (m.y.t(now) * std::f32::consts::PI).sin();
+                rp.rect_filled(inner, 8, backing.gamma_multiply((arc * 4.0).min(1.0)));
+            }
             let mut hovered = false;
-            if live && let Some(hit) = f.interact(row, ("row", id)) {
+            if live
+                && !m.leaving
+                && let Some(hit) = f.interact(row, ("row", id))
+            {
                 hovered = hit.hovered();
                 if hit.clicked() {
                     self.selected = Some(id);
@@ -490,12 +545,12 @@ impl AgentsPane {
             }
             let hover = f.ui.ctx().animate_bool_with_time(f.id(("row-hover", id)), hovered, 0.12);
             if hover > 0.0 {
-                p.rect_filled(row.shrink2(Vec2::new(4.0, 3.0)), 8, white_alpha((8.0 * hover) as u8));
+                rp.rect_filled(inner, 8, white_alpha((8.0 * hover) as u8));
             }
-            if self.selected == Some(id) && f.focused {
-                p.rect_stroke(row.shrink2(Vec2::new(4.0, 3.0)), 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
+            if self.selected == Some(id) && f.focused && !m.leaving {
+                rp.rect_stroke(inner, 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
             }
-            helper_row(f, p, row, m, &tags[i], i + 1 < rows.len() || g.members.len() > rows.len());
+            helper_row(f, &rp, row, &m.member, &m.tag);
         }
         if g.members.len() > ROWS_SHOWN {
             let more = Rect::from_min_size(Pos2::new(list.left(), list.top() + rows.len() as f32 * ROW_H), Vec2::new(list.width(), MORE_H));
@@ -766,21 +821,27 @@ fn chevron(p: &Painter, at: Pos2, open: f32, color: Color32) {
     p.line_segment([tip, rot(Vec2::new(-1.5, 4.0))], stroke);
 }
 
-/// A closed team's helpers in `strip`: a capsule each (status and its tag's word), the lead's own
-/// helpers only, with a pipeline among them opened into its stages after its name. A
-/// pipeline's stages are steps: joined by a hairline to the stage before, side by side with
-/// another of the same stage (`build`, `build-2`). `+N` for what doesn't fit.
-fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group) {
-    let c = f.c;
-    let steps = g.strip();
-    let y = strip.center().y;
-    let font = paint::bold(11.5);
-    let more_w = 44.0;
+/// Where a closed team's strip puts its steps, from the strip's left edge.
+#[derive(Debug, PartialEq)]
+struct CapsuleLayout {
+    /// The left edge of each step that fits (the first so many of them).
+    xs: Vec<f32>,
+    /// The hairlines joining a pipeline's stage to the one before: from and to.
+    joins: Vec<(f32, f32)>,
+    /// The `+N` capsule's left edge and its N: the agents that don't fit.
+    more: Option<(f32, usize)>,
+}
+
+/// Lay `steps`, each `widths` wide, along a strip `strip_w` wide: a pipeline's stages joined
+/// by a hairline to the stage before, side by side with another of the same stage (`build`,
+/// `build-2`), a nested pipeline's name before its stages. `+N` for what doesn't fit.
+fn capsule_layout(steps: &[Step], widths: &[f32], strip_w: f32) -> CapsuleLayout {
     // The agents from step `i` on (what a `+N` there stands for).
     let left = |i: usize| steps[i..].iter().filter(|s| s.agent().is_some()).count();
-    let mut x = strip.left();
+    let mut laid = CapsuleLayout { xs: Vec::new(), joins: Vec::new(), more: None };
+    let mut x = 0.0;
     let mut prev: Option<Step> = None;
-    for (i, &step) in steps.iter().enumerate() {
+    for (i, (&step, &w)) in steps.iter().zip(widths).enumerate() {
         let (gap, joined) = match (prev, step) {
             (None, _) => (0.0, false),
             (_, Step::Heading(_)) => (14.0, false),
@@ -788,61 +849,108 @@ fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group) {
             (Some(Step::Stage(a)), Step::Stage(b)) if !same_step(a, b) => (16.0, true),
             _ => (6.0, false),
         };
-        let (galley, w) = match step {
-            Step::Heading(name) => {
-                let g = p.layout_no_wrap(format!("{name}:"), font.clone(), c.text_dim);
-                let w = g.size().x;
-                (g, w)
-            }
+        let room = strip_w - x - gap - if left(i + 1) > 0 { MORE_W + 6.0 } else { 0.0 };
+        if w > room {
+            laid.more = Some((x + if prev.is_some() { 6.0 } else { 0.0 }, left(i)));
+            break;
+        }
+        if joined {
+            laid.joins.push((x + 3.0, x + gap - 3.0));
+        }
+        x += gap;
+        laid.xs.push(x);
+        x += w;
+        prev = Some(step);
+    }
+    laid
+}
+
+/// A closed team's helpers in `strip`: a capsule each (status and its tag's word), the lead's own
+/// helpers only, with a pipeline among them opened into its stages after its name (see
+/// [`capsule_layout`]). A capsule is drawn where `inside` has it on the way to its place
+/// (`slide`: gliding there when the order changes); one going into the `+N` fades.
+fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group, inside: &mut TeamMotion, slide: bool) {
+    let c = f.c;
+    let now = f.time;
+    let steps = g.strip();
+    let y = strip.center().y;
+    let font = paint::bold(11.5);
+    let galleys: Vec<_> = steps
+        .iter()
+        .map(|step| match step {
+            Step::Heading(name) => p.layout_no_wrap(format!("{name}:"), font.clone(), c.text_dim),
             Step::Stage(a) | Step::Helper(a) => {
                 // A stage or helper running sub-agents says how many.
                 let label = match g.subs_of(a.pane) {
                     0 => member_word(a),
                     n => format!("{} \u{00b7}{n}", member_word(a)),
                 };
-                let g = p.layout_no_wrap(label, font.clone(), c.text_bright);
-                let w = g.size().x + 30.0;
-                (g, w)
+                p.layout_no_wrap(label, font.clone(), c.text_bright)
             }
-        };
-        let room = strip.right() - x - gap - if left(i + 1) > 0 { more_w + 6.0 } else { 0.0 };
-        if w > room {
-            let at = x + if prev.is_some() { 6.0 } else { 0.0 };
-            let more = Rect::from_min_size(Pos2::new(at, y - CAPSULE_H / 2.0), Vec2::new(more_w, CAPSULE_H));
-            p.rect_filled(more, 12, white_alpha(9));
-            p.text(more.center(), Align2::CENTER_CENTER, format!("+{}", left(i)), font.clone(), c.text_dim);
-            return;
-        }
-        if joined {
-            p.line_segment([Pos2::new(x + 3.0, y), Pos2::new(x + gap - 3.0, y)], Stroke::new(1.0_f32, white_alpha(40)));
-        }
-        x += gap;
-        match step {
-            Step::Heading(_) => p.galley(Pos2::new(x, y - galley.size().y / 2.0), galley, c.text_dim),
-            Step::Stage(a) | Step::Helper(a) => {
-                let cap = Rect::from_min_size(Pos2::new(x, y - CAPSULE_H / 2.0), Vec2::new(w, CAPSULE_H));
-                let color = status_color(a.status, c);
-                let fill = if a.status == Status::NeedsYou { c.yellow.gamma_multiply(0.14) } else { white_alpha(9) };
-                p.rect_filled(cap, 12, fill);
-                member_glyph(f, p, Pos2::new(cap.left() + 12.0, y), a.status, color);
-                p.galley(Pos2::new(cap.left() + 21.0, y - galley.size().y / 2.0), galley, c.text_bright);
-            }
-        }
-        x += w;
-        prev = Some(step);
+        })
+        .collect();
+    let widths: Vec<f32> = steps.iter().zip(&galleys).map(|(s, g)| g.size().x + if s.agent().is_some() { 30.0 } else { 0.0 }).collect();
+    let laid = capsule_layout(&steps, &widths, strip.width());
+
+    for &(from, to) in &laid.joins {
+        p.line_segment([Pos2::new(strip.left() + from, y), Pos2::new(strip.left() + to, y)], Stroke::new(1.0_f32, white_alpha(40)));
     }
+    if let Some((x, n)) = laid.more {
+        let more = Rect::from_min_size(Pos2::new(strip.left() + x, y - CAPSULE_H / 2.0), Vec2::new(MORE_W, CAPSULE_H));
+        p.rect_filled(more, 12, white_alpha(9));
+        p.text(more.center(), Align2::CENTER_CENTER, format!("+{n}"), font, c.text_dim);
+    }
+    let mut placed: Vec<(PaneId, f32)> = Vec::new();
+    for (i, &x) in laid.xs.iter().enumerate() {
+        match steps[i].agent() {
+            Some(a) => placed.push((a.pane, x)),
+            None => p.galley(Pos2::new(strip.left() + x, y - galleys[i].size().y / 2.0), galleys[i].clone(), c.text_dim),
+        }
+    }
+    inside.update_capsules(now, slide, &placed);
+
+    // The capsules on their way are drawn over the ones in place.
+    let mut shown: Vec<(usize, &Agent, bool)> = Vec::new();
+    for (i, step) in steps.iter().enumerate() {
+        if let Some(a) = step.agent()
+            && let Some(m) = inside.capsules.get(&a.pane)
+        {
+            shown.push((i, a, m.x.moving(now)));
+        }
+    }
+    shown.sort_by_key(|&(_, _, moving)| moving);
+    for (i, a, _) in shown {
+        let m = &inside.capsules[&a.pane];
+        let mut cp = p.clone();
+        cp.multiply_opacity(m.opacity.get(now));
+        let cap = Rect::from_min_size(Pos2::new(strip.left() + m.x.get(now), y - CAPSULE_H / 2.0), Vec2::new(widths[i], CAPSULE_H));
+        let color = status_color(a.status, c);
+        let fill = if a.status == Status::NeedsYou { c.yellow.gamma_multiply(0.14) } else { white_alpha(9) };
+        cp.rect_filled(cap, 12, fill);
+        member_glyph(f, &cp, Pos2::new(cap.left() + 12.0, y), a.status, color);
+        cp.galley(Pos2::new(cap.left() + 21.0, y - galleys[i].size().y / 2.0), galleys[i].clone(), c.text_bright);
+    }
+}
+
+/// Where a helper row's text starts, for a row whose left edge is `left`: after its tile,
+/// indented for a helper's own helpers.
+fn row_text_x(left: f32, depth: usize) -> f32 {
+    left + 12.0 + row_indent(depth) + 26.0 + 10.0
+}
+
+fn row_indent(depth: usize) -> f32 {
+    16.0 * (depth.saturating_sub(1).min(3)) as f32
 }
 
 /// One helper's row in an open team: tile (indented for a helper's own helpers), its `tag`
 /// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
-/// in, and its status with how long it has been in it. `rule`: a hairline under it.
-fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, tag: &str, rule: bool) {
+/// in, and its status with how long it has been in it.
+fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, tag: &str) {
     let c = f.c;
     let a = &m.agent;
-    let indent = 16.0 * (m.depth.saturating_sub(1).min(3)) as f32;
-    let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + indent + 13.0, row.center().y), Vec2::splat(26.0));
+    let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + row_indent(m.depth) + 13.0, row.center().y), Vec2::splat(26.0));
     icons::app_tile(p, tile, a.kind.process(), a.mark.as_deref());
-    let x = tile.right() + 10.0;
+    let x = row_text_x(row.left(), m.depth);
 
     let color = status_color(a.status, c);
     let since = elapsed(f.now.saturating_duration_since(a.since));
@@ -870,9 +978,6 @@ fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, tag: &str, rule: bo
     }
     let detail = member_detail(a);
     paint::faded_text(p, Pos2::new(x, row.top() + 32.0), &detail, ui_font(11.5), c.text_dim, room, 16.0);
-    if rule {
-        p.line_segment([Pos2::new(x, row.bottom()), Pos2::new(row.right(), row.bottom())], Stroke::new(1.0_f32, white_alpha(10)));
-    }
 }
 
 /// A helper's status in a capsule: a tick once it's done, else its dot.
@@ -1047,6 +1152,110 @@ mod tests {
         pane.requests.clear();
         click(&ctx, &mut pane, &agents, &mut time, head.left_center() + Vec2::new(30.0, 0.0));
         assert_eq!(pane.requests, vec![super::super::Request::Focus(1)]);
+    }
+
+    #[test]
+    fn a_helper_changing_state_glides_its_row_to_its_new_slot() {
+        use crate::agents::motion::MOVE;
+        let ctx = egui::Context::default();
+        crate::render::fonts::install(&ctx, &crate::config::Config::default());
+        crate::ui::glide::set_animations(&ctx, true);
+        let mut agents = vec![agent(1, None), agent(2, Some(1)), agent(3, Some(1))];
+        let mut pane = AgentsPane::new();
+        let mut time = 0.0;
+        let frames = |pane: &mut AgentsPane, agents: &[Agent], time: &mut f64, n: usize| {
+            for _ in 0..n {
+                frame(&ctx, pane, agents, time, vec![]);
+            }
+        };
+        // Open the team and let its card grow: the rows are simply there, in start order.
+        frames(&mut pane, &agents, &mut time, 2);
+        pane.expanded.insert(1, false);
+        frames(&mut pane, &agents, &mut time, 14);
+        let ys = |pane: &AgentsPane, time: f64| {
+            let rows = &pane.view.motion.teams[&1].rows;
+            (rows[&2].y.get(time), rows[&3].y.get(time))
+        };
+        assert_eq!(ys(&pane, time), (0.0, ROW_H));
+        assert!(!pane.view.motion.teams[&1].busy(time));
+        let order = |pane: &AgentsPane| pane.targets.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+        assert_eq!(order(&pane), [1, 2, 3]);
+
+        // Helper 3 finishes: it belongs above 2. The keys go by the new order at once...
+        agents[2].status = Status::Done;
+        frames(&mut pane, &agents, &mut time, 1);
+        let started = time;
+        assert_eq!(order(&pane), [1, 3, 2]);
+        assert_eq!(ys(&pane, time), (0.0, ROW_H), "...while the rows set off from where they were");
+        // ...halfway, the rows are between slots and the pane keeps repainting...
+        frames(&mut pane, &agents, &mut time, 4);
+        assert!(time < started + MOVE);
+        let (two, three) = ys(&pane, time);
+        assert!(0.0 < two && two < ROW_H && 0.0 < three && three < ROW_H, "{two} {three}");
+        let team = &pane.view.motion.teams[&1];
+        assert!(team.busy(time) && team.rows[&3].status_change && !team.rows[&2].status_change);
+        // ...and after MOVE they have settled where the keys already had them.
+        frames(&mut pane, &agents, &mut time, 6);
+        assert!(time > started + MOVE);
+        assert_eq!(ys(&pane, time), (ROW_H, 0.0));
+        assert!(!pane.view.motion.teams[&1].busy(time));
+        assert_eq!(order(&pane), [1, 3, 2]);
+        assert!(pane.targets[1].1.top() < pane.targets[2].1.top());
+
+        // With animations off the next change jumps.
+        crate::ui::glide::set_animations(&ctx, false);
+        agents[1].status = Status::NeedsYou;
+        frames(&mut pane, &agents, &mut time, 1);
+        assert_eq!(ys(&pane, time), (0.0, ROW_H));
+        assert!(!pane.view.motion.teams[&1].busy(time));
+    }
+
+    #[test]
+    fn capsules_are_laid_along_the_strip_with_a_count_for_the_rest() {
+        let stage = |pane, role: &str| {
+            let mut a = agent(pane, Some(1));
+            a.team.role = Some(role.into());
+            a
+        };
+        let (b1, b2, merge, other) = (stage(2, "build"), stage(3, "build"), stage(4, "merge"), agent(5, Some(1)));
+        let stages = [Step::Stage(&b1), Step::Stage(&b2), Step::Stage(&merge)];
+        // The builders side by side, a hairline on to the merge stage.
+        let laid = capsule_layout(&stages, &[60.0, 60.0, 60.0], 300.0);
+        assert_eq!(laid, CapsuleLayout { xs: vec![0.0, 66.0, 142.0], joins: vec![(129.0, 139.0)], more: None });
+        // The last one fits exactly; a point less and it's a +1 after the builders.
+        assert_eq!(capsule_layout(&stages, &[60.0, 60.0, 60.0], 202.0).more, None);
+        let tight = capsule_layout(&stages, &[60.0, 60.0, 60.0], 201.0);
+        assert_eq!(tight, CapsuleLayout { xs: vec![0.0, 66.0], joins: vec![], more: Some((132.0, 1)) });
+        // Room is kept for the +N while agents are left: here only the first fits beside it.
+        let narrow = capsule_layout(&stages, &[60.0, 60.0, 60.0], 170.0);
+        assert_eq!((narrow.xs, narrow.more), (vec![0.0], Some((66.0, 2))));
+        assert_eq!(capsule_layout(&stages, &[60.0, 60.0, 60.0], 40.0).more, Some((0.0, 3)), "nothing fits");
+
+        // A helper, then a pipeline's name before its stages (a name is no agent).
+        let nested = [Step::Helper(&other), Step::Heading("feature"), Step::Stage(&b1), Step::Stage(&merge)];
+        let laid = capsule_layout(&nested, &[50.0, 40.0, 60.0, 60.0], 400.0);
+        assert_eq!(laid, CapsuleLayout { xs: vec![0.0, 64.0, 112.0, 188.0], joins: vec![(175.0, 185.0)], more: None });
+        assert_eq!(capsule_layout(&nested, &[50.0, 40.0, 60.0, 60.0], 150.0).more, Some((56.0, 2)));
+    }
+
+    #[test]
+    fn a_reorder_leaves_the_helpers_tags_as_they_were() {
+        let mut agents = vec![agent(1, None), helper(2, "anna", Some("build"), 10), helper(3, "ben", Some("build"), 20), helper(4, "cy", Some("build"), 30), helper(5, "merge", Some("merge"), 40)];
+        let tags = |agents: &[Agent]| {
+            let g = &groups(agents)[0];
+            g.members.iter().zip(member_tags(g)).map(|(m, tag)| (m.agent.pane, tag)).collect::<Vec<_>>()
+        };
+        let before = tags(&agents);
+        assert_eq!(before, [(2, "Build-01".to_string()), (3, "Build-02".into()), (4, "Build-03".into()), (5, "Merge-01".into())]);
+        // The last builder finishes and the first goes to work: the rows change places,
+        // each helper keeps its tag.
+        agents[3].status = Status::Done;
+        agents[1].status = Status::Working;
+        let after = tags(&agents);
+        assert_eq!(after.iter().map(|(p, _)| *p).collect::<Vec<_>>(), [4, 2, 3, 5]);
+        let mut sorted = after.clone();
+        sorted.sort();
+        assert_eq!(sorted, before);
     }
 
     #[test]

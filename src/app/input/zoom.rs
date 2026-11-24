@@ -3,9 +3,9 @@
 
 use egui::Pos2;
 
-use crate::config::{FONT_MAX, FONT_MIN};
-use crate::layout::{PaneId, PaneKind};
+use crate::layout::PaneId;
 
+use crate::app::workspace::PaneMut;
 use crate::app::App;
 
 /// How much one Ctrl+= / Ctrl+- zooms a file explorer.
@@ -26,19 +26,18 @@ impl App {
             return;
         }
         let Some(id) = self.pane_at(at).or_else(|| self.focused_pane()) else { return };
-        match self.pane_kind(id) {
-            Some(PaneKind::Explorer) => {
-                self.explorers.get_mut(&id).unwrap().zoom_by(delta, at);
+        match self.pane_mut(id) {
+            Some(PaneMut::Explorer(b)) => {
+                b.zoom_by(delta, at);
                 ctx.request_repaint();
             }
-            Some(PaneKind::Diff) => {
+            Some(PaneMut::Diff(_)) => {
                 // Smooth, like the explorer: the diff is laid out every frame anyway.
-                let size = (self.pane_font(id) * delta).clamp(FONT_MIN, FONT_MAX);
-                self.pane_fonts.insert(id, size);
+                self.set_pane_font(ctx, id, Some(self.pane_font(id) * delta));
                 ctx.request_repaint();
             }
-            Some(PaneKind::Terminal) => self.pinch_terminal(ctx, id, delta),
-            Some(PaneKind::Agents) | None => {}
+            Some(PaneMut::Terminal(_)) => self.pinch_terminal(ctx, id, delta),
+            Some(PaneMut::Agents(_)) | None => {}
         }
     }
 
