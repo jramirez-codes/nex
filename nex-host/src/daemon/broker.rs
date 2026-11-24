@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use nex_host::paths;
 use nex_host::proto::{Message, MessageKind, USER};
 
-use crate::locked::Locked;
+use crate::util::Locked;
 
 /// What address resolution needs to know about an agent.
 #[derive(Clone, Debug)]

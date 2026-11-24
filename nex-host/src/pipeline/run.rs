@@ -182,7 +182,7 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
             };
             let verdict = o.verdict.map(|v| format!(" [{}]", v.label())).unwrap_or_default();
             let pr = o.pr.as_ref().map(|p| format!(" (PR {p})")).unwrap_or_default();
-            let line = format!("{mark} {name}{verdict}{pr}: {}", crate::deliver::first_line(&o.body));
+            let line = format!("{mark} {name}{verdict}{pr}: {}", crate::util::first_line(&o.body));
             println!("{line}");
             title.stage(&p, g, &line);
             results.insert(name, o);
@@ -198,7 +198,7 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
     let last = &p.stages[groups[groups.len() - 1][0]].name;
     let summary = results.get(last).map(|o| o.body.trim().to_string()).unwrap_or_default();
     println!("\n✓ finished. {last} said:\n{summary}");
-    title.stage(&p, at, &format!("✓ finished. {last} said: {}", crate::deliver::first_line(&summary)));
+    title.stage(&p, at, &format!("✓ finished. {last} said: {}", crate::util::first_line(&summary)));
     report(me.as_deref(), &format!("The pipeline finished. {last} said:\n{summary}"), Some(Verdict::Approved));
     Ok(Ran { code: 0, ended: false })
 }
@@ -230,7 +230,7 @@ fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, O
             Some(m) if m.kind == MessageKind::Task && p.joinable() => {
                 let body = message_body(&m.more, m.payload.body);
                 let joined = body.trim().to_string();
-                println!("\n▸ {} joins with: {}", m.from_name, crate::deliver::first_line(&joined));
+                println!("\n▸ {} joins with: {}", m.from_name, crate::util::first_line(&joined));
                 let b = q.batch(&m.from, &joined);
                 for &i in &p.groups()[0] {
                     let s = &p.stages[i];

@@ -50,21 +50,6 @@ pub fn clip(body: &str) -> (String, Option<usize>) {
     (kept, Some(lines))
 }
 
-/// The first line of `body` with text on it, trimmed, however long.
-pub fn first_text_line(body: &str) -> &str {
-    body.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim()
-}
-
-/// [`first_text_line`], at most 100 characters: what a reply quotes.
-pub fn first_line(body: &str) -> String {
-    let line = first_text_line(body);
-    let mut out: String = line.chars().take(100).collect();
-    if out.len() < line.len() {
-        out.push('…');
-    }
-    out
-}
-
 /// `text` safe inside the block: no control characters but newlines and tabs, and nothing
 /// that would close the block (or open another) early.
 fn body_text(text: &str) -> String {
@@ -229,8 +214,5 @@ mod tests {
         assert_eq!(lines, Some(100));
         assert!(kept.starts_with("line 0\n") && kept.ends_with('…'));
         assert_eq!(kept.lines().count(), BODY_KEEP_LINES + 1);
-        assert_eq!(first_line("\n  Review the diff\nmore"), "Review the diff");
-        assert!(first_line(&"x".repeat(300)).ends_with('…'));
-        assert_eq!(first_text_line(&"x".repeat(300)).len(), 300, "uncut");
     }
 }

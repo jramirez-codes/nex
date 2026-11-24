@@ -11,6 +11,11 @@
 //!   lifecycle.rs   agents starting (`spawn`), ending, and expiring
 //!   mail.rs        messages: sending, typing them in, reminders
 //!   retire.rs      handing over to a newer nex-host once nothing runs
+//!   agent.rs       one agent: its program in a pty, and the screen it has drawn
+//!   pty.rs         the pty and process an agent runs in, and the writer to its pane
+//!   redraw.rs      an agent's screen as escape sequences, for a pane attaching
+//!   broker.rs      the post office: addresses, mailboxes, `recv` waiting
+//!   deliver.rs     how a message is written out and typed into an agent
 //! ```
 
 use std::collections::HashMap;
@@ -26,12 +31,17 @@ use std::time::{Duration, Instant};
 use nex_host::paths;
 use nex_host::proto;
 
-use crate::agent::{self, Agent};
-use crate::broker::{Broker, Peer};
-use crate::locked::Locked;
+use crate::daemon::agent::Agent;
+use crate::daemon::broker::{Broker, Peer};
+use crate::util::{Locked, now_ms};
 
+mod agent;
+mod broker;
+pub(crate) mod deliver;
 mod lifecycle;
 mod mail;
+mod pty;
+pub(crate) mod redraw;
 mod retire;
 mod serve;
 
@@ -66,7 +76,7 @@ impl State {
     }
 
     fn sessions(&self) -> Vec<proto::Session> {
-        let now = agent::now_ms();
+        let now = now_ms();
         let mut list: Vec<_> = self.agents.locked().values().map(|a| a.session(now)).collect();
         list.sort_by_key(|s| s.started);
         list
@@ -181,7 +191,7 @@ fn new_id(state: &State) -> String {
     loop {
         let mut bytes = [0u8; 4];
         if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut bytes)).is_err() {
-            let n = agent::now_ms() ^ (u64::from(std::process::id()) << 20) ^ state.next_token.fetch_add(1, Ordering::Relaxed);
+            let n = now_ms() ^ (u64::from(std::process::id()) << 20) ^ state.next_token.fetch_add(1, Ordering::Relaxed);
             bytes = (n as u32).to_be_bytes();
         }
         let id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
@@ -199,7 +209,7 @@ pub fn log(msg: &str) {
         let _ = std::fs::remove_file(&path);
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(f, "{} {msg}", agent::now_ms() / 1000);
+        let _ = writeln!(f, "{} {msg}", now_ms() / 1000);
     }
 }
 

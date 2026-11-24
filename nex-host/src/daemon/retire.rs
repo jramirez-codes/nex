@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use nex_host::{paths, proto};
 
 use crate::daemon::{State, log};
-use crate::locked::Locked;
+use crate::util::Locked;
 
 /// How long a retiring daemon lingers after it stops listening, so a request that reached it
 /// just before is answered (with [`proto::RESTARTING`]) rather than cut off.
@@ -118,8 +118,8 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 
     use super::*;
-    use crate::agent::Spec;
-    use crate::broker::Broker;
+    use crate::daemon::agent::Spec;
+    use crate::daemon::broker::Broker;
     use crate::daemon::lifecycle::launch;
 
     #[test]

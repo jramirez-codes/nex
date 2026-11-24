@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use nex_host::proto::Verdict;
 
-use crate::deliver::first_text_line as first_line;
+use crate::util::first_text_line as first_line;
 use crate::pipeline::{Outcome, SEND_BACKS};
 
 /// What the runner should do next.

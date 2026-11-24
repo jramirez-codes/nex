@@ -8,11 +8,11 @@ use std::time::{Duration, Instant};
 use nex_host::paths;
 use nex_host::proto::{self, Message, MessageKind, Payload, Status, USER};
 
-use crate::agent::{self, Agent};
-use crate::broker::{self, Posted};
+use crate::daemon::agent::Agent;
+use crate::daemon::broker::{self, Posted};
 use crate::daemon::State;
-use crate::deliver;
-use crate::locked::Locked;
+use crate::daemon::deliver;
+use crate::util::{Locked, first_line, now_ms};
 
 /// How often messages waiting to be typed in are looked at.
 const DELIVER_TICK: Duration = Duration::from_millis(400);
@@ -47,7 +47,7 @@ pub(super) fn letter(state: &State, from: &str, from_name: &str, to: &str, to_na
         Some(paths::tilde(&path))
     });
     let (body, more_lines) = if more.is_some() { (short, cut) } else { (body.to_string(), None) };
-    let re = payload.reply_to.as_deref().and_then(|r| state.broker.find(r)).map(|m| deliver::first_line(&m.payload.body));
+    let re = payload.reply_to.as_deref().and_then(|r| state.broker.find(r)).map(|m| first_line(&m.payload.body));
     Message {
         id,
         from: from.into(),
@@ -59,7 +59,7 @@ pub(super) fn letter(state: &State, from: &str, from_name: &str, to: &str, to_na
         re,
         more,
         more_lines,
-        sent: agent::now_ms(),
+        sent: now_ms(),
     }
 }
 
@@ -106,7 +106,7 @@ pub(super) fn post(state: &Arc<State>, d: Draft, force: bool) -> Result<(Vec<Str
 /// Whether a message can be typed in now: it has started up and isn't asking the user
 /// something (typing into a yes/no prompt would answer it).
 fn can_take(a: &Agent) -> bool {
-    let now = agent::now_ms();
+    let now = now_ms();
     let s = a.session(now);
     // Claude Code's first screen may be a dialog (see `Agent::session`): wait until it has
     // drawn one and stopped, so a slow start can't have the message answer it unseen.
@@ -149,7 +149,7 @@ pub(super) fn deliver_loop(state: &Arc<State>) {
             if q.task != task.id {
                 *q = Quiet { task: task.id.clone(), worked: false, idle_since: None, nudged: false };
             }
-            match a.session(agent::now_ms()).status {
+            match a.session(now_ms()).status {
                 Status::Working => {
                     q.worked = true;
                     q.idle_since = None;

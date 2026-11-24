@@ -23,19 +23,13 @@ use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
 use nex_host::proto::{self, Session, Status};
 
-use crate::deliver;
-use crate::locked::Locked;
-use crate::pty;
-use crate::redraw;
+use crate::daemon::{deliver, pty, redraw};
+use crate::util::{Locked, now_ms};
 
 /// Lines of scrollback kept for a pane that attaches later.
 const HISTORY: usize = 10_000;
 /// How long `kill` waits after SIGHUP before SIGKILL.
 const KILL_GRACE: Duration = Duration::from_secs(3);
-
-pub fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
-}
 
 /// What a pane's connection is sent.
 pub enum Out {

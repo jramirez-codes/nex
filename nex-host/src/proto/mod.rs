@@ -10,7 +10,7 @@
 //! - everything else is done after its answer.
 //!
 //! Agents talk to each other with [`Message`]s: `send` puts one in the recipient's mailbox
-//! and types it into the recipient's terminal (`nex-host/src/deliver.rs` has the format it
+//! and types it into the recipient's terminal (`nex-host/src/daemon/deliver.rs` has the format it
 //! arrives in); `recv` takes one out of the caller's mailbox instead.
 //!
 //! `nex-host connect` passes one such connection through its stdin and stdout, for clients

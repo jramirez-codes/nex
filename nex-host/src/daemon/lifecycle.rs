@@ -9,12 +9,12 @@ use std::time::Duration;
 use nex_host::paths;
 use nex_host::proto::{self, MessageKind, Payload, USER, Verdict};
 
-use crate::agent::{self, Agent, Spec};
+use crate::daemon::agent::{self, Agent, Spec};
 use crate::daemon::mail::{Draft, letter, post};
 use crate::daemon::retire;
 use crate::daemon::{State, log, new_id};
-use crate::deliver;
-use crate::locked::Locked;
+use crate::daemon::deliver;
+use crate::util::{Locked, now_ms};
 
 /// How long the daemon stays up with nothing to do.
 const IDLE_EXIT: Duration = Duration::from_secs(30);
@@ -28,7 +28,7 @@ pub(super) fn idle_exit() -> Duration {
 
 /// Drop agents that exited long ago.
 pub(super) fn expire(state: &State) {
-    let now = agent::now_ms();
+    let now = now_ms();
     let old: Vec<String> = state
         .agents
         .locked()
@@ -73,7 +73,7 @@ fn on_end(state: &Arc<State>, a: &Arc<Agent>) {
         c.kill();
     }
     if let Some(task) = state.broker.task(&a.id).filter(|t| !t.reported) {
-        let code = a.session(agent::now_ms()).exit.unwrap_or(-1);
+        let code = a.session(now_ms()).exit.unwrap_or(-1);
         let last = a.text(15);
         let mut body = format!("{} exited (code {code}) without reporting on its task.", a.name);
         if !last.trim().is_empty() {

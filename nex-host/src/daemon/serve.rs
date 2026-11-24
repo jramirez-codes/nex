@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use nex_host::paths;
 use nex_host::proto::{self, Request, Response, USER};
 
-use crate::agent::{self, Agent, Spec};
-use crate::broker::{self, Filter};
+use crate::daemon::agent::{self, Agent, Spec};
+use crate::daemon::broker::{self, Filter};
 use crate::daemon::lifecycle::{Hire, launch, spawn};
 use crate::daemon::mail::{Draft, post};
 use crate::daemon::retire::own_version;
@@ -127,7 +127,7 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
                 return send(&mut stream, &Response::error("it has exited"));
             }
             let token = state.next_token.fetch_add(1, Ordering::Relaxed);
-            let tx = crate::pty::spawn_writer(stream.try_clone()?);
+            let tx = crate::daemon::pty::spawn_writer(stream.try_clone()?);
             // The reply goes out through the writer, as the agent takes the pane over.
             if agent.attach(&tx, response_line(&Response::ok())?, token, cols, rows).is_none() {
                 let _ = tx.send(agent::Out::Bytes(response_line(&Response::error("it has exited"))?));
