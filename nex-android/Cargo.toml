@@ -1,7 +1,7 @@
 [package]
 name = "nex-android"
 # Kept equal to nex's own version.
-version = "0.14.0"
+version = "0.14.1"
 edition = "2024"
 rust-version = "1.88"
 description = "The nex Android app: nex's window on the phone, every pane on an ssh host."
