@@ -25,7 +25,8 @@ fi
 
 # The app must already carry a Developer ID signature with the hardened runtime.
 codesign --verify --strict --verbose=2 "$APP"
-codesign -dv "$APP" 2>&1 | grep -q 'flags=.*runtime' || {
+flags="$(codesign -dv "$APP" 2>&1)"
+case "$flags" in *flags=*runtime*) ;; *) false ;; esac || {
   echo "error: $APP isn't signed with the hardened runtime; rebuild it with SIGN_IDENTITY set" >&2
   exit 1
 }
