@@ -148,7 +148,7 @@ impl App {
             Action::ScrollPageUp | Action::ScrollPageDown | Action::ScrollTop | Action::ScrollBottom => {
                 self.scroll_focused(action)
             }
-            Action::ToggleExplorer => self.toggle_explorer(),
+            Action::ToggleExplorer => self.toggle_explorer(ctx),
             Action::ToggleGitDiff => self.toggle_git_diff(ctx),
             Action::ToggleAgents => self.toggle_agents(ctx),
             Action::ToggleAgentsTab => self.toggle_agents_tab(),

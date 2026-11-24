@@ -12,7 +12,7 @@ fn explorer_views(tab_bar: TabBar, view: View) -> Vec<View> {
     let ctx = egui::Context::default();
     let mut app = new_app(&ctx, cfg);
     run(&mut app, &ctx, 400.0);
-    app.toggle_explorer();
+    app.toggle_explorer(&ctx);
     let first = *app.explorers.keys().next().unwrap();
     app.split_explorer(&ctx, first, Axis::Vertical);
     run(&mut app, &ctx, 400.0);

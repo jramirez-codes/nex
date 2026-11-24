@@ -105,9 +105,8 @@ impl App {
         if !self.cfg.ssh_follow || !cfg!(unix) {
             return None;
         }
-        let term = self.panes.get_mut(&id)?;
-        let target = term.ssh_target()?;
-        let dir = term.remote_cwd();
+        let target = self.panes.get_mut(&id)?.ssh_target()?;
+        let dir = self.pane_remote_cwd(id);
         Some((target.session_command(dir.as_deref()), target))
     }
 }

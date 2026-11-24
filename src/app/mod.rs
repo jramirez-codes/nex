@@ -373,7 +373,7 @@ impl eframe::App for App {
             }
             if self.open_explorer {
                 // Opened as a file manager: the Files tab, at the first shell's folder.
-                self.toggle_explorer();
+                self.toggle_explorer(ctx);
                 if let Some(item) = self.select_at_start.take() {
                     self.select_in_explorer(&item);
                 }
