@@ -395,3 +395,67 @@ fn sub_agents_are_not_counted_and_never_ask_for_you() {
     assert_eq!(k, sub_key(remote_key("h", "s"), "a"));
     assert_ne!(k, sub_key(remote_key("h", "s"), "b"));
 }
+
+#[test]
+fn the_list_is_the_same_one_until_an_agent_changes() {
+    let now = Instant::now();
+    let probes = |output: Instant| {
+        let mut busy = probe(2, 1, AgentKind::Codex, now);
+        busy.last_output = output;
+        vec![probe(1, 0, AgentKind::Codex, now), busy]
+    };
+    let mut t = Tracker::default();
+    t.update(probes(now), now);
+    let first = t.agents().generation();
+    let shared = t.agents()[0].clone();
+
+    // Polls that find every agent as it was keep the list, and the agents in it.
+    t.update(probes(now), now + Duration::from_millis(100));
+    t.mark_seen(None, now);
+    t.mark_seen(Some(1), now);
+    assert_eq!(t.agents().generation(), first);
+    assert!(std::sync::Arc::ptr_eq(&shared, &t.agents()[0]));
+
+    // One stops working, unseen: a new list.
+    let later = now + Duration::from_secs(60);
+    t.update(probes(now), later);
+    let second = t.agents().generation();
+    assert_ne!(second, first);
+    assert_eq!(status_of(&t, 2), Status::Done);
+    // Looking at it changes it again (done to idle); looking twice doesn't.
+    t.mark_seen(Some(2), later);
+    let third = t.agents().generation();
+    assert!(third != second && third != first);
+    t.mark_seen(Some(2), later);
+    assert_eq!(t.agents().generation(), third);
+}
+
+#[test]
+fn the_counts_are_worded_when_they_change_not_when_they_are_read() {
+    let now = Instant::now();
+    let mut t = Tracker::default();
+    assert_eq!((t.summary(), t.headline()), ("No agents running", "None running"));
+
+    let probes = |title: &str, output: Instant| {
+        let mut busy = probe(2, 1, AgentKind::Codex, now);
+        busy.last_output = output;
+        busy.title = title.into();
+        vec![probe(1, 0, AgentKind::Codex, now), busy]
+    };
+    t.update(probes("one task", now), now);
+    assert_eq!((t.summary(), t.headline()), ("1 working · 1 idle", "1 working"));
+    assert_eq!((t.summary(), t.headline()), (t.counts().summary().as_str(), t.counts().headline().as_str()));
+    let (summary, headline) = (t.summary().as_ptr(), t.headline().as_ptr());
+
+    // The list changes but the counts don't: the same text, not written again.
+    t.update(probes("another task", now), now);
+    assert_eq!((t.summary().as_ptr(), t.headline().as_ptr()), (summary, headline));
+
+    // The counts change, with a poll or by looking at a pane: so does the text.
+    let later = now + Duration::from_secs(60);
+    t.update(probes("another task", now), later);
+    assert_eq!((t.summary(), t.headline()), ("1 done · 1 idle", "1 done"));
+    t.mark_seen(Some(2), later);
+    assert_eq!((t.summary(), t.headline()), ("2 idle", "2 idle"));
+    assert_eq!(t.counts(), Counts { idle: 2, ..Counts::default() });
+}

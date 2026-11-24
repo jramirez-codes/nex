@@ -90,7 +90,7 @@ impl App {
         let tip = if files {
             format!("Files: {project} on {}", self.hostname)
         } else {
-            format!("Agents: {}", self.agent_tracker.counts().summary())
+            format!("Agents: {}", self.agent_tracker.summary())
         };
         let resp = resp.on_hover_text(tip);
         if resp.clicked_by(PointerButton::Middle) {

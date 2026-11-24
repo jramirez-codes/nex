@@ -4,9 +4,17 @@
 //! terminal knows about it, plus Claude Code's session file when there is one). The tracker
 //! turns those into [`Agent`]s sorted for display, and remembers since when each has been
 //! in its current state.
+//!
+//! The pane is drawn far more often than the agents change, so what a frame needs is made
+//! when they do and shared after that: the list is [`Agents`] (each agent behind an `Arc`,
+//! with a generation that changes only when the list does, for the view to cache on), and
+//! the counts' wording is kept in a [`Tally`].
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::layout::PaneId;
@@ -273,7 +281,7 @@ fn shown_pane(key: PaneId, source: &Source) -> Option<PaneId> {
 }
 
 /// An agent as the Agents pane shows it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Agent {
     pub pane: PaneId,
     pub tab: Option<usize>,
@@ -299,6 +307,42 @@ impl Agent {
     pub fn shown_pane(&self) -> Option<PaneId> {
         shown_pane(self.pane, &self.source)
     }
+}
+
+/// The agents as the [`Tracker`] sorted them, shared rather than copied: whoever draws them
+/// holds the same `Arc`s. Reads as a slice of them.
+#[derive(Clone, Debug, Default)]
+pub struct Agents {
+    list: Vec<Arc<Agent>>,
+    generation: u64,
+}
+
+impl Agents {
+    /// `agents` as a list of its own, with a generation no other list has.
+    pub fn new(agents: Vec<Agent>) -> Agents {
+        Agents { list: agents.into_iter().map(Arc::new).collect(), generation: next_generation() }
+    }
+
+    /// Which list this is: the same number as long as nothing in it changed, and a new one
+    /// (never used before, by any list) when something did. What's worked out from the list
+    /// is good until this changes.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
+impl Deref for Agents {
+    type Target = [Arc<Agent>];
+
+    fn deref(&self) -> &[Arc<Agent>] {
+        &self.list
+    }
+}
+
+/// A generation no [`Agents`] has had (the empty default's is 0).
+fn next_generation() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 /// How many agents are in each state.
@@ -351,6 +395,26 @@ impl Counts {
     }
 }
 
+/// The counts with their wording, written out once when the counts change: the title bar and
+/// the sidebar show it every frame.
+struct Tally {
+    counts: Counts,
+    summary: String,
+    headline: String,
+}
+
+impl Tally {
+    fn new(counts: Counts) -> Tally {
+        Tally { counts, summary: counts.summary(), headline: counts.headline() }
+    }
+}
+
+impl Default for Tally {
+    fn default() -> Tally {
+        Tally::new(Counts::default())
+    }
+}
+
 /// The agents seen at the last poll, and since when each has been doing what it does.
 ///
 /// It also works out what the probes alone can't: an agent that stopped working while
@@ -359,7 +423,9 @@ impl Counts {
 /// [`Tracker::wants_you`]), whether or not the program rang the bell.
 #[derive(Default)]
 pub struct Tracker {
-    agents: Vec<Agent>,
+    agents: Agents,
+    /// How many of them are in each state, in numbers and words, as of the last change.
+    tally: Tally,
     since: HashMap<PaneId, (Status, Instant)>,
     /// The pane being looked at (the shown tab's focused pane, window focused).
     seen: Option<PaneId>,
@@ -371,7 +437,8 @@ pub struct Tracker {
 
 impl Tracker {
     /// Replace the list with what `probes` say at `now`, sorted: needs you, done, working,
-    /// idle, then by tab and pane.
+    /// idle, then by tab and pane. A poll that finds every agent as it was keeps the list
+    /// (and its generation) as it is.
     pub fn update(&mut self, probes: Vec<Probe>, now: Instant) {
         let mut since = HashMap::with_capacity(probes.len());
         let mut unseen = HashSet::new();
@@ -415,14 +482,30 @@ impl Tracker {
                 }
             })
             .collect();
-        Self::sort(&mut agents);
-        self.agents = agents;
+        agents.sort_by_key(order);
         self.since = since;
         self.unseen = unseen;
+        let same = agents.len() == self.agents.len() && agents.iter().zip(self.agents.iter()).all(|(new, old)| *new == **old);
+        if !same {
+            self.agents = Agents::new(agents);
+            self.recount();
+        }
     }
 
-    fn sort(agents: &mut [Agent]) {
-        agents.sort_by_key(|a| (a.status, a.tab.unwrap_or(usize::MAX), a.pane));
+    /// The list changed: count it again, and reword the counts if they came out different.
+    fn recount(&mut self) {
+        let mut c = Counts::default();
+        for a in self.agents.iter().filter(|a| a.kind != AgentKind::Pipeline && !a.team.sub) {
+            match a.status {
+                Status::NeedsYou => c.needs_you += 1,
+                Status::Done => c.done += 1,
+                Status::Working => c.working += 1,
+                Status::Idle => c.idle += 1,
+            }
+        }
+        if c != self.tally.counts {
+            self.tally = Tally::new(c);
+        }
     }
 
     /// Someone is looking at `pane` (or at no pane: `None`), as of `now`. An agent on it that
@@ -431,9 +514,10 @@ impl Tracker {
         self.seen = pane;
         let Some(pane) = pane else { return };
         let mut changed = false;
-        for a in self.agents.iter_mut().filter(|a| a.shown_pane() == Some(pane)) {
+        for a in self.agents.list.iter_mut().filter(|a| a.shown_pane() == Some(pane)) {
             self.unseen.remove(&a.pane);
             if a.status == Status::Done {
+                let a = Arc::make_mut(a);
                 a.status = Status::Idle;
                 a.since = now;
                 self.since.insert(a.pane, (Status::Idle, now));
@@ -441,7 +525,9 @@ impl Tracker {
             }
         }
         if changed {
-            Self::sort(&mut self.agents);
+            self.agents.list.sort_by_key(|a| order(a));
+            self.agents.generation = next_generation();
+            self.recount();
         }
     }
 
@@ -456,24 +542,30 @@ impl Tracker {
         std::mem::take(&mut self.alerted)
     }
 
-    pub fn agents(&self) -> &[Agent] {
+    pub fn agents(&self) -> &Agents {
         &self.agents
     }
 
     /// How many agents are in each state (a pipeline isn't one: its stages are; nor is a
-    /// sub-agent: its agent is).
+    /// sub-agent: its agent is). Counted when the list changes, not here.
     pub fn counts(&self) -> Counts {
-        let mut c = Counts::default();
-        for a in self.agents.iter().filter(|a| a.kind != AgentKind::Pipeline && !a.team.sub) {
-            match a.status {
-                Status::NeedsYou => c.needs_you += 1,
-                Status::Done => c.done += 1,
-                Status::Working => c.working += 1,
-                Status::Idle => c.idle += 1,
-            }
-        }
-        c
+        self.tally.counts
     }
+
+    /// [`Counts::summary`] of [`Tracker::counts`], written out when the counts last changed.
+    pub fn summary(&self) -> &str {
+        &self.tally.summary
+    }
+
+    /// [`Counts::headline`] of [`Tracker::counts`], written out when the counts last changed.
+    pub fn headline(&self) -> &str {
+        &self.tally.headline
+    }
+}
+
+/// The order the list is in: by status, then tab, then pane.
+fn order(a: &Agent) -> (Status, usize, PaneId) {
+    (a.status, a.tab.unwrap_or(usize::MAX), a.pane)
 }
 
 /// A short elapsed time: "now", "45s", "12m", "3h", "2d".

@@ -11,8 +11,12 @@
 //! agents of one step change places.
 //! Everything else (local panes' agents, agents nobody started) is a team of one: a card as
 //! before.
+//!
+//! Cards share the tracker's agents (`Arc`) rather than copying them, and are themselves
+//! shared (`Arc<Group>`): the view makes them once per change of the list, not per frame.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::layout::PaneId;
 
@@ -21,7 +25,7 @@ use super::model::{Agent, AgentKind, Status};
 /// One helper in a team, and how far down the tree it is (1: started by the team's lead).
 #[derive(Clone, Debug)]
 pub struct Member {
-    pub agent: Agent,
+    pub agent: Arc<Agent>,
     pub depth: usize,
 }
 
@@ -29,7 +33,8 @@ pub struct Member {
 #[derive(Clone, Debug)]
 pub struct Group {
     /// The lead (or pipeline) with `status` set to the team's: its most urgent member's.
-    pub lead: Agent,
+    /// The tracker's own when that's its status already.
+    pub lead: Arc<Agent>,
     /// Its helpers, depth first, each level by status and then in the order they started.
     pub members: Vec<Member>,
 }
@@ -70,11 +75,11 @@ impl Group {
     /// pipeline's order whatever their status ([`by_step`]).
     pub fn strip(&self) -> Vec<Step<'_>> {
         if self.is_pipeline() {
-            return by_step(self.direct().map(|m| &m.agent).collect()).into_iter().map(Step::Stage).collect();
+            return by_step(self.direct().map(|m| &*m.agent).collect()).into_iter().map(Step::Stage).collect();
         }
         let mut out = Vec::new();
         for (i, m) in self.members.iter().enumerate().filter(|(_, m)| m.depth == 1) {
-            let stages: Vec<&Agent> = self.under(i).filter(|s| !s.agent.team.sub).map(|s| &s.agent).collect();
+            let stages: Vec<&Agent> = self.under(i).filter(|s| !s.agent.team.sub).map(|s| &*s.agent).collect();
             if m.agent.kind == AgentKind::Pipeline && !stages.is_empty() {
                 out.push(Step::Heading(&m.agent.name));
                 out.extend(by_step(stages).into_iter().map(Step::Stage));
@@ -152,10 +157,10 @@ fn by_step(mut stages: Vec<&Agent>) -> Vec<&Agent> {
 
 /// `agents` (as the tracker sorted them) as cards: each agent under the one that started
 /// it, when that one is listed too, and teams sorted by their most urgent member.
-pub fn groups(agents: &[Agent]) -> Vec<Group> {
+pub fn groups(agents: &[Arc<Agent>]) -> Vec<Arc<Group>> {
     let keys: HashSet<PaneId> = agents.iter().map(|a| a.pane).collect();
     let parent = |a: &Agent| a.team.parent.filter(|p| *p != a.pane && keys.contains(p));
-    let mut children: HashMap<PaneId, Vec<&Agent>> = HashMap::new();
+    let mut children: HashMap<PaneId, Vec<&Arc<Agent>>> = HashMap::new();
     for a in agents {
         if let Some(p) = parent(a) {
             children.entry(p).or_default().push(a);
@@ -167,16 +172,16 @@ pub fn groups(agents: &[Agent]) -> Vec<Group> {
 
     let mut placed: HashSet<PaneId> = HashSet::new();
     let mut out = Vec::new();
-    let team = |lead: &Agent, placed: &mut HashSet<PaneId>| {
+    let team = |lead: &Arc<Agent>, placed: &mut HashSet<PaneId>| {
         placed.insert(lead.pane);
         let mut members = Vec::new();
         // Depth first, so a helper's own helpers come right after it.
-        let mut stack: Vec<(&Agent, usize)> = children.get(&lead.pane).map(|k| k.iter().rev().map(|a| (*a, 1)).collect()).unwrap_or_default();
+        let mut stack: Vec<(&Arc<Agent>, usize)> = children.get(&lead.pane).map(|k| k.iter().rev().map(|a| (*a, 1)).collect()).unwrap_or_default();
         while let Some((a, depth)) = stack.pop() {
             if !placed.insert(a.pane) {
                 continue;
             }
-            members.push(Member { agent: a.clone(), depth });
+            members.push(Member { agent: Arc::clone(a), depth });
             if let Some(k) = children.get(&a.pane) {
                 stack.extend(k.iter().rev().map(|c| (*c, depth + 1)));
             }
@@ -186,8 +191,9 @@ pub fn groups(agents: &[Agent]) -> Vec<Group> {
         // A sub-agent only keeps its team working (its finishing isn't the team's: its
         // agent says when that is done).
         let counts = |a: &Agent| (a.kind != AgentKind::Pipeline || !children.contains_key(&a.pane)) && (!a.team.sub || a.status == Status::Working);
-        let status = members.iter().map(|m| &m.agent).filter(|a| counts(a)).map(|a| a.status).chain(counts(lead).then_some(lead.status)).min().unwrap_or(lead.status);
-        Group { lead: Agent { status, ..lead.clone() }, members }
+        let status = members.iter().map(|m| &*m.agent).filter(|a| counts(a)).map(|a| a.status).chain(counts(lead).then_some(lead.status)).min().unwrap_or(lead.status);
+        let lead = if status == lead.status { Arc::clone(lead) } else { Arc::new(Agent { status, ..Agent::clone(lead) }) };
+        Arc::new(Group { lead, members })
     };
     for a in agents.iter().filter(|a| parent(a).is_none()) {
         let g = team(a, &mut placed);
@@ -230,7 +236,13 @@ mod tests {
         }
     }
 
-    fn shape(groups: &[Group]) -> Shape {
+    /// The cards of `agents`, each wrapped as the tracker hands them out.
+    fn groups(agents: &[Agent]) -> Vec<Arc<Group>> {
+        let shared: Vec<Arc<Agent>> = agents.iter().cloned().map(Arc::new).collect();
+        super::groups(&shared)
+    }
+
+    fn shape(groups: &[Arc<Group>]) -> Shape {
         groups.iter().map(|g| (g.key(), g.lead.status, g.members.iter().map(|m| (m.agent.pane, m.depth)).collect())).collect()
     }
 

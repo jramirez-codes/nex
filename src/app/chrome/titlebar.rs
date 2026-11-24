@@ -408,7 +408,7 @@ impl App {
             } else {
                 theme.text_dim
             };
-            (counts.headline(), color)
+            (self.agent_tracker.headline().to_string(), color)
         };
         paint::faded_text(painter, Pos2::new(x, cy - 7.0), &title, paint::bold(13.0), title_color, LABEL_WIDTH, 16.0);
         paint::faded_text(painter, Pos2::new(x, cy + 8.0), &detail, FontId::proportional(11.0), detail_color, LABEL_WIDTH, 16.0);

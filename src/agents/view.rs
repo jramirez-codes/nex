@@ -13,12 +13,16 @@
 //! ([`member_tag`]: `Build-01`): its word on its capsule, the whole tag in a small capsule
 //! leading its row, before the task its terminal's title says it's on.
 //!
+//! A frame copies no agent: the teams are worked out when the tracker's list changes (its
+//! generation) and kept, shared, until it changes again.
+//!
 //! Helpers are in the order `group` gives them (by status), and are drawn where `motion`
 //! has them: when one changes state, its row glides to its new slot over the others (which
 //! slide under it to make room) and its capsule slides along the strip. Clicks go where a
 //! row is drawn; the keys go by the slots the rows are headed for.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::epaint::Shadow;
@@ -33,7 +37,7 @@ use crate::ui::{icons, paint};
 
 use super::AgentsPane;
 use super::group::{Group, Member, Step, groups, same_step};
-use super::model::{Agent, AgentKind, Source, Status, elapsed};
+use super::model::{Agent, AgentKind, Agents, Source, Status, elapsed};
 use super::motion::{Motion, TeamMotion};
 
 const SIDE: f32 = 18.0;
@@ -74,12 +78,27 @@ pub(super) struct ViewState {
     /// tab); `None` before the first frame.
     shown_tab: Option<Option<usize>>,
     /// Each team card's team as last laid out, kept while its card fades away.
-    teams: HashMap<PaneId, Group>,
+    teams: HashMap<PaneId, Arc<Group>>,
+    /// The agents as teams, and the generation of the list they were made from: made again
+    /// only when that changes.
+    grouped: Option<(u64, Arc<[Arc<Group>]>)>,
 }
 
 impl ViewState {
     pub(super) fn new() -> ViewState {
-        ViewState { reveal_selection: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new() }
+        ViewState { reveal_selection: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None }
+    }
+
+    /// `agents` as teams: the ones made last time, unless the list changed since.
+    fn grouped(&mut self, agents: &Agents) -> Arc<[Arc<Group>]> {
+        match &self.grouped {
+            Some((generation, teams)) if *generation == agents.generation() => Arc::clone(teams),
+            _ => {
+                let teams: Arc<[Arc<Group>]> = groups(agents).into();
+                self.grouped = Some((agents.generation(), Arc::clone(&teams)));
+                teams
+            }
+        }
     }
 }
 
@@ -217,7 +236,7 @@ fn member_tags(g: &Group) -> Vec<String> {
     g.members
         .iter()
         .map(|m| {
-            let siblings: Vec<&Agent> = g.members.iter().map(|s| &s.agent).filter(|s| s.team.parent == m.agent.team.parent).collect();
+            let siblings: Vec<&Agent> = g.members.iter().map(|s| &*s.agent).filter(|s| s.team.parent == m.agent.team.parent).collect();
             member_tag(&m.agent, &siblings)
         })
         .collect()
@@ -229,7 +248,7 @@ impl AgentsPane {
     /// watched). `shown_tab` is the terminal tab on screen (`None` for the Agents / Files
     /// tab): switching to one bubbles the cards of the agents on it.
     #[allow(clippy::too_many_arguments)]
-    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: u64, focused: bool, c: &Theme, agents: &[Agent], notes: &[String], shown_tab: Option<usize>) {
+    pub fn paint(&mut self, ui: &Ui, painter: &Painter, rect: Rect, pane: u64, focused: bool, c: &Theme, agents: &Agents, notes: &[String], shown_tab: Option<usize>) {
         let ctx = ui.ctx().clone();
         let f = Frame {
             ui,
@@ -253,7 +272,7 @@ impl AgentsPane {
         }
 
         let width = body.width() - 2.0 * SIDE;
-        let teams = groups(agents);
+        let teams = self.view.grouped(agents);
         // Teams that broke up, or whose lead is gone, close.
         self.expanded.retain(|lead, _| teams.iter().any(|g| g.key() == *lead && g.is_team()));
         let Layout { sections, cards, content_h } = layout(&teams, width, &self.expanded);
@@ -262,10 +281,10 @@ impl AgentsPane {
             self.selected = self.selected.and_then(|p| self.team_of.get(&p).copied()).or_else(|| self.targets.first().map(|(t, _)| *t));
         }
         let mut motion = std::mem::take(&mut self.view.motion);
-        let laid: Vec<(&Agent, Rect)> = cards.iter().map(|(g, r)| (&g.lead, *r)).collect();
+        let laid: Vec<(&Arc<Agent>, Rect)> = cards.iter().map(|(g, r)| (&g.lead, *r)).collect();
         motion.update(f.time, f.animate, &sections, &laid, width);
         for (g, _) in &cards {
-            self.view.teams.insert(g.key(), (*g).clone());
+            self.view.teams.insert(g.key(), Arc::clone(g));
         }
         self.view.teams.retain(|k, _| motion.cards.contains_key(k));
         let switched = self.view.shown_tab.replace(shown_tab).is_some_and(|was| was != shown_tab);
@@ -302,7 +321,7 @@ impl AgentsPane {
 
     /// What the keys move through this frame: every card, and an open team's helper rows
     /// after it; and which team each member belongs to.
-    fn remember_targets(&mut self, teams: &[Group], cards: &[(&Group, Rect)]) {
+    fn remember_targets(&mut self, teams: &[Arc<Group>], cards: &[(&Arc<Group>, Rect)]) {
         self.targets.clear();
         for (g, r) in cards {
             self.targets.push((g.key(), Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H))));
@@ -372,10 +391,10 @@ impl AgentsPane {
             section_header(&p, sec.rect.get(now).translate(origin), *status, sec.count, f.c);
         }
         // Lifted cards are drawn last, over the ones they pass.
-        let mut ids: Vec<PaneId> = motion.cards.keys().copied().collect();
-        ids.sort_by_key(|id| (motion.cards[id].lift(now, shown_tab) > 0.0, *id));
+        let mut ids: Vec<(PaneId, f32)> = motion.cards.iter().map(|(id, card)| (*id, card.lift(now, shown_tab))).collect();
+        ids.sort_by_key(|&(id, lift)| (lift > 0.0, id));
         let mut breathing = false;
-        for id in ids {
+        for (id, lift) in ids {
             let Some(card) = motion.cards.get_mut(&id) else { continue };
             busy |= card.busy(now);
             let opacity = card.opacity.get(now);
@@ -387,7 +406,6 @@ impl AgentsPane {
             }
             // An agent on the shown tab lifts off the grid when you switch to it or it
             // changes sections. Clicks go where it's drawn, lifted.
-            let lift = card.lift(now, shown_tab);
             let r = Rect::from_center_size(r.center(), r.size() * (1.0 + 0.025 * lift));
             let team = self.view.teams.get(&id).filter(|g| g.is_team()).cloned();
             // The width the card is laid out at (not the one it's drawn at while it lifts).
@@ -574,32 +592,34 @@ impl AgentsPane {
 struct Layout<'a> {
     /// Each status with cards: its count and its header's rect.
     sections: Vec<(Status, usize, Rect)>,
-    cards: Vec<(&'a Group, Rect)>,
+    cards: Vec<(&'a Arc<Group>, Rect)>,
     content_h: f32,
 }
 
-/// Lay `teams` out `width` wide: a header per status, then its cards in as many columns as
+/// Lay `teams` (sorted by status, as [`groups`] leaves them) out `width` wide: a header per status, then its cards in as many columns as
 /// fit. A closed team is a cell of the grid like any card, only taller, so teams fill rows
 /// of their own first and the single cards follow (no row mixes heights); an open team
 /// spans the row, as tall as its list.
-fn layout<'a>(teams: &'a [Group], width: f32, expanded: &HashMap<PaneId, bool>) -> Layout<'a> {
+fn layout<'a>(teams: &'a [Arc<Group>], width: f32, expanded: &HashMap<PaneId, bool>) -> Layout<'a> {
     let columns = (((width + GAP) / (MIN_CARD_W + GAP)).floor() as usize).clamp(1, MAX_COLUMNS);
     let card_w = (width - GAP * (columns as f32 - 1.0)) / columns as f32;
     let mut sections: Vec<(Status, usize, Rect)> = Vec::new();
-    let mut cards: Vec<(&Group, Rect)> = Vec::new();
+    let mut cards: Vec<(&Arc<Group>, Rect)> = Vec::with_capacity(teams.len());
     let mut y = 4.0;
+    let mut rest = teams;
     for status in Status::ALL {
-        let group: Vec<&Group> = teams.iter().filter(|g| g.lead.status == status).collect();
+        // Sorted by status: this one's teams are the next ones.
+        let (group, after) = rest.split_at(rest.iter().take_while(|g| g.lead.status == status).count());
+        rest = after;
         if group.is_empty() {
             continue;
         }
         sections.push((status, group.len(), Rect::from_min_size(Pos2::new(SIDE, y), Vec2::new(width, SECTION_H))));
         y += SECTION_H;
-        let (in_teams, singles): (Vec<&Group>, Vec<&Group>) = group.into_iter().partition(|g| g.is_team());
         // The row being filled: how many cards it has, and how tall they are.
         let mut col = 0;
         let mut row_h = 0.0;
-        for g in in_teams.into_iter().chain(singles) {
+        for g in group.iter().filter(|g| g.is_team()).chain(group.iter().filter(|g| !g.is_team())) {
             let open = g.is_team().then(|| expanded.get(&g.key()).copied()).flatten();
             let h = if g.is_team() { team_height(g, open) } else { CARD_H };
             if col > 0 && (open.is_some() || h != row_h) {
@@ -705,10 +725,10 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
     let dot = Pos2::new(pill.left() + 11.0, pill.center().y);
     status_dot(f, p, dot, agent.status, color);
     p.galley(Pos2::new(dot.x + 7.5, pill.center().y - label.size().y / 2.0), label, color);
-    let since = elapsed(f.now.saturating_duration_since(agent.since));
+    let since = p.layout_no_wrap(elapsed(f.now.saturating_duration_since(agent.since)), ui_font(11.5), c.text_dim);
     let since_y = r.top() + DETAIL_Y;
-    let since_w = p.layout_no_wrap(since.clone(), ui_font(11.5), c.text_dim).size().x;
-    p.text(Pos2::new(pill.right() - 4.0, since_y), Align2::RIGHT_CENTER, &since, ui_font(11.5), c.text_dim);
+    let since_w = since.size().x;
+    p.galley(Align2::RIGHT_CENTER.anchor_size(Pos2::new(pill.right() - 4.0, since_y), since.size()).min, since, c.text_dim);
 
     // A team's chevron, left of the pill: pointing right while closed, down when open.
     let mut title_right = pill.left() - 12.0;
@@ -1057,7 +1077,7 @@ mod tests {
         let mut agents = vec![agent(1, None), agent(2, None), agent(3, None), agent(4, None), agent(9, None)];
         agents.extend((10..18).map(|p| agent(p, Some(3))));
         agents.extend((20..22).map(|p| agent(p, Some(4))));
-        let teams = groups(&agents);
+        let teams = groups(&Agents::new(agents));
         let closed = layout(&teams, 700.0, &HashMap::new());
         let rect = |l: &Layout, key| l.cards.iter().find(|(g, _)| g.key() == key).unwrap().1;
         assert_eq!(closed.cards.len(), 5, "helpers are inside their team's card");
@@ -1083,7 +1103,7 @@ mod tests {
     }
 
     /// Paints `pane` showing `agents` in an 800×600 window, with `events`.
-    fn frame(ctx: &egui::Context, pane: &mut AgentsPane, agents: &[Agent], time: &mut f64, events: Vec<egui::Event>) {
+    fn frame(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, events: Vec<egui::Event>) {
         *time += 0.05;
         let theme = Theme::from_config(&crate::config::Config::default());
         let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), time: Some(*time), events, ..Default::default() };
@@ -1095,7 +1115,7 @@ mod tests {
         });
     }
 
-    fn click(ctx: &egui::Context, pane: &mut AgentsPane, agents: &[Agent], time: &mut f64, at: Pos2) {
+    fn click(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, at: Pos2) {
         let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
         for events in [vec![egui::Event::PointerMoved(at)], vec![press(true)], vec![press(false)], vec![]] {
             frame(ctx, pane, agents, time, events);
@@ -1109,7 +1129,7 @@ mod tests {
         crate::ui::glide::set_animations(&ctx, false);
         let mut lead = agent(1, None);
         lead.kind = AgentKind::Pipeline;
-        let agents = vec![lead, agent(2, Some(1)), agent(3, Some(1))];
+        let agents = Agents::new(vec![lead, agent(2, Some(1)), agent(3, Some(1))]);
         let mut pane = AgentsPane::new();
         let mut time = 0.0;
         for _ in 0..3 {
@@ -1155,23 +1175,81 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_shares_the_trackers_agents_and_regroups_only_when_they_change() {
+        use crate::agents::model::{Probe, Tracker};
+        let ctx = egui::Context::default();
+        crate::render::fonts::install(&ctx, &crate::config::Config::default());
+        crate::ui::glide::set_animations(&ctx, false);
+        let at = Instant::now();
+        let probe = |pane: PaneId, parent: Option<PaneId>, status: Status| Probe {
+            pane,
+            tab: Some(0),
+            kind: AgentKind::Claude,
+            title: format!("task {pane}"),
+            mark: None,
+            cwd: None,
+            session_name: None,
+            session_status: None,
+            attention: false,
+            last_output: at,
+            last_input: at,
+            source: Source::Local,
+            reported: Some(status),
+            team: Team { parent, role: None, started: pane, sub: false },
+        };
+        let probes = |second: Status| vec![probe(1, None, Status::Idle), probe(2, Some(1), Status::Idle), probe(3, None, second)];
+        let mut tracker = Tracker::default();
+        tracker.update(probes(Status::Idle), at);
+        let mut pane = AgentsPane::new();
+        let mut time = 0.0;
+        let teams = |pane: &AgentsPane| Arc::clone(&pane.view.grouped.as_ref().expect("painted").1);
+
+        frame(&ctx, &mut pane, tracker.agents(), &mut time, vec![]);
+        let first = teams(&pane);
+        assert_eq!(first.iter().map(|g| (g.key(), g.members.len())).collect::<Vec<_>>(), [(1, 1), (3, 0)]);
+        // Nothing is copied on the way to the screen: the cards hold the tracker's agents.
+        let tracked = |tracker: &Tracker, pane: PaneId| Arc::clone(tracker.agents().iter().find(|a| a.pane == pane).unwrap());
+        assert!(Arc::ptr_eq(&first[0].lead, &tracked(&tracker, 1)) && Arc::ptr_eq(&first[0].members[0].agent, &tracked(&tracker, 2)));
+        assert!(Arc::ptr_eq(&pane.view.motion.cards[&3].agent, &tracked(&tracker, 3)));
+        assert!(Arc::ptr_eq(&pane.view.teams[&1], &first[0]));
+
+        // More frames, and polls that find the agents as they were: the same teams.
+        for _ in 0..3 {
+            frame(&ctx, &mut pane, tracker.agents(), &mut time, vec![]);
+            tracker.update(probes(Status::Idle), at + Duration::from_secs(1));
+        }
+        frame(&ctx, &mut pane, tracker.agents(), &mut time, vec![]);
+        assert!(Arc::ptr_eq(&first, &teams(&pane)), "not made again while nothing changed");
+        assert!(Arc::ptr_eq(&pane.view.motion.cards[&3].agent, &tracked(&tracker, 3)));
+
+        // An agent starts working: made again, from the new list.
+        tracker.update(probes(Status::Working), at + Duration::from_secs(2));
+        frame(&ctx, &mut pane, tracker.agents(), &mut time, vec![]);
+        let second = teams(&pane);
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert_eq!(second.iter().map(|g| (g.key(), g.lead.status)).collect::<Vec<_>>(), [(3, Status::Working), (1, Status::Idle)]);
+    }
+
+    #[test]
     fn a_helper_changing_state_glides_its_row_to_its_new_slot() {
         use crate::agents::motion::MOVE;
         let ctx = egui::Context::default();
         crate::render::fonts::install(&ctx, &crate::config::Config::default());
         crate::ui::glide::set_animations(&ctx, true);
         let mut agents = vec![agent(1, None), agent(2, Some(1)), agent(3, Some(1))];
+        // A poll that finds an agent changed makes a new list (a new generation).
+        let mut list = Agents::new(agents.clone());
         let mut pane = AgentsPane::new();
         let mut time = 0.0;
-        let frames = |pane: &mut AgentsPane, agents: &[Agent], time: &mut f64, n: usize| {
+        let frames = |pane: &mut AgentsPane, agents: &Agents, time: &mut f64, n: usize| {
             for _ in 0..n {
                 frame(&ctx, pane, agents, time, vec![]);
             }
         };
         // Open the team and let its card grow: the rows are simply there, in start order.
-        frames(&mut pane, &agents, &mut time, 2);
+        frames(&mut pane, &list, &mut time, 2);
         pane.expanded.insert(1, false);
-        frames(&mut pane, &agents, &mut time, 14);
+        frames(&mut pane, &list, &mut time, 14);
         let ys = |pane: &AgentsPane, time: f64| {
             let rows = &pane.view.motion.teams[&1].rows;
             (rows[&2].y.get(time), rows[&3].y.get(time))
@@ -1183,19 +1261,20 @@ mod tests {
 
         // Helper 3 finishes: it belongs above 2. The keys go by the new order at once...
         agents[2].status = Status::Done;
-        frames(&mut pane, &agents, &mut time, 1);
+        list = Agents::new(agents.clone());
+        frames(&mut pane, &list, &mut time, 1);
         let started = time;
         assert_eq!(order(&pane), [1, 3, 2]);
         assert_eq!(ys(&pane, time), (0.0, ROW_H), "...while the rows set off from where they were");
         // ...halfway, the rows are between slots and the pane keeps repainting...
-        frames(&mut pane, &agents, &mut time, 4);
+        frames(&mut pane, &list, &mut time, 4);
         assert!(time < started + MOVE);
         let (two, three) = ys(&pane, time);
         assert!(0.0 < two && two < ROW_H && 0.0 < three && three < ROW_H, "{two} {three}");
         let team = &pane.view.motion.teams[&1];
         assert!(team.busy(time) && team.rows[&3].status_change && !team.rows[&2].status_change);
         // ...and after MOVE they have settled where the keys already had them.
-        frames(&mut pane, &agents, &mut time, 6);
+        frames(&mut pane, &list, &mut time, 6);
         assert!(time > started + MOVE);
         assert_eq!(ys(&pane, time), (ROW_H, 0.0));
         assert!(!pane.view.motion.teams[&1].busy(time));
@@ -1205,7 +1284,8 @@ mod tests {
         // With animations off the next change jumps.
         crate::ui::glide::set_animations(&ctx, false);
         agents[1].status = Status::NeedsYou;
-        frames(&mut pane, &agents, &mut time, 1);
+        list = Agents::new(agents.clone());
+        frames(&mut pane, &list, &mut time, 1);
         assert_eq!(ys(&pane, time), (0.0, ROW_H));
         assert!(!pane.view.motion.teams[&1].busy(time));
     }
@@ -1242,7 +1322,7 @@ mod tests {
     fn a_reorder_leaves_the_helpers_tags_as_they_were() {
         let mut agents = vec![agent(1, None), helper(2, "anna", Some("build"), 10), helper(3, "ben", Some("build"), 20), helper(4, "cy", Some("build"), 30), helper(5, "merge", Some("merge"), 40)];
         let tags = |agents: &[Agent]| {
-            let g = &groups(agents)[0];
+            let g = &groups(&Agents::new(agents.to_vec()))[0];
             g.members.iter().zip(member_tags(g)).map(|(m, tag)| (m.agent.pane, tag)).collect::<Vec<_>>()
         };
         let before = tags(&agents);
@@ -1376,7 +1456,7 @@ mod tests {
         second.name = "Fix the login redirect".into();
         second.task = Some(second.name.clone());
         let agents = vec![lead, build, second, merge, explore];
-        let g = &groups(&agents)[0];
+        let g = &groups(&Agents::new(agents))[0];
         let rows: Vec<(String, Option<&str>, String)> =
             g.members.iter().zip(member_tags(g)).map(|(m, tag)| (tag, member_task(&m.agent), member_detail(&m.agent))).collect();
         let row = |tag: &str, task: Option<&'static str>, detail: &str| (tag.to_string(), task, detail.to_string());
