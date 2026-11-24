@@ -309,9 +309,8 @@ impl Agent {
     }
 }
 
-/// The panes the Agents pane marks "Viewing": those of the terminal tab you're on, or the
-/// one you go back to from the Agents tab (where clicking a card takes you). Every pane of a
-/// split counts; the one with focus is the primary.
+/// The panes the Agents pane marks "Viewing": those of the terminal tab you're on (none while
+/// the Agents tab is shown). Every pane of a split counts; the one with focus is the primary.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Viewing {
     /// In the tab's layout order (only the focused one when it's zoomed).
