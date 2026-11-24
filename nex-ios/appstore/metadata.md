@@ -5,8 +5,8 @@ counts are for the text as written here.
 
 | Field | Value |
 |---|---|
-| Name (30) | nex terminal |
-| Subtitle (30) | SSH, AI agents, files & git |
+| Name (30) | Nex Terminal: SSH Client |
+| Subtitle (30) | AI coding agents on any server |
 | Bundle ID | io.github.jramirez-codes.nex |
 | SKU | nex-ios |
 | Primary category | Developer Tools |
@@ -21,55 +21,47 @@ counts are for the text as written here.
 
 ## Promotional text (170)
 
-Your server's terminal, in your pocket. Run any coding agent in panes that survive dropped
-connections, keep an eye on every one, and hold to talk.
+SSH into any server from your iPhone and run Claude Code, Codex or any coding agent. Panes survive dropped connections, and you can hold to talk to your agent.
 
 ## Keywords (100)
 
-agent,claude code,codex
+claude,codex,code,shell,remote,linux,devops,cli,tmux,vps,homelab,bash,console,git,sysadmin,zsh,files
+
+Search only indexes the name, subtitle and keywords, so no word appears in more than one of
+them ("nex", "terminal", "ssh", "client", "ai", "coding", "agents", "server" are covered by the
+name and subtitle). Single words, no spaces: "claude" + "code" also match "claude code".
 
 ## Description (4000)
 
-nex is a fast GPU terminal for your servers, with AI coding agents, files and git built in.
-The iPhone app is nex's window on your phone: every pane runs on an ssh host you choose, like
-a home server or a cloud machine, and nothing runs on the phone itself.
+Your servers and your AI coding agents, in your pocket. Nex Terminal is a fast SSH client for iPhone, built for running Claude Code, Codex and any other coding agent on a remote server, and for checking on them from anywhere.
+
+Every pane runs on an SSH host you choose, like a home server, a VPS or a cloud machine. Close the app, lose signal, switch networks: your shell and your agents keep running, and the screen comes right back when you return.
 
 CONNECT ONCE
-Enter the host, user and password a single time. nex installs a key for this phone on the
-host, set to expire after 30 days, and logs in with it from then on. The password is never
-saved.
+Enter the host, user and password a single time. Nex installs a key for this phone on the server, set to expire after 30 days, and logs in with it from then on. Your password is never saved.
 
 PANES THAT SURVIVE
-Each pane's shell lives on the host. Switch apps, lose signal, change networks: when you
-come back, the pane reconnects and your screen is exactly where you left it.
+Each pane's shell lives on the server, not the phone. Dropped connections reconnect on their own and pick up exactly where you left off, with no tmux setup needed.
 
 ANY AGENT, ON YOUR SERVER
-nex works with whatever agent CLI you use: Claude Code, Codex, or anything else that runs in
-a terminal. Start it in a pane, close the app, and it keeps running on your host. The Agents
-pane gathers your Claude Code and Codex sessions in one place, flags the ones waiting on you,
-and takes you straight to them.
+Run Claude Code, Codex or any CLI agent in a pane and leave it working. The Agents pane gathers your Claude Code and Codex sessions in one place, flags the ones waiting on you, and takes you straight to them.
 
 HOLD TO TALK
-Hold the keyboard button to speak. The phone's microphone is shared with your host while
-you hold it, so voice input in your agent (like Claude Code's voice mode) works from your
-phone.
+Hold the keyboard button to speak. Your phone's microphone is shared with the server while you hold it, so voice input in your agent (like Claude Code's voice mode) works from your phone.
 
-A KEYBOARD MADE FOR TERMINALS
+A KEYBOARD MADE FOR THE COMMAND LINE
 • Drag the keyboard button like a joystick for arrow keys that speed up the further you push
 • Double-tap it to arm Ctrl for the next key (double-tap, then c, sends Ctrl-C)
 • Light haptic ticks for taps, arrows and Ctrl
-• Swipe typing works, corrections included
+• Swipe typing works in the shell, corrections included
 
-TABS, FILES AND CHANGES
-Scroll the tab strip, long-press to reorder tabs, and swipe a pane sideways to change tabs.
-Browse the server's files and review git changes without leaving the app.
+TABS, FILES AND GIT CHANGES
+Scroll the tab strip, long-press to reorder tabs, and swipe a pane sideways to switch. Browse the server's files and review git changes without leaving the app.
 
 FREE AND OPEN SOURCE
-nex is MIT licensed and has no accounts, ads, analytics or tracking. The same terminal runs
-on macOS, Linux, Windows and Android: get it at jramirez-codes.github.io/nex.
+Nex is MIT licensed, with no accounts, ads, analytics or tracking. The same GPU-accelerated terminal runs on macOS, Linux, Windows and Android: jramirez-codes.github.io/nex
 
-You need an ssh server you can log in to. nex installs its small helper, nex-host, in your
-account there.
+You'll need a Linux server (x86_64 or ARM) you can log in to over SSH. Nex installs its small helper, nex-host, in your account there; no root needed.
 
 ## What's new in 0.14.0
 
