@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use crate::git_diff::git::diff::{FileDiff, diff_args, parse_diff};
 use crate::git_diff::git::status::{Change, FileChange, Status, attach_counts, parse_numstat, parse_status};
 use crate::git_diff::git::{GIT_ENV, MAX_COUNT_BYTES, NUMSTAT_ARGS, NUMSTAT_STAGED_ARGS, STATUS_ARGS, TOPLEVEL_ARGS};
-use crate::remote::exec::{ExecError, Transport, cd_word};
+use crate::remote::exec::{ExecError, Transport};
+use crate::remote::{RemoteError, cd_word};
 use crate::remote::posix_quote;
 
 /// Exit status of a remote script whose `cd` into the folder failed.
@@ -23,7 +24,7 @@ fn remote_git(dir: &str, args: &[&str]) -> String {
 /// What a remote failure looks like in the pane.
 fn remote_failure(e: ExecError) -> Status {
     match e {
-        ExecError::NeedsLogin => Status::NeedsLogin,
+        ExecError::Remote(RemoteError::NeedsLogin) => Status::NeedsLogin,
         other => Status::Failed(other.to_string()),
     }
 }

@@ -127,9 +127,9 @@ pub fn login(server: &Server, password: Option<&str>, trust: Option<&str>, key_d
     };
     // The check and install scripts are `sh`: not for the login shell to read.
     nex_host_install::ensure_with(|script, stdin| {
-        let (status, out) = client.run_sh(script, stdin.unwrap_or_default()).map_err(|e| nex_host_install::HostError::Other(e.to_string()))?;
+        let (status, out) = client.run_sh(script, stdin.unwrap_or_default()).map_err(|e| crate::remote::RemoteError::Other(e.to_string()))?;
         let out = String::from_utf8_lossy(&out).into_owned();
-        if status == 0 { Ok(out) } else { Err(nex_host_install::HostError::Other(format!("the install script failed ({status})"))) }
+        if status == 0 { Ok(out) } else { Err(crate::remote::RemoteError::Other(format!("the install script failed ({status})")).into()) }
     })
     .map_err(|e| LoginError::Failed(format!("Couldn't set up nex-host on the server: {e}.")))?;
     Ok(RemoteHost { server: server.clone(), key, client: Mutex::new(Some(Arc::new(client))) })

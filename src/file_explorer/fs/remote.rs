@@ -10,7 +10,8 @@ use std::sync::atomic::Ordering;
 use crate::file_explorer::Entry;
 use crate::file_explorer::fs::ops::{invalid_name, sort_entries};
 use crate::file_explorer::fs::transfer::{Op, Progress};
-use crate::remote::exec::{ExecError, Output, Transport, cd_word, quote};
+use crate::remote::exec::{ExecError, Output, Transport, quote};
+use crate::remote::{RemoteError, cd_word};
 use crate::remote::posix_quote;
 
 /// A folder as read on the host.
@@ -32,9 +33,9 @@ const SKIPPED: &str = "nex-skip";
 pub fn list(t: &Transport, dir: &Path) -> Result<Listing, ExecError> {
     let out = t.run(&list_script(&dir.to_string_lossy()))?;
     if !out.ok() {
-        return Err(ExecError::Failed(out.reason()));
+        return Err(RemoteError::Other(out.reason()).into());
     }
-    parse_listing(&out.out).ok_or_else(|| ExecError::Failed("The host's answer was cut short".into()))
+    parse_listing(&out.out).ok_or_else(|| RemoteError::from("The host's answer was cut short").into())
 }
 
 fn list_script(dir: &str) -> String {

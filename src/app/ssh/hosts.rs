@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use crate::app::ssh::sharing::SharingPrompt;
 use crate::config::AgentShim;
-use crate::remote::{self, SshTarget};
+use crate::remote::{self, RemoteError, SshTarget};
 use crate::remote::host::{self, HostError, Snapshot, State, Watch};
 use crate::remote::ssh::host::RemoteHost;
 use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
@@ -164,7 +164,7 @@ impl Hosts {
 
     /// A host a pane is on that nex can't log into without a password.
     fn needs_login(&self, panes: &HashSet<SshTarget>) -> Option<&SshTarget> {
-        self.watches.iter().find(|(t, w)| panes.contains(*t) && w.with_snapshot(|s| s.state == State::Failed(HostError::NeedsLogin))).map(|(t, _)| t)
+        self.watches.iter().find(|(t, w)| panes.contains(*t) && w.with_snapshot(|s| s.state == State::Failed(HostError::Remote(RemoteError::NeedsLogin)))).map(|(t, _)| t)
     }
 
     fn decline(&mut self, target: SshTarget) {
@@ -310,17 +310,17 @@ impl App {
     pub(in crate::app) fn host_notes(&self) -> Vec<String> {
         let snapshots = self.ssh.remote_hosts.snapshots();
         // Read only when it matters: a host wants a password.
-        let sharing = snapshots.iter().any(|(_, s)| s.state == State::Failed(HostError::NeedsLogin)) && remote::sharing_enabled();
+        let sharing = snapshots.iter().any(|(_, s)| s.state == State::Failed(HostError::Remote(RemoteError::NeedsLogin))) && remote::sharing_enabled();
         snapshots
             .into_iter()
             .filter_map(|(t, s)| match s.state {
                 // Sharing is on, but the pane's login started before it was.
-                State::Failed(HostError::NeedsLogin) if sharing => {
+                State::Failed(HostError::Remote(RemoteError::NeedsLogin)) if sharing => {
                     Some(format!("{} needs a password: log out of it (exit) and ssh back in, and nex shares that login", t.host()))
                 }
-                State::Failed(HostError::NeedsLogin) => Some(format!("{} needs a password, so nex can't see its agents", t.host())),
+                State::Failed(HostError::Remote(RemoteError::NeedsLogin)) => Some(format!("{} needs a password, so nex can't see its agents", t.host())),
                 State::Failed(HostError::Unsupported(system)) => Some(format!("{}: nex has no helper for {system}", t.host())),
-                State::Failed(HostError::Other(e)) => Some(format!("{}: can't connect ({e}), retrying", t.host())),
+                State::Failed(HostError::Remote(RemoteError::Other(e))) => Some(format!("{}: can't connect ({e}), retrying", t.host())),
                 // An older nex-host still holds agents there; it hands over once they finish.
                 State::Live if s.daemon_version.is_some() => Some(format!("{}: nex-host update pending (it switches over when its agents finish)", t.host())),
                 State::Connecting | State::Live => None,
@@ -386,8 +386,8 @@ pub(in crate::app) fn direct_target(host: &RemoteHost) -> SshTarget {
 
 /// Stop session `id` over the window's own connection.
 fn kill_direct(host: &RemoteHost, id: &str) -> Result<(), HostError> {
-    let (r, _) = host.ask(&nex_host::proto::Request::Kill { id: id.into() }).map_err(|e| HostError::Other(e.to_string()))?;
-    if r.ok { Ok(()) } else { Err(HostError::Other(r.error.unwrap_or_else(|| "nex-host said no".into()))) }
+    let (r, _) = host.ask(&nex_host::proto::Request::Kill { id: id.into() }).map_err(|e| RemoteError::Other(e.to_string()))?;
+    if r.ok { Ok(()) } else { Err(RemoteError::Other(r.error.unwrap_or_else(|| "nex-host said no".into())).into()) }
 }
 
 fn from_json(text: &str) -> (Vec<SshTarget>, Vec<SshTarget>) {
@@ -403,7 +403,7 @@ mod tests {
     fn finds_a_pane_host_that_wants_a_password() {
         let (devbox, prod) = (SshTarget { opts: vec![], destination: "devbox".into() }, SshTarget { opts: vec![], destination: "prod".into() });
         let mut hosts = Hosts::default();
-        let failed = Snapshot { state: State::Failed(HostError::NeedsLogin), ..Default::default() };
+        let failed = Snapshot { state: State::Failed(HostError::Remote(RemoteError::NeedsLogin)), ..Default::default() };
         hosts.watches.insert(devbox.clone(), Watch::fake(failed.clone()));
         hosts.watches.insert(prod.clone(), Watch::fake(Snapshot { state: State::Live, ..Default::default() }));
         assert_eq!(hosts.needs_login(&HashSet::from([devbox.clone(), prod.clone()])), Some(&devbox));
