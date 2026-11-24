@@ -20,6 +20,13 @@ All notable changes to nex are documented here. The format follows
   edge, and every recording sits on the same soft glow. The build now fails if the page shows
   anything but real recordings from `demo/`.
 
+### Fixed
+
+- Closing a pane on a `nex-host` host (a tab on the phone, or in a window connected to the
+  host) no longer ends an agent someone started by typing `claude` or `codex` at its
+  shell's prompt: the agent keeps running and stays in the Agents pane, as one opened from
+  the Agents pane already did. A plain shell still ends with its pane.
+
 ## [0.14.0] - 2026-11-24
 
 ### Added

@@ -235,8 +235,12 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
         let _ = exit_tx.write_all(&[0]);
         return;
     }
-    // Closing the pane ends its shell, as closing a local one would; an agent keeps running.
-    if !keep && let Some(id) = session.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+    // Closing the pane ends its shell, as closing a local one would; an agent keeps running,
+    // whether it was picked in the Agents pane or typed at this shell's prompt.
+    if !keep
+        && let Some(id) = session.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        && !runs_agent(&host, &id)
+    {
         let _ = request(&host, &Request::Kill { id });
     }
     let _ = keys;
@@ -293,6 +297,19 @@ fn launch(host: &RemoteHost, cwd: Option<String>, cols: u16, rows: u16) -> Resul
 /// The user's shell, interactive, for a daemon that needs a command.
 const OLD_DAEMON_SHELL: &[&str] = &["sh", "-c", "exec \"${SHELL:-/bin/sh}\" -i"];
 
+/// Is an agent (`claude`, `codex`) the foreground job of session `id`'s shell? Then closing
+/// its pane leaves it running, and it stays in the Agents pane. A host that can't be asked
+/// counts as no, so the shell ends as before.
+fn runs_agent(host: &RemoteHost, id: &str) -> bool {
+    let Ok((r, _)) = request(host, &Request::List) else { return false };
+    r.sessions.is_some_and(|all| agent_in(&all, id))
+}
+
+/// Whether `sessions` (a `list` reply) says session `id` has an agent running in it.
+fn agent_in(sessions: &[proto::Session], id: &str) -> bool {
+    sessions.iter().any(|s| s.id == id && s.exit.is_none() && s.running.is_some())
+}
+
 /// Attach to session `id`: the connection, now carrying its screen.
 fn attach(host: &RemoteHost, id: &str, cols: u16, rows: u16) -> Result<crate::remote::ssh::Exec, Attach> {
     let (r, exec) = request(host, &Request::Attach { id: id.into(), cols, rows })?;
@@ -302,6 +319,41 @@ fn attach(host: &RemoteHost, id: &str, cols: u16, rows: u16) -> Result<crate::re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shell(id: &str, running: Option<&str>, exit: Option<i32>) -> proto::Session {
+        proto::Session {
+            id: id.into(),
+            kind: proto::SHELL_KIND.into(),
+            name: "me".into(),
+            cwd: "/".into(),
+            argv: Vec::new(),
+            pid: 1,
+            started: 0,
+            title: None,
+            bell: false,
+            attached: true,
+            last_output: 0,
+            last_input: 0,
+            exit,
+            claude: None,
+            running: running.map(str::to_string),
+            status: proto::Status::Idle,
+            parent: None,
+            role: None,
+            last_message: 0,
+            subagents: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_shell_with_an_agent_in_it_is_kept() {
+        let all = [shell("a1", Some("claude"), None), shell("b2", None, None), shell("c3", Some("codex"), Some(0))];
+        assert!(agent_in(&all, "a1"));
+        // A plain shell, one that ended, or one the host doesn't know ends as before.
+        assert!(!agent_in(&all, "b2"));
+        assert!(!agent_in(&all, "c3"));
+        assert!(!agent_in(&all, "zz"));
+    }
 
     #[test]
     fn only_an_exit_status_means_the_daemon_let_go() {
