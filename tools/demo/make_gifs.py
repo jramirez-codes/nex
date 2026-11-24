@@ -29,6 +29,10 @@ WIDTH = {"tour": 1200, "hero": 1200}
 # Clips another script makes from the same markers (promo.py composites `promo`).
 SKIP = {"promo"}
 DEFAULT_WIDTH = 1000
+# Where in a clip its poster frame is taken, 0..1. The hero ends on its best frame: inside
+# one of the pipeline's agents, the team open beside it.
+POSTER_AT = {"hero": 1.0}
+DEFAULT_POSTER_AT = 0.6
 # Hyprland's window rounding in the take, plus its antialiased fringe, in take pixels.
 CORNER_RADIUS = 13
 # What the corner squares are painted before they go transparent: the window background near
@@ -73,8 +77,9 @@ def make_mp4(take: Path, out: Path, start: float, end: float, width: int) -> Non
 
 
 def make_poster(take: Path, out: Path, start: float, end: float, width: int) -> None:
-    """A frame 60% of the way in, once the clip has something on screen."""
-    at = start + (end - start) * 0.6
+    """A frame 60% of the way in, once the clip has something on screen (or where POSTER_AT
+    says; never the very end, where there may be no frame left to read)."""
+    at = min(start + (end - start) * POSTER_AT.get(out.stem, DEFAULT_POSTER_AT), end - 0.1)
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", f"{at:.3f}", "-i", str(take),
                     "-vframes", "1", "-vf", f"scale={width}:-2:flags=lanczos", "-q:v", "4", str(out)],
                    check=True)
