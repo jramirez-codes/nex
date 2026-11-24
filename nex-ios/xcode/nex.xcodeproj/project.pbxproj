@@ -8,16 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* main.c */; };
+		A10000000000000000000004 /* scene.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* scene.m */; };
 		A10000000000000000000002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* Assets.xcassets */; };
+		A10000000000000000000003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A20000000000000000000001 /* main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
+		A20000000000000000000008 /* scene.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = scene.m; sourceTree = "<group>"; };
 		A20000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000004 /* build-rust.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "build-rust.sh"; sourceTree = "<group>"; };
 		A20000000000000000000005 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		A20000000000000000000006 /* nex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = nex.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000007 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -35,8 +39,10 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000001 /* main.c */,
+				A20000000000000000000008 /* scene.m */,
 				A20000000000000000000002 /* Info.plist */,
 				A20000000000000000000003 /* Assets.xcassets */,
+				A20000000000000000000007 /* PrivacyInfo.xcprivacy */,
 				A20000000000000000000004 /* build-rust.sh */,
 				A20000000000000000000005 /* Base.xcconfig */,
 				A40000000000000000000002 /* Products */,
@@ -110,6 +116,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000002 /* Assets.xcassets in Resources */,
+				A10000000000000000000003 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -144,6 +151,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000001 /* main.c in Sources */,
+				A10000000000000000000004 /* scene.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

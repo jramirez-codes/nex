@@ -7,7 +7,9 @@
 # Cargo.toml next to this script, or to `BINARY --version` in a release tarball (pass "" to
 # keep that default and still give HOST_DIR). HOST_DIR holds the nex-host-<target> binaries
 # nex installs on ssh hosts; they go in Contents/Resources/host.
-# The app is ad-hoc signed (not notarized), which is enough to run it on this Mac.
+# The app is ad-hoc signed, which is enough to run it on this Mac. Set SIGN_IDENTITY to a
+# "Developer ID Application: …" certificate to sign it for distribution instead (hardened
+# runtime, nex.entitlements); make-dmg.sh then notarizes it.
 set -euo pipefail
 
 if [ $# -lt 2 ]; then
@@ -41,7 +43,20 @@ if [ -n "$HOST_DIR" ]; then
 fi
 sed "s/@VERSION@/$VERSION/g" "$HERE/Info.plist" > "$STAGE/Contents/Info.plist"
 plutil -lint -s "$STAGE/Contents/Info.plist"
-codesign --force --sign - "$STAGE"
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  # Notarization checks every Mac executable inside, so the macOS nex-host builds get their
+  # own signature first (the Linux ones aren't Mach-O and are only sealed as resources).
+  for f in "$STAGE/Contents/Resources/host"/nex-host-*; do
+    if [ -f "$f" ] && file "$f" | grep -q Mach-O; then
+      codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$f"
+    fi
+  done
+  codesign --force --options runtime --timestamp --entitlements "$HERE/nex.entitlements" \
+    --sign "$SIGN_IDENTITY" "$STAGE"
+  codesign --verify --strict --verbose=2 "$STAGE"
+else
+  codesign --force --sign - "$STAGE"
+fi
 
 mkdir -p "$OUT"
 rm -rf "$APP"

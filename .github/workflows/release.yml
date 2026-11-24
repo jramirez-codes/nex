@@ -110,7 +110,43 @@ jobs:
         with:
           tool: cargo-deb
 
+      # Developer ID signing and notarization, once the secrets are set (see
+      # packaging/macos/make-dmg.sh). Without them the app stays ad-hoc signed and no DMG is made.
+      - name: Import signing certificate
+        id: sign
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "No MACOS_CERT_P12 secret: building an ad-hoc signed app"
+            exit 0
+          fi
+          kc="$RUNNER_TEMP/sign.keychain-db"
+          kcpass="$(uuidgen)"
+          security create-keychain -p "$kcpass" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kcpass" "$kc"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpass" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$kc" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)"
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          echo "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool store-credentials nex-notary --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --keychain "$kc"
+          rm "$RUNNER_TEMP/notary.p8"
+          echo "keychain=$kc" >> "$GITHUB_OUTPUT"
+
       - name: Package
+        env:
+          SIGN_IDENTITY: ${{ steps.sign.outputs.identity }}
+          NOTARY_KEYCHAIN: ${{ steps.sign.outputs.keychain }}
         run: |
           chmod 755 target/host/*
           name="nex-${GITHUB_REF_NAME}-${{ matrix.arch }}-linux"
@@ -251,7 +287,43 @@ jobs:
           merge-multiple: true
           path: target/host
 
+      # Developer ID signing and notarization, once the secrets are set (see
+      # packaging/macos/make-dmg.sh). Without them the app stays ad-hoc signed and no DMG is made.
+      - name: Import signing certificate
+        id: sign
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "No MACOS_CERT_P12 secret: building an ad-hoc signed app"
+            exit 0
+          fi
+          kc="$RUNNER_TEMP/sign.keychain-db"
+          kcpass="$(uuidgen)"
+          security create-keychain -p "$kcpass" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kcpass" "$kc"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpass" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$kc" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)"
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          echo "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool store-credentials nex-notary --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --keychain "$kc"
+          rm "$RUNNER_TEMP/notary.p8"
+          echo "keychain=$kc" >> "$GITHUB_OUTPUT"
+
       - name: Package
+        env:
+          SIGN_IDENTITY: ${{ steps.sign.outputs.identity }}
+          NOTARY_KEYCHAIN: ${{ steps.sign.outputs.keychain }}
         run: |
           chmod 755 target/host/*
           name="nex-${GITHUB_REF_NAME}-universal-macos"
@@ -264,6 +336,10 @@ jobs:
 
           # nex.app on its own, zipped with ditto so the bundle's signature survives.
           packaging/macos/make-app.sh target/universal/nex build "" target/host
+          if [ -n "$SIGN_IDENTITY" ]; then
+            NOTARY_KEYCHAIN="$NOTARY_KEYCHAIN" packaging/macos/make-dmg.sh build/nex.app "dist/nex-${GITHUB_REF_NAME}-macos.dmg"
+            xcrun stapler staple build/nex.app
+          fi
           ditto -c -k --keepParent build/nex.app "dist/nex-${GITHUB_REF_NAME}-macos-app.zip"
           cd dist && shasum -a 256 * > "SHA256SUMS-macos.txt"
 
@@ -327,8 +403,10 @@ jobs:
 
           **macOS (Apple Silicon and Intel)**
 
-          The macOS files are added to this release once their build finishes. Unzip \`nex-${GITHUB_REF_NAME}-macos-app.zip\` and drag \`nex.app\` to Applications. It isn't
-          notarized yet, so clear the download flag once before opening it:
+          The macOS files are added to this release once their build finishes. Open
+          \`nex-${GITHUB_REF_NAME}-macos.dmg\` and drag \`nex.app\` to Applications; it's signed and
+          notarized by Apple. If this release has no DMG, its app isn't notarized: unzip
+          \`nex-${GITHUB_REF_NAME}-macos-app.zip\` instead and clear the download flag once before opening it:
           \`\`\`sh
           xattr -dr com.apple.quarantine /Applications/nex.app
           \`\`\`

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0d0d10" />
+  <title>nex privacy policy</title>
+  <meta name="description" content="nex collects no data: no accounts, analytics or tracking. What stays on your device and what goes to your own ssh hosts." />
+  <link rel="canonical" href="https://jramirez-codes.github.io/nex/privacy/" />
+  <link rel="icon" type="image/svg+xml" href="/nex/nex.svg" />
+  <style>
+    :root {
+      --bg: #0d0d10;
+      --text: #f5f5f7;
+      --text-2: #a1a1a6;
+      --hairline: rgba(255, 255, 255, 0.12);
+      --accent: #2997ff;
+      --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 17px/1.6 var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+    main {
+      width: min(720px, 100% - 32px - env(safe-area-inset-left) - env(safe-area-inset-right));
+      margin: 0 auto;
+      padding: 64px 0 96px;
+    }
+    a { color: var(--accent); }
+    .home { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 600; }
+    .home img { width: 28px; height: 28px; }
+    h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.02em; margin: 40px 0 8px; }
+    h2 { font-size: 21px; margin: 40px 0 8px; }
+    p, li { color: var(--text-2); }
+    strong { color: var(--text); font-weight: 600; }
+    .updated { margin: 0 0 32px; }
+    .summary { border: 1px solid var(--hairline); border-radius: 14px; padding: 4px 20px; }
+    code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.9em; color: var(--text); }
+  </style>
+</head>
+<body>
+<main>
+  <a class="home" href="/nex/"><img src="/nex/nex.svg" alt="" />nex</a>
+  <h1>Privacy policy</h1>
+  <p class="updated">Last updated November 24, 2026. Applies to nex on iPhone, Mac, Linux, Windows and Android.</p>
+
+  <div class="summary">
+    <p><strong>nex collects no data.</strong> There are no accounts, analytics, ads, tracking or crash reports. Nothing you do in nex is sent to us or to anyone else.</p>
+  </div>
+
+  <h2>What stays on your device</h2>
+  <ul>
+    <li><strong>Settings and history</strong> are kept in nex's own folder on your device.</li>
+    <li><strong>Your ssh login.</strong> When you connect to a host, you type its password once. nex uses it to install a key for this device on that host, then forgets it: the password is never saved. The device's private key (<code>device_key</code>) and the host's name and key expiry (<code>remote.json</code>) stay on the device.</li>
+  </ul>
+
+  <h2>What goes to your ssh hosts</h2>
+  <p>nex is a terminal: what you type and the files you open travel over an encrypted ssh connection to the hosts <em>you</em> choose, and nowhere else. To run panes on a host, nex installs its small helper program, <code>nex-host</code>, in your account there.</p>
+
+  <h2>Microphone</h2>
+  <p>On iPhone and Mac, nex asks for the microphone only for voice input, and only listens while you hold the mic button. The audio goes straight to your own ssh host, for apps like Claude Code; nex doesn't record or keep it.</p>
+
+  <h2>Other apps you run</h2>
+  <p>Programs you run inside nex, such as Claude Code, Codex, git or ssh, have their own privacy terms, which nex doesn't control.</p>
+
+  <h2>Children</h2>
+  <p>nex collects no information from anyone, including children.</p>
+
+  <h2>Changes and contact</h2>
+  <p>If this policy changes, the new version will be posted here with a new date. nex is open source, so you can check all of this in <a href="https://github.com/jramirez-codes/nex">its code</a>. Questions? <a href="https://github.com/jramirez-codes/nex/issues">Open an issue on GitHub</a>.</p>
+</main>
+</body>
+</html>
