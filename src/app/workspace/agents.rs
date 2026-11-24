@@ -215,7 +215,8 @@ impl App {
     }
 
     /// The title bar's Agents label: show the special tab (opening it on an Agents pane the
-    /// first time), or from it, go back to the terminal tab that was showing.
+    /// first time: the pinned one if that's an Agents pane, else a new one), or from it, go
+    /// back to the terminal tab that was showing.
     pub(in crate::app) fn toggle_agents_tab(&mut self) {
         if self.home_active {
             if !self.tabs.is_empty() {
@@ -224,9 +225,16 @@ impl App {
             return;
         }
         if self.home_tab.is_none() {
-            let id = self.alloc_pane_id();
-            self.agents.insert(id, AgentsPane::new());
-            self.home_tab = Some(self.with_sticky(Tab::new(id, id)));
+            let tab = match self.sticky.filter(|id| self.agents.contains_key(id)) {
+                // The pinned Agents pane already shows every agent: a second one would repeat it.
+                Some(pinned) => Tab::new(pinned, pinned),
+                None => {
+                    let id = self.alloc_pane_id();
+                    self.agents.insert(id, AgentsPane::new());
+                    self.with_sticky(Tab::new(id, id))
+                }
+            };
+            self.home_tab = Some(tab);
             self.track_agents();
         }
         self.home_active = true;

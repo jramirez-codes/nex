@@ -211,3 +211,40 @@ fn the_shortcut_pins_and_unpins_the_focused_pane() {
     s.act(Action::ToggleSticky(0));
     assert_eq!(s.app.sticky, None);
 }
+
+/// The Agents panes in the Agents tab.
+fn agents_in_home(s: &Sim) -> Vec<PaneId> {
+    let home = s.app.home_tab.as_ref().expect("the Agents tab is open");
+    home.root.panes().into_iter().filter(|id| s.app.agents.contains_key(id)).collect()
+}
+
+#[test]
+fn the_agents_tab_opens_on_a_pinned_agents_pane_without_adding_another() {
+    let mut s = Sim::new();
+    s.act(Action::ToggleAgents);
+    let pinned = s.focused();
+    assert!(s.app.agents.contains_key(&pinned));
+    s.act(Action::ToggleSticky(pinned));
+    assert_eq!(s.app.sticky, Some(pinned));
+
+    s.act(Action::ToggleAgentsTab);
+    assert!(s.app.home_active);
+    assert_eq!(agents_in_home(&s), vec![pinned]);
+    assert_eq!(s.app.agents.len(), 1, "no second Agents pane was made");
+}
+
+#[test]
+fn the_agents_tab_opens_on_a_new_agents_pane_when_none_is_pinned() {
+    let (mut s, _, sticky) = Sim::pinned();
+    assert!(!s.app.agents.contains_key(&sticky), "a terminal is pinned");
+    s.act(Action::ToggleAgentsTab);
+    assert!(s.app.home_active);
+    let made = agents_in_home(&s);
+    assert_eq!(made.len(), 1);
+    assert!(s.everywhere(sticky), "the pinned terminal joins it");
+
+    // And with nothing pinned at all.
+    let mut s = Sim::new();
+    s.act(Action::ToggleAgentsTab);
+    assert_eq!(agents_in_home(&s).len(), 1);
+}
