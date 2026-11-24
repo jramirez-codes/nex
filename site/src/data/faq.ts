@@ -46,7 +46,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'How does nex compare to Alacritty, kitty and Ghostty?',
-    a: 'nex is built on alacritty_terminal, the same VT engine behind Alacritty and Zed. Like kitty and Ghostty it has tabs and splits, and on top of that it adds a built-in file explorer and per-pane headers. The Performance section above compares throughput, startup time and memory on the same machine.',
+    a: 'nex is built on alacritty_terminal, the same VT engine behind Alacritty and Zed. Like kitty and Ghostty it has tabs and splits, and on top of that it adds a built-in file explorer and per-pane headers. The Compare table above lists throughput, startup time and memory measured on the same machine.',
   },
   {
     q: 'Do I need to install a Nerd Font?',

@@ -1,0 +1,31 @@
+.platforms .chapter-head { width: var(--text-w); margin: 0 auto 56px; text-align: center; }
+.tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 28px 32px;
+  text-align: center;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+}
+.tile-anchor { position: absolute; top: -80px; }
+.tile .icon { color: var(--text); margin-bottom: 10px; }
+.tile h3 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
+.tile p { margin: 0 0 12px; color: var(--text-2); font-size: 15px; line-height: 1.45; flex: 1; }
+.tile a { font-size: 15px; padding: 4px 0; }
+
+@media (max-width: 860px) {
+  .tiles { grid-template-columns: 1fr; max-width: 480px; margin: 0 auto; }
+  .tile { padding: 32px 20px 24px; }
+}

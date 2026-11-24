@@ -5,8 +5,8 @@ import AnimatedLogo from './AnimatedLogo'
 import Icon, { type IconName } from './Icon'
 import './nav.css'
 
-/** The bar's short list. SSH, macOS, Mobile, Shortcuts, Performance and Compare are still
- *  sections with anchors of their own (#ssh, #mac, …); they're reached by scrolling. */
+/** The site header's short list. It scrolls away; ProductBar, under it, stays at the top
+ *  with the product's own sections (Overview, Agents, SSH, Specs). */
 const LINKS: [string, string, IconName][] = [
   ['Agents', '#agents', 'agents'],
   ['Features', '#features', 'features'],
@@ -17,17 +17,9 @@ const LINKS: [string, string, IconName][] = [
 const BREAKPOINT = 700
 
 export default function Nav() {
-  const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const platform = usePlatform()
   const dl = download(platform)
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
 
   // The mobile menu: close on Escape, and on widening past the breakpoint.
   useEffect(() => {
@@ -46,7 +38,7 @@ export default function Nav() {
   const close = () => setOpen(false)
 
   return (
-    <header className={`nav ${scrolled || open ? 'scrolled' : ''} ${open ? 'open' : ''}`}>
+    <header className={`nav ${open ? 'open' : ''}`}>
       <nav className="nav-inner" aria-label="Main">
         <a className="nav-brand" href="#top" onClick={close}>
           <AnimatedLogo size={24} />

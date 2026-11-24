@@ -1,41 +1,10 @@
-.features-toggle {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 10px 14px;
-  margin-top: 28px;
-  font-size: 14px;
-  color: var(--text-3);
-}
-
-.spot { margin-top: var(--gap); }
-.section-head + .spot { margin-top: 0; }
-.spot-text { width: var(--text-w); max-width: 100%; margin: 0 auto 40px; text-align: center; }
-.spot-title {
-  font-size: clamp(30px, 4.4vw, 48px);
-  line-height: 1.08;
-  font-weight: 700;
-  letter-spacing: -0.028em;
-  margin: 0 0 16px;
-  text-wrap: balance;
-}
-.spot-body { max-width: 680px; margin: 0 auto 20px; color: var(--text-2); text-wrap: pretty; }
-.spot-keys { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 0; font-size: 15px; }
-
-.details-title {
-  margin: var(--gap) 0 0;
-  text-align: center;
-  font-size: clamp(30px, 4.4vw, 48px);
-  line-height: 1.08;
-  letter-spacing: -0.028em;
-}
-#features .points { grid-template-columns: repeat(4, 1fr); }
+/* The details: four columns with a hairline above each, no cards. */
+#features .points { width: 100%; grid-template-columns: repeat(4, 1fr); margin-top: 0; }
+#features .points li { padding-top: 16px; border-top: 1px solid var(--hairline); }
 
 @media (max-width: 860px) {
   #features .points { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 640px) {
-  .spot-text { margin-bottom: 24px; }
   #features .points { grid-template-columns: 1fr; }
 }

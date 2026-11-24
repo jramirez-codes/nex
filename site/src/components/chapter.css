@@ -1,0 +1,18 @@
+.chapter { width: var(--wide); }
+.chapter-head { width: var(--text-w); margin: 0 auto 56px; text-align: center; }
+.chapter-title {
+  font-size: clamp(40px, 7vw, 80px);
+  line-height: 1.04;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  margin: 0 0 20px;
+  text-wrap: balance;
+}
+.chapter-keys { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 24px 0 0; font-size: 15px; }
+.chapter .points { margin-top: 64px; }
+
+@media (max-width: 640px) {
+  .chapter-head { margin-bottom: 32px; }
+  .chapter-title { font-size: clamp(36px, 10.5vw, 48px); }
+  .chapter .points { margin-top: 40px; }
+}

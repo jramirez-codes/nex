@@ -1,18 +1,43 @@
-.highlights {
+/* Like a phone's tech specs: big numbers, small captions, hairlines between, no cards. */
+.specs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 32px 40px;
-  width: var(--text-w);
+  grid-template-columns: repeat(4, 1fr);
 }
-.tile { padding-top: 20px; border-top: 1px solid var(--hairline); }
-.tile-big { font-size: clamp(44px, 5.4vw, 56px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.05; }
-.tile-small { color: var(--text-2); margin-top: 8px; font-size: 15px; }
-.tile-mark { font-size: 0.35em; vertical-align: super; margin-left: 2px; color: var(--text-2); }
-.tile-note { color: var(--text-3); margin: 10px 0 0; font-size: 12px; line-height: 1.45; }
+.spec {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 24px;
+  text-align: center;
+}
+.spec + .spec { border-left: 1px solid var(--hairline); }
+.spec-big {
+  font-size: clamp(48px, 5.6vw, 72px);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  background: linear-gradient(100deg, #7cc0ff, #b3a1ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.spec-mark { font-size: 0.3em; vertical-align: super; margin-left: 2px; color: var(--text-2); -webkit-text-fill-color: var(--text-2); }
+.spec-small { max-width: 200px; color: var(--text-2); font-size: 14px; line-height: 1.4; }
+.specs-note { max-width: 720px; margin: 40px auto 0; text-align: center; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+.specs-note + .specs-note { margin-top: 6px; }
 
+@media (max-width: 860px) {
+  .specs { grid-template-columns: 1fr 1fr; }
+  .spec { padding: 24px 12px; }
+  .spec + .spec { border-left: 0; }
+  .spec:nth-child(2n) { border-left: 1px solid var(--hairline); }
+  .spec:nth-child(n + 3) { border-top: 1px solid var(--hairline); }
+}
 @media (max-width: 640px) {
-  .highlights { grid-template-columns: 1fr 1fr; gap: 24px 16px; }
-  .tile-big { font-size: 36px; }
-  .tile-small { font-size: 13.5px; }
-  .tile-note { font-size: 11px; margin-top: 8px; }
+  .spec-big { font-size: 44px; }
+  .spec-small { font-size: 13px; }
 }

@@ -5,9 +5,9 @@ import './faq.css'
 export default function Faq() {
   return (
     <section className="section" id="faq">
-      <Reveal className="section-head">
+      <Reveal className="chapter-head">
         <p className="eyebrow">FAQ</p>
-        <h2 className="title">Questions, answered.</h2>
+        <h2 className="chapter-title">Questions, answered.</h2>
       </Reveal>
       <Reveal className="faq">
         {FAQ.map(item => (
