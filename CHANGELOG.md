@@ -12,6 +12,13 @@ All notable changes to nex are documented here. The format follows
   real recording in a plain frame for each section in place of the drawn mock-ups (Agents
   and SSH show the new `agents` and `ssh` recorder scenes once they're recorded, the promo
   and hero until then). The header keeps four links, a GitHub icon and a Download pill.
+- The website reads like a product page: a near full-screen "nex" opener whose recording grows
+  in as you scroll, a sticky bar with Overview, Agents, SSH and Specs, one chapter per big
+  feature (Agents, SSH, Tabs & splits, Files & Changes, Search) with its recording, a specs row,
+  one Compare table with the benchmark numbers, an "Available on" chapter, and a closing
+  "Get nex." with the install command. Section bands fade in and out instead of ending in an
+  edge, and every recording sits on the same soft glow. The build now fails if the page shows
+  anything but real recordings from `demo/`.
 
 ## [0.14.0] - 2026-11-24
 

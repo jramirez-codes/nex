@@ -25,6 +25,20 @@ if (!description || description.length > 160) throw new Error(`prerender: meta d
 for (const [, block] of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
   try { JSON.parse(block) } catch (e) { throw new Error(`prerender: invalid JSON-LD: ${e.message}`) }
 }
+// Product visuals are real recordings only: every <video> plays a clip from public/demo/,
+// every <img> is the logo, and every <svg> is a small decorative icon, never drawn UI.
+const page = html.slice(html.indexOf('<div id="root">'))
+for (const [, src] of page.matchAll(/<video[^>]*\ssrc="([^"]*)"/g)) {
+  if (!/^\/nex\/demo\/[\w-]+\.mp4$/.test(src)) throw new Error(`prerender: <video> plays ${src}, not a demo/*.mp4 recording`)
+  await readFile(`${root}dist${src.slice('/nex'.length)}`).catch(() => { throw new Error(`prerender: ${src} is not in dist`) })
+}
+for (const [, src] of page.matchAll(/<img[^>]*\ssrc="([^"]*)"/g)) {
+  if (!/^\/nex\/nex(-animated)?\.svg$/.test(src)) throw new Error(`prerender: unexpected <img> ${src}; product visuals must be recordings`)
+}
+for (const [tag] of page.matchAll(/<svg[^>]*>/g)) {
+  if (!/class="icon[ "]/.test(tag) || !/aria-hidden="true"/.test(tag)) throw new Error(`prerender: <svg> that isn't a decorative icon: ${tag}`)
+}
+if (/<canvas|<iframe/.test(page)) throw new Error('prerender: <canvas>/<iframe> found; product visuals must be recordings')
 await writeFile(htmlPath, html)
 
 // Stamp the build date into the sitemap so crawlers see when the page last changed.

@@ -1,3 +1,30 @@
+/* The finale: the strongest glow on the page, on the last band. */
+.get::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: min(1400px, 100vw);
+  height: 900px;
+  transform: translateX(-50%);
+  z-index: -1;
+  pointer-events: none;
+  /* Ellipses that reach zero well inside the box, so the light has no edge. */
+  background:
+    radial-gradient(ellipse 34% 30% at 42% 42%, rgba(41, 151, 255, 0.22), transparent),
+    radial-gradient(ellipse 30% 28% at 60% 46%, rgba(140, 110, 255, 0.18), transparent);
+}
+.get-head { text-align: center; margin: 0 auto 56px; }
+.get-head img { margin: 0 auto 20px; }
+.get-title {
+  margin: 0 0 16px;
+  font-size: clamp(72px, 11vw, 128px);
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.05em;
+}
+.get .actions { margin-top: 28px; }
+
 .install { max-width: 720px; margin: 0 auto; padding: 28px; }
 .install-os {
   display: flex;
@@ -44,6 +71,7 @@
 .cmd button:hover { background: rgba(255, 255, 255, 0.12); }
 
 @media (max-width: 560px) {
+  .get .actions { flex-direction: column; align-items: stretch; max-width: 360px; margin-left: auto; margin-right: auto; }
   .install { padding: 16px; border-radius: 18px; }
   .install-os { flex-direction: column; align-items: stretch; text-align: center; }
   .install-os .seg { width: 100%; }

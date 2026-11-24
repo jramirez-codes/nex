@@ -1,0 +1,72 @@
+/* Sticks to the top once the main header has scrolled away. */
+.pbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-top: env(safe-area-inset-top);
+  background: rgba(13, 13, 16, 0.72);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--hairline);
+}
+.pbar-inner {
+  position: relative;
+  width: var(--page);
+  height: 52px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.pbar-name { color: var(--text); font-size: 21px; font-weight: 600; letter-spacing: -0.02em; }
+.pbar-name:hover { text-decoration: none; }
+.pbar-links { display: flex; gap: 24px; margin-left: auto; }
+.pbar-links a { color: var(--text-2); font-size: 12px; white-space: nowrap; }
+.pbar-links a:hover { color: var(--text); text-decoration: none; }
+.pbar-links a[aria-current] { color: var(--text); }
+.pbar-cta {
+  padding: 4px 11px;
+  border-radius: 980px;
+  background: var(--accent-hover);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pbar-cta:hover { text-decoration: none; background: #0062cc; }
+.pbar-toggle {
+  display: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pbar-toggle svg { transition: transform 0.25s ease; }
+.pbar.open .pbar-toggle svg { transform: rotate(180deg); }
+
+/* Phones: the sections fold behind a chevron. */
+@media (max-width: 700px) {
+  .pbar-inner { gap: 8px; }
+  .pbar-toggle { display: grid; }
+  .pbar-links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: calc(-1 * (100vw - 100%) / 2);
+    right: calc(-1 * (100vw - 100%) / 2);
+    flex-direction: column;
+    gap: 0;
+    padding: 4px 16px 16px;
+    background: rgba(13, 13, 16, 0.96);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .pbar.open .pbar-links { display: flex; }
+  .pbar-links a { padding: 12px 0; font-size: 17px; border-bottom: 1px solid var(--hairline); }
+  .pbar-links a:last-child { border-bottom: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pbar-toggle svg { transition: none; }
+}

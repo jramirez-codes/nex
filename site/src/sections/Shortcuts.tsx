@@ -10,13 +10,10 @@ export default function Shortcuts() {
   const platform = desktopOf(usePlatform())
   return (
     <section className="section" id="shortcuts">
-      <Reveal className="section-head">
+      <Reveal className="chapter-head">
         <p className="eyebrow">Shortcuts</p>
-        <h2 className="title">Keys that feel native.</h2>
-        <p className="lede">
-          nex follows Ghostty’s defaults on each OS: Cmd on a Mac, Ctrl+Shift on Linux, so the
-          plain Ctrl keys stay with your shell.
-        </p>
+        <h2 className="chapter-title">Keys that feel native.</h2>
+        <p className="lede">Cmd on a Mac, Ctrl+Shift on Linux, so plain Ctrl stays with your shell.</p>
       </Reveal>
       <Reveal className="shortcuts">
         <div className="shortcuts-bar">

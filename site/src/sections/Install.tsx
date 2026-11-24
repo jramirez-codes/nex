@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react'
+import AnimatedLogo from '../components/AnimatedLogo'
 import CopyCommand from '../components/CopyCommand'
 import Icon from '../components/Icon'
 import Reveal from '../components/Reveal'
 import { REPO, RELEASES } from '../links'
-import { ALL_PLATFORMS, IOS_SRC, type Platform, setPlatform, usePlatform } from '../platform'
+import { ALL_PLATFORMS, IOS_SRC, type Platform, download, platformIcon, setPlatform, usePlatform } from '../platform'
 import './install.css'
 
 interface Method {
@@ -13,7 +14,8 @@ interface Method {
   lines: string[]
 }
 
-/** Install steps per OS, first one is the recommended. Keep in sync with README.md "Installation". */
+/** The closing band: "Get nex.", the Download button, then the install command per OS.
+ *  Install steps per OS, first one is the recommended. Keep in sync with README.md "Installation". */
 const METHODS: Record<Platform, Method[]> = {
   mac: [
     {
@@ -92,16 +94,23 @@ const SUPPORT: Record<Platform, string> = {
 
 export default function Install() {
   const platform = usePlatform()
+  const dl = download(platform)
   const methods = METHODS[platform]
   const [picked, setPicked] = useState<Record<Platform, string>>({ mac: 'app', linux: 'deb', android: 'apk', ios: 'src' })
   const method = methods.find(m => m.id === picked[platform]) ?? methods[0]
 
   return (
-    <section className="section" id="install">
-      <Reveal className="section-head">
-        <p className="eyebrow">Install</p>
-        <h2 className="title">Up and running in{' '}<br />one command.</h2>
+    <section className="section get" id="install" aria-labelledby="install-title">
+      <Reveal className="get-head">
+        <AnimatedLogo size={72} onView />
+        <h2 className="get-title" id="install-title">Get nex.</h2>
         <p className="lede">Free and open source, for macOS, Linux and Android, with an iPhone beta.</p>
+        <div className="actions">
+          <a className="btn btn-primary" href={dl.href}>
+            <Icon name="download" size={18} />{dl.label}<Icon name={platformIcon(platform)} size={18} />
+          </a>
+          <a className="btn btn-link" href={REPO}>Star on GitHub <span aria-hidden="true">›</span></a>
+        </div>
       </Reveal>
       <Reveal className="glass install">
         <div className="install-os">
