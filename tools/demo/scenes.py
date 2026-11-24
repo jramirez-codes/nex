@@ -5,7 +5,17 @@ can be reordered or recorded on their own. `d.mark` brackets the part that becom
 make_gifs.py names each GIF after it.
 """
 
+from pathlib import Path
+
 CTRL_SHIFT, CTRL_ALT = "CTRL_SHIFT", "CTRL_ALT"
+REPO = Path(__file__).resolve().parents[2]
+
+
+def folders_before(name: str) -> int:
+    """How many rows the explorer lists above the repo's folder `name` (folders come first,
+    by name, hidden ones left out): the Down presses that reach it from the top row."""
+    folders = sorted(p.name for p in REPO.iterdir() if p.is_dir() and not p.name.startswith("."))
+    return folders.index(name)
 
 
 def close_others(d) -> None:
@@ -89,8 +99,8 @@ def explorer(d) -> None:
     d.type("git status --short", after=0.8)
     d.key("E", "CTRL", after=1.4)                # explorer splits off, at the shell's folder
     d.extra_panes += 1
-    for _ in range(4):                           # assets, bench, docs, site, src
-        d.key("Down", after=0.3)
+    for _ in range(folders_before("src")):       # down the repo's folders to src
+        d.key("Down", after=0.18)
     d.key("Return", after=1.0)                   # into src/
     d.key("Down", after=0.3)
     d.key("space", after=0.3)
