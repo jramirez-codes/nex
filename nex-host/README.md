@@ -207,6 +207,12 @@ task = "Review PR {pr} from {from}: {report}. Merged before it: {merged}. Merge 
 - `examples/pr-team/` is a full run of this with real Claude agents and GitHub PRs.
 - `examples/feature/pipeline.toml` is a general one for any GitHub repository: build a
   feature in a worktree, open a PR, review and merge it, with its agents in full auto.
+- `examples/mockups/pipeline.toml` is for design ideas, not code: three designers (`calm`,
+  `bold`, `dense`) each write a self-contained `mockups/<slug>-<direction>/index.html` at
+  once, with screenshots when Playwright or Chromium is installed, and a `critic` ranks
+  them in `mockups/<slug>-review.md`, sending weak ones back up to twice. Its agents may
+  write files and run only a few commands, and are refused the rest instead of asked.
+  `nex-host pipe mockups "a settings page for a podcast app"`
 
 `nex-host worktree ls` lists the worktrees `--worktree` made. `nex-host worktree prune`
 removes the ones no agent is working in, with nothing uncommitted, whose branch is merged

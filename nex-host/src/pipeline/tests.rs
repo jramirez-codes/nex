@@ -159,6 +159,26 @@ fn review_sends_it_back_until_approved_or_out_of_tries() {
 }
 
 #[test]
+fn mockups_designers_run_together_and_the_critic_sends_them_back() {
+    let p = Pipeline::parse(include_str!("../../examples/mockups/pipeline.toml")).unwrap();
+    let names: Vec<_> = p.stages.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["calm", "bold", "dense", "critic"]);
+    assert_eq!(p.groups(), vec![vec![0, 1, 2], vec![3]]);
+    let mut r = HashMap::new();
+    for (name, file) in [("calm", "mockups/x-calm/index.html"), ("bold", "mockups/x-bold/index.html"), ("dense", "mockups/x-dense/index.html")] {
+        r.insert(name.to_string(), Outcome { files: vec![file.into()], ..Outcome::text(name) });
+    }
+    let mut loops = HashMap::new();
+    assert_eq!(after(&p, 0, &r, &mut loops), Next::Run(1, None));
+    let task = fill(&p.stages[3].task, "a pricing page", &r);
+    assert!(task.contains("a pricing page") && task.contains("mockups/x-bold/index.html") && task.contains("mockups/<slug>-review.md"), "{task}");
+    r.insert("critic".into(), done("bold: fix contrast", Some(Verdict::Changes)));
+    assert_eq!(after(&p, 1, &r, &mut loops), Next::Run(0, Some("critic".into())), "back to all three designers");
+    r.insert("critic".into(), done("calm wins", Some(Verdict::Approved)));
+    assert_eq!(after(&p, 1, &r, &mut loops), Next::Finished);
+}
+
+#[test]
 fn a_failed_stage_stops_the_run() {
     let p = Pipeline::parse(FEATURE).unwrap();
     let mut r = HashMap::new();
@@ -181,7 +201,7 @@ fn every_example_pipeline_parses() {
     let mut files: Vec<PathBuf> = std::fs::read_dir(root.join("examples")).unwrap().map(|e| e.unwrap().path().join("pipeline.toml")).filter(|p| p.exists()).collect();
     files.sort();
     let names: Vec<_> = files.iter().filter_map(|p| p.parent()?.file_name()?.to_str()).collect();
-    assert!(names.contains(&"feature") && names.contains(&"pr-team"), "examples went missing: {names:?}");
+    assert!(names.contains(&"feature") && names.contains(&"pr-team") && names.contains(&"mockups"), "examples went missing: {names:?}");
     files.push(root.join("../tools/demo/agents/pipeline.toml"));
     for file in files {
         let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));

@@ -408,8 +408,10 @@ retry = { stage = "build", max = 3 }   # back to "build" unless approved
 - `command = ["claude", "--dangerously-skip-permissions"]` runs a stage with your own program
   and flags; `kind` (`claude` or `codex`) picks the agent otherwise.
 
-Two ready-made examples: [`nex-host/examples/feature`](nex-host/examples/feature/pipeline.toml)
+Three ready-made examples: [`nex-host/examples/feature`](nex-host/examples/feature/pipeline.toml)
 builds each feature in a worktree, opens a PR and has one reviewer merge them one at a time;
+[`nex-host/examples/mockups`](nex-host/examples/mockups/pipeline.toml) has three designers
+sketch a brief as HTML mockups in different directions and a critic rank them;
 [`nex-host/examples/pr-team`](nex-host/examples/pr-team/README.md) sets up a toy repository
 with three builders and a merger to try it end to end.
 
