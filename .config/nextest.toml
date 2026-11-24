@@ -1,0 +1,8 @@
+# cargo-nextest settings (CI runs `cargo nextest run --profile ci`; `cargo test` works too).
+
+[profile.ci]
+# Report every failure in one run rather than stopping at the first.
+fail-fast = false
+# The nex-host tests drive real PTYs and processes: flag a test after 30s, kill it after 2m
+# so a hang fails the job instead of stalling it.
+slow-timeout = { period = "30s", terminate-after = 4 }

@@ -16,8 +16,55 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # What a pull request touched, so the jobs below skip what it can't have broken. A push to
+  # main runs everything, so anything these filters miss is still caught after the merge.
+  changes:
+    name: Changed files
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ github.event_name == 'push' || steps.filter.outputs.rust == 'true' }}
+      host: ${{ github.event_name == 'push' || steps.filter.outputs.host == 'true' }}
+      shell: ${{ github.event_name == 'push' || steps.filter.outputs.shell == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+        if: github.event_name == 'pull_request'
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          # rust: anything that compiles into nex or nex-host (the fonts are include_bytes!'d).
+          # host: nex-host itself; nex depends on nex-host, never the other way around, so a
+          # change to src/ alone can't break nex-host's tests or its static build.
+          filters: |
+            rust:
+              - 'src/**'
+              - 'nex-host/**'
+              - 'build.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'assets/fonts/**'
+              - '.config/nextest.toml'
+              - '.github/workflows/ci.yml'
+            host:
+              - 'nex-host/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.config/nextest.toml'
+              - '.github/workflows/ci.yml'
+            shell:
+              - 'install.sh'
+              - 'bench/*.sh'
+              - 'packaging/macos/*.sh'
+              - '.github/workflows/ci.yml'
+
   check:
     name: Build, test & lint (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -37,30 +84,44 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - uses: taiki-e/install-action@nextest
+
       - uses: Swatinem/rust-cache@v2
 
+      # nextest runs the test binaries side by side (cargo test runs them one after another).
       # The phone crates are left out: they have no tests here and only add link time.
+      # nex-host's tests (the slow ones) run only when nex-host changed.
       - name: Test
-        run: cargo test --locked --workspace --exclude nex-ios --exclude nex-android
+        run: >-
+          cargo nextest run --locked --profile ci --workspace
+          --exclude nex-ios --exclude nex-android
+          ${{ needs.changes.outputs.host != 'true' && '--exclude nex-host' || '' }}
 
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
-      - name: Shellcheck
-        if: runner.os == 'Linux'
-        run: shellcheck install.sh bench/*.sh packaging/macos/*.sh
-
       # nex-host ships to servers as a static binary: make sure it still builds as one.
       - name: Build nex-host (static, musl)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.changes.outputs.host == 'true'
         run: |
           rustup target add x86_64-unknown-linux-musl
           cargo build --locked -p nex-host --release --target x86_64-unknown-linux-musl
+
+  shellcheck:
+    name: Shellcheck
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: shellcheck install.sh bench/*.sh packaging/macos/*.sh
 
   # The Windows backend (src/platform/windows/) isn't a supported build yet; this keeps it
   # compiling so the platform layer stays honest.
   windows-check:
     name: Check (windows-latest)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
