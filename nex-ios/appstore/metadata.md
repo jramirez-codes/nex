@@ -26,10 +26,7 @@ Agents pane for Claude Code and Codex, and voice input you hold to talk.
 
 ## Keywords (100)
 
-shell,console,ssh client,claude,codex,claude code,server,devops,linux,remote,tmux,vps,coding,homelab
-
-(Leave out words already in the name and subtitle: "nex", "terminal", "SSH", "AI", "agents",
-"files", "git" count without repeating them. Only list things nex does: no "mosh" or "sftp".)
+agent,claude code,codex
 
 ## Description (4000)
 
