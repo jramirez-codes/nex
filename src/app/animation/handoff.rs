@@ -50,6 +50,8 @@ pub(in crate::app) struct Handoff {
     pub drawn: DrawnCard,
     /// Mobile mode's taller header.
     pub sidebar: bool,
+    /// How many frames the overlay has painted (the first two set the clock).
+    pub painted: u8,
 }
 
 /// The focused pane's card as the workspace drew it this frame: where the handoff lands, and
@@ -113,6 +115,18 @@ fn morph_focus(ring: f32, morph: f32) -> f32 {
     (1.0 - t) + ring * t
 }
 
+/// The cover's and the card's fills. On an opaque surface (Android, iOS) they are flattened
+/// onto the black it clears to: what the connect screen's translucent fills came to there, and
+/// solid, so nothing of the workspace under the overlay shows before its phase. A see-through
+/// window keeps the translucent fills, which are what its connect screen showed.
+fn fills(theme: &Theme, transparent: bool) -> (Color32, Color32) {
+    if transparent {
+        return (theme.window, theme.card);
+    }
+    let window = Color32::BLACK.blend(theme.window);
+    (window, window.blend(theme.card))
+}
+
 /// The parts of `window` outside `card`'s rounded rect, as rects and corner fans: the cover
 /// as a frame around the card, so the card itself is never covered.
 fn frame_around(window: Rect, card: Rect, radius: f32, color: Color32) -> Vec<Shape> {
@@ -157,8 +171,17 @@ fn frame_around(window: Rect, card: Rect, radius: f32, color: Color32) -> Vec<Sh
 impl App {
     /// Paint the handoff over everything drawn this frame, or end it.
     pub(in crate::app) fn paint_handoff(&mut self, ctx: &egui::Context) {
-        let Some(h) = &self.handoff else { return };
+        let Some(h) = &mut self.handoff else { return };
         let now = ctx.input(|i| i.time);
+        // The clock starts with the overlay's second frame: the first one is drawn along with
+        // the workspace's first, which is slow (panes spawn, glyphs are rasterized), and would
+        // otherwise eat the start of the motion.
+        match h.painted {
+            0 => h.start = now,
+            1 => h.start = now - ctx.input(|i| i.predicted_dt) as f64,
+            _ => {}
+        }
+        h.painted = h.painted.saturating_add(1);
         let elapsed = h.elapsed(now);
         if elapsed >= END || !crate::ui::glide::animations(ctx) {
             self.strip.dog_wake = Some(h.dog_wake());
@@ -169,6 +192,7 @@ impl App {
         ctx.request_repaint();
         let theme = Theme::from_config(&self.cfg);
         let ph = phases(elapsed);
+        let (window_fill, card_fill) = fills(&theme, crate::platform::WINDOW.transparent);
         let layer = LayerId::new(Order::Foreground, Id::new("connect-handoff"));
         ctx.move_to_top(layer);
         let painter = ctx.layer_painter(layer);
@@ -184,13 +208,13 @@ impl App {
         // shadow takes over as the cover goes.
         let mut cover = painter.clone();
         cover.multiply_opacity(1.0 - ease_out(ph.chrome));
-        cover.extend(frame_around(ctx.viewport_rect(), card, PANE_RADIUS as f32, theme.window));
+        cover.extend(frame_around(ctx.viewport_rect(), card, PANE_RADIUS as f32, window_fill));
         paint::card_shadow(&cover, card, PANE_RADIUS);
 
         // The card: opaque until it has landed, then fading over the identical pane under it.
         let mut over = painter.clone();
         over.multiply_opacity(1.0 - ease_out(ph.content));
-        over.rect_filled(card, PANE_RADIUS, theme.card);
+        over.rect_filled(card, PANE_RADIUS, card_fill);
         let inside = over.with_clip_rect(card.shrink(1.0));
 
         // The connect card's body, riding along with the card's corner as it fades and drifts up.
@@ -232,7 +256,7 @@ impl App {
         let at = Rect::lerp(h.drawn.dog, to, glide);
         let dim = (if self.home_active { 0.0 } else { 0.3 }) * glide;
         // Dimmed toward what's behind it: the card it starts on, the window it lands on.
-        let bg = theme.card.lerp_to_gamma(theme.window, glide);
+        let bg = card_fill.lerp_to_gamma(window_fill, glide);
         dog::paint(&dog_painter, at, dog::BLEP_START + elapsed, (bg, dim));
     }
 }
@@ -343,9 +367,27 @@ mod tests {
     }
 
     #[test]
+    fn an_opaque_surface_gets_solid_fills() {
+        let mut theme = Theme::from_config(&crate::config::Config::default());
+        theme.window = Color32::from_rgba_unmultiplied(20, 20, 24, 230);
+        theme.card = Color32::from_rgba_unmultiplied(30, 30, 36, 230);
+        // A see-through window keeps what its connect screen showed.
+        assert_eq!(fills(&theme, true), (theme.window, theme.card));
+        // An opaque one: the same fills as they came out over black, hiding what's under them.
+        let (window, card) = fills(&theme, false);
+        assert!(window.is_opaque() && card.is_opaque());
+        assert_eq!(window, Color32::BLACK.blend(theme.window));
+        assert_eq!(card, Color32::BLACK.blend(theme.window).blend(theme.card));
+        // Already solid fills are left as they are.
+        theme.window = Color32::from_rgb(20, 20, 24);
+        theme.card = Color32::from_rgb(30, 30, 36);
+        assert_eq!(fills(&theme, false), (theme.window, theme.card));
+    }
+
+    #[test]
     fn the_tile_continues_the_overlays_blep() {
         let drawn = DrawnCard { card: Rect::ZERO, dog: Rect::ZERO, title: "", body: Vec::new() };
-        let h = Handoff { start: 100.0, drawn, sidebar: true };
+        let h = Handoff { start: 100.0, drawn, sidebar: true, painted: 2 };
         // The tile's `t` is now - dog_wake; the overlay's is BLEP_START + elapsed.
         let now = 100.0 + END as f64;
         assert!(((now - h.dog_wake()) as f32 - (dog::BLEP_START + h.elapsed(now))).abs() < 1e-4);

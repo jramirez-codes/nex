@@ -383,7 +383,11 @@ impl eframe::App for App {
         // A thin client (Android, `--remote`) with nothing open: connect, then open the panes.
         if self.connect.active && self.tabs.is_empty() {
             self.connect_screen(ctx);
-            return;
+            // Just connected: the workspace draws in this same frame, under the handoff, so no
+            // empty frame comes between the connect screen's last and the workspace's first.
+            if self.tabs.is_empty() {
+                return;
+            }
         }
 
         if ctx.input(|i| i.events.iter().any(is_user_input)) {
@@ -464,7 +468,7 @@ impl App {
             if crate::ui::glide::animations(ctx) && let Some(drawn) = self.connect.last_card() {
                 let start = ctx.input(|i| i.time);
                 let drawn = drawn.clone();
-                self.handoff = Some(animation::handoff::Handoff { start, drawn, sidebar: self.cfg.sidebar() });
+                self.handoff = Some(animation::handoff::Handoff { start, drawn, sidebar: self.cfg.sidebar(), painted: 0 });
             }
             if !self.tabs.is_empty() {
                 self.show_tab(0);
