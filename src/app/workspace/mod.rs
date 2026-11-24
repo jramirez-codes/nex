@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use egui::{Pos2, Rect};
 
+use crate::agents::AgentsPane;
 use crate::file_explorer::FileExplorer;
 use crate::git_diff::GitDiff;
 use crate::layout::{Axis, Direction, Node, PaneId, PaneKind};
@@ -34,6 +35,35 @@ pub(in crate::app) enum Location {
     Remote(Arc<Transport>, PathBuf),
 }
 
+/// A pane, as the kind it is. [`App::pane`] finds it with one lookup per kind; match on it
+/// rather than probing the per-kind maps, so a new kind of pane is a compile error everywhere
+/// it needs handling.
+pub(in crate::app) enum PaneRef<'a> {
+    Terminal(&'a Terminal),
+    Explorer(&'a FileExplorer),
+    Diff(&'a GitDiff),
+    Agents(&'a AgentsPane),
+}
+
+/// [`PaneRef`], to change the pane (see [`App::pane_mut`]).
+pub(in crate::app) enum PaneMut<'a> {
+    Terminal(&'a mut Terminal),
+    Explorer(&'a mut FileExplorer),
+    Diff(&'a mut GitDiff),
+    Agents(&'a mut AgentsPane),
+}
+
+impl PaneRef<'_> {
+    pub(in crate::app) fn kind(&self) -> PaneKind {
+        match self {
+            PaneRef::Terminal(_) => PaneKind::Terminal,
+            PaneRef::Explorer(_) => PaneKind::Explorer,
+            PaneRef::Diff(_) => PaneKind::Diff,
+            PaneRef::Agents(_) => PaneKind::Agents,
+        }
+    }
+}
+
 impl App {
     /// A fresh id for a new pane (terminal or file explorer).
     pub(in crate::app) fn alloc_pane_id(&mut self) -> PaneId {
@@ -42,20 +72,35 @@ impl App {
         id
     }
 
-    /// What pane `id` shows, or `None` if it's gone. Match on this rather than probing the
-    /// per-kind maps, so a new kind of pane is a compile error everywhere it needs handling.
-    pub(in crate::app) fn pane_kind(&self, id: PaneId) -> Option<PaneKind> {
-        if self.panes.contains_key(&id) {
-            Some(PaneKind::Terminal)
-        } else if self.explorers.contains_key(&id) {
-            Some(PaneKind::Explorer)
-        } else if self.diffs.contains_key(&id) {
-            Some(PaneKind::Diff)
-        } else if self.agents.contains_key(&id) {
-            Some(PaneKind::Agents)
+    /// Pane `id`, or `None` if it's gone.
+    pub(in crate::app) fn pane(&self, id: PaneId) -> Option<PaneRef<'_>> {
+        if let Some(t) = self.panes.get(&id) {
+            Some(PaneRef::Terminal(t))
+        } else if let Some(b) = self.explorers.get(&id) {
+            Some(PaneRef::Explorer(b))
+        } else if let Some(d) = self.diffs.get(&id) {
+            Some(PaneRef::Diff(d))
         } else {
-            None
+            self.agents.get(&id).map(PaneRef::Agents)
         }
+    }
+
+    /// [`pane`](Self::pane), to change it.
+    pub(in crate::app) fn pane_mut(&mut self, id: PaneId) -> Option<PaneMut<'_>> {
+        if let Some(t) = self.panes.get_mut(&id) {
+            Some(PaneMut::Terminal(t))
+        } else if let Some(b) = self.explorers.get_mut(&id) {
+            Some(PaneMut::Explorer(b))
+        } else if let Some(d) = self.diffs.get_mut(&id) {
+            Some(PaneMut::Diff(d))
+        } else {
+            self.agents.get_mut(&id).map(PaneMut::Agents)
+        }
+    }
+
+    /// What pane `id` shows, or `None` if it's gone: for callers that need only the kind.
+    pub(in crate::app) fn pane_kind(&self, id: PaneId) -> Option<PaneKind> {
+        self.pane(id).map(|p| p.kind())
     }
 
     /// Drop everything kept for pane `id` (its terminal or explorer, and its zoom level).
@@ -65,6 +110,15 @@ impl App {
         self.explorers.remove(&id);
         self.diffs.remove(&id);
         self.agents.remove(&id);
+    }
+
+    /// Forget every pane of `tab` (already out of the strip) except the sticky one, which
+    /// lives on in the other tabs.
+    fn forget_tab_panes(&mut self, tab: &Tab) {
+        let sticky = self.sticky;
+        for id in tab.root.panes().into_iter().filter(|&id| Some(id) != sticky) {
+            self.forget_pane(id);
+        }
     }
 
     /// Spawn a shell sized for `card`, so its first output is already laid out correctly
@@ -178,11 +232,11 @@ impl App {
     /// Working directory of a pane on this machine: the shell's cwd, or the folder a explorer
     /// is showing (`None` for one showing a folder on an ssh host).
     pub(in crate::app) fn pane_cwd(&self, id: PaneId) -> Option<PathBuf> {
-        match self.pane_kind(id)? {
-            PaneKind::Terminal => self.panes[&id].cwd.clone(),
-            PaneKind::Explorer => Some(&self.explorers[&id]).filter(|b| b.transport().is_none()).map(|b| b.dir.clone()),
-            PaneKind::Diff => Some(&self.diffs[&id]).filter(|d| d.remote.is_none()).map(|d| d.dir.clone()),
-            PaneKind::Agents => None,
+        match self.pane(id)? {
+            PaneRef::Terminal(t) => t.cwd.clone(),
+            PaneRef::Explorer(b) => Some(b).filter(|b| b.transport().is_none()).map(|b| b.dir.clone()),
+            PaneRef::Diff(d) => Some(d).filter(|d| d.remote.is_none()).map(|d| d.dir.clone()),
+            PaneRef::Agents(_) => None,
         }
     }
 
@@ -191,9 +245,8 @@ impl App {
     /// the terminal runs now, rather than taking the last poll's answer (cheap enough for
     /// every frame).
     pub(in crate::app) fn pane_location(&mut self, id: PaneId, fresh: bool) -> Option<Location> {
-        match self.pane_kind(id)? {
-            PaneKind::Terminal => {
-                let t = self.panes.get_mut(&id)?;
+        match self.pane_mut(id)? {
+            PaneMut::Terminal(t) => {
                 // Panes elsewhere need a Unix shell to run their scripts (see `remote::exec`).
                 if cfg!(unix) {
                     let transport = match &t.remote {
@@ -208,21 +261,19 @@ impl App {
                 }
                 t.cwd.clone().map(Location::Local)
             }
-            PaneKind::Explorer => {
-                let b = &self.explorers[&id];
+            PaneMut::Explorer(b) => {
                 Some(match b.transport() {
                     Some(t) => Location::Remote(t.clone(), b.dir.clone()),
                     None => Location::Local(b.dir.clone()),
                 })
             }
-            PaneKind::Diff => {
-                let d = &self.diffs[&id];
+            PaneMut::Diff(d) => {
                 Some(match &d.remote {
                     Some(t) => Location::Remote(t.clone(), d.dir.clone()),
                     None => Location::Local(d.dir.clone()),
                 })
             }
-            PaneKind::Agents => None,
+            PaneMut::Agents(_) => None,
         }
     }
 
@@ -235,14 +286,11 @@ impl App {
     /// `(title, process)` for a pane's tab and header, read every frame: a terminal's are
     /// borrowed from it (see [`Terminal::title`]).
     pub(in crate::app) fn pane_label(&self, id: PaneId) -> (Cow<'_, str>, &str) {
-        match self.pane_kind(id) {
-            Some(PaneKind::Terminal) => {
-                let t = &self.panes[&id];
-                (Cow::Borrowed(t.title()), &t.process)
-            }
-            Some(PaneKind::Explorer) => (Cow::Owned(self.explorers[&id].title()), icons::EXPLORER_PROCESS),
-            Some(PaneKind::Diff) => (Cow::Owned(self.diffs[&id].title()), icons::DIFF_PROCESS),
-            Some(PaneKind::Agents) => (Cow::Owned(self.agents[&id].title()), icons::AGENTS_PROCESS),
+        match self.pane(id) {
+            Some(PaneRef::Terminal(t)) => (Cow::Borrowed(t.title()), &t.process),
+            Some(PaneRef::Explorer(b)) => (Cow::Owned(b.title()), icons::EXPLORER_PROCESS),
+            Some(PaneRef::Diff(d)) => (Cow::Owned(d.title()), icons::DIFF_PROCESS),
+            Some(PaneRef::Agents(a)) => (Cow::Owned(a.title()), icons::AGENTS_PROCESS),
             None => Default::default(),
         }
     }
@@ -317,11 +365,8 @@ impl App {
     }
 
     pub(in crate::app) fn close_explorer(&mut self) {
-        let sticky = self.sticky;
         if let Some(tab) = self.home_tab.take() {
-            for id in tab.root.panes().into_iter().filter(|&id| Some(id) != sticky) {
-                self.forget_pane(id);
-            }
+            self.forget_tab_panes(&tab);
         }
         self.home_active = false;
         self.forget_sticky_if_alone();
@@ -639,10 +684,7 @@ impl App {
             let drawn = TabDrawn { active: drawn.active && !self.home_active, ..drawn };
             self.strip.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
         }
-        let sticky = self.sticky;
-        for id in tab.root.panes().into_iter().filter(|&id| Some(id) != sticky) {
-            self.forget_pane(id);
-        }
+        self.forget_tab_panes(&tab);
         self.forget_sticky_if_alone();
     }
 
