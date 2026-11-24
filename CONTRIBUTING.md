@@ -44,7 +44,7 @@ CI also runs clippy on Windows, so the Windows platform layer keeps compiling.
 2. Commit, then tag and push:
 
    ```sh
-   git tag v0.12.2 && git push origin v0.12.2
+   git tag v0.13.0 && git push origin v0.13.0
    ```
 
 The [release workflow](.github/workflows/release.yml) builds x86_64 and aarch64 Linux binaries

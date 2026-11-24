@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-24
+
 ### Added
 
 - nex-host: a `mockups` example pipeline for design ideas. Three designers take a brief in
@@ -56,6 +58,13 @@ All notable changes to nex are documented here. The format follows
   window title. Titles like oh-my-zsh's `user@host:~/src` count too.
 - Swiping right on the first tab opens the Agents tab on touch screens, even before it has
   been opened.
+- The phone apps and `nex --remote` connect to hosts whose login shell is fish or csh: the
+  nex-host check and install scripts run under `sh`. A timed-out or cancelled command now
+  ends on the host too.
+- Linux (Wayland): pasting no longer freezes the window while the app holding the clipboard
+  is slow to answer.
+- The pane header's icons share one height and sit centered, and keep their colors while
+  tabs glide.
 
 ## [0.12.2] - 2026-11-23
 
@@ -712,7 +721,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/jramirez-codes/nex/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/jramirez-codes/nex/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/jramirez-codes/nex/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/jramirez-codes/nex/compare/v0.11.0...v0.12.0
