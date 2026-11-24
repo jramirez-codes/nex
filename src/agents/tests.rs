@@ -459,3 +459,37 @@ fn the_counts_are_worded_when_they_change_not_when_they_are_read() {
     assert_eq!((t.summary(), t.headline()), ("2 idle", "2 idle"));
     assert_eq!(t.counts(), Counts { idle: 2, ..Counts::default() });
 }
+
+#[test]
+fn viewing_marks_the_agents_in_the_tabs_panes_the_focused_one_first() {
+    use super::model::{Seen, Viewing};
+    let now = Instant::now();
+    let mut t = Tracker::default();
+    let mut detached = remote("devbox", "a", Status::Working, now);
+    let mut attached = remote("devbox", "b", Status::Working, now);
+    if let Source::Remote { pane, .. } = &mut attached.source {
+        *pane = Some(5);
+    }
+    let mut sub = probe(sub_key(1, "x"), 0, AgentKind::Claude, now);
+    sub.source = Source::Sub { lead: 1, pane: Some(1) };
+    sub.team = Team { parent: Some(1), role: None, started: 0, sub: true };
+    if let Source::Remote { pane, .. } = &mut detached.source {
+        *pane = None;
+    }
+    t.update(vec![probe(1, 0, AgentKind::Claude, now), probe(2, 0, AgentKind::Codex, now), probe(3, 1, AgentKind::Claude, now), detached, attached, sub], now);
+    let seen = |v: &Viewing, key: u64| v.of(t.agents().iter().find(|a| a.pane == key).unwrap());
+
+    // A split of two: the focused one is the primary, its neighbour shares the tab.
+    let split = Viewing { panes: vec![1, 2, 5], primary: Some(2) };
+    assert_eq!(seen(&split, 2), Some(Seen::Primary));
+    assert_eq!(seen(&split, 1), Some(Seen::Shared));
+    assert_eq!(seen(&split, 3), None, "on another tab");
+    assert_eq!(seen(&split, remote_key("devbox", "b")), Some(Seen::Shared), "an ssh agent by the pane attached to it");
+    assert_eq!(seen(&split, remote_key("devbox", "a")), None, "a detached one never is");
+    assert_eq!(seen(&split, sub_key(1, "x")), Some(Seen::Shared), "a helper by its lead's pane");
+    // Zoomed: only the focused pane.
+    let zoomed = Viewing { panes: vec![1], primary: Some(1) };
+    assert_eq!(seen(&zoomed, 1), Some(Seen::Primary));
+    assert_eq!(seen(&zoomed, 2), None);
+    assert_eq!(seen(&Viewing::default(), 1), None);
+}

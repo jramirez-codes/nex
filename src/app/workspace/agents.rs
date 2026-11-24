@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::agents::AgentsPane;
-use crate::agents::model::{AgentKind, Probe, Source, Status, Team, is_remote_key, remote_key, sub_key};
+use crate::agents::model::{AgentKind, Probe, Source, Status, Team, Viewing, is_remote_key, remote_key, sub_key};
 use crate::layout::{Axis, PaneId};
 use crate::remote::SshTarget;
 use crate::session::claude;
@@ -163,6 +163,22 @@ impl App {
         self.home_tab
             .as_ref()
             .is_some_and(|t| t.root.iter().any(|id| self.panes.contains_key(&id) || self.explorers.contains_key(&id)))
+    }
+
+    /// What the Agents pane `id` marks "Viewing": the panes of the terminal tab you're on, or
+    /// the one you go back to from the Agents tab (where clicking a card takes you); only the
+    /// focused one while it's zoomed. The focused pane is the primary; when that's the Agents
+    /// pane itself (split beside them), the pane it was opened from, else the tab's last
+    /// focused terminal.
+    pub(in crate::app) fn viewing(&self, id: PaneId) -> Viewing {
+        let Some(tab) = self.tabs.get(self.active) else { return Viewing::default() };
+        let panes = if tab.zoomed { vec![tab.focused] } else { tab.root.panes() };
+        let primary = if tab.focused == id {
+            self.agents.get(&id).and_then(|a| a.origin).filter(|o| tab.contains(*o)).or(tab.last_terminal)
+        } else {
+            Some(tab.focused)
+        };
+        Viewing { panes, primary }
     }
 
     /// Ctrl+Shift+A: close the shown tab's Agents pane if it has one (focus goes back to the

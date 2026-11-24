@@ -225,3 +225,58 @@ fn a_tab_keeps_its_terminals_name_while_its_agents_pane_has_focus() {
     assert_eq!(app.tab_header_pane(&app.tabs[0]), id);
     assert_eq!(app.pane_label(id).0, "Agents");
 }
+
+#[test]
+fn the_agents_on_screen_are_marked_viewing_both_halves_of_a_split_and_where_a_card_jumped() {
+    use crate::agents::model::{Seen, Viewing};
+    use crate::layout::Axis;
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx, Config::default());
+    run(&mut app, &ctx, 1400.0);
+    let left = app.focused_pane().unwrap();
+    app.pending.push(Action::Split(Axis::Horizontal));
+    run(&mut app, &ctx, 1400.0);
+    let right = app.focused_pane().unwrap();
+    assert_ne!(left, right);
+    app.pending.push(Action::NewTab);
+    run(&mut app, &ctx, 1400.0);
+    let other = app.focused_pane().unwrap();
+
+    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    // Pretend the three shells run agents (opening the Agents tab polls, finding none).
+    let pretend = |app: &mut crate::app::App| {
+        let agents = vec![probe(left, Some(0), AgentKind::Claude, "busy"), probe(right, Some(0), AgentKind::Codex, "busy"), probe(other, Some(1), AgentKind::Claude, "idle")];
+        app.agent_tracker.update(agents, Instant::now());
+    };
+    let seen = |app: &crate::app::App, v: &Viewing, pane| v.of(app.agent_tracker.agents().iter().find(|a| a.pane == pane).unwrap());
+
+    // From the Agents tab, the first tab's split: both its agents, the focused one first.
+    app.show_tab(0);
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    let id = app.focused_pane().unwrap();
+    assert!(app.agents.contains_key(&id));
+    pretend(&mut app);
+    run(&mut app, &ctx, 1400.0);
+    let v = app.viewing(id);
+    assert_eq!(seen(&app, &v, right), Some(Seen::Primary));
+    assert_eq!(seen(&app, &v, left), Some(Seen::Shared));
+    assert_eq!(seen(&app, &v, other), None);
+
+    // A card jumps to the second tab's agent; back on the Agents tab, that's the one viewed.
+    app.agents.get_mut(&id).unwrap().selected = Some(other);
+    app.agents.get_mut(&id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    run(&mut app, &ctx, 1400.0);
+    run(&mut app, &ctx, 1400.0);
+    assert_eq!(app.focused_pane(), Some(other));
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    assert!(app.home_active);
+    pretend(&mut app);
+    let v = app.viewing(id);
+    assert_eq!(seen(&app, &v, other), Some(Seen::Primary));
+    assert_eq!((seen(&app, &v, left), seen(&app, &v, right)), (None, None));
+    for width in [1400.0, 420.0] {
+        run(&mut app, &ctx, width);
+    }
+}

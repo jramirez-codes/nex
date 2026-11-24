@@ -473,9 +473,10 @@ impl App {
     fn agents_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme) {
         let (id, focused) = (pane.id, pane.focused);
         self.pane_body(ui, pane, theme, true, |app, painter, content| {
+            let viewing = app.viewing(id);
             if let Some(a) = app.agents.get_mut(&id) {
                 let shown_tab = (!app.home_active).then_some(app.active);
-                a.paint(ui, painter, content, id, focused, theme, app.agent_tracker.agents(), &app.ssh.agent_notes, shown_tab);
+                a.paint(ui, painter, content, id, focused, theme, app.agent_tracker.agents(), &app.ssh.agent_notes, shown_tab, &viewing);
                 app.agent_requests.extend(a.requests.drain(..).map(|r| (id, r)));
             }
         });
