@@ -65,7 +65,7 @@ export default function Hero() {
           <DemoVideo
             className="hero-shot"
             name="hero"
-            label="nex over ssh: a pipeline of agents starts and the Agents pane is pinned beside it; a new tab opens on the same server with the git Changes pane, another with a file explorer, and the pinned pane follows back to the run"
+            label="nex over ssh: a pipeline of agents starts and the Agents pane is pinned beside it; a new tab opens on the same server with the git Changes pane, another with a file explorer, and from the pinned Agents pane the run's team opens and one of its agents is jumped into, its row marked as the one on screen"
             width={1200}
             height={750}
             eager
