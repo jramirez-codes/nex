@@ -1,7 +1,21 @@
 //! The Changes pane's diff column: the selected file's header and its hunks, syntax
 //! colored.
 
-use super::*;
+use std::sync::Arc;
+
+use egui::epaint::CornerRadius;
+use egui::text::{LayoutJob, TextFormat};
+use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
+
+use crate::git_diff::git::diff::{FileDiff, Hunk, Line, LineKind};
+use crate::git_diff::git::status::Snapshot;
+use crate::git_diff::syntax::Token;
+use crate::git_diff::view::{FILE_HEADER_H, Frame, Glyph, HUNK_CAPTION_H, HUNK_GAP, HUNK_PAD_BOTTOM, HUNK_RADIUS, SIDE, change_color, counts_text, message, mono, opaque};
+use crate::git_diff::{Column, GitDiff, Sel};
+use crate::ui::file_icons::{file_glyph, paint_glyph};
+use crate::ui::theme::{HAIRLINE, HOVER, Theme, white_alpha};
+use crate::ui::widgets::{HoverShape, IconButton, ScrollSpan, overlay_scrollbar};
+use crate::ui::{icons, paint};
 
 impl GitDiff {
     /// The selected file's header and diff.

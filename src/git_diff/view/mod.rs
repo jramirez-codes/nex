@@ -6,23 +6,20 @@
 //! error messages. `toolbar`, `list` (the sidebar of files) and `diff` (the selected file)
 //! draw the three parts.
 
-use std::sync::Arc;
-
 use egui::epaint::{CornerRadius, Shadow};
 use egui::text::{LayoutJob, TextFormat};
-use egui::{Align2, Color32, FontFamily, FontId, Id, Painter, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Align2, Color32, FontFamily, FontId, Id, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
 
 use crate::render::FONT_REGULAR;
-use crate::ui::file_icons::{file_glyph, paint_glyph};
+use crate::ui::file_icons::paint_glyph;
 use crate::ui::glide::Glide;
-use crate::ui::theme::{ACCENT, HAIRLINE, HOVER, Theme, white_alpha};
+use crate::ui::theme::{HAIRLINE, Theme, white_alpha};
 use crate::ui::touch_pan::TouchPan;
-use crate::ui::widgets::{HoverShape, IconButton, ScrollSpan, overlay_scrollbar, pressed_in};
+use crate::ui::widgets::pressed_in;
 use crate::ui::{icons, paint};
 
-use super::git::{Change, FileChange, FileDiff, Hunk, Line, LineKind, Snapshot, Status};
-use super::syntax::Token;
-use super::{Column, Filter, GitDiff, Sel};
+use crate::git_diff::git::status::{Change, Status};
+use crate::git_diff::{Column, GitDiff};
 
 mod diff;
 mod list;

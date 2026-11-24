@@ -1,6 +1,14 @@
 //! The Changes pane's toolbar: branch and ahead / behind, the filter and refresh.
 
-use super::*;
+use egui::epaint::Shadow;
+use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
+
+use crate::git_diff::view::{BRANCH_GLYPH, Frame, SIDE, refresh_icon};
+use crate::git_diff::{Filter, GitDiff};
+use crate::ui::file_icons::paint_glyph;
+use crate::ui::paint;
+use crate::ui::theme::{HAIRLINE, HOVER, white_alpha};
+use crate::ui::widgets::{HoverShape, IconButton};
 
 const SEGMENT_TRACK: Color32 = Color32::from_black_alpha(55);
 const SEGMENT_ON: Color32 = white_alpha(34);

@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 use syntect::easy::ScopeRangeIterator;
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet};
 
-use super::git::{FileDiff, Hunk, LineKind};
+use crate::git_diff::git::diff::{FileDiff, Hunk, LineKind};
 
 /// What a stretch of code is, for its color.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
