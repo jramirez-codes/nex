@@ -27,12 +27,12 @@ fn only_explorers_on_screen_are_reread() {
     let ctx = egui::Context::default();
     let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 400.0);
-    app.toggle_explorer();
+    app.toggle_explorer(&ctx);
     app.explorers.values_mut().next().unwrap().navigate(dir.clone());
     assert_eq!(names(&app), ["one.txt"]);
 
     // Back on the terminal tab: files changing don't make the hidden explorer read its folder.
-    app.toggle_explorer();
+    app.toggle_explorer(&ctx);
     assert!(!app.home_active);
     std::fs::write(dir.join("two.txt"), "2").unwrap();
     crate::file_explorer::files_changed();
@@ -42,7 +42,7 @@ fn only_explorers_on_screen_are_reread() {
     assert_eq!(names(&app), ["one.txt"]);
 
     // Shown again, it is re-read: in the background, so not by the time the poll returns.
-    app.toggle_explorer();
+    app.toggle_explorer(&ctx);
     assert!(app.home_active);
     poll(&mut app);
     assert_eq!(names(&app), ["one.txt"]);

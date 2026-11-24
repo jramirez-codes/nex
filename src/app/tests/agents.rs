@@ -115,7 +115,7 @@ fn explorer_mode_still_opens_files() {
     let ctx = egui::Context::default();
     let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1200.0);
-    app.toggle_explorer();
+    app.toggle_explorer(&ctx);
     run(&mut app, &ctx, 1200.0);
     let id = app.focused_pane().unwrap();
     assert!(app.explorers.contains_key(&id));

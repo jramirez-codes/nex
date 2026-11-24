@@ -131,7 +131,7 @@ impl Sim {
 #[test]
 fn touch_drop_files_tab_side_by_side() {
     let (mut s, dir) = setup();
-    s.app.toggle_explorer();
+    s.app.toggle_explorer(&s.ctx);
     s.settle();
     let ex = s.explorer();
     let c = s.ctx.clone();
@@ -144,7 +144,7 @@ fn touch_drop_files_tab_side_by_side() {
 #[test]
 fn touch_drop_files_tab_stacked() {
     let (mut s, dir) = setup();
-    s.app.toggle_explorer();
+    s.app.toggle_explorer(&s.ctx);
     s.settle();
     let ex = s.explorer();
     let c = s.ctx.clone();
@@ -176,7 +176,7 @@ fn touch_drop_explorer_split_in_terminal_tab() {
 #[test]
 fn touch_drop_ignores_parked_mouse_cursor() {
     let (mut s, dir) = setup();
-    s.app.toggle_explorer();
+    s.app.toggle_explorer(&s.ctx);
     s.settle();
     let ex = s.explorer();
     let c = s.ctx.clone();
@@ -192,7 +192,7 @@ fn touch_drop_ignores_parked_mouse_cursor() {
 #[test]
 fn drop_outside_every_pane_does_nothing() {
     let (mut s, dir) = setup();
-    s.app.toggle_explorer();
+    s.app.toggle_explorer(&s.ctx);
     s.settle();
     let ex = s.explorer();
     s.app.explorers.get_mut(&ex).unwrap().navigate(dir.to_path_buf());
