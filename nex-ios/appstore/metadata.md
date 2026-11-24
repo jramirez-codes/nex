@@ -21,8 +21,8 @@ counts are for the text as written here.
 
 ## Promotional text (170)
 
-Your server's terminal, in your pocket. Tabs and panes that survive dropped connections, an
-Agents pane for Claude Code and Codex, and voice input you hold to talk.
+Your server's terminal, in your pocket. Run any coding agent in panes that survive dropped
+connections, keep an eye on every one, and hold to talk.
 
 ## Keywords (100)
 
@@ -43,13 +43,16 @@ PANES THAT SURVIVE
 Each pane's shell lives on the host. Switch apps, lose signal, change networks: when you
 come back, the pane reconnects and your screen is exactly where you left it.
 
-AI AGENTS, ON YOUR SERVER
-The Agents pane lists the Claude Code and Codex sessions running on your host. Tap one to
-jump in, check on its work, answer its questions, and leave it running when you close it.
+ANY AGENT, ON YOUR SERVER
+nex works with whatever agent CLI you use: Claude Code, Codex, or anything else that runs in
+a terminal. Start it in a pane, close the app, and it keeps running on your host. The Agents
+pane gathers your Claude Code and Codex sessions in one place, flags the ones waiting on you,
+and takes you straight to them.
 
-TALK TO CLAUDE CODE
+HOLD TO TALK
 Hold the keyboard button to speak. The phone's microphone is shared with your host while
-you hold it, so Claude Code's voice mode works from your phone.
+you hold it, so voice input in your agent (like Claude Code's voice mode) works from your
+phone.
 
 A KEYBOARD MADE FOR TERMINALS
 • Drag the keyboard button like a joystick for arrow keys that speed up the further you push
