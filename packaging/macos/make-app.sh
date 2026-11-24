@@ -47,8 +47,9 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
   # Notarization checks every Mac executable inside, so the macOS nex-host builds get their
   # own signature first (the Linux ones aren't Mach-O and are only sealed as resources).
   for f in "$STAGE/Contents/Resources/host"/nex-host-*; do
-    [ -f "$f" ] && file "$f" | grep -q Mach-O || continue
-    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$f"
+    if [ -f "$f" ] && file "$f" | grep -q Mach-O; then
+      codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$f"
+    fi
   done
   codesign --force --options runtime --timestamp --entitlements "$HERE/nex.entitlements" \
     --sign "$SIGN_IDENTITY" "$STAGE"
