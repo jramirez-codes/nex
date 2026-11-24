@@ -8,6 +8,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- On the Agents tab, no agent card shows the "Viewing" ring any more: the terminal tab you
+  go back to isn't on screen, so none of its agents count as viewed. An Agents pane split
+  beside terminals still marks them as before.
 - On the Agents tab, the card of the pinned (sticky) pane's agent no longer shows the
   "Viewing" ring just because that pane is pinned beside the Agents pane.
 - Opening the Agents tab while an Agents pane is pinned shows that pane instead of adding a
