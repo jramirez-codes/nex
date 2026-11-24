@@ -308,7 +308,8 @@ impl App {
             self.keyboard_button.ctrl_armed = false;
             self.keyboard_button.talk = None;
         }
-        let shown = target.is_some();
+        // It waits for the connect handoff to finish, then fades in as usual.
+        let shown = target.is_some() && self.handoff.is_none();
         let fade = if animations(ctx) {
             ctx.animate_bool_with_time(Id::new("keyboard-button"), shown, FADE_TIME)
         } else if shown {

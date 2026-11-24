@@ -10,7 +10,7 @@ use egui::emath::TSTransform;
 use egui::epaint::shape_transform::adjust_colors;
 use egui::epaint::{ClippedShape, Tessellator};
 use egui::layers::{PaintList, ShapeIdx};
-use egui::{Painter, Rect, Shape, Vec2};
+use egui::{Color32, Painter, Rect, Shape, Vec2};
 
 use crate::ui::glide::{ease_out, smoothstep};
 
@@ -96,9 +96,17 @@ impl Transition for GlideSwitch {
 }
 
 /// Scale every color of `shape` to `alpha` opacity.
+///
+/// Text laid out in the placeholder color keeps it: the tessellator swaps in the text's
+/// fallback color (faded here like any other) only where it finds the placeholder untouched,
+/// and would draw a scaled one as it is, a green.
 fn fade(shape: &mut Shape, alpha: f32) {
     if alpha < 1.0 {
-        adjust_colors(shape, move |c| *c = c.gamma_multiply(alpha));
+        adjust_colors(shape, move |c| {
+            if *c != Color32::PLACEHOLDER {
+                *c = c.gamma_multiply(alpha);
+            }
+        });
     }
 }
 
@@ -143,5 +151,25 @@ mod tests {
         assert_eq!(rect.rect, r.translate(offset));
         assert!(offset.x > 0.0 && alpha > 0.0 && alpha < 1.0);
         assert_eq!(rect.fill, egui::Color32::WHITE.gamma_multiply(alpha));
+    }
+
+    #[test]
+    fn text_in_the_placeholder_color_fades_in_its_own_color() {
+        // Pane header icons are laid out in the placeholder color and painted with a fallback.
+        let ctx = egui::Context::default();
+        let mut text = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let galley = ctx.fonts_mut(|f| f.layout_no_wrap("x".into(), egui::FontId::monospace(14.0), Color32::PLACEHOLDER));
+            text = Some(egui::epaint::TextShape::new(Pos2::new(10.0, 10.0), galley, Color32::RED));
+        });
+        let mut shape = Shape::Text(text.unwrap());
+        fade(&mut shape, 0.5);
+        let Shape::Text(text) = &shape else { panic!("still text") };
+        assert_eq!(text.fallback_color, Color32::RED.gamma_multiply(0.5));
+        let glyph_colors = text.galley.rows.iter().flat_map(|r| r.visuals.mesh.vertices.iter().map(|v| v.color));
+        let section_colors = text.galley.job.sections.iter().map(|s| s.format.color);
+        for c in glyph_colors.chain(section_colors) {
+            assert_eq!(c, Color32::PLACEHOLDER);
+        }
     }
 }
