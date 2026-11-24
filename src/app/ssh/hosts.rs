@@ -153,6 +153,16 @@ impl Hosts {
         v
     }
 
+    /// A remote pane's directory: the one its shell `reported`, else that of the agent it's
+    /// `showing` (host and session id), as the host gave it (absolute: a `~/…` would be
+    /// quoted when handed to `cd`), else unknown.
+    pub(in crate::app) fn pane_dir(&self, reported: Option<String>, showing: impl FnOnce() -> Option<(SshTarget, String)>) -> Option<String> {
+        reported.or_else(|| {
+            let (target, session) = showing()?;
+            self.watches.get(&target)?.with_snapshot(|s| s.sessions.iter().find(|s| s.id == session).map(|s| s.cwd.clone()))
+        })
+    }
+
     /// The host a pane is on that could have the shim and doesn't, not yet offered or declined.
     fn shim_candidate(&self, panes: &HashSet<SshTarget>) -> Option<SshTarget> {
         self.watches
@@ -409,6 +419,27 @@ mod tests {
         assert_eq!(hosts.needs_login(&HashSet::from([devbox.clone(), prod.clone()])), Some(&devbox));
         // Only hosts a pane is on: that pane's login is the one to share.
         assert_eq!(hosts.needs_login(&HashSet::from([prod])), None);
+    }
+
+    /// What the shell reported comes first, then the directory of the agent the pane shows,
+    /// then nothing.
+    #[test]
+    fn pane_dir_falls_back_to_the_agents_directory() {
+        let devbox = SshTarget { opts: vec![], destination: "devbox".into() };
+        let agent: nex_host::proto::Session = serde_json::from_value(json!({
+            "id": "a1", "kind": "claude", "name": "fix", "cwd": "/home/me/src/app", "argv": ["claude"], "pid": 1, "started": 0,
+            "last_output": 0, "last_input": 0, "status": "idle"
+        }))
+        .unwrap();
+        let mut hosts = Hosts::default();
+        hosts.watches.insert(devbox.clone(), Watch::fake(Snapshot { state: State::Live, sessions: vec![agent], home: Some("/home/me".into()), ..Default::default() }));
+        let showing = |id: &str| Some((devbox.clone(), id.to_string()));
+
+        assert_eq!(hosts.pane_dir(Some("/srv".into()), || showing("a1")), Some("/srv".into()), "OSC 7 first");
+        assert_eq!(hosts.pane_dir(None, || showing("a1")), Some("/home/me/src/app".into()), "absolute, not ~/src/app");
+        assert_eq!(hosts.pane_dir(None, || showing("gone")), None);
+        assert_eq!(hosts.pane_dir(None, || Some((SshTarget { opts: vec![], destination: "prod".into() }, "a1".into()))), None, "only that host's");
+        assert_eq!(hosts.pane_dir(None, || None), None);
     }
 
     #[test]

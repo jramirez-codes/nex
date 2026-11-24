@@ -164,7 +164,7 @@ impl App {
     #[cfg(unix)]
     fn spawn_remote_pane(&mut self, ctx: &egui::Context, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
         let host = self.connect.host.clone()?;
-        let cwd = self.next_remote_cwd.take().or_else(|| self.focused_pane().and_then(|id| self.panes.get(&id)).and_then(|t| t.remote_cwd()));
+        let cwd = self.next_remote_cwd.take().or_else(|| self.focused_pane().and_then(|id| self.pane_remote_cwd(id)));
         // An agent picked in the Agents pane stays running when its pane closes; a shell
         // doesn't.
         let (session, keep) = match self.attach_next.clone() {
@@ -245,22 +245,20 @@ impl App {
     /// the terminal runs now, rather than taking the last poll's answer (cheap enough for
     /// every frame).
     pub(in crate::app) fn pane_location(&mut self, id: PaneId, fresh: bool) -> Option<Location> {
-        match self.pane_mut(id)? {
-            PaneMut::Terminal(t) => {
-                // Panes elsewhere need a Unix shell to run their scripts (see `remote::exec`).
-                if cfg!(unix) {
-                    let transport = match &t.remote {
-                        Some(r) => Some(Transport::Nex(r.host.clone())),
-                        None => if fresh { t.ssh_target() } else { t.last_ssh_target() }.map(Transport::Ssh),
-                    };
-                    if let Some(transport) = transport {
-                        // Where the remote shell didn't say, its home.
-                        let dir = t.remote_cwd().unwrap_or_else(|| "~".into());
-                        return Some(Location::Remote(Arc::new(transport), PathBuf::from(dir)));
-                    }
-                }
-                t.cwd.clone().map(Location::Local)
+        // Panes elsewhere need a Unix shell to run their scripts (see `remote::exec`).
+        if cfg!(unix)
+            && let Some(PaneMut::Terminal(t)) = self.pane_mut(id)
+            && let Some(transport) = match &t.remote {
+                Some(r) => Some(Transport::Nex(r.host.clone())),
+                None => if fresh { t.ssh_target() } else { t.last_ssh_target() }.map(Transport::Ssh),
             }
+        {
+            // Where the remote side didn't say, its home.
+            let dir = self.pane_remote_cwd(id).unwrap_or_else(|| "~".into());
+            return Some(Location::Remote(Arc::new(transport), PathBuf::from(dir)));
+        }
+        match self.pane_mut(id)? {
+            PaneMut::Terminal(t) => t.cwd.clone().map(Location::Local),
             PaneMut::Explorer(b) => {
                 Some(match b.transport() {
                     Some(t) => Location::Remote(t.clone(), b.dir.clone()),
@@ -275,6 +273,19 @@ impl App {
             }
             PaneMut::Agents(_) => None,
         }
+    }
+
+    /// The directory terminal `id` is in on the host it's on (its `ssh` session's, or the
+    /// host the window is connected to): what the remote shell reported (see
+    /// [`Terminal::remote_cwd`]), else, for a pane showing a `nex-host` agent (which reports
+    /// neither), the directory the host says that agent runs in.
+    pub(in crate::app) fn pane_remote_cwd(&self, id: PaneId) -> Option<String> {
+        let t = self.panes.get(&id)?;
+        let showing = || match &t.remote {
+            Some(r) => Some((crate::app::ssh::hosts::direct_target(&r.host), r.session.lock().unwrap_or_else(|e| e.into_inner()).clone()?)),
+            None => Some((t.last_ssh_target()?.normalized(), t.remote_agent()?)),
+        };
+        self.ssh.remote_hosts.pane_dir(t.remote_cwd(), showing)
     }
 
     /// [`pane_location`](Self::pane_location), else this machine's home folder.
@@ -318,7 +329,7 @@ impl App {
 
     /// Show the Files tab (opening it at the focused directory the first time), or hide it
     /// again, back to the terminal tab that was showing.
-    pub(in crate::app) fn toggle_explorer(&mut self) {
+    pub(in crate::app) fn toggle_explorer(&mut self, ctx: &egui::Context) {
         if self.home_active {
             if !self.tabs.is_empty() {
                 self.home_active = false;
@@ -326,12 +337,13 @@ impl App {
             return;
         }
         if self.home_tab.is_none() {
-            let dir = self
-                .focused_cwd()
-                .or_else(crate::platform::home_dir)
-                .unwrap_or_else(|| PathBuf::from("/"));
+            let at = match self.focused_pane() {
+                Some(focused) => self.pane_location_or_home(focused),
+                None => Location::Local(crate::platform::home_dir().unwrap_or_else(|| PathBuf::from("/"))),
+            };
             let id = self.alloc_pane_id();
-            self.explorers.insert(id, self.new_explorer(dir));
+            let b = self.explorer_at(ctx, at);
+            self.explorers.insert(id, b);
             self.home_tab = Some(self.with_sticky(Tab::new(id, id)));
         }
         self.home_active = true;

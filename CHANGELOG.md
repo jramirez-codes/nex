@@ -15,6 +15,13 @@ All notable changes to nex are documented here. The format follows
   counts only its focused pane. In an open team a viewed helper's row has an accent rule and
   an eye; on a narrow card the pill keeps only its eye.
 
+### Fixed
+
+- A pane showing an agent on a `nex-host` host (reattached with `ssh … nex-host attach`, or
+  in a window connected to the host) opens new tabs, the file explorer and Changes in the
+  agent's directory there, not the home folder. The Files tab opens on the host
+  too, for any pane on one.
+
 ## [0.13.0] - 2026-11-24
 
 ### Added

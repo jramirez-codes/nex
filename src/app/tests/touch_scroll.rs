@@ -257,7 +257,7 @@ impl Sim {
         for f in ["alpha.txt", "beta.txt", "gamma.txt"] {
             std::fs::write(dir.join(f), "x").unwrap();
         }
-        self.app.toggle_explorer();
+        self.app.toggle_explorer(&self.ctx);
         for ex in self.app.explorers.values_mut() {
             ex.navigate(dir.clone());
         }
