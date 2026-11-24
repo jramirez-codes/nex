@@ -10,6 +10,8 @@ All notable changes to nex are documented here. The format follows
 
 - On the Agents tab, the card of the pinned (sticky) pane's agent no longer shows the
   "Viewing" ring just because that pane is pinned beside the Agents pane.
+- Opening the Agents tab while an Agents pane is pinned shows that pane instead of adding a
+  second Agents pane beside it.
 
 ## [0.14.1] - 2026-11-24
 
