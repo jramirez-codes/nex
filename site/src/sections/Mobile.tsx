@@ -1,7 +1,8 @@
+import Icon from '../components/Icon'
+import Points from '../components/Points'
 import Reveal from '../components/Reveal'
 import { RELEASES } from '../links'
 import { IOS_SRC, setPlatform } from '../platform'
-import './mobile.css'
 
 /**
  * Copy follows nex-android/README.md, nex-ios/README.md, README.md's "Command line" (--remote)
@@ -37,70 +38,31 @@ const POINTS = [
 
 export default function Mobile() {
   return (
-    <section className="section mobile" id="mobile">
-      <Reveal className="glass mobile-card">
-        <div className="mobile-intro">
-          <p className="eyebrow">Android · iPhone beta</p>
-          <h2 className="title">Your server,{' '}<br />in your pocket.</h2>
-          <p className="lede">
-            The phone runs only nex’s window; every pane works on an ssh host such as your home
-            server. Tabs, the Agents pane, Files and Changes, with touch made for a terminal.
-          </p>
-          <div className="mobile-actions">
-            <a className="btn btn-primary" href={RELEASES}>Download the APK</a>
-            <a className="btn btn-ghost" href="#install" onClick={() => setPlatform('android')}>Install steps</a>
-          </div>
-          <p className="mobile-file">
-            Every release has <code>nex-v*-android-arm64.apk</code>.
-          </p>
-        </div>
-
-        {/* A phone running nex: a Claude Code pane over ssh, with the glass keyboard button. */}
-        <div
-          className="mobile-phone"
-          role="img"
-          aria-label="nex on a phone: a terminal pane on the home server running Claude Code, with the round keyboard button armed for Ctrl in the corner"
-        >
-          <div className="mobile-screen" aria-hidden="true">
-            <div className="mobile-tabs">
-              <span className="mobile-tab on">claude ~/app</span>
-              <span className="mobile-tab">Agents</span>
-            </div>
-            <div className="mobile-head"><span className="mobile-dot" />home.lan <span>~/app</span></div>
-            <pre className="mobile-body">
-              <span className="p">you@home</span>:<span className="d">~/app</span>$ claude{'\n'}
-              {'> '}fix the flaky login test{'\n'}
-              <span className="mobile-dim">● Reading tests/login.rs…</span>{'\n'}
-              <span className="mobile-dim">● Working (12s)</span>
-            </pre>
-            <div className="mobile-key"><span>⌃</span></div>
-          </div>
+    <section className="section" id="mobile">
+      <Reveal className="section-head">
+        <p className="eyebrow">Android · iPhone beta</p>
+        <h2 className="title">Your server,{' '}<br />in your pocket.</h2>
+        <p className="lede">
+          The phone runs only nex’s window; every pane works on an ssh host such as your home
+          server. Tabs, the Agents pane, Files and Changes, with touch made for a terminal.
+        </p>
+        <div className="actions">
+          <a className="btn btn-primary" href={RELEASES}>
+            <Icon name="download" size={18} />Download the APK<Icon name="android" size={18} />
+          </a>
+          <a className="btn btn-link" href="#install" onClick={() => setPlatform('android')}>
+            Install steps <span aria-hidden="true">›</span>
+          </a>
         </div>
       </Reveal>
 
-      <div className="mobile-points">
-        {POINTS.map((p, i) => (
-          <Reveal key={p.title} delay={(i % 3) * 70} className="mobile-point">
-            <h3>{p.title}</h3>
-            <p>{p.body}</p>
-          </Reveal>
-        ))}
-      </div>
+      <Points items={POINTS} />
 
-      <Reveal className="mobile-ios">
-        <div className="mobile-ios-text">
-          <h3>iPhone <span className="mobile-beta">Beta</span></h3>
-          <p>
-            The iPhone app works the same as the Android one, drawn with Metal. There is no
-            download yet: build it yourself on a Mac with Xcode 15 or newer, and an Apple
-            Developer account to put it on a real iPhone.
-          </p>
-        </div>
-        <a className="btn btn-ghost" href={IOS_SRC}>Build it from nex-ios →</a>
-      </Reveal>
-
-      <p className="mobile-note">
-        Same idea on a desktop: <code>nex --remote=user@host</code> puts every pane on that host.
+      <p className="note">
+        Every release has <code>nex-v*-android-arm64.apk</code>. The iPhone app is a beta drawn
+        with Metal, with no download yet: <a href={IOS_SRC}>build it from nex-ios</a> on a Mac
+        with Xcode 15 or newer. Same idea on a desktop: <code>nex --remote=user@host</code> puts
+        every pane on that host.
       </p>
     </section>
   )

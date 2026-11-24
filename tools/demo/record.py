@@ -6,9 +6,17 @@ alone. Keystrokes go in through `hyprctl dispatch sendshortcut`, frames come out
 and are piped into ffmpeg at a steady frame rate. The scenes themselves live in scenes.py;
 each one leaves a marker in the timeline so make_gifs.py can cut the take into clips.
 
+Scenes, in order (each becomes a clip of the same name):
+  tour, splits, explorer, search   local panes, in this repo
+  agents   the stub pipeline starts over ssh, Ctrl+Shift+A opens the Agents pane, the team
+           opens and Enter jumps into one of its helpers
+  ssh      ssh localhost, a split right on the same host and folder, then Files (Ctrl+E)
+           and Changes (Ctrl+G) on the host
+  promo    every built-in in one pass (also cut as `hero`); last, since it doesn't tidy up
+
 Needs Hyprland, grim, ffmpeg, plus the programs the scenes run (git, btop, nvim, tree).
-The promo also needs `ssh localhost` to log in with a key (an sshd on this machine): its
-agents run on the "server" through nex-host, as stub agents in a throwaway repo.
+agents, ssh and promo also need `ssh localhost` to log in with a key (an sshd on this
+machine): they run on the "server" in a throwaway repo, with nex-host and stub agents.
 Usage: tools/demo/record.py [OUT_DIR]   (default: target/demo)
        DEMO_SCENES=search,explorer tools/demo/record.py   records only those scenes
 Then:  tools/demo/make_gifs.py, tools/demo/promo.py
@@ -217,6 +225,12 @@ def setup_promo() -> None:
     )
 
 
+def reset_promo() -> None:
+    """A fresh demo repo and no agents left from an earlier run, for the next scene."""
+    cleanup_promo()
+    setup_promo()
+
+
 def cleanup_promo() -> None:
     """Stop whatever the promo's run left on nex-host, and its worktrees."""
     if not NEX_HOST.exists():
@@ -283,7 +297,8 @@ def main() -> None:
                    check=True)
 
     only = [s for s in os.environ.get("DEMO_SCENES", "").split(",") if s]
-    promo = not only or "promo" in only
+    # The scenes that run on the "server" share the promo's demo repo.
+    promo = not only or bool({"agents", "ssh", "promo"} & set(only))
     if promo:
         setup_promo()
     tmp = Path(tempfile.mkdtemp(prefix="nex-demo-"))

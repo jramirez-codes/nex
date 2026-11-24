@@ -1,4 +1,3 @@
-import BubbleBackground from './components/BubbleBackground'
 import Nav from './components/Nav'
 import Hero from './sections/Hero'
 import Highlights from './sections/Highlights'
@@ -17,13 +16,12 @@ import Footer from './sections/Footer'
 export default function App() {
   return (
     <>
-      <BubbleBackground />
       <Nav />
       <main>
         <Hero />
         <Highlights />
-        <Ssh />
         <Agents />
+        <Ssh />
         <Mac />
         <Mobile />
         <Features />

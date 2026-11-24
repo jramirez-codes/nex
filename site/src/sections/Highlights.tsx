@@ -17,8 +17,8 @@ export default function Highlights() {
   return (
     <section className="section highlights" aria-label="Highlights">
       {tiles.map((t, i) => (
-        <Reveal key={t.small} delay={i * 80} className="glass tile">
-          <div className="tile-big gradient-text">
+        <Reveal key={t.small} delay={i * 80} className="tile">
+          <div className="tile-big">
             {t.big}
             {t.note && <sup className="tile-mark">¹</sup>}
           </div>

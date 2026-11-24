@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { IconName } from './components/Icon'
 import { RELEASES, REPO } from './links'
 
 /**
@@ -11,17 +12,18 @@ export type Platform = 'mac' | 'linux' | 'android' | 'ios'
 export type Desktop = 'mac' | 'linux'
 
 /** Every platform, for the Install section's OS switch. */
-export const ALL_PLATFORMS: { id: Platform; label: string; icon: string }[] = [
-  { id: 'mac', label: 'macOS', icon: '⌘' },
-  { id: 'linux', label: 'Linux', icon: '🐧' },
-  { id: 'android', label: 'Android', icon: '🤖' },
-  { id: 'ios', label: 'iOS', icon: '📱' },
+export const ALL_PLATFORMS: { id: Platform; label: string; icon: IconName }[] = [
+  { id: 'mac', label: 'macOS', icon: 'apple' },
+  { id: 'linux', label: 'Linux', icon: 'linux' },
+  { id: 'android', label: 'Android', icon: 'android' },
+  { id: 'ios', label: 'iOS', icon: 'apple' },
 ]
 
 /** The desktop platforms, for the shortcut switches (PlatformToggle). */
-export const PLATFORMS = ALL_PLATFORMS.filter(p => p.id === 'mac' || p.id === 'linux') as { id: Desktop; label: string; icon: string }[]
+export const PLATFORMS = ALL_PLATFORMS.filter(p => p.id === 'mac' || p.id === 'linux') as { id: Desktop; label: string; icon: IconName }[]
 
 export const platformName = (p: Platform) => ALL_PLATFORMS.find(x => x.id === p)!.label
+export const platformIcon = (p: Platform) => ALL_PLATFORMS.find(x => x.id === p)!.icon
 
 /** Whose shortcuts to show: a phone visitor is shown the desktop they most likely use. */
 export const desktopOf = (p: Platform): Desktop => (p === 'mac' || p === 'ios' ? 'mac' : 'linux')

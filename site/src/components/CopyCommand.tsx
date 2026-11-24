@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import Icon from './Icon'
 
 /** A shell snippet with a copy button. */
 export default function CopyCommand({ lines }: { lines: string[] }) {
@@ -15,7 +16,10 @@ export default function CopyCommand({ lines }: { lines: string[] }) {
   return (
     <div className="cmd">
       <pre>{lines.map(l => <div key={l}><span className="cmd-prompt">$ </span>{l}</div>)}</pre>
-      <button type="button" onClick={copy} aria-label="Copy commands">{copied ? 'Copied' : 'Copy'}</button>
+      <button type="button" onClick={copy} aria-label="Copy commands">
+        <Icon name="copy" size={14} />
+        {copied ? 'Copied' : 'Copy'}
+      </button>
     </div>
   )
 }

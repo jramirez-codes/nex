@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The website is redesigned: one near-black palette with a single blue, large type, and a
+  real recording in a plain frame for each section in place of the drawn mock-ups (Agents
+  and SSH show the new `agents` and `ssh` recorder scenes once they're recorded, the promo
+  and hero until then). The header keeps four links, a GitHub icon and a Download pill.
+
 ## [0.14.0] - 2026-11-24
 
 ### Added

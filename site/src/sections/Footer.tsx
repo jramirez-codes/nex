@@ -1,5 +1,6 @@
 import { REPO } from '../links'
-import { download, usePlatform } from '../platform'
+import { download, platformIcon, usePlatform } from '../platform'
+import Icon from '../components/Icon'
 import AnimatedLogo from '../components/AnimatedLogo'
 import './footer.css'
 
@@ -12,8 +13,10 @@ export default function Footer() {
         <p className="footer-title">Try nex today.</p>
         <p>Free and open source, for macOS, Linux and Android, with an iPhone beta. Coming next: custom keybindings, shell integration, themes, a command palette, color emoji and a signed, notarized Mac app.</p>
         <div className="footer-actions">
-          <a className="btn btn-primary" href={download(platform).href}>{download(platform).label}</a>
-          <a className="btn btn-ghost" href={REPO}>Star on GitHub</a>
+          <a className="btn btn-primary" href={download(platform).href}>
+            <Icon name="download" size={18} />{download(platform).label}<Icon name={platformIcon(platform)} size={18} />
+          </a>
+          <a className="btn btn-link" href={REPO}><Icon name="github" size={18} />Star on GitHub</a>
         </div>
       </div>
       <div className="footer-meta">

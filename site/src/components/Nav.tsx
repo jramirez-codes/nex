@@ -1,26 +1,26 @@
 import { useEffect, useState } from 'react'
 import { REPO } from '../links'
-import { download, usePlatform } from '../platform'
+import { download, platformIcon, usePlatform } from '../platform'
 import AnimatedLogo from './AnimatedLogo'
+import Icon from './Icon'
 import './nav.css'
 
+/** The bar's short list. SSH, macOS, Mobile, Shortcuts, Performance and Compare are still
+ *  sections with anchors of their own (#ssh, #mac, …); they're reached by scrolling. */
 const LINKS = [
-  ['SSH', '#ssh'],
   ['Agents', '#agents'],
-  ['macOS', '#mac'],
-  ['Mobile', '#mobile'],
   ['Features', '#features'],
-  ['Shortcuts', '#shortcuts'],
-  ['Performance', '#performance'],
-  ['Compare', '#compare'],
   ['Install', '#install'],
   ['FAQ', '#faq'],
 ]
+
+const BREAKPOINT = 700
 
 export default function Nav() {
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const platform = usePlatform()
+  const dl = download(platform)
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8)
@@ -33,7 +33,7 @@ export default function Nav() {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    const wide = window.matchMedia('(min-width: 861px)')
+    const wide = window.matchMedia(`(min-width: ${BREAKPOINT + 1}px)`)
     const onWide = () => wide.matches && setOpen(false)
     window.addEventListener('keydown', onKey)
     wide.addEventListener('change', onWide)
@@ -49,15 +49,20 @@ export default function Nav() {
     <header className={`nav ${scrolled || open ? 'scrolled' : ''} ${open ? 'open' : ''}`}>
       <nav className="nav-inner" aria-label="Main">
         <a className="nav-brand" href="#top" onClick={close}>
-          <AnimatedLogo size={26} />
+          <AnimatedLogo size={24} />
           nex
         </a>
         <div className="nav-links">
           {LINKS.map(([label, href]) => <a key={href} href={href}>{label}</a>)}
-          <a href={REPO}>GitHub</a>
         </div>
-        <a className="nav-cta" href={download(platform).href}>
-          {platform === 'ios' ? 'Build' : 'Download'}<span className="nav-cta-os"> for {download(platform).short}</span>
+        <a className="nav-icon" href={REPO} aria-label="nex on GitHub" title="GitHub">
+          <Icon name="github" size={18} />
+        </a>
+        <a className="nav-cta" href={dl.href}>
+          <Icon name="download" size={14} />
+          {platform === 'ios' ? 'Build' : 'Download'}
+          <Icon name={platformIcon(platform)} size={14} className="nav-cta-os" />
+          <span className="sr-only"> for {dl.short}</span>
         </a>
         <button
           type="button"
@@ -72,7 +77,7 @@ export default function Nav() {
       </nav>
       <div className="nav-sheet" id="nav-sheet" hidden={!open}>
         {LINKS.map(([label, href]) => <a key={href} href={href} onClick={close}>{label}</a>)}
-        <a href={REPO} onClick={close}>GitHub</a>
+        <a href={REPO} onClick={close}><Icon name="github" size={20} />GitHub</a>
       </div>
     </header>
   )

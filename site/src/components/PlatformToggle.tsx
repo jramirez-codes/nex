@@ -1,4 +1,5 @@
 import { PLATFORMS, setPlatform, usePlatform } from '../platform'
+import Icon from './Icon'
 
 /** macOS / Linux switch. Every instance on the page shares the same state. */
 export default function PlatformToggle({ className = '' }: { className?: string }) {
@@ -14,7 +15,7 @@ export default function PlatformToggle({ className = '' }: { className?: string 
           className={p.id === platform ? 'on' : ''}
           onClick={() => setPlatform(p.id)}
         >
-          <span className="seg-icon" aria-hidden="true">{p.id === 'mac' ? '⌘' : '🐧'}</span>
+          <Icon name={p.icon} size={16} />
           {p.label}
         </button>
       ))}

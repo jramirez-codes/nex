@@ -133,6 +133,69 @@ def search(d) -> None:
     close_others(d)
 
 
+def leave_ssh(d, panes: int) -> None:
+    """Back to one tab with one local shell after a scene that ran over ssh: walk to the
+    leftmost pane (the one ssh was typed in), stop whatever runs there and `exit` back to the
+    local shell, so the tab close_others opens from it is local too. `panes` is how many
+    panes the tab has besides that one."""
+    for _ in range(panes + 1):
+        d.key("Left", CTRL_ALT, after=0.2)
+    d.key("C", "CTRL", after=0.4)
+    d.type("exit", after=1.0)
+    d.extra_panes = panes
+    close_others(d)
+
+
+def agents(d) -> None:
+    """Agents section: the stub pipeline starts over ssh (the promo's setup, see agents/),
+    Ctrl+Shift+A opens the Agents pane, the run's team opens to show its stages, and Enter
+    jumps into one of its helpers, in a tab of its own. record.py makes the demo repo first,
+    and resets it afterwards so the promo starts from a clean run."""
+    from record import PROMO_RC, reset_promo
+    d.extra_panes = 0
+    # Off the clip: into the "server" (this machine, over ssh) with a tidy prompt.
+    d.type(f"ssh -t localhost bash --rcfile {PROMO_RC}", after=2.5)
+    d.mark("agents", "start")
+    d.wait(0.3)
+    d.type('nex-host pipe demo "add stats, search and export"', after=1.2)
+    d.key("A", CTRL_SHIFT, after=2.0)            # the Agents pane splits off, focused
+    d.key("Down", after=0.4)
+    d.key("space", after=2.4)                    # open the team: plan, builders, merge
+    d.key("Down", after=0.8)                     # its first helper...
+    d.key("Return", after=3.4)                   # ...and into that agent, in a new tab
+    d.mark("agents", "end")
+    d.key("W", CTRL_SHIFT, after=0.8)            # close the helper's tab (the agent runs on)
+    leave_ssh(d, panes=1)                        # Ctrl+C stops `nex-host pipe`, then exit
+    reset_promo()
+
+
+def ssh(d) -> None:
+    """SSH section: `ssh localhost`, a split right that opens on the same host and folder,
+    then Files (Ctrl+E) and Changes (Ctrl+G) on the host. Uses the promo's demo repo, which
+    has an uncommitted change for Changes to show. The login itself is off the clip, as in
+    the promo: `ssh localhost` with the rc that gives the remote shell a tidy prompt and says
+    where it is (OSC 7), so the split follows to the same folder."""
+    from record import PROMO_RC
+    d.extra_panes = 0
+    d.type(f"ssh -t localhost bash --rcfile {PROMO_RC}", after=2.5)
+    d.mark("ssh", "start")
+    d.wait(0.4)
+    d.type("git status --short", after=1.2)
+    d.key("O", CTRL_SHIFT, after=1.6)            # split right: same host, same folder
+    d.type("pwd", after=1.2)
+    d.key("E", "CTRL", after=1.6)                # Files, on the host
+    for k in ("Down", "Down", "space"):
+        d.key(k, after=0.3)
+    d.wait(0.8)
+    d.key("Left", CTRL_ALT, after=0.3)           # back to the right-hand ssh pane...
+    d.key("Left", CTRL_ALT, after=0.3)           # ...and the first one
+    d.key("G", "CTRL", after=1.4)                # Changes, on the host
+    d.key("Down", after=0.4)
+    d.key("Return", after=2.0)                   # a file's diff
+    d.mark("ssh", "end")
+    leave_ssh(d, panes=3)
+
+
 def promo(d) -> None:
     """Social post and site hero: every built-in in one quick pass. A pipeline of agents
     (stub agents, see agents/) starts over ssh first, so it works on while the rest plays:
@@ -176,4 +239,4 @@ def promo(d) -> None:
     # closes the window and ends the run's agents.
 
 
-SCENES = [tour, splits, explorer, search, promo]  # promo last: it doesn't tidy up
+SCENES = [tour, splits, explorer, search, agents, ssh, promo]  # promo last: it doesn't tidy up

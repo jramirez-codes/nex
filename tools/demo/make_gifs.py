@@ -25,13 +25,16 @@ REPO = Path(__file__).resolve().parents[2]
 FPS = "100/3"
 # Output width per clip: the hero shows up to 1000px wide, feature rows about half a page;
 # a little extra keeps text crisp on HiDPI screens.
-WIDTH = {"tour": 1200, "hero": 1200}
+# The clips record.py's scenes mark: tour, splits, explorer, search, agents, ssh, hero
+# (and promo, below). The wide ones fill a whole section on the site.
+WIDTH = {"tour": 1200, "hero": 1200, "agents": 1200, "ssh": 1200}
 # Clips another script makes from the same markers (promo.py composites `promo`).
 SKIP = {"promo"}
 DEFAULT_WIDTH = 1000
-# Where in a clip its poster frame is taken, 0..1. The hero ends on its best frame: inside
-# one of the pipeline's agents, the team open beside it.
-POSTER_AT = {"hero": 1.0}
+# Where in a clip its poster frame is taken, 0..1. The hero and agents end on their best
+# frame: inside one of the pipeline's agents, the team open beside it; ssh ends with Files
+# and Changes both open on the host.
+POSTER_AT = {"hero": 1.0, "agents": 1.0, "ssh": 1.0}
 DEFAULT_POSTER_AT = 0.6
 # Hyprland's window rounding in the take, plus its antialiased fringe, in take pixels.
 CORNER_RADIUS = 13
