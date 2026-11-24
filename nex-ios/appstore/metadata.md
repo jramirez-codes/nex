@@ -61,7 +61,7 @@ Scroll the tab strip, long-press to reorder tabs, and swipe a pane sideways to s
 FREE AND OPEN SOURCE
 Nex is MIT licensed, with no accounts, ads, analytics or tracking. The same GPU-accelerated terminal runs on macOS, Linux, Windows and Android: jramirez-codes.github.io/nex
 
-You'll need a Linux server (x86_64 or ARM) you can log in to over SSH. Nex installs its small helper, nex-host, in your account there; no root needed.
+You'll need a Linux or Mac server you can log in to over SSH. Nex installs its small helper, nex-host, in your account there; no root needed.
 
 ## What's new in 0.14.0
 
