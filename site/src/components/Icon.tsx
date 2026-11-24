@@ -4,6 +4,7 @@
  * that is only an icon gives itself an aria-label.
  */
 export type IconName = 'github' | 'download' | 'apple' | 'linux' | 'android' | 'terminal' | 'copy'
+  | 'agents' | 'features' | 'install' | 'faq'
 
 const PATHS: Record<IconName, JSX.Element> = {
   github: (
@@ -53,6 +54,33 @@ const PATHS: Record<IconName, JSX.Element> = {
     <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="8.5" y="8.5" width="12" height="12" rx="2.5" />
       <path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5" />
+    </g>
+  ),
+  agents: (
+    <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 3.5 11.6 8.4 16.5 10l-4.9 1.6L10 16.5l-1.6-4.9L3.5 10l4.9-1.6Z" />
+      <path d="M18 14.5v5M15.5 17h5" />
+    </g>
+  ),
+  features: (
+    <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.8" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.8" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.8" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.8" />
+    </g>
+  ),
+  install: (
+    <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2.8 20.5 7.4v9.2L12 21.2l-8.5-4.6V7.4Z" />
+      <path d="M3.5 7.4 12 12l8.5-4.6M12 12v9.2" />
+    </g>
+  ),
+  faq: (
+    <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6" />
+      <path d="M12 17.2h.01" strokeWidth="2.4" />
     </g>
   ),
 }

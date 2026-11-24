@@ -2,16 +2,16 @@ import { useEffect, useState } from 'react'
 import { REPO } from '../links'
 import { download, platformIcon, usePlatform } from '../platform'
 import AnimatedLogo from './AnimatedLogo'
-import Icon from './Icon'
+import Icon, { type IconName } from './Icon'
 import './nav.css'
 
 /** The bar's short list. SSH, macOS, Mobile, Shortcuts, Performance and Compare are still
  *  sections with anchors of their own (#ssh, #mac, …); they're reached by scrolling. */
-const LINKS = [
-  ['Agents', '#agents'],
-  ['Features', '#features'],
-  ['Install', '#install'],
-  ['FAQ', '#faq'],
+const LINKS: [string, string, IconName][] = [
+  ['Agents', '#agents', 'agents'],
+  ['Features', '#features', 'features'],
+  ['Install', '#install', 'install'],
+  ['FAQ', '#faq', 'faq'],
 ]
 
 const BREAKPOINT = 700
@@ -53,7 +53,7 @@ export default function Nav() {
           nex
         </a>
         <div className="nav-links">
-          {LINKS.map(([label, href]) => <a key={href} href={href}>{label}</a>)}
+          {LINKS.map(([label, href, icon]) => <a key={href} href={href}><Icon name={icon} size={14} />{label}</a>)}
         </div>
         <a className="nav-icon" href={REPO} aria-label="nex on GitHub" title="GitHub">
           <Icon name="github" size={18} />
@@ -76,7 +76,7 @@ export default function Nav() {
         </button>
       </nav>
       <div className="nav-sheet" id="nav-sheet" hidden={!open}>
-        {LINKS.map(([label, href]) => <a key={href} href={href} onClick={close}>{label}</a>)}
+        {LINKS.map(([label, href, icon]) => <a key={href} href={href} onClick={close}><Icon name={icon} size={20} />{label}</a>)}
         <a href={REPO} onClick={close}><Icon name="github" size={20} />GitHub</a>
       </div>
     </header>
