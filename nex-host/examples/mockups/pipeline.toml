@@ -1,0 +1,139 @@
+# Copy to ~/.config/nex/pipelines/mockups.toml (every repository) or
+# .nex/pipelines/mockups.toml (one repository).
+#
+# Design mockups: three designers each take the brief in a different direction (calm, bold,
+# dense) at the same time, then a critic compares them, ranks them and may send weak ones
+# back. You make the final pick. Run it from the folder the mockups should land in:
+#   nex-host pipe mockups "a settings page for a podcast app" --bg
+#
+# Everything goes under mockups/ in that folder: one self-contained index.html per design
+# (with desktop.png and mobile.png beside it when Playwright or Chromium is installed), its
+# NOTES.md, and the critic's <slug>-review.md. Open the HTML files in a browser.
+#
+# The agents may write files and run the commands listed in `command` below, plus whatever
+# your own Claude Code settings already allow; anything else is refused without asking
+# (--permission-mode dontAsk), so a stage never waits on a prompt no one will answer. Each
+# designer keeps to its own folder by instruction, not by any sandbox. (--allowedTools comes first: it takes any number of values, and nex-host
+# puts the task at the end of the command line.)
+
+timeout = "45m"
+
+[[stage]]
+name = "calm"
+command = ["claude", "--allowedTools", "Read Write Edit Glob Grep Bash(nex-host:*) Bash(mkdir:*) Bash(ls:*) Bash(npx playwright:*) Bash(npx -y playwright:*) Bash(chromium:*) Bash(chromium-browser:*) Bash(google-chrome:*)", "--permission-mode", "dontAsk"]
+task = """
+Make a frontend design mockup of this: {task}
+
+You are one of three designers working on this brief at the same time, each in a different
+direction. Yours is CALM: restrained and typographic, generous whitespace, very little
+color, hierarchy carried by type size and weight.
+
+1. If this folder holds a product with a UI (a README, CSS or theme files, a site/ or web/
+   folder), look at it first so the mockup fits its content and tone. Don't change it.
+2. Pick a short slug for the brief (a few words, kebab-case) and work only in
+   mockups/<slug>-calm/. Touch nothing outside it.
+3. Write index.html there: one self-contained file, CSS inline, no network fetches (system
+   fonts, inline SVG for icons). Use realistic sample content, not lorem ipsum. It must
+   work at desktop (1440x900) and phone (390x844) widths, with readable contrast.
+4. If a headless browser is available, save screenshots beside it, e.g.
+   npx -y playwright screenshot --viewport-size=1440,900 "file://$PWD/mockups/<slug>-calm/index.html" mockups/<slug>-calm/desktop.png
+   and the same at 390,844 as mobile.png (or chromium --headless --screenshot=... --window-size=...).
+   If none is installed, skip this and say so in your report.
+5. Write NOTES.md there: the idea in a sentence, the layout, and the trade-offs.
+6. Finish with
+   nex-host done "<the idea in a line or two>" --files <index.html>,<NOTES.md>,<any pngs>
+
+If the critic sends it back, change only what it asks of you, in place in the same folder,
+then report again the same way.
+"""
+
+[[stage]]
+name = "bold"
+parallel = true
+command = ["claude", "--allowedTools", "Read Write Edit Glob Grep Bash(nex-host:*) Bash(mkdir:*) Bash(ls:*) Bash(npx playwright:*) Bash(npx -y playwright:*) Bash(chromium:*) Bash(chromium-browser:*) Bash(google-chrome:*)", "--permission-mode", "dontAsk"]
+task = """
+Make a frontend design mockup of this: {task}
+
+You are one of three designers working on this brief at the same time, each in a different
+direction. Yours is BOLD: expressive color, large type, a strong and asymmetric layout that
+people remember.
+
+1. If this folder holds a product with a UI (a README, CSS or theme files, a site/ or web/
+   folder), look at it first so the mockup fits its content and tone. Don't change it.
+2. Pick a short slug for the brief (a few words, kebab-case) and work only in
+   mockups/<slug>-bold/. Touch nothing outside it.
+3. Write index.html there: one self-contained file, CSS inline, no network fetches (system
+   fonts, inline SVG for icons). Use realistic sample content, not lorem ipsum. It must
+   work at desktop (1440x900) and phone (390x844) widths, with readable contrast.
+4. If a headless browser is available, save screenshots beside it, e.g.
+   npx -y playwright screenshot --viewport-size=1440,900 "file://$PWD/mockups/<slug>-bold/index.html" mockups/<slug>-bold/desktop.png
+   and the same at 390,844 as mobile.png (or chromium --headless --screenshot=... --window-size=...).
+   If none is installed, skip this and say so in your report.
+5. Write NOTES.md there: the idea in a sentence, the layout, and the trade-offs.
+6. Finish with
+   nex-host done "<the idea in a line or two>" --files <index.html>,<NOTES.md>,<any pngs>
+
+If the critic sends it back, change only what it asks of you, in place in the same folder,
+then report again the same way.
+"""
+
+[[stage]]
+name = "dense"
+parallel = true
+command = ["claude", "--allowedTools", "Read Write Edit Glob Grep Bash(nex-host:*) Bash(mkdir:*) Bash(ls:*) Bash(npx playwright:*) Bash(npx -y playwright:*) Bash(chromium:*) Bash(chromium-browser:*) Bash(google-chrome:*)", "--permission-mode", "dontAsk"]
+task = """
+Make a frontend design mockup of this: {task}
+
+You are one of three designers working on this brief at the same time, each in a different
+direction. Yours is DENSE: information-rich and compact, for power users, with visible
+keyboard shortcuts and as much useful content on screen as stays legible.
+
+1. If this folder holds a product with a UI (a README, CSS or theme files, a site/ or web/
+   folder), look at it first so the mockup fits its content and tone. Don't change it.
+2. Pick a short slug for the brief (a few words, kebab-case) and work only in
+   mockups/<slug>-dense/. Touch nothing outside it.
+3. Write index.html there: one self-contained file, CSS inline, no network fetches (system
+   fonts, inline SVG for icons). Use realistic sample content, not lorem ipsum. It must
+   work at desktop (1440x900) and phone (390x844) widths, with readable contrast.
+4. If a headless browser is available, save screenshots beside it, e.g.
+   npx -y playwright screenshot --viewport-size=1440,900 "file://$PWD/mockups/<slug>-dense/index.html" mockups/<slug>-dense/desktop.png
+   and the same at 390,844 as mobile.png (or chromium --headless --screenshot=... --window-size=...).
+   If none is installed, skip this and say so in your report.
+5. Write NOTES.md there: the idea in a sentence, the layout, and the trade-offs.
+6. Finish with
+   nex-host done "<the idea in a line or two>" --files <index.html>,<NOTES.md>,<any pngs>
+
+If the critic sends it back, change only what it asks of you, in place in the same folder,
+then report again the same way.
+"""
+
+[[stage]]
+name = "critic"
+command = ["claude", "--allowedTools", "Read Write Edit Glob Grep Bash(nex-host:*) Bash(ls:*)", "--permission-mode", "dontAsk"]
+retry = { stage = "calm", max = 2 }
+task = """
+Critique three frontend design mockups of this brief: {task}
+
+- calm: {calm}
+  files: {calm.files}
+- bold: {bold}
+  files: {bold.files}
+- dense: {dense}
+  files: {dense.files}
+
+Read each index.html and NOTES.md, and look at desktop.png and mobile.png where they exist.
+You only judge here: never edit the mockups. Judge each on fit to the brief, clarity and
+hierarchy, accessibility (contrast, tap target size, readable type), and how it holds up at
+phone width.
+
+Write mockups/<slug>-review.md, using the slug the designers' folders share: a table ranking
+the three, the strengths and weaknesses of each, your recommended pick, and ideas from the
+others worth folding into it.
+
+- If any design is broken (doesn't render, fetches from the network, falls apart on a
+  phone) or misses the brief, finish with
+  nex-host done "<for each designer that must change, by name: exactly what to fix>" --verdict changes
+  The three designers get your report, so name who each point is for.
+- Otherwise finish with
+  nex-host done "<the ranking and your pick, in a line or two>" --verdict approved --files <the review's path>
+"""

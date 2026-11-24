@@ -8,6 +8,11 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- nex-host: a `mockups` example pipeline for design ideas. Three designers take a brief in
+  different directions (calm, bold, dense) at the same time, each writing a self-contained
+  HTML mockup under `mockups/` (with desktop and phone screenshots when a headless browser
+  is installed), and a critic ranks them and may send them back. Copy
+  `nex-host/examples/mockups/pipeline.toml` to `~/.config/nex/pipelines/`.
 - The Agents pane shows the sub-agents a Claude Code or Codex agent is running (Claude
   Code's Task tool, Codex's spawned threads) as a team in its card, like a pipeline's stages:
   a capsule each, with what it was asked to do, a tick for two minutes once it finishes, and a
