@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Entitlements for the Developer ID build (hardened runtime, notarized). Not sandboxed: a
+     terminal runs your shell and tools with your access, which the App Sandbox can't allow. -->
+<plist version="1.0">
+<dict>
+	<!-- The mic is shared with ssh hosts for voice input (NSMicrophoneUsageDescription). -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>
