@@ -162,10 +162,9 @@ impl Queue {
     /// Whatever is past its time: a source that didn't report, a reviewer that didn't.
     pub fn overdue(&mut self, alive: &dyn Fn(&str) -> bool, now: Instant) -> Vec<Action> {
         let mut out = Vec::new();
-        if let Some((_, _, due)) = &self.reviewing
-            && now >= *due
+        if self.reviewing.as_ref().is_some_and(|(_, _, due)| now >= *due)
+            && let Some((i, report, _)) = self.reviewing.take()
         {
-            let (i, report, _) = self.reviewing.take().unwrap();
             let late = Outcome { verdict: Some(Verdict::Failed), ..Outcome::text(format!("{} didn't report in time", self.stage)) };
             self.verdict(i, report, late, alive, now, &mut out);
         }

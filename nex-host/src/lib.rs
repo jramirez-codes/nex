@@ -16,6 +16,12 @@
 //!   attach.rs   `nex-host attach`: a pane's view of one agent
 //!   client.rs   talking to the daemon (starting it when it isn't running)
 //!   locked.rs   taking a lock a panicked thread left poisoned
+//!   broker.rs   the daemon's post office: addresses, mailboxes, `recv` waiting on one
+//!   deliver.rs  how a message reaches an agent: its text, typed into its terminal
+//!   agentcli/   the commands agents use to work with each other (`spawn`, `send`, `done`, …)
+//!   pipeline/   pipelines: stages of agents, run with those same commands
+//!   shim.rs     `nex-host shim`: `claude` and `codex` typed in a nex pane start through nex-host
+//!   skill.rs    the manual for agents, and installing it for Claude Code and Codex
 //! ```
 //!
 //! Without the default `daemon` feature only `proto`, `claude`, `subagents` and `paths` are built: that's
