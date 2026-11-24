@@ -14,7 +14,7 @@ sudo apt-get install libxkbcommon-dev libwayland-dev libgl1-mesa-dev libx11-dev 
 The checks CI runs (`.github/workflows/ci.yml`):
 
 ```sh
-cargo test --locked --workspace --exclude nex-ios --exclude nex-android
+cargo nextest run --locked --profile ci --workspace --exclude nex-ios --exclude nex-android
 cargo clippy --locked --workspace --all-targets -- -D warnings
 shellcheck install.sh bench/*.sh packaging/macos/*.sh
 # nex-host ships to servers as a static binary:
@@ -22,6 +22,12 @@ cargo build --locked -p nex-host --release --target x86_64-unknown-linux-musl
 ```
 
 CI also runs clippy on Windows, so the Windows platform layer keeps compiling.
+
+CI uses [cargo-nextest](https://nexte.st) (`cargo install cargo-nextest`), which runs the test
+binaries in parallel; plain `cargo test` runs the same tests locally. nextest skips doc-tests, so
+if you add one, also run `cargo test --doc`. On a pull request, CI skips what the change can't
+affect: nothing Rust runs for docs/site-only changes, and nex-host's tests and static build run
+only when `nex-host/` (or `Cargo.toml`/`Cargo.lock`) changed. Pushes to main run everything.
 
 ## Code conventions
 
