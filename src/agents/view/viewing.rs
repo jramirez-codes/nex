@@ -1,8 +1,10 @@
 //! The "Viewing" mark: how a card shows that its agent is on screen (see
 //! [`Viewing`](crate::agents::model::Viewing)). A small pill with an eye left of the status
 //! pill, and a soft accent ring around the card: full, with a glow, for the agent in the
-//! focused pane; fainter for one sharing its tab. In an open team, a viewed helper's row
-//! gets a soft rounded accent tint, like a selected row in an inset list, and an eye.
+//! focused pane; fainter for one sharing its tab. A closed team's card is marked when a
+//! helper is in view; in an open team, the card is marked only for its lead, and a viewed
+//! helper's row gets a soft rounded accent tint, like a selected row in an inset list, and
+//! an eye.
 
 use egui::epaint::Shadow;
 use egui::{Color32, Painter, Pos2, Rect, Vec2};
@@ -23,8 +25,9 @@ const TITLE_ROOM_MIN: f32 = 120.0;
 const WORD: &str = "Viewing";
 
 /// How a team's card is on screen: as its lead is, else (a helper in view) as a neighbour.
-pub(super) fn team_seen(viewing: &Viewing, g: &Group) -> Option<Seen> {
-    viewing.of(&g.lead).or_else(|| g.members.iter().any(|m| viewing.of(&m.agent).is_some()).then_some(Seen::Shared))
+/// Once the card is `open`, a viewed helper's own row says so, so only the lead marks the card.
+pub(super) fn team_seen(viewing: &Viewing, g: &Group, open: bool) -> Option<Seen> {
+    viewing.of(&g.lead).or_else(|| (!open && g.members.iter().any(|m| viewing.of(&m.agent).is_some())).then_some(Seen::Shared))
 }
 
 /// The ring a viewed card heads for (see `border_for`).
@@ -129,10 +132,14 @@ mod tests {
         let teams = groups(&Agents::new(vec![agent(1, None), agent(2, Some(1)), agent(3, Some(1)), agent(9, None)]));
         let team = teams.iter().find(|g| g.key() == 1).unwrap();
         let on = |panes: &[PaneId], primary| Viewing { panes: panes.to_vec(), primary };
-        assert_eq!(team_seen(&on(&[1, 9], Some(1)), team), Some(Seen::Primary));
-        assert_eq!(team_seen(&on(&[1, 9], Some(9)), team), Some(Seen::Shared));
-        assert_eq!(team_seen(&on(&[3, 9], Some(3)), team), Some(Seen::Shared), "a helper in view marks the team as a neighbour");
-        assert_eq!(team_seen(&on(&[9], Some(9)), team), None);
+        for open in [false, true] {
+            assert_eq!(team_seen(&on(&[1, 9], Some(1)), team, open), Some(Seen::Primary));
+            assert_eq!(team_seen(&on(&[1, 9], Some(9)), team, open), Some(Seen::Shared));
+            assert_eq!(team_seen(&on(&[1, 3], Some(3)), team, open), Some(Seen::Shared), "the lead in view still marks the card");
+            assert_eq!(team_seen(&on(&[9], Some(9)), team, open), None);
+        }
+        assert_eq!(team_seen(&on(&[3, 9], Some(3)), team, false), Some(Seen::Shared), "a helper in view marks a closed team as a neighbour");
+        assert_eq!(team_seen(&on(&[3, 9], Some(3)), team, true), None, "open, the helper's row shows it, not the card");
     }
 
     #[test]
