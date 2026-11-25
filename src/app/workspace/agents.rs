@@ -165,23 +165,24 @@ impl App {
             .is_some_and(|t| t.root.iter().any(|id| self.panes.contains_key(&id) || self.explorers.contains_key(&id)))
     }
 
-    /// What the Agents pane `id` marks "Viewing": the panes of the terminal tab you're on;
-    /// only the focused one while it's zoomed. The focused pane is the primary; when that's
-    /// the Agents pane itself (split beside them), the pane it was opened from, else the tab's
-    /// last focused terminal. While the Agents tab is shown, nothing: no terminal tab is on
-    /// screen, so no card is marked viewed.
+    /// What the Agents pane `id` marks "Viewing": the terminals of the tab on screen (only
+    /// the focused one while it's zoomed). The focused pane is the primary; when that's the
+    /// Agents pane itself, the pane it was opened from, else the tab's last focused terminal.
+    ///
+    /// On the Agents tab that's the terminals opened there, never the terminal tab you go
+    /// back to (it isn't on screen), nor the pinned (sticky) pane: it is only there because
+    /// it's pinned beside the Agents pane.
     pub(in crate::app) fn viewing(&self, id: PaneId) -> Viewing {
-        if self.home_active {
-            return Viewing::default();
-        }
-        let Some(tab) = self.tabs.get(self.active) else { return Viewing::default() };
-        let panes = if tab.zoomed { vec![tab.focused] } else { tab.root.panes() };
+        let Some(tab) = self.cur_tab() else { return Viewing::default() };
+        let marked = |p: &PaneId| self.panes.contains_key(p) && !(self.home_active && self.is_sticky(*p));
+        let mut panes = if tab.zoomed { vec![tab.focused] } else { tab.root.panes() };
+        panes.retain(marked);
         let primary = if tab.focused == id {
             self.agents.get(&id).and_then(|a| a.origin).filter(|o| tab.contains(*o)).or(tab.last_terminal)
         } else {
             Some(tab.focused)
         };
-        Viewing { panes, primary }
+        Viewing { panes, primary: primary.filter(marked) }
     }
 
     /// Ctrl+Shift+A: close the shown tab's Agents pane if it has one (focus goes back to the
