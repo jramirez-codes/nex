@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-25
+
 ### Added
 
 - Clicking a sub-agent in the Agents pane (Claude Code's or Codex's, including one under a
@@ -18,16 +20,25 @@ All notable changes to nex are documented here. The format follows
 - A team card's sub-agents now look like a pipeline's stages: each hangs off its agent by the
   same connector, over its folder, and its row gets the Viewing ring while its tab is on
   screen.
+- `tools/nex-host-handover` moves agents onto a newly installed nex-host. It waits until
+  every agent has been idle for a while, stops them, lets the old daemon retire, and
+  relaunches each one on the new daemon resumed (`claude --resume`, `codex resume --last`),
+  keeping its flags, environment and parent.
+- `tools/demo/appstore.py` takes the App Store iPhone screenshots: it drives `nex --remote` at
+  an iPhone's shape against a throwaway sshd and writes six captioned screenshots under
+  `nex-ios/appstore/screenshots/`.
 
 ### Changed
 
 - A pipeline tile's badge in the Agents pane (the amber `!` or green tick) now sits on the
   tile's top-left corner, where a tab's attention dot sits, instead of its top-right.
-
 - In the Agents pane, viewing one of a pipeline's or team's agents now puts the Viewing ring
   and glow on that agent's row, the same ring and glow a card gets, instead of on the
   pipeline's card. The card keeps them only while the pipeline or lead itself is on screen.
   A closed card opens when one of its agents comes into view, so the row is there to see.
+- The README now installs the macOS app from the signed and notarized `nex-v*-macos.dmg`; the
+  one-time quarantine step is only needed for the tarball.
+- The demos, promo and site preview image are re-recorded on v0.15.0.
 
 ### Fixed
 
@@ -858,7 +869,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/jramirez-codes/nex/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/jramirez-codes/nex/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/jramirez-codes/nex/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/jramirez-codes/nex/compare/v0.13.0...v0.14.0
