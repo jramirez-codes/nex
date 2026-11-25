@@ -15,6 +15,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- A pipeline tile's badge in the Agents pane (the amber `!` or green tick) now sits on the
+  tile's top-left corner, where a tab's attention dot sits, instead of its top-right.
+
 - In the Agents pane, viewing one of a pipeline's or team's agents now puts the Viewing ring
   and glow on that agent's row, the same ring and glow a card gets, instead of on the
   pipeline's card. The card keeps them only while the pipeline or lead itself is on screen.
