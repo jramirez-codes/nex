@@ -28,6 +28,11 @@ pub const LOCAL_SHELLS: bool = false;
 /// The on-screen keyboard: nex asks for it while a terminal has focus.
 pub const SOFT_KEYBOARD: bool = true;
 
+/// The system Back button and back gesture, which arrive as `Key::BrowserBack` (winit maps
+/// `KEYCODE_BACK` to it, and reports the key as handled, so Android never closes the app on
+/// it): Back closes what Escape would, else goes back to the previous tab.
+pub const SYSTEM_BACK: bool = true;
+
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
 /// Full screen: no OS decorations, no window buttons, any size the screen is, and tabs

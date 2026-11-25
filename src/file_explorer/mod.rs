@@ -559,6 +559,13 @@ impl FileExplorer {
         self.confirm_delete.is_some() || self.properties.is_some() || self.pending_properties.is_some()
     }
 
+    /// Whether Escape would close something here rather than reach the listing's own keys:
+    /// the location bar or a rename being edited, type-to-find, or a selection of marked
+    /// items. The phone's Back closes these first, as Escape does.
+    pub fn escape_closes(&self) -> bool {
+        self.location.is_some() || self.rename.is_some() || self.find.is_some() || !self.marked.is_empty() || self.selecting
+    }
+
     /// Typed text: into the location bar or rename field, else type-to-find. Returns whether
     /// it was used.
     pub fn text(&mut self, text: &str) -> bool {

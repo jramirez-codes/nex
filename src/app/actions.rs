@@ -44,6 +44,8 @@ pub(super) enum Action {
     /// A sideways swipe on a pane: the next tab (`true`) or the previous, without wrapping.
     SwipeTab(bool),
     GotoTab(usize),
+    /// Back to the tab shown before this one (the phone's Back; see `workspace/history.rs`).
+    GoBack,
     Copy,
     FontBigger,
     FontSmaller,
@@ -136,6 +138,7 @@ impl App {
             Action::PrevTab => self.cycle_tab(false),
             Action::SwipeTab(forward) => self.swipe_tab(forward),
             Action::GotoTab(i) => self.goto_tab(i),
+            Action::GoBack => self.go_back(),
             Action::Copy => {
                 if let Some(text) = focused.and_then(|id| self.panes.get(&id)).and_then(|t| t.selection_text()) {
                     self.clipboard_toast(ctx, "Copied", &text);

@@ -514,6 +514,12 @@ impl GitDiff {
         }
     }
 
+    /// Whether Escape would close something here: on a narrow screen, the diff shown in
+    /// place of the file list (Escape goes back to the list). The phone's Back does the same.
+    pub fn escape_closes(&self) -> bool {
+        self.view.narrow && self.show_detail
+    }
+
     /// A key for this pane; returns whether it was used.
     pub fn key(&mut self, key: Key, mods: Modifiers) -> bool {
         if mods.ctrl || mods.alt || mods.mac_cmd || mods.command {
