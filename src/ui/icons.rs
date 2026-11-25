@@ -423,28 +423,25 @@ fn sparkles(p: &Painter, r: Rect, color: Color32) {
     sparkle(p, r.center() + Vec2::new(s * 0.22, -s * 0.22), s * 0.12, color);
 }
 
-/// How long a running pipeline's highlight takes to travel along its steps and start over.
-pub const PIPELINE_CYCLE: f64 = 1.2;
+/// How long a running pipeline's highlight takes to travel along its steps and back.
+pub const PIPELINE_CYCLE: f64 = 2.2;
 
 /// Where a running pipeline's glyph is in its cycle at `time` (seconds): 0 to 1.
 pub fn pipeline_phase(time: f64) -> f32 {
     (time / PIPELINE_CYCLE).rem_euclid(1.0) as f32
 }
 
-/// The share of a cycle the highlight spends travelling; the rest, the filled line fades
-/// back out before the next run.
-const STEPS_TRAVEL: f32 = 0.8;
+/// The share of a cycle the highlight rests at each end (on the last dot at the turn, and on
+/// the first as the cycle closes and the next opens).
+const STEPS_HOLD: f32 = 0.05;
 
-/// Where the highlight is along the steps (0 = first dot, 2 = last) at `phase`, and how much
-/// of the line behind it is lit (1 while travelling, fading to 0 after).
-fn steps_highlight(phase: f32) -> (f32, f32) {
+/// Where the highlight is along the steps (0 = first dot, 2 = last) at `phase`: out to the
+/// last dot over the first half of the cycle and back over the second, eased each way, so one
+/// cycle ends where the next begins.
+fn steps_highlight(phase: f32) -> f32 {
     let phase = phase.clamp(0.0, 1.0);
-    if phase < STEPS_TRAVEL {
-        (2.0 * super::glide::ease_in_out(phase / STEPS_TRAVEL), 1.0)
-    } else {
-        let fade = (phase - STEPS_TRAVEL) / (1.0 - STEPS_TRAVEL);
-        (2.0, 1.0 - super::glide::smoothstep(fade))
-    }
+    let half = (phase.min(1.0 - phase) * 2.0 - STEPS_HOLD * 2.0) / (1.0 - STEPS_HOLD * 4.0);
+    2.0 * super::glide::ease_in_out(half)
 }
 
 /// How lit dot `i` is with the highlight at `pos`: 1 under it, easing to 0 a dot away.
@@ -453,8 +450,8 @@ fn steps_glow(pos: f32, i: usize) -> f32 {
 }
 
 /// A pipeline: three steps joined by a line, the first two done (filled), the last to come.
-/// With a `phase` (it's running), a highlight travels along them: each dot in turn swells and
-/// brightens, and the line fills in behind it.
+/// With a `phase` (it's running), a highlight travels along them and back: each dot in turn
+/// swells and brightens, and the line is lit from the first dot up to it.
 fn steps(p: &Painter, r: Rect, color: Color32, phase: Option<f32>) {
     let s = r.width().min(r.height());
     let y = r.center().y;
@@ -468,19 +465,19 @@ fn steps(p: &Painter, r: Rect, color: Color32, phase: Option<f32>) {
         p.circle_stroke(Pos2::new(xs[2], y), radius, stroke);
         return;
     };
-    let (pos, lit) = steps_highlight(phase);
+    let pos = steps_highlight(phase);
     let dim = color.gamma_multiply(0.55);
     // The line: dim, then lit from the first dot up to the highlight.
     p.line_segment([Pos2::new(xs[0] + radius, y), Pos2::new(xs[2] - radius, y)], Stroke::new(stroke.width, dim));
     let head = xs[0] + (xs[2] - xs[0]) * pos / 2.0;
-    if lit > 0.0 && head > xs[0] + radius {
-        p.line_segment([Pos2::new(xs[0] + radius, y), Pos2::new(head.min(xs[2] - radius), y)], Stroke::new(stroke.width, color.gamma_multiply(lit)));
+    if head > xs[0] + radius {
+        p.line_segment([Pos2::new(xs[0] + radius, y), Pos2::new(head.min(xs[2] - radius), y)], Stroke::new(stroke.width, color));
     }
     for (i, &x) in xs.iter().enumerate() {
         let glow = steps_glow(pos, i);
         let at = Pos2::new(x, y);
         let rad = radius * (1.0 + 0.3 * glow);
-        let c = Color32::lerp(dim, color, glow.max(if i < 2 { 0.3 * lit } else { 0.0 }));
+        let c = Color32::lerp(dim, color, glow.max(if i < 2 { 0.3 } else { 0.0 }));
         if i < 2 {
             p.circle_filled(at, rad, c);
         } else {
@@ -821,20 +818,23 @@ mod tests {
     }
 
     #[test]
-    fn the_pipeline_highlight_travels_the_steps_then_fades() {
+    fn the_pipeline_highlight_travels_the_steps_and_back() {
         assert_eq!(pipeline_phase(0.0), 0.0);
         assert!((pipeline_phase(PIPELINE_CYCLE * 2.5) - 0.5).abs() < 1e-5);
         assert!((0.0..1.0).contains(&pipeline_phase(-0.3)));
-        // On the first dot at the start, on the last once it has travelled, lit all the way.
-        assert_eq!(steps_highlight(0.0), (0.0, 1.0));
-        assert_eq!(steps_highlight(STEPS_TRAVEL), (2.0, 1.0));
-        let (mid, _) = steps_highlight(STEPS_TRAVEL / 2.0);
-        assert!((mid - 1.0).abs() < 1e-5);
-        // It only moves forward.
-        let positions: Vec<f32> = (0..=8).map(|i| steps_highlight(STEPS_TRAVEL * i as f32 / 8.0).0).collect();
-        assert!(positions.windows(2).all(|w| w[1] >= w[0]));
-        // Then the line fades back before the next run.
-        assert_eq!(steps_highlight(1.0), (2.0, 0.0));
+        // On the first dot at the start, the last at the midpoint, the first again at the end.
+        assert_eq!(steps_highlight(0.0), 0.0);
+        assert_eq!(steps_highlight(0.5), 2.0);
+        assert_eq!(steps_highlight(1.0), 0.0);
+        // So the loop is seamless: one cycle ends where the next begins.
+        assert_eq!(steps_highlight(0.0), steps_highlight(1.0));
+        assert!((steps_highlight(0.25) - 1.0).abs() < 1e-5);
+        assert!((steps_highlight(0.75) - 1.0).abs() < 1e-5);
+        // Forward over the first half, back over the second.
+        let at = |i: usize| steps_highlight(i as f32 / 32.0);
+        assert!((0..16).all(|i| at(i + 1) >= at(i)));
+        assert!((16..32).all(|i| at(i + 1) <= at(i)));
+        assert!(at(4) > at(0) && at(28) < at(20));
         // Each dot in turn is the lit one.
         for i in 0..3 {
             assert_eq!(steps_glow(i as f32, i), 1.0);
