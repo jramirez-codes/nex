@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- In the Agents pane, viewing one of a pipeline's or team's agents now puts the Viewing ring
+  and glow on that agent's row, the same ring and glow a card gets, instead of on the
+  pipeline's card. The card keeps them only while the pipeline or lead itself is on screen.
+  A closed card opens when one of its agents comes into view, so the row is there to see.
+
 ## [0.15.0] - 2026-11-24
 
 ### Added

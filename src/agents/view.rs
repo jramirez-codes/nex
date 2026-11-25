@@ -101,11 +101,13 @@ pub(super) struct ViewState {
     /// The agents as teams, and the generation of the list they were made from: made again
     /// only when that changes.
     grouped: Option<(u64, Arc<[Arc<Group>]>)>,
+    /// What was on screen last frame: a helper newly in view opens its team.
+    viewing: Viewing,
 }
 
 impl ViewState {
     pub(super) fn new() -> ViewState {
-        ViewState { reveal_selection: false, jumped: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None }
+        ViewState { reveal_selection: false, jumped: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None, viewing: Viewing::default() }
     }
 
     /// `agents` as teams: the ones made last time, unless the list changed since.
@@ -298,6 +300,12 @@ impl AgentsPane {
         let teams = self.view.grouped(agents);
         // Teams that broke up, or whose lead is gone, close.
         self.expanded.retain(|lead, _| teams.iter().any(|g| g.key() == *lead && g.is_team()));
+        // A helper coming into view opens its team, so its row is there to be marked.
+        let was = std::mem::replace(&mut self.view.viewing, viewing.clone());
+        for (lead, all) in viewing::teams_to_open(viewing, &was, &teams, ROWS_SHOWN) {
+            let shown_all = self.expanded.entry(lead).or_insert(false);
+            *shown_all |= all;
+        }
         let Layout { sections, cards, content_h } = layout(&teams, width, &self.expanded);
         self.remember_targets(&teams, &cards);
         if self.selected.is_none_or(|p| !self.targets.iter().any(|(t, _)| *t == p)) {
@@ -453,7 +461,7 @@ impl AgentsPane {
                 None
             } else {
                 match &team {
-                    Some(g) => viewing::team_seen(f.viewing, g, self.expanded.contains_key(&id)),
+                    Some(g) => viewing::team_seen(f.viewing, g),
                     None => f.viewing.of(&card.agent),
                 }
             };
@@ -473,7 +481,7 @@ impl AgentsPane {
                 }),
                 _ => None,
             };
-            let look = Look { hover, lift, border, border_width, tint: card.tint.get(now), glow: shown * primary, seen: (shown, primary), tile };
+            let look = Look { hover, lift, border, border_width, tint: card.tint.get(now), glow: viewing::glow_strength(shown, primary), seen: (shown, primary), tile };
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
             match team {
@@ -569,7 +577,7 @@ impl AgentsPane {
         inside.update_rows(now, slide, &slots);
         // Each row's "Viewing" mark fades in and out with its helper on screen.
         for m in inside.rows.values_mut() {
-            let seen = (!m.leaving).then(|| f.viewing.of(&m.member.agent)).flatten();
+            let seen = (!m.leaving).then(|| viewing::member_seen(f.viewing, g, &m.member)).flatten();
             m.seen.set(now, seen, f.animate);
         }
         // A pipeline among the helpers: its tile's ring and badge, from its own stages.
@@ -625,12 +633,14 @@ impl AgentsPane {
                 hit.on_hover_cursor(egui::CursorIcon::PointingHand);
             }
             let seen = (m.seen.shown(now), m.seen.primary(now));
-            viewing::row_fill(&rp, inner, seen.0, seen.1);
             let hover = f.ui.ctx().animate_bool_with_time(f.id(("row-hover", id)), hovered, 0.12);
             if hover > 0.0 {
                 rp.rect_filled(inner, 8, white_alpha((8.0 * hover) as u8));
             }
-            if self.highlighted() == Some(id) && f.focused && !m.leaving {
+            // As on a card, the keyboard's ring is drawn over the viewing one.
+            let keyed = self.highlighted() == Some(id) && f.focused && !m.leaving;
+            viewing::row_mark(&rp, inner, 8, seen.0, seen.1, !keyed);
+            if keyed {
                 rp.rect_stroke(inner, 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
             }
             let glyph = (inside.tick(now, id), tiles.get(&id).copied());
@@ -812,7 +822,7 @@ fn border_for(status: Status, selected: bool, focused: bool, hovered: bool, c: &
 /// A card's glass: its shadow (deeper when lifted), fill, top edge and border.
 fn card_body(p: &Painter, r: Rect, look: &Look) {
     let Look { hover, lift, border, border_width, glow, .. } = *look;
-    viewing::glow(p, r, glow);
+    viewing::glow(p, r, CARD_RADIUS, glow);
     let shadow = Shadow {
         offset: [0, (2.0 + 6.0 * lift) as i8],
         blur: (12.0 + 14.0 * lift) as u8,
@@ -1473,6 +1483,47 @@ mod tests {
         }
         assert_eq!((card(&pane, 9, time), row(&pane, time)), (0.0, 0.0));
         assert!(!pane.view.motion.cards[&9].busy(time));
+    }
+
+    /// Viewing a pipeline's stage moves the card's ring and glow onto that stage's row
+    /// (opening the closed card to show it); viewing the pipeline itself puts them back on
+    /// the card and off every row.
+    #[test]
+    fn a_viewed_stage_takes_the_ring_and_glow_off_its_pipelines_card() {
+        let ctx = egui::Context::default();
+        crate::render::fonts::install(&ctx, &crate::config::Config::default());
+        crate::ui::glide::set_animations(&ctx, false);
+        let stage = |pane| Agent { team: Team { role: Some(format!("s{pane}")), ..agent(pane, Some(1)).team }, ..agent(pane, Some(1)) };
+        let list = Agents::new(vec![pipeline(1, Status::Working), stage(2), stage(3)]);
+        let mut pane = AgentsPane::new();
+        let mut time = 0.0;
+        frame(&ctx, &mut pane, &list, &mut time, vec![]);
+        assert!(!pane.expanded.contains_key(&1), "closed to begin with");
+        // No keyboard highlight, whose ring would stand in for the viewing one.
+        pane.view.jumped = true;
+
+        let card = |pane: &AgentsPane, time| {
+            let c = &pane.view.motion.cards[&1];
+            (c.seen.shown(time), c.ring.shown(time))
+        };
+        let row = |pane: &AgentsPane, id, time| pane.view.motion.teams[&1].rows.get(&id).map_or((0.0, 0.0), |r| (r.seen.shown(time), r.seen.primary(time)));
+
+        let child = Viewing { panes: vec![2], primary: Some(2) };
+        for _ in 0..3 {
+            frame_viewing(&ctx, &mut pane, &list, &mut time, vec![], &child);
+        }
+        assert!(pane.expanded.contains_key(&1), "the card opens to show the stage");
+        assert_eq!(card(&pane, time), (0.0, 0.0), "no ring or glow on the pipeline's card");
+        assert_eq!(row(&pane, 2, time), (1.0, 1.0), "the stage's row has them, at full strength");
+        assert_eq!(row(&pane, 3, time), (0.0, 0.0));
+        assert_eq!(viewing::glow_strength(row(&pane, 2, time).0, row(&pane, 2, time).1), 1.0);
+
+        let lead = Viewing { panes: vec![1], primary: Some(1) };
+        for _ in 0..3 {
+            frame_viewing(&ctx, &mut pane, &list, &mut time, vec![], &lead);
+        }
+        assert_eq!(card(&pane, time), (1.0, 1.0), "the pipeline in view rings its card");
+        assert_eq!((row(&pane, 2, time).0, row(&pane, 3, time).0), (0.0, 0.0), "and no row");
     }
 
     fn click(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, at: Pos2) {

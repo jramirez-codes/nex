@@ -1,24 +1,23 @@
 //! The "Viewing" mark: how a card shows that its agent is on screen (see
 //! [`Viewing`](crate::agents::model::Viewing)). A small pill with an eye left of the status
 //! pill, and a soft accent ring around the card: full, with a glow, for the agent in the
-//! focused pane; fainter for one sharing its tab. A closed team's card is marked when a
-//! helper is in view; in an open team, the card is marked only for its lead, and a viewed
-//! helper's row gets a soft rounded accent tint, like a selected row in an inset list, and
-//! an eye. Each eases in and out ([`SeenFade`](crate::agents::motion::SeenFade)): drawn
+//! focused pane; fainter for one sharing its tab. A team's card is marked only for its lead
+//! (or pipeline); a viewed helper or stage gets the same ring and glow on its own row,
+//! rounded like the row, and an eye, never both at once. A closed team opens when one of
+//! its helpers comes into view, so the row is there to mark. Each eases in and out ([`SeenFade`](crate::agents::motion::SeenFade)): drawn
 //! here `shown` (0 to 1) of the way in, `primary` (0 to 1) of the way from a neighbour's
 //! look to the focused pane's.
 
 use egui::epaint::Shadow;
-use egui::{Color32, Painter, Pos2, Rect, Vec2};
+use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
-use crate::agents::group::Group;
+use crate::agents::group::{Group, Member};
 use crate::agents::model::{Seen, Viewing};
+use crate::layout::PaneId;
 use crate::ui::glide::Lerp;
 use crate::ui::icons;
 use crate::ui::paint;
 use crate::ui::theme::{ACCENT, white_alpha};
-
-use super::CARD_RADIUS;
 
 /// The pill's height, and the eye's size inside it.
 const PILL_H: f32 = 20.0;
@@ -27,10 +26,41 @@ const EYE: f32 = 13.0;
 const TITLE_ROOM_MIN: f32 = 120.0;
 const WORD: &str = "Viewing";
 
-/// How a team's card is on screen: as its lead is, else (a helper in view) as a neighbour.
-/// Once the card is `open`, a viewed helper's own row says so, so only the lead marks the card.
-pub(super) fn team_seen(viewing: &Viewing, g: &Group, open: bool) -> Option<Seen> {
-    viewing.of(&g.lead).or_else(|| (!open && g.members.iter().any(|m| viewing.of(&m.agent).is_some())).then_some(Seen::Shared))
+/// How a team's card is on screen: as its lead is. A helper in view marks its own row
+/// instead ([`member_seen`]), never the card.
+pub(super) fn team_seen(viewing: &Viewing, g: &Group) -> Option<Seen> {
+    viewing.of(&g.lead)
+}
+
+/// How a helper's row is on screen: as the helper is, unless the pane showing it is the one
+/// showing the agent that started it (a sub-agent seen through its parent's terminal), which
+/// is marked instead, so one look never marks two items.
+pub(super) fn member_seen(viewing: &Viewing, g: &Group, m: &Member) -> Option<Seen> {
+    let parent = m.agent.team.parent.and_then(|p| if p == g.lead.pane { Some(&*g.lead) } else { g.members.iter().find(|o| o.agent.pane == p).map(|o| &*o.agent) });
+    let shown = m.agent.shown_pane();
+    if parent.is_some_and(|p| p.shown_pane() == shown) {
+        return None;
+    }
+    viewing.of(&m.agent)
+}
+
+/// The teams to open now that `viewing` is on screen (it was `was`): each closed one with a
+/// helper that has just come into view, and whether it must show all its rows to list it
+/// (it's past the first `rows_shown`). Only a change opens a team, so one you close stays
+/// closed while you keep looking.
+pub(super) fn teams_to_open(viewing: &Viewing, was: &Viewing, teams: &[std::sync::Arc<Group>], rows_shown: usize) -> Vec<(PaneId, bool)> {
+    if viewing == was {
+        return Vec::new();
+    }
+    teams
+        .iter()
+        .filter(|g| g.is_team())
+        .filter_map(|g| {
+            let new = |m: &Member| member_seen(viewing, g, m).is_some() && member_seen(was, g, m).is_none();
+            let i = g.members.iter().position(new)?;
+            Some((g.key(), i >= rows_shown))
+        })
+        .collect()
 }
 
 /// The ring a viewed card heads for (see `border_for`).
@@ -53,13 +83,20 @@ fn open(primary: f32) -> bool {
     primary >= 0.5
 }
 
-/// The soft accent glow around the primary card, `t` (0 to 1) of the way in.
-pub(super) fn glow(p: &Painter, r: Rect, t: f32) {
+/// How strong the glow is, `shown` of the way in and `primary` of the way to the focused
+/// pane's look: only the focused pane's agent glows.
+pub(super) fn glow_strength(shown: f32, primary: f32) -> f32 {
+    shown * primary
+}
+
+/// The soft accent glow around the primary item (`r`, rounded `radius`), `t` (0 to 1) of
+/// the way in: a card's ([`CARD_RADIUS`](super::CARD_RADIUS)) or a helper row's.
+pub(super) fn glow(p: &Painter, r: Rect, radius: u8, t: f32) {
     if t <= 0.01 {
         return;
     }
     let shadow = Shadow { offset: [0, 0], blur: 18, spread: 1, color: ACCENT.gamma_multiply(0.22 * t) };
-    p.add(shadow.as_shape(r, CARD_RADIUS));
+    p.add(shadow.as_shape(r, radius));
 }
 
 /// How wide the pill is, with its word or (`compact`) only its eye.
@@ -93,24 +130,29 @@ pub(super) fn pill(p: &Painter, right: f32, y: f32, primary: f32, t: f32, compac
     r.left()
 }
 
-/// The tint behind a viewed helper's row, `shown` of the way in: the pill's fill for the
-/// agent in the focused pane (`primary` 1), half as strong for one sharing its tab.
-fn row_tint(shown: f32, primary: f32) -> Color32 {
-    Color32::lerp(ACCENT.gamma_multiply(0.07), ACCENT.gamma_multiply(0.14), primary).gamma_multiply(shown)
-}
-
 /// A helper's row's ink, `shown` of the way in.
 fn row_ink(dim: f32, shown: f32, primary: f32) -> Color32 {
     Color32::lerp(ACCENT.gamma_multiply(dim), ACCENT, primary).gamma_multiply(shown)
 }
 
-/// A viewed helper's row in an open team: its inner rect filled with a soft accent tint,
-/// rounded like the hover fill (which is drawn over it), `shown` of the way in.
-pub(super) fn row_fill(p: &Painter, inner: Rect, shown: f32, primary: f32) {
+/// The ring a viewed helper's row has, `shown` of the way in: a card's ring
+/// ([`ring_over`]) faded in from nothing, as the row has no border of its own.
+pub(super) fn row_ring(shown: f32, primary: f32) -> (Color32, f32) {
+    ring_over((Color32::TRANSPARENT, 0.0), shown, primary)
+}
+
+/// A viewed helper's row in an open team (`inner`, rounded `radius`): a viewed card's glow
+/// and ring, `shown` of the way in. `ring` false leaves the ring to the keyboard's (as a
+/// card does).
+pub(super) fn row_mark(p: &Painter, inner: Rect, radius: u8, shown: f32, primary: f32, ring: bool) {
     if shown <= 0.01 {
         return;
     }
-    p.rect_filled(inner, 8, row_tint(shown, primary));
+    glow(p, inner, radius, glow_strength(shown, primary));
+    if ring {
+        let (color, width) = row_ring(shown, primary);
+        p.rect_stroke(inner, radius, Stroke::new(width, color), StrokeKind::Inside);
+    }
 }
 
 /// The eye on a viewed helper's row, centred on `at`, `shown` of the way in.
@@ -147,26 +189,58 @@ mod tests {
     }
 
     #[test]
-    fn a_team_is_seen_as_its_lead_is_or_as_a_neighbour_through_a_helper() {
+    fn a_teams_card_is_seen_only_as_its_lead_and_a_helper_only_on_its_own_row() {
         let teams = groups(&Agents::new(vec![agent(1, None), agent(2, Some(1)), agent(3, Some(1)), agent(9, None)]));
         let team = teams.iter().find(|g| g.key() == 1).unwrap();
         let on = |panes: &[PaneId], primary| Viewing { panes: panes.to_vec(), primary };
-        for open in [false, true] {
-            assert_eq!(team_seen(&on(&[1, 9], Some(1)), team, open), Some(Seen::Primary));
-            assert_eq!(team_seen(&on(&[1, 9], Some(9)), team, open), Some(Seen::Shared));
-            assert_eq!(team_seen(&on(&[1, 3], Some(3)), team, open), Some(Seen::Shared), "the lead in view still marks the card");
-            assert_eq!(team_seen(&on(&[9], Some(9)), team, open), None);
-        }
-        assert_eq!(team_seen(&on(&[3, 9], Some(3)), team, false), Some(Seen::Shared), "a helper in view marks a closed team as a neighbour");
-        assert_eq!(team_seen(&on(&[3, 9], Some(3)), team, true), None, "open, the helper's row shows it, not the card");
+        let row = |v: &Viewing, pane| member_seen(v, team, team.members.iter().find(|m| m.agent.pane == pane).unwrap());
+        assert_eq!(team_seen(&on(&[1, 9], Some(1)), team), Some(Seen::Primary));
+        assert_eq!(team_seen(&on(&[1, 9], Some(9)), team), Some(Seen::Shared));
+        assert_eq!(team_seen(&on(&[9], Some(9)), team), None);
+        // A helper in view marks its row, at the strength its pane gives, never the card.
+        let child = on(&[3, 9], Some(3));
+        assert_eq!((team_seen(&child, team), row(&child, 3), row(&child, 2)), (None, Some(Seen::Primary), None));
+        assert_eq!(row(&on(&[3, 9], Some(9)), 3), Some(Seen::Shared));
+        // The lead in view marks the card and no row.
+        let lead = on(&[1], Some(1));
+        assert_eq!((team_seen(&lead, team), row(&lead, 2), row(&lead, 3)), (Some(Seen::Primary), None, None));
     }
 
     #[test]
-    fn a_viewed_row_is_tinted_fuller_for_the_focused_pane_than_for_a_neighbour() {
-        let (primary, shared) = (row_tint(1.0, 1.0), row_tint(1.0, 0.0));
-        assert_eq!(primary, ACCENT.gamma_multiply(0.14), "the focused agent's row matches the pill's fill");
-        assert!(shared.a() < primary.a(), "a neighbour's row is fainter");
-        assert!(shared.a() > 0);
+    fn a_sub_agent_seen_through_its_parents_pane_leaves_the_mark_on_the_parent() {
+        let mut sub = agent(5, Some(1));
+        sub.source = Source::Sub { lead: 1, pane: Some(1) };
+        sub.team.sub = true;
+        let teams = groups(&Agents::new(vec![agent(1, None), sub]));
+        let team = teams.iter().find(|g| g.key() == 1).unwrap();
+        let v = Viewing { panes: vec![1], primary: Some(1) };
+        assert_eq!(team_seen(&v, team), Some(Seen::Primary));
+        assert_eq!(member_seen(&v, team, &team.members[0]), None);
+    }
+
+    #[test]
+    fn a_helper_coming_into_view_opens_its_team_once() {
+        let mut list = vec![agent(1, None)];
+        list.extend((2..=9).map(|p| agent(p, Some(1))));
+        let teams = groups(&Agents::new(list));
+        let none = Viewing::default();
+        let first = teams[0].members[0].agent.pane;
+        let last = teams[0].members.last().unwrap().agent.pane;
+        let on = |pane| Viewing { panes: vec![pane], primary: Some(pane) };
+        assert_eq!(teams_to_open(&on(first), &none, &teams, 6), vec![(1, false)]);
+        assert_eq!(teams_to_open(&on(last), &none, &teams, 6), vec![(1, true)], "past the first rows, it shows them all");
+        assert_eq!(teams_to_open(&on(first), &on(first), &teams, 6), vec![], "unchanged, a team you closed stays closed");
+        assert_eq!(teams_to_open(&on(1), &none, &teams, 6), vec![], "the lead in view marks the card, no need to open");
+    }
+
+    #[test]
+    fn a_viewed_row_has_a_cards_ring_and_glow() {
+        // All the way in, the row's ring is the card's, exactly, for either look.
+        assert_eq!(row_ring(1.0, 1.0), ring(Seen::Primary));
+        assert_eq!(row_ring(1.0, 0.0), ring(Seen::Shared));
+        assert_eq!(row_ring(0.0, 1.0).0.a(), 0, "out of view, no ring");
+        // Card and row glow the same: fully for the focused pane's agent, not for a neighbour.
+        assert_eq!((glow_strength(1.0, 1.0), glow_strength(1.0, 0.0)), (1.0, 0.0));
     }
 
     #[test]
