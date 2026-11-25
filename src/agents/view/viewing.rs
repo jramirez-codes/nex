@@ -4,13 +4,16 @@
 //! focused pane; fainter for one sharing its tab. A closed team's card is marked when a
 //! helper is in view; in an open team, the card is marked only for its lead, and a viewed
 //! helper's row gets a soft rounded accent tint, like a selected row in an inset list, and
-//! an eye.
+//! an eye. Each eases in and out ([`SeenFade`](crate::agents::motion::SeenFade)): drawn
+//! here `shown` (0 to 1) of the way in, `primary` (0 to 1) of the way from a neighbour's
+//! look to the focused pane's.
 
 use egui::epaint::Shadow;
 use egui::{Color32, Painter, Pos2, Rect, Vec2};
 
 use crate::agents::group::Group;
 use crate::agents::model::{Seen, Viewing};
+use crate::ui::glide::Lerp;
 use crate::ui::icons;
 use crate::ui::paint;
 use crate::ui::theme::{ACCENT, white_alpha};
@@ -38,6 +41,18 @@ pub(super) fn ring(seen: Seen) -> (Color32, f32) {
     }
 }
 
+/// `base` (the border the card has otherwise), `shown` of the way to its viewing ring.
+pub(super) fn ring_over(base: (Color32, f32), shown: f32, primary: f32) -> (Color32, f32) {
+    let ((shared, shared_w), (main, main_w)) = (ring(Seen::Shared), ring(Seen::Primary));
+    let (color, width) = (Color32::lerp(shared, main, primary), f32::lerp(shared_w, main_w, primary));
+    (Color32::lerp(base.0, color, shown), f32::lerp(base.1, width, shown))
+}
+
+/// The eye is drawn open for the focused pane's look.
+fn open(primary: f32) -> bool {
+    primary >= 0.5
+}
+
 /// The soft accent glow around the primary card, `t` (0 to 1) of the way in.
 pub(super) fn glow(p: &Painter, r: Rect, t: f32) {
     if t <= 0.01 {
@@ -60,20 +75,17 @@ pub(super) fn compact(p: &Painter, title_left: f32, right: f32) -> bool {
 
 /// The pill, ending at `right` and centred on `y`, `t` (0 to 1) of the way in. Returns
 /// its left edge (where the title must stop).
-pub(super) fn pill(p: &Painter, right: f32, y: f32, seen: Seen, t: f32, compact: bool) -> f32 {
+pub(super) fn pill(p: &Painter, right: f32, y: f32, primary: f32, t: f32, compact: bool) -> f32 {
     let w = pill_width(p, compact);
     let r = Rect::from_min_size(Pos2::new(right - w, y - PILL_H / 2.0), Vec2::new(w, PILL_H));
     if t <= 0.01 {
         return r.left();
     }
-    let (ink, fill) = match seen {
-        Seen::Primary => (ACCENT, ACCENT.gamma_multiply(0.14)),
-        Seen::Shared => (ACCENT.gamma_multiply(0.65), white_alpha(10)),
-    };
-    let (ink, fill) = (ink.gamma_multiply(t), fill.gamma_multiply(t));
+    let ink = Color32::lerp(ACCENT.gamma_multiply(0.65), ACCENT, primary).gamma_multiply(t);
+    let fill = Color32::lerp(white_alpha(10), ACCENT.gamma_multiply(0.14), primary).gamma_multiply(t);
     p.rect_filled(r, PILL_H / 2.0, fill);
     let eye_x = if compact { r.center().x } else { r.left() + 9.0 + EYE / 2.0 };
-    icons::icon_eye(p, Rect::from_center_size(Pos2::new(eye_x, y), Vec2::splat(EYE)), ink, seen == Seen::Primary);
+    icons::icon_eye(p, Rect::from_center_size(Pos2::new(eye_x, y), Vec2::splat(EYE)), ink, open(primary));
     if !compact {
         let word = p.layout_no_wrap(WORD.into(), paint::bold(11.0), ink);
         p.galley(Pos2::new(eye_x + EYE / 2.0 + 5.0, y - word.size().y / 2.0), word, ink);
@@ -81,25 +93,32 @@ pub(super) fn pill(p: &Painter, right: f32, y: f32, seen: Seen, t: f32, compact:
     r.left()
 }
 
-/// The tint behind a viewed helper's row: the pill's fill for the agent in the focused pane,
-/// half as strong for one sharing its tab.
-fn row_tint(seen: Seen) -> Color32 {
-    match seen {
-        Seen::Primary => ACCENT.gamma_multiply(0.14),
-        Seen::Shared => ACCENT.gamma_multiply(0.07),
-    }
+/// The tint behind a viewed helper's row, `shown` of the way in: the pill's fill for the
+/// agent in the focused pane (`primary` 1), half as strong for one sharing its tab.
+fn row_tint(shown: f32, primary: f32) -> Color32 {
+    Color32::lerp(ACCENT.gamma_multiply(0.07), ACCENT.gamma_multiply(0.14), primary).gamma_multiply(shown)
+}
+
+/// A helper's row's ink, `shown` of the way in.
+fn row_ink(dim: f32, shown: f32, primary: f32) -> Color32 {
+    Color32::lerp(ACCENT.gamma_multiply(dim), ACCENT, primary).gamma_multiply(shown)
 }
 
 /// A viewed helper's row in an open team: its inner rect filled with a soft accent tint,
-/// rounded like the hover fill (which is drawn over it).
-pub(super) fn row_fill(p: &Painter, inner: Rect, seen: Seen) {
-    p.rect_filled(inner, 8, row_tint(seen));
+/// rounded like the hover fill (which is drawn over it), `shown` of the way in.
+pub(super) fn row_fill(p: &Painter, inner: Rect, shown: f32, primary: f32) {
+    if shown <= 0.01 {
+        return;
+    }
+    p.rect_filled(inner, 8, row_tint(shown, primary));
 }
 
-/// The eye on a viewed helper's row, centred on `at`.
-pub(super) fn row_eye(p: &Painter, at: Pos2, seen: Seen) {
-    let ink = if seen == Seen::Primary { ACCENT } else { ACCENT.gamma_multiply(0.65) };
-    icons::icon_eye(p, Rect::from_center_size(at, Vec2::splat(12.0)), ink, seen == Seen::Primary);
+/// The eye on a viewed helper's row, centred on `at`, `shown` of the way in.
+pub(super) fn row_eye(p: &Painter, at: Pos2, shown: f32, primary: f32) {
+    if shown <= 0.01 {
+        return;
+    }
+    icons::icon_eye(p, Rect::from_center_size(at, Vec2::splat(12.0)), row_ink(0.65, shown, primary), open(primary));
 }
 
 #[cfg(test)]
@@ -144,7 +163,7 @@ mod tests {
 
     #[test]
     fn a_viewed_row_is_tinted_fuller_for_the_focused_pane_than_for_a_neighbour() {
-        let (primary, shared) = (row_tint(Seen::Primary), row_tint(Seen::Shared));
+        let (primary, shared) = (row_tint(1.0, 1.0), row_tint(1.0, 0.0));
         assert_eq!(primary, ACCENT.gamma_multiply(0.14), "the focused agent's row matches the pill's fill");
         assert!(shared.a() < primary.a(), "a neighbour's row is fainter");
         assert!(shared.a() > 0);

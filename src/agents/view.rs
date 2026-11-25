@@ -16,7 +16,8 @@
 //!
 //! A card whose agent is on screen says so (`viewing`): a "Viewing" pill left of its status
 //! and a soft accent ring, fuller (with a glow) for the agent in the focused pane than for
-//! one sharing its tab.
+//! one sharing its tab. The mark eases in and out (see `motion`'s `SeenFade`), on every card
+//! and helper row alike.
 //!
 //! A frame copies no agent: the teams are worked out when the tracker's list changes (its
 //! generation) and kept, shared, until it changes again.
@@ -42,7 +43,7 @@ use crate::ui::{icons, paint};
 
 use super::AgentsPane;
 use super::group::{Group, Member, Step, groups, same_step};
-use super::model::{Agent, AgentKind, Agents, Seen, Source, Status, Viewing, elapsed};
+use super::model::{Agent, AgentKind, Agents, Source, Status, Viewing, elapsed};
 use super::motion::{Motion, TeamMotion};
 
 mod viewing;
@@ -95,13 +96,11 @@ pub(super) struct ViewState {
     /// The agents as teams, and the generation of the list they were made from: made again
     /// only when that changes.
     grouped: Option<(u64, Arc<[Arc<Group>]>)>,
-    /// How each card was last on screen, for its "Viewing" pill to fade out as.
-    seen: HashMap<PaneId, Seen>,
 }
 
 impl ViewState {
     pub(super) fn new() -> ViewState {
-        ViewState { reveal_selection: false, jumped: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None, seen: HashMap::new() }
+        ViewState { reveal_selection: false, jumped: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None }
     }
 
     /// `agents` as teams: the ones made last time, unless the list changed since.
@@ -306,7 +305,6 @@ impl AgentsPane {
             self.view.teams.insert(g.key(), Arc::clone(g));
         }
         self.view.teams.retain(|k, _| motion.cards.contains_key(k));
-        self.view.seen.retain(|k, _| motion.cards.contains_key(k));
         let switched = self.view.shown_tab.replace(shown_tab).is_some_and(|was| was != shown_tab);
         if switched
             && f.animate
@@ -454,24 +452,13 @@ impl AgentsPane {
                     None => f.viewing.of(&card.agent),
                 }
             };
-            let (border, border_width) = border_for(card.agent.status, selected, f.focused, hovered, seen, f.c);
-            card.set_colors(now, border, border_width, status_color(card.agent.status, f.c), f.animate);
-            let fade = |what: &str, on: bool| if f.animate { ui.ctx().animate_bool_with_time(f.id((what, id)), on, 0.3) } else { f32::from(u8::from(on)) };
-            let glow = fade("viewing-glow", seen == Some(Seen::Primary));
-            // The pill fades out as the kind it was when last on screen.
-            let kind = seen.unwrap_or_else(|| self.view.seen.get(&id).copied().unwrap_or(Seen::Shared));
-            if let Some(s) = seen {
-                self.view.seen.insert(id, s);
-            }
-            let look = Look {
-                hover,
-                lift,
-                border: card.border.get(now),
-                border_width: card.border_width.get(now),
-                tint: card.tint.get(now),
-                glow,
-                seen: (kind, fade("viewing-pill", seen.is_some())),
-            };
+            // The selected card in the focused pane keeps the keyboard's ring over the viewed one.
+            let ring = if selected && f.focused { None } else { seen };
+            let (border, border_width) = border_for(card.agent.status, selected, f.focused, hovered, f.c);
+            card.set_colors(now, border, border_width, status_color(card.agent.status, f.c), seen, ring, f.animate);
+            let (border, border_width) = viewing::ring_over((card.border.get(now), card.border_width.get(now)), card.ring.shown(now), card.ring.primary(now));
+            let (shown, primary) = (card.seen.shown(now), card.seen.primary(now));
+            let look = Look { hover, lift, border, border_width, tint: card.tint.get(now), glow: shown * primary, seen: (shown, primary) };
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
             match team {
@@ -563,6 +550,11 @@ impl AgentsPane {
         let tags = member_tags(g);
         let slots: Vec<(&Member, &str, f32)> = rows.iter().zip(&tags).enumerate().map(|(i, (m, tag))| (m, tag.as_str(), i as f32 * ROW_H)).collect();
         inside.update_rows(now, slide, &slots);
+        // Each row's "Viewing" mark fades in and out with its helper on screen.
+        for m in inside.rows.values_mut() {
+            let seen = (!m.leaving).then(|| f.viewing.of(&m.member.agent)).flatten();
+            m.seen.set(now, seen, f.animate);
+        }
 
         // The hairlines stay where the slots are, each starting at its slot's text.
         for (i, m) in rows.iter().enumerate() {
@@ -604,10 +596,8 @@ impl AgentsPane {
                 }
                 hit.on_hover_cursor(egui::CursorIcon::PointingHand);
             }
-            let seen = (!m.leaving).then(|| f.viewing.of(&m.member.agent)).flatten();
-            if let Some(seen) = seen {
-                viewing::row_fill(&rp, inner, seen);
-            }
+            let seen = (m.seen.shown(now), m.seen.primary(now));
+            viewing::row_fill(&rp, inner, seen.0, seen.1);
             let hover = f.ui.ctx().animate_bool_with_time(f.id(("row-hover", id)), hovered, 0.12);
             if hover > 0.0 {
                 rp.rect_filled(inner, 8, white_alpha((8.0 * hover) as u8));
@@ -715,19 +705,18 @@ struct Look {
     tint: Color32,
     /// The accent glow of the agent in the focused pane (0 to 1).
     glow: f32,
-    /// How it's on screen, and how far its "Viewing" pill is in (0 to 1).
-    seen: (Seen, f32),
+    /// How far its "Viewing" pill is in, and how far toward the focused pane's look (0 to 1
+    /// each).
+    seen: (f32, f32),
 }
 
 /// The border a card heads for: the accent when it's the selected one in the focused pane,
-/// a softer accent ring when its agent is on screen (`seen`, see [`viewing::ring`]), amber
+/// amber
 /// when its agent needs you, blue when it's done, a quiet hairline otherwise (brighter under
-/// the pointer).
-fn border_for(status: Status, selected: bool, focused: bool, hovered: bool, seen: Option<Seen>, c: &Theme) -> (Color32, f32) {
+/// the pointer). A viewed card's accent ring fades in over it ([`viewing::ring_over`]).
+fn border_for(status: Status, selected: bool, focused: bool, hovered: bool, c: &Theme) -> (Color32, f32) {
     if selected && focused {
         (ACCENT.gamma_multiply(0.85), 1.5)
-    } else if let Some(seen) = seen {
-        viewing::ring(seen)
     } else if status == Status::NeedsYou {
         (c.yellow.gamma_multiply(0.45), 1.0)
     } else if status == Status::Done {
@@ -796,10 +785,10 @@ fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, tea
 
     // "Viewing", left of them, while the agent is on screen (only its eye on a narrow card).
     let x = tile.right() + 13.0;
-    let (seen, shown) = look.seen;
+    let (shown, primary) = look.seen;
     if shown > 0.01 {
         let right = title_right + 4.0;
-        let left = viewing::pill(p, right, pill.center().y, seen, shown, viewing::compact(p, x, right));
+        let left = viewing::pill(p, right, pill.center().y, primary, shown, viewing::compact(p, x, right));
         title_right = title_right + (left - 8.0 - title_right) * shown;
     }
 
@@ -1090,7 +1079,7 @@ fn branch_lines(p: &Painter, list: Rect, g: &Group, shown: usize) {
 /// One helper's row in an open team: tile (indented for a helper's own helpers), its `tag`
 /// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
 /// in, and its status with how long it has been in it.
-fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: &str, seen: Option<Seen>) {
+fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: &str, seen: (f32, f32)) {
     let c = f.c;
     let a = &m.agent;
     let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + row_indent(depth) + 13.0, row.center().y), Vec2::splat(26.0));
@@ -1108,11 +1097,13 @@ fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: 
     p.galley(Pos2::new(label_x, row.center().y - label_g.size().y / 2.0), label_g, color);
     p.galley(Pos2::new(since_x, row.center().y - since_g.size().y / 2.0), since_g, c.text_dim);
 
-    // An eye left of the status while it's on screen.
+    // An eye left of the status while it's on screen (`seen`: how far in, and how far
+    // toward the focused pane's look), making room as it fades in.
+    let (shown, primary) = seen;
     let mut end = dot.x;
-    if let Some(seen) = seen {
-        end -= 18.0;
-        viewing::row_eye(p, Pos2::new(end, row.center().y), seen);
+    if shown > 0.01 {
+        end -= 18.0 * shown;
+        viewing::row_eye(p, Pos2::new(end, row.center().y), shown, primary);
     }
     let room = (end - 14.0 - x).max(0.0);
     // The tag: a soft capsule, quieter than the task beside it. In a narrow row it gives way
@@ -1262,30 +1253,89 @@ mod tests {
     }
 
     #[test]
-    fn a_viewed_card_has_an_accent_ring_under_the_keyboards_own() {
+    fn a_viewed_card_has_an_accent_ring_that_fades_over_its_border() {
+        use crate::agents::model::Seen;
         let c = Theme::from_config(&crate::config::Config::default());
         let (primary, shared) = (viewing::ring(Seen::Primary), viewing::ring(Seen::Shared));
-        assert_eq!(border_for(Status::Working, false, true, false, Some(Seen::Primary), &c), primary);
-        assert_eq!(border_for(Status::Working, false, true, false, Some(Seen::Shared), &c), shared);
         assert!(primary.1 > shared.1 && primary.0.a() > shared.0.a(), "the focused pane's agent is ringed more strongly");
-        // It says viewed over "needs you" (its pill still says that), but the selected card in
-        // the focused Agents pane keeps its own ring.
-        assert_eq!(border_for(Status::NeedsYou, false, true, false, Some(Seen::Shared), &c), shared);
-        assert_eq!(border_for(Status::Working, true, true, false, Some(Seen::Primary), &c), border_for(Status::Working, true, true, false, None, &c));
-        assert_ne!(border_for(Status::Idle, false, true, false, None, &c), shared);
+        let base = border_for(Status::NeedsYou, false, true, false, &c);
+        // All the way in it is the ring, exactly (over "needs you" too: its pill still says
+        // that); all the way out, exactly the border it had.
+        assert_eq!(viewing::ring_over(base, 1.0, 1.0), primary);
+        assert_eq!(viewing::ring_over(base, 1.0, 0.0), shared);
+        assert_eq!(viewing::ring_over(base, 0.0, 1.0), base);
+        // Halfway, a blend of the two.
+        let (mid, w) = viewing::ring_over(base, 0.5, 1.0);
+        assert!(mid != base.0 && mid != primary.0 && w > base.1 && w < primary.1);
+        assert_ne!(border_for(Status::Idle, false, true, false, &c), shared);
     }
 
     /// Paints `pane` showing `agents` in an 800×600 window, with `events`.
     fn frame(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, events: Vec<egui::Event>) {
+        frame_viewing(ctx, pane, agents, time, events, &Viewing::default());
+    }
+
+    /// [`frame`], with `viewing` on screen.
+    fn frame_viewing(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, events: Vec<egui::Event>, viewing: &Viewing) {
         *time += 0.05;
         let theme = Theme::from_config(&crate::config::Config::default());
         let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), time: Some(*time), events, ..Default::default() };
         let _ = ctx.run(input, |ctx| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
                 let rect = ui.max_rect();
-                pane.paint(ui, ui.painter(), rect, 1, true, &theme, agents, &[], None, &Viewing::default());
+                pane.paint(ui, ui.painter(), rect, 1, true, &theme, agents, &[], None, viewing);
             });
         });
+    }
+
+    #[test]
+    fn a_card_and_a_helper_row_fade_their_viewing_mark_in_and_out() {
+        use crate::agents::motion::VIEW;
+        let ctx = egui::Context::default();
+        crate::render::fonts::install(&ctx, &crate::config::Config::default());
+        crate::ui::glide::set_animations(&ctx, true);
+        let list = Agents::new(vec![agent(1, None), agent(2, Some(1)), agent(9, None)]);
+        let mut pane = AgentsPane::new();
+        let mut time = 0.0;
+        let none = Viewing::default();
+        // Open the team and let everything settle, nothing on screen.
+        for _ in 0..2 {
+            frame(&ctx, &mut pane, &list, &mut time, vec![]);
+        }
+        pane.expanded.insert(1, false);
+        for _ in 0..14 {
+            frame(&ctx, &mut pane, &list, &mut time, vec![]);
+        }
+        let card = |pane: &AgentsPane, id, t| pane.view.motion.cards[&id].seen.shown(t);
+        let row = |pane: &AgentsPane, t| pane.view.motion.teams[&1].rows[&2].seen.shown(t);
+        assert_eq!((card(&pane, 9, time), row(&pane, time)), (0.0, 0.0));
+
+        // Card 9 is in the focused pane, helper 2 shares the tab: both ease in, partway after
+        // one frame (shorter than VIEW), all the way once VIEW has passed.
+        let on = Viewing { panes: vec![2, 9], primary: Some(9) };
+        frame_viewing(&ctx, &mut pane, &list, &mut time, vec![], &on);
+        let started = time;
+        frame_viewing(&ctx, &mut pane, &list, &mut time, vec![], &on);
+        let (c, r) = (card(&pane, 9, time), row(&pane, time));
+        assert!(c > 0.0 && c < 1.0 && r > 0.0 && r < 1.0, "fading in: {c} {r}");
+        assert!(pane.view.motion.cards[&9].busy(time));
+        while time < started + VIEW {
+            frame_viewing(&ctx, &mut pane, &list, &mut time, vec![], &on);
+        }
+        assert_eq!((card(&pane, 9, time), row(&pane, time)), (1.0, 1.0));
+        assert_eq!(pane.view.motion.cards[&9].seen.primary(time), 1.0);
+        assert!(!pane.view.motion.cards[&9].busy(time) && !pane.view.motion.teams[&1].busy(time), "settled: nothing left to redraw");
+
+        // Off screen again: they ease back out to exactly none.
+        frame_viewing(&ctx, &mut pane, &list, &mut time, vec![], &none);
+        let left = time;
+        frame_viewing(&ctx, &mut pane, &list, &mut time, vec![], &none);
+        assert!(card(&pane, 9, time) > 0.0 && card(&pane, 9, time) < 1.0);
+        while time < left + VIEW {
+            frame_viewing(&ctx, &mut pane, &list, &mut time, vec![], &none);
+        }
+        assert_eq!((card(&pane, 9, time), row(&pane, time)), (0.0, 0.0));
+        assert!(!pane.view.motion.cards[&9].busy(time));
     }
 
     fn click(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, at: Pos2) {

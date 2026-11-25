@@ -15,6 +15,11 @@ All notable changes to nex are documented here. The format follows
 - An open team card on the Agents pane no longer gets the "Viewing" ring and pill while only
   one of its helpers or stages is on screen: that row's tint shows it. A closed card, or one
   whose lead is on screen, is marked as before.
+- On the Agents tab, an agent card's "Viewing" highlight (its ring, glow and pill, and the
+  tint and eye on a pipeline helper's row) now fades in over a fifth of a second when its
+  agent comes on screen and fades back out when it leaves, instead of switching on and off
+  at once. Every card uses the same smooth curve, and an interrupted fade turns back from
+  where it is.
 
 ### Fixed
 
