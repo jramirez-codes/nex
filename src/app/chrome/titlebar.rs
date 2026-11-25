@@ -1,11 +1,13 @@
 //! The title bar: window buttons, the workspace (Files) label and the tab strip.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use egui::emath::TSTransform;
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
 use crate::agents::notify;
+use crate::agents::model::{AgentKind, Status, tile_phase};
 use crate::config::AgentsTab;
 use crate::layout::PaneId;
 use crate::platform;
@@ -345,7 +347,7 @@ impl App {
                 if f.content > 0.0 {
                     let mut p = painter.clone();
                     p.multiply_opacity(f.content);
-                    icons::app_tile(&p, d.icon, &g.process, g.mark.as_deref());
+                    icons::app_tile(&p, d.icon, &g.process, g.mark.as_deref(), None);
                     let color = if d.active { theme.text_bright } else { theme.text_dim };
                     let right = if self.strip.scroll.on { d.rect.right() - 10.0 } else { d.close.left() - 2.0 };
                     let width = right - d.text_left;
@@ -642,8 +644,10 @@ impl App {
         // The icon deck turns toward the focused pane; the tab's label is then read once, and
         // borrowed, for its icon and its title.
         let deck = self.tabs[i].deck_cards(&ctx, |id| id);
-        let (title, process) = self.pane_label(self.tab_header_pane(&self.tabs[i]));
+        let header = self.tab_header_pane(&self.tabs[i]);
+        let (title, process) = self.pane_label(header);
         let (mark, title) = icons::title_mark(process, &title);
+        let tile = self.pane_tile(&ctx, header, (process, mark));
 
         // Hairline separators between neighbours, hidden wherever the pill covers them.
         let boundary = (i + 1) as f32;
@@ -664,7 +668,7 @@ impl App {
             let (icon, text) = sidebar_tile_parts(r);
             // A tad smaller than the tile's icon square, leaving room for the deck to fan out.
             let icon = Rect::from_center_size(icon.center(), icon.size() * 0.84);
-            self.tab_icon(painter, &deck, (process, mark), icon, icons::SIDEBAR_STACK_STEP, true);
+            self.tab_icon(painter, &deck, tile, icon, icons::SIDEBAR_STACK_STEP, true);
             if self.tab_needs_attention(i) {
                 paint_attention(&ctx, painter, icon.left_top() + Vec2::splat(2.0), self.cfg.attention_color(), theme, self.cfg.animations);
             }
@@ -680,7 +684,7 @@ impl App {
         }
 
         let icon = Rect::from_center_size(Pos2::new(r.left() + 19.0, r.center().y), Vec2::splat(20.0));
-        let text_left = self.tab_icon(painter, &deck, (process, mark), icon, icons::STACK_STEP, false);
+        let text_left = self.tab_icon(painter, &deck, tile, icon, icons::STACK_STEP, false);
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
         // Phones have no hover (a tap counts as one), so no ×: tabs close from the pane
         // header's × instead, and the title gets the whole tab.
@@ -709,41 +713,56 @@ impl App {
         false
     }
 
-    /// The app tile pane `id` shows in its tab's icon deck: its process and title mark.
-    fn deck_card(&self, id: PaneId) -> (&str, Option<&str>) {
-        match self.pane(id) {
-            Some(PaneRef::Terminal(t)) => (&t.process, icons::title_mark(&t.process, t.title()).0),
+    /// The app tile pane `id` shows in its tab's icon deck: its process, title mark and
+    /// animation phase (see [`Self::pane_tile`]).
+    fn deck_card(&self, ctx: &egui::Context, id: PaneId) -> Tile<'_> {
+        let label = match self.pane(id) {
+            Some(PaneRef::Terminal(t)) => (&*t.process, icons::title_mark(&t.process, t.title()).0),
             Some(PaneRef::Explorer(_)) => (icons::EXPLORER_PROCESS, None),
             Some(PaneRef::Diff(_)) => (icons::DIFF_PROCESS, None),
             Some(PaneRef::Agents(_)) => (icons::AGENTS_PROCESS, None),
             None => Default::default(),
-        }
+        };
+        self.pane_tile(ctx, id, label)
+    }
+
+    /// The tile for pane `id`, whose own label is `label` (process and title mark): a pane
+    /// showing a pipeline gets the pipeline's tile, moving while it runs (see [`tab_tile`]).
+    fn pane_tile<'a>(&'a self, ctx: &egui::Context, id: PaneId, label: (&'a str, Option<&'a str>)) -> Tile<'a> {
+        tab_tile(label, self.pane_pipeline(id), glide::animations(ctx), ctx.input(|i| i.time))
     }
 
     /// The tab's icon: the focused pane's app tile, or a deck with one card per pane (focused
     /// on top, up to 3 peeking out behind, each `step` further). With `center`, the whole deck
     /// is centered on `icon` rather than fanning out from it. `deck` is each pane and its
-    /// card's depth (see [`Tab::deck_cards`]), `label` the tab's `(process, title mark)`.
+    /// card's depth (see [`Tab::deck_cards`]), `tile` the tab's own (see [`Self::pane_tile`]).
+    /// A running pipeline's tile keeps the strip repainting while it moves.
     /// Returns where the title text starts.
     ///
     /// [`Tab::deck_cards`]: crate::app::workspace::tab::Tab::deck_cards
-    fn tab_icon(&self, painter: &egui::Painter, deck: &[(PaneId, f32)], label: (&str, Option<&str>), icon: Rect, step: Vec2, center: bool) -> f32 {
-        let (process, mark) = label;
+    fn tab_icon(&self, painter: &egui::Painter, deck: &[(PaneId, f32)], tile: Tile<'_>, icon: Rect, step: Vec2, center: bool) -> f32 {
+        let ctx = painter.ctx();
         let mut text_left = icon.right() + 9.0;
-        if deck.len() > 1 {
-            let cards: Vec<(&str, Option<&str>, f32)> = deck
+        let moving = if deck.len() > 1 {
+            let cards: Vec<(&str, Option<&str>, Option<f32>, f32)> = deck
                 .iter()
                 .map(|&(id, depth)| {
-                    let (process, mark) = self.deck_card(id);
-                    (process, mark, depth)
+                    let (process, mark, phase) = self.deck_card(ctx, id);
+                    (process, mark, phase, depth)
                 })
                 .collect();
             let behind = (cards.len() as f32 - 1.0).min(icons::STACK_DEPTH - 1.0);
             let icon = if center { icon.translate(-step * behind / 2.0) } else { icon };
             icons::icon_stack(painter, icon, &cards, step);
             text_left += step.x * behind;
+            cards.iter().any(|c| c.2.is_some())
         } else {
-            icons::app_tile(painter, icon, process, mark);
+            let (process, mark, phase) = tile;
+            icons::app_tile(painter, icon, process, mark, phase);
+            phase.is_some()
+        };
+        if moving {
+            ctx.request_repaint_after(TILE_FRAME);
         }
         text_left
     }
@@ -838,9 +857,41 @@ pub(in crate::app) fn paint_lights(ui: &Ui, centers: impl Iterator<Item = Pos2>,
     }
 }
 
+/// An app tile to draw: process, title mark, and animation phase (see [`icons::app_tile`]).
+type Tile<'a> = (&'a str, Option<&'a str>, Option<f32>);
+
+/// How often a moving tab tile is redrawn.
+const TILE_FRAME: Duration = Duration::from_millis(50);
+
+/// The tile for a pane labelled `label` (its process and title mark) that shows a pipeline in
+/// state `pipeline`, if it shows one: the pipeline's tile then (a pane attached to one runs
+/// `ssh`), moving while the pipeline runs and `animate` is on, at `time` seconds. Otherwise
+/// its own, still.
+fn tab_tile<'a>(label: (&'a str, Option<&'a str>), pipeline: Option<Status>, animate: bool, time: f64) -> Tile<'a> {
+    match pipeline {
+        Some(status) => (icons::PIPELINE_PROCESS, None, tile_phase(AgentKind::Pipeline, status, animate, time)),
+        None => (label.0, label.1, None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tab_showing_a_pipeline_gets_its_tile_moving_while_it_runs() {
+        // The pane runs ssh (attached to the pipeline's session); its tab shows the pipeline.
+        let label = ("ssh", Some("✳"));
+        let running = Status::Working;
+        let (process, mark, phase) = tab_tile(label, Some(running), true, 0.4);
+        assert_eq!((process, mark), (icons::PIPELINE_PROCESS, None));
+        assert_eq!(phase, Some(icons::pipeline_phase(0.4)));
+        // Still when animations are off, or once it stops running.
+        assert_eq!(tab_tile(label, Some(running), false, 0.4), (icons::PIPELINE_PROCESS, None, None));
+        assert_eq!(tab_tile(label, Some(Status::Idle), true, 0.4), (icons::PIPELINE_PROCESS, None, None));
+        // Any other pane keeps its own tile, still.
+        assert_eq!(tab_tile(label, None, true, 0.4), ("ssh", Some("✳"), None));
+    }
 
     fn slots(gaps: Vec<(usize, f32)>) -> TabSlots {
         TabSlots { origin: Pos2::ZERO, size: Vec2::new(100.0, 30.0), vertical: false, shown: 3, pill: None, gaps, pill_shape: None, clip: None }

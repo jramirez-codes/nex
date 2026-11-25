@@ -8,6 +8,11 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- A running pipeline's icon moves: a highlight travels along its three steps about every
+  1.2 seconds, each dot swelling and brightening in turn as the line fills in behind it. It
+  moves on its card and helper row in the Agents pane and on the tab of a pane attached to
+  it, which now shows the pipeline's icon instead of ssh's. It rests as before once the
+  pipeline stops working, and stays still with `animations` off.
 - The Agents tab has a badge while you're on another tab: an amber dot while an agent needs
   you (a bubble counting them on the icon-only tab), or a smaller, quieter blue dot while one
   is done and you haven't looked at it. It scales and fades in and out, and hides while the

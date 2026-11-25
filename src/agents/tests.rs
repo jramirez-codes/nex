@@ -493,3 +493,26 @@ fn viewing_marks_the_agents_in_the_tabs_panes_the_focused_one_first() {
     assert_eq!(seen(&zoomed, 2), None);
     assert_eq!(seen(&Viewing::default(), 1), None);
 }
+
+#[test]
+fn a_pipelines_status_is_its_cards_working_while_a_stage_works() {
+    let now = Instant::now();
+    let pipe = |status| Probe { kind: AgentKind::Pipeline, ..remote("box", "p", status, now) };
+    let stage = |id: &str, status| {
+        let mut s = remote("box", id, status, now);
+        s.team.parent = Some(remote_key("box", "p"));
+        s
+    };
+    let key = remote_key("box", "p");
+    let mut t = Tracker::default();
+    // Its runner printing isn't it running; a stage working is.
+    t.update(vec![pipe(Status::Working), stage("a", Status::Idle)], now);
+    assert_eq!(t.pipeline_status(key), Some(Status::Idle));
+    t.update(vec![pipe(Status::Idle), stage("a", Status::Working)], now);
+    assert_eq!(t.pipeline_status(key), Some(Status::Working));
+    // Without stages yet, its own.
+    t.update(vec![pipe(Status::Working)], now);
+    assert_eq!(t.pipeline_status(key), Some(Status::Working));
+    // Not a pipeline: none.
+    assert_eq!(t.pipeline_status(remote_key("box", "a")), None);
+}
