@@ -23,6 +23,12 @@ All notable changes to nex are documented here. The format follows
   pipeline's card. The card keeps them only while the pipeline or lead itself is on screen.
   A closed card opens when one of its agents comes into view, so the row is there to see.
 
+### Fixed
+
+- In the Agents pane, a running pipeline's tile no longer freezes when one of its stages
+  finishes: its dots keep moving while any stage works, and the pane keeps redrawing
+  while any stage works or needs you.
+
 ## [0.15.0] - 2026-11-24
 
 ### Added

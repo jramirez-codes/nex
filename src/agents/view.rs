@@ -775,6 +775,10 @@ struct TileLook {
     badge: Option<(Badge, f32, f32)>,
     /// Where a Needs-you badge's breath is, 0 to 1 (0: still).
     breath: f32,
+    /// Whether the tile's dots move: a stage is at work. Not from the pipeline's status,
+    /// which is its most urgent stage's, so a finished stage nobody has looked at yet
+    /// (Done) hides one that still works.
+    moving: bool,
 }
 
 /// How a pipeline stands from its `stages`: the fraction done, the most urgent status among
@@ -786,19 +790,20 @@ fn pipeline_state(stages: &[&Agent]) -> Option<(f32, Status, bool)> {
 }
 
 /// `t` as drawn this frame: the working glow pulses with the status dots, the Needs-you
-/// badge breathes until looked at. With animations off, both hold still at full.
+/// badge breathes until looked at. With animations off, both hold still at full. The dots
+/// move while a stage is `working`.
 fn tile_look(f: &Frame, t: &TileMotion, working: bool) -> TileLook {
     let glow = match (working, f.animate) {
         (false, _) => 0.0,
         (true, false) => 1.0,
         (true, true) => 0.65 + 0.35 * (0.5 + 0.5 * (f.time as f32 * std::f32::consts::TAU * 0.55).sin()),
     };
-    TileLook { ring: t.ring(f.time), glow, badge: t.badge(f.time), breath: if t.breathing() { breath(f.time) } else { 0.0 } }
+    TileLook { ring: t.ring(f.time), glow, badge: t.badge(f.time), breath: if t.breathing() { breath(f.time) } else { 0.0 }, moving: working }
 }
 
 /// A pipeline's app tile `tile` with its ring (under) and badge (over).
 fn pipeline_tile(f: &Frame, p: &Painter, tile: Rect, agent: &Agent, look: Option<&TileLook>) {
-    let phase = agent.tile_phase(f.animate, f.time);
+    let phase = tile_phase(f, agent, look);
     let Some(look) = look else {
         icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref(), phase);
         return;
@@ -809,6 +814,16 @@ fn pipeline_tile(f: &Frame, p: &Painter, tile: Rect, agent: &Agent, look: Option
         Some((Badge::NeedsYou, scale, opacity)) => icons::badge_alert(p, tile, f.c.yellow, scale, opacity, look.breath),
         Some((Badge::Done, scale, opacity)) => icons::badge_done(p, tile, f.c.green, scale, opacity),
         None => {}
+    }
+}
+
+/// Where `agent`'s tile is in its motion this frame, or `None` when it's still. A pipeline
+/// with stages (`look`) moves while one of them works, or while it is itself at work between
+/// two; without, while its status says it works.
+fn tile_phase(f: &Frame, agent: &Agent, look: Option<&TileLook>) -> Option<f32> {
+    match look {
+        Some(l) if l.moving && f.animate => Some(icons::pipeline_phase(f.time)),
+        _ => agent.tile_phase(f.animate, f.time),
     }
 }
 
@@ -1254,10 +1269,11 @@ fn needs_you_tint(f: &Frame) -> Color32 {
 }
 
 /// Whether anything on a team's card moves, so the pane keeps repainting: its lead's dot, a
-/// stage's glowing ring end (and a pipeline lead's tile) while it works, a Needs-you
-/// capsule's tint, or a running pipeline's tile among its helpers.
+/// stage's glowing ring end (and a pipeline's tile) while it works, a Needs-you capsule's
+/// tint, or a running pipeline's tile among its helpers. A member at work counts even when
+/// the lead's status doesn't say so (a pipeline's Done stage outranks its Working one).
 fn team_breathes(g: &Group) -> bool {
-    g.lead.status == Status::Working || g.members.iter().any(|m| m.agent.status == Status::NeedsYou || m.agent.tile_animates())
+    g.lead.status == Status::Working || g.members.iter().any(|m| matches!(m.agent.status, Status::Working | Status::NeedsYou) || m.agent.tile_animates())
 }
 
 /// The status dot. While working it breathes, and a soft ring keeps rippling out of it.
@@ -1386,6 +1402,34 @@ mod tests {
         // Nothing working: still.
         let agents = Agents::new(vec![pipeline(1, Status::Idle), agent(2, Some(1))]);
         assert!(groups(&agents).iter().all(|g| !team_breathes(g)));
+    }
+
+    #[test]
+    fn a_pipeline_tile_keeps_moving_while_a_stage_works() {
+        let with = |pane, status| Agent { status, ..agent(pane, Some(1)) };
+        // The pipeline's card and whether its tile's dots move.
+        let state = |agents: &Agents| {
+            let g = groups(agents).into_iter().find(|g| g.key() == 1).unwrap();
+            let stages: Vec<Agent> = g.direct().map(|m| (*m.agent).clone()).collect();
+            let (_, _, moving) = pipeline_state(&stages.iter().collect::<Vec<_>>()).unwrap();
+            (g, moving)
+        };
+        // Build done (not looked at yet), merge working: the card says Done, but it runs on.
+        let agents = Agents::new(vec![pipeline(1, Status::Idle), with(2, Status::Done), with(3, Status::Working)]);
+        let (g, moving) = state(&agents);
+        assert_eq!(g.lead.status, Status::Done, "Done outranks Working");
+        assert!(moving && team_breathes(&g));
+        // Merge needs you, nothing works: the tile is still, the badge breathes.
+        let agents = Agents::new(vec![pipeline(1, Status::Idle), with(2, Status::Done), with(3, Status::NeedsYou)]);
+        let (g, moving) = state(&agents);
+        assert!(!moving && team_breathes(&g));
+        // Every stage done: still.
+        let agents = Agents::new(vec![pipeline(1, Status::Idle), with(2, Status::Done), with(3, Status::Done)]);
+        let (g, moving) = state(&agents);
+        assert!(!moving && !team_breathes(&g));
+        let agents = Agents::new(vec![pipeline(1, Status::Idle), with(2, Status::Idle), with(3, Status::Done)]);
+        let (g, moving) = state(&agents);
+        assert!(!moving && !team_breathes(&g));
     }
 
     #[test]
