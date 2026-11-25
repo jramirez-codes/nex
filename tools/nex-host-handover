@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""Move idle agents onto a newly installed nex-host.
+
+A running nex-host daemon keeps serving its old code after a newer one is installed,
+and only retires once none of its agents is running (nex-host/src/daemon/retire.rs).
+This waits until every agent it holds has been idle for a while, then:
+
+  1. notes each agent: argv, name, cwd, environment (from /proc), Claude session id, parent
+  2. kills them (the old daemon then retires; if it doesn't, it gets a SIGTERM)
+  3. starts the installed nex-host and relaunches each agent there, resumed
+     (`claude --resume <session id>`, `codex resume --last`), children under their
+     relaunched parents
+
+Panes attached to the old sessions show them ended; open the new ones from the Agents tab.
+
+  tools/nex-host-handover             wait for idle, hand over once, exit
+  tools/nex-host-handover --watch     keep watching for later installs too
+  tools/nex-host-handover --dry-run   say what it would do, change nothing
+  tools/nex-host-handover --now       don't wait for a newer version (restart anyway)
+
+Run it in the background, detached from any agent (it kills them):
+  setsid nohup tools/nex-host-handover --watch >/dev/null 2>&1 &
+It logs to ~/.nex/run/handover.log.
+"""
+
+import argparse
+import json
+import os
+import re
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import time
+
+HOME = os.environ.get("NEX_HOME") or os.path.expanduser("~/.nex")
+SOCK = os.path.join(HOME, "run", "sock")
+BIN = os.path.join(HOME, "bin", "nex-host")
+LOG = os.path.join(HOME, "run", "handover.log")
+# Set by the daemon for each agent (pty::agent_env); the new one sets its own.
+DAEMON_ENV = {"TERM", "COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "NEX_HOST", "NEX_AGENT_ID", "NEX_AGENT_NAME", "NEX_SOCK"}
+# Claude Code's flags that pick a conversation; replaced by --resume <id>.
+CLAUDE_PICK = {"--resume", "-r", "--continue", "-c", "--session-id", "--fork-session"}
+CLAUDE_PICK_VALUE = {"--resume", "-r", "--session-id"}
+
+
+def log(msg):
+    line = time.strftime("%Y-%m-%d %H:%M:%S ") + msg
+    print(line, flush=True)
+    try:
+        with open(LOG, "a") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
+def rpc(req, timeout=10):
+    """One request to the running daemon: (response, daemon pid). None if none runs."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect(SOCK)
+    except OSError:
+        return None, None
+    pid = None
+    try:
+        cred = s.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+        pid = struct.unpack("3i", cred)[0]
+    except (OSError, AttributeError):
+        pass
+    with s:
+        s.sendall((json.dumps(req) + "\n").encode())
+        line = s.makefile("rb").readline()
+    return (json.loads(line) if line else None), pid
+
+
+def parse_version(line):
+    m = re.match(r"nex-host (\d+(?:\.\d+)*)\S* \(protocol (\d+)\)", line or "")
+    return (tuple(map(int, m.group(1).split("."))), int(m.group(2))) if m else None
+
+
+def installed_version():
+    try:
+        return subprocess.run([BIN, "--version"], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def daemon_version():
+    r, pid = rpc({"op": "version"})
+    if r is None:
+        return None, None
+    return (r.get("text") if r.get("ok") else "older"), pid
+
+
+def needs_handover(force):
+    """(why, daemon pid) when the running daemon should give way, else (None, pid)."""
+    running, pid = daemon_version()
+    if running is None:
+        return None, None
+    new = installed_version()
+    if force:
+        return f"restart requested ({running})", pid
+    a, b = parse_version(running), parse_version(new)
+    if running == "older" or (a and b and a < b):
+        return f"{running} is running, {new} is installed", pid
+    return None, pid
+
+
+def sessions():
+    r, _ = rpc({"op": "list"})
+    return (r or {}).get("sessions") or []
+
+
+def live(ss):
+    return [s for s in ss if s.get("exit") is None]
+
+
+def agent_kind(s):
+    return s.get("running") or s.get("kind")
+
+
+def blocker(s, quiet_ms, now):
+    """Why session `s` isn't safe to stop yet, or None."""
+    kind = agent_kind(s)
+    if s["kind"] == "pipeline":
+        return "a pipeline is running"
+    if s.get("status") != "idle":
+        return s.get("status", "?")
+    if any(not sa.get("done") for sa in s.get("subagents") or []):
+        return "sub-agents running"
+    # Claude Code says itself when it's idle, and redraws its status line while it is, so
+    # its output doesn't count; only keys typed and messages sent to it do (a half-typed
+    # prompt would be lost). Anything else has to have stopped printing too.
+    said_idle = (s.get("claude") or {}).get("status") is not None
+    last = max(s.get("last_input", 0), s.get("last_message", 0), 0 if said_idle else s.get("last_output", 0))
+    if now - last < quiet_ms:
+        return f"active {int((now - last) / 1000)}s ago"
+    if kind == "claude" and not (s.get("claude") or {}).get("session_id"):
+        return "no Claude session id to resume"
+    return None
+
+
+def env_of(pid):
+    try:
+        raw = open(f"/proc/{pid}/environ", "rb").read()
+    except OSError:
+        return None
+    env = []
+    for kv in raw.split(b"\0"):
+        k, sep, v = kv.decode(errors="replace").partition("=")
+        if sep and k not in DAEMON_ENV:
+            env.append([k, v])
+    return env
+
+
+def resume_argv(s):
+    """The command that brings `s` back, or None when it's not one to bring back."""
+    argv = list(s.get("argv") or [])
+    kind = agent_kind(s)
+    if kind == "claude":
+        sid = (s.get("claude") or {}).get("session_id")
+        if not argv or os.path.basename(argv[0]) != "claude":
+            argv = ["claude"]
+        out, skip = [argv[0]], False
+        for a in argv[1:]:
+            if skip:
+                skip = False
+                continue
+            flag = a.split("=", 1)[0]
+            if flag in CLAUDE_PICK:
+                # `--resume` may come without a value; only skip the next one if it isn't a flag.
+                skip = flag in CLAUDE_PICK_VALUE and "=" not in a
+                continue
+            out.append(a)
+        return out + ["--resume", sid]
+    if kind == "codex":
+        # Codex's session id isn't listed; its most recent in that directory is the one.
+        rest = [a for a in argv[1:] if a not in ("resume", "--last")] if argv and os.path.basename(argv[0]) == "codex" else []
+        return ["codex", "resume", "--last"] + rest
+    return None  # a plain shell: nothing to resume
+
+
+def snapshot(s):
+    return {
+        "old": s["id"],
+        "name": s.get("name"),
+        "kind": agent_kind(s),
+        "cwd": (s.get("claude") or {}).get("cwd") or s.get("cwd"),
+        "argv": resume_argv(s),
+        "env": env_of(s.get("pid")),
+        "parent": s.get("parent"),
+    }
+
+
+def wait_gone(pid, limit):
+    end = time.time() + limit
+    while time.time() < end:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def launch(snap, parent):
+    req = {"op": "launch", "argv": snap["argv"], "kind": snap["kind"], "name": snap["name"], "cwd": snap["cwd"], "cols": 120, "rows": 40}
+    if snap["env"]:
+        req["env"] = snap["env"]
+    if parent:
+        req["parent"] = parent
+    r = None
+    for _ in range(3):
+        start_daemon()
+        r, _ = rpc(req)
+        if r and r.get("ok"):
+            return r.get("id")
+        time.sleep(1)
+    log(f"  could not relaunch {snap['name']}: {(r or {}).get('error') or 'no daemon answered'}")
+    return None
+
+
+def start_daemon():
+    """Start the installed nex-host's daemon if none answers, as its own client does."""
+    if rpc({"op": "version"})[0] is not None:
+        return
+    subprocess.Popen([BIN, "daemon"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(100):
+        if rpc({"op": "version"})[0] is not None:
+            return
+        time.sleep(0.1)
+
+
+def handover(args, why, dpid):
+    ss = live(sessions())
+    snaps = [snapshot(s) for s in ss]
+    keep = [x for x in snaps if x["argv"]]
+    drop = [x for x in snaps if not x["argv"]]
+    log(f"handing over: {why}")
+    for x in keep:
+        log(f"  {x['old']} {x['name']!r} in {x['cwd']}: will run {' '.join(x['argv'])}")
+    for x in drop:
+        log(f"  {x['old']} {x['name']!r}: a shell, stopped and not brought back")
+    if args.dry_run:
+        log("dry run: nothing changed")
+        return True
+
+    # Children first, so nothing ends because its parent did before we stop it.
+    ids = {x["old"] for x in snaps}
+    depth = lambda x: 1 + depth(next(y for y in snaps if y["old"] == x["parent"])) if x["parent"] in ids else 0
+    for x in sorted(snaps, key=depth, reverse=True):
+        rpc({"op": "kill", "id": x["old"]})
+    end = time.time() + 20
+    while live(sessions()) and time.time() < end:
+        time.sleep(0.5)
+    if live(sessions()):
+        log("  some sessions didn't end; leaving the old daemon up and relaunching nothing")
+        return False
+
+    if dpid and not wait_gone(dpid, 5):
+        # A same-version restart (--now), or retire didn't notice yet: nothing runs, so end it.
+        log(f"  old daemon {dpid} still up with nothing running; stopping it")
+        os.kill(dpid, signal.SIGTERM)
+        if not wait_gone(dpid, 10):
+            log("  it didn't exit; giving up before relaunching anything")
+            return False
+
+    new = {}
+    for x in sorted(keep, key=depth):
+        parent = new.get(x["parent"]) if x["parent"] else None
+        nid = launch(x, parent)
+        if nid:
+            new[x["old"]] = nid
+            log(f"  {x['name']!r}: {x['old']} -> {nid}")
+    log(f"done: now on {daemon_version()[0]}, {len(new)}/{len(keep)} agents back")
+    return True
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--watch", action="store_true", help="keep watching after a handover")
+    ap.add_argument("--dry-run", action="store_true", help="say what would happen, change nothing")
+    ap.add_argument("--now", action="store_true", help="hand over even without a newer version")
+    ap.add_argument("--quiet", type=int, default=120, metavar="SECS", help="how long every agent must have been quiet (default 120)")
+    ap.add_argument("--every", type=int, default=15, metavar="SECS", help="how often to check (default 15)")
+    args = ap.parse_args()
+
+    if not os.path.exists("/proc/self/environ"):
+        sys.exit("nex-host-handover needs /proc (Linux) to carry each agent's environment over")
+    if os.environ.get("NEX_AGENT_ID"):
+        log("note: running inside agent session %s; it is killed too, so detach this (setsid nohup … &)" % os.environ["NEX_AGENT_ID"])
+
+    last_wait = None
+    while True:
+        why, dpid = needs_handover(args.now)
+        if why:
+            ss = live(sessions())
+            now = int(time.time() * 1000)
+            waits = [f"{s['name']!r}: {b}" for s in ss if (b := blocker(s, args.quiet * 1000, now))]
+            if waits:
+                msg = "waiting on " + "; ".join(waits)
+                if msg != last_wait:
+                    log(msg)
+                    last_wait = msg
+            else:
+                # Check once more right before acting, so a key pressed just now counts.
+                time.sleep(2)
+                now = int(time.time() * 1000)
+                if not any(blocker(s, args.quiet * 1000, now) for s in live(sessions())):
+                    ok = handover(args, why, dpid)
+                    last_wait = None
+                    args.now = False
+                    if (ok and not args.watch) or args.dry_run:
+                        return
+        time.sleep(args.every)
+
+
+if __name__ == "__main__":
+    main()
