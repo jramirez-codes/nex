@@ -240,6 +240,14 @@ impl App {
         self.home_active = true;
     }
 
+    /// The status of the pipeline terminal pane `id` shows, if it shows one (`nex-host pipe`
+    /// on an ssh host, attached to from that pane), as its card says: its tab gets the
+    /// pipeline's tile.
+    pub(in crate::app) fn pane_pipeline(&self, id: PaneId) -> Option<Status> {
+        let tracker = &self.agent_tracker;
+        tracker.agents().iter().filter(|a| a.kind == AgentKind::Pipeline && a.shown_pane() == Some(id)).find_map(|a| tracker.pipeline_status(a.pane))
+    }
+
     /// Show the agent behind card `key`: jump to its pane, or, for an agent on an ssh host
     /// that no pane shows, open a tab attached to it.
     pub(in crate::app) fn focus_agent(&mut self, ctx: &egui::Context, key: PaneId) {

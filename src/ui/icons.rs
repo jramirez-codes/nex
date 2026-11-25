@@ -9,6 +9,7 @@ use crate::layout::Axis;
 use crate::render::FONT_ICONS;
 
 use super::file_icons::{paint_glyph, paint_glyph_ink};
+use super::glide::Lerp;
 use super::paint::{bold, top_radius};
 
 /// Pseudo process name for file-explorer panes, so they get a folder tile and header glyph.
@@ -127,8 +128,9 @@ fn is_light(c: Color32) -> bool {
 ///
 /// `r` may be narrower than it is tall (a card mid-flip); the glyph then shrinks and fades
 /// with the squash instead of spilling past the tile's edges.
-/// `mark` (see [`title_mark`]) replaces the tile's own glyph.
-pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>) {
+/// `mark` (see [`title_mark`]) replaces the tile's own glyph. `phase` (see [`pipeline_phase`])
+/// is where a running pipeline's glyph is in its cycle; `None` draws it at rest.
+pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>, phase: Option<f32>) {
     let radius = (r.width().min(r.height()) * 0.26) as u8;
     let k = kind(process);
     let base = match k {
@@ -177,7 +179,7 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>) {
         Kind::Folder => icon_folder(&p, Rect::from_center_size(r.center(), Vec2::new(r.width() * 0.6, r.height() * 0.48)), fg),
         Kind::Diff => paint_glyph(&p, r.center(), r.width() * 0.56, GIT_LOGO, fg),
         Kind::Agents => sparkles(&p, r, fg),
-        Kind::Pipeline => steps(&p, r, fg),
+        Kind::Pipeline => steps(&p, r, fg, phase),
         Kind::Other => {
             p.text(r.center() + Vec2::new(0.0, 0.5), Align2::CENTER_CENTER, initial(process), bold(r.height() * 0.58), fg);
         }
@@ -320,16 +322,16 @@ fn stack_rest(t: f32, step: Vec2) -> (Vec2, f32, f32) {
 
 /// A deck of app tiles, one per pane, with the focused pane on top.
 ///
-/// `cards` holds `(process, depth)` for every pane of the tab, where depth is a continuous
+/// `cards` holds `(process, mark, phase, depth)` for every pane of the tab, where depth is a continuous
 /// position in `[0, n)` (0 = top). A card between `n - 1` and `n` is mid-flip: travelling
 /// between the top of the deck and the back, squashing like a card turned edge-on. Each card
 /// behind the top one is offset by another `step`.
-pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, Option<&str>, f32)], step: Vec2) {
+pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, Option<&str>, Option<f32>, f32)], step: Vec2) {
     use std::f32::consts::PI;
     let n = cards.len() as f32;
-    // (z-order key, rect, opacity, process, mark); larger keys are painted first (further back).
-    let mut draws: Vec<(f32, Rect, f32, &str, Option<&str>)> = Vec::with_capacity(cards.len());
-    for &(process, mark, depth) in cards {
+    // (z-order key, rect, opacity, card); larger keys are painted first (further back).
+    let mut draws: Vec<(f32, Rect, f32, usize)> = Vec::with_capacity(cards.len());
+    for (i, &(_, _, _, depth)) in cards.iter().enumerate() {
         let (offset, scale, alpha, width, z) = if n > 1.0 && depth > n - 1.0 {
             // u: 0 = on top, 1 = resting at the back.
             let u = (n - depth).clamp(0.0, 1.0);
@@ -352,13 +354,14 @@ pub fn icon_stack(p: &Painter, r: Rect, cards: &[(&str, Option<&str>, f32)], ste
         }
         let size = r.size() * scale;
         let rect = Rect::from_center_size(r.center() + offset, Vec2::new(size.x * width, size.y));
-        draws.push((z, rect, alpha, process, mark));
+        draws.push((z, rect, alpha, i));
     }
     draws.sort_by(|a, b| b.0.total_cmp(&a.0));
-    for (_, rect, alpha, process, mark) in draws {
+    for (_, rect, alpha, i) in draws {
+        let (process, mark, phase, _) = cards[i];
         let mut p = p.clone();
         p.multiply_opacity(alpha);
-        app_tile(&p, rect, process, mark);
+        app_tile(&p, rect, process, mark, phase);
     }
 }
 
@@ -378,7 +381,7 @@ pub fn header_glyph(p: &Painter, r: Rect, process: &str, mark: Option<&str>, col
         Kind::Folder => icon_folder(p, Rect::from_center_size(r.center(), Vec2::new(r.width(), r.height() * 0.82)), color),
         Kind::Diff => paint_glyph(p, r.center(), r.width() * 1.05, GIT_LOGO, color),
         Kind::Agents => sparkles(p, r.expand(r.width() * 0.2), color),
-        Kind::Pipeline => steps(p, r.expand(r.width() * 0.15), color),
+        Kind::Pipeline => steps(p, r.expand(r.width() * 0.15), color, None),
         Kind::Shell => {
             let rr = Rect::from_center_size(r.center(), Vec2::new(r.width(), r.height() * 0.82));
             p.rect_filled(rr, 3, color);
@@ -419,17 +422,74 @@ fn sparkles(p: &Painter, r: Rect, color: Color32) {
     sparkle(p, r.center() + Vec2::new(s * 0.22, -s * 0.22), s * 0.12, color);
 }
 
+/// How long a running pipeline's highlight takes to travel along its steps and start over.
+pub const PIPELINE_CYCLE: f64 = 1.2;
+
+/// Where a running pipeline's glyph is in its cycle at `time` (seconds): 0 to 1.
+pub fn pipeline_phase(time: f64) -> f32 {
+    (time / PIPELINE_CYCLE).rem_euclid(1.0) as f32
+}
+
+/// The share of a cycle the highlight spends travelling; the rest, the filled line fades
+/// back out before the next run.
+const STEPS_TRAVEL: f32 = 0.8;
+
+/// Where the highlight is along the steps (0 = first dot, 2 = last) at `phase`, and how much
+/// of the line behind it is lit (1 while travelling, fading to 0 after).
+fn steps_highlight(phase: f32) -> (f32, f32) {
+    let phase = phase.clamp(0.0, 1.0);
+    if phase < STEPS_TRAVEL {
+        (2.0 * super::glide::ease_in_out(phase / STEPS_TRAVEL), 1.0)
+    } else {
+        let fade = (phase - STEPS_TRAVEL) / (1.0 - STEPS_TRAVEL);
+        (2.0, 1.0 - super::glide::smoothstep(fade))
+    }
+}
+
+/// How lit dot `i` is with the highlight at `pos`: 1 under it, easing to 0 a dot away.
+fn steps_glow(pos: f32, i: usize) -> f32 {
+    super::glide::smoothstep(1.0 - (pos - i as f32).abs())
+}
+
 /// A pipeline: three steps joined by a line, the first two done (filled), the last to come.
-fn steps(p: &Painter, r: Rect, color: Color32) {
+/// With a `phase` (it's running), a highlight travels along them: each dot in turn swells and
+/// brightens, and the line fills in behind it.
+fn steps(p: &Painter, r: Rect, color: Color32, phase: Option<f32>) {
     let s = r.width().min(r.height());
     let y = r.center().y;
     let xs = [-0.27, 0.0, 0.27].map(|f| r.center().x + s * f);
     let radius = s * 0.085;
     let stroke = Stroke::new((s * 0.055).max(1.0), color);
-    p.line_segment([Pos2::new(xs[0] + radius, y), Pos2::new(xs[2] - radius, y)], stroke);
-    p.circle_filled(Pos2::new(xs[0], y), radius, color);
-    p.circle_filled(Pos2::new(xs[1], y), radius, color);
-    p.circle_stroke(Pos2::new(xs[2], y), radius, stroke);
+    let Some(phase) = phase else {
+        p.line_segment([Pos2::new(xs[0] + radius, y), Pos2::new(xs[2] - radius, y)], stroke);
+        p.circle_filled(Pos2::new(xs[0], y), radius, color);
+        p.circle_filled(Pos2::new(xs[1], y), radius, color);
+        p.circle_stroke(Pos2::new(xs[2], y), radius, stroke);
+        return;
+    };
+    let (pos, lit) = steps_highlight(phase);
+    let dim = color.gamma_multiply(0.55);
+    // The line: dim, then lit from the first dot up to the highlight.
+    p.line_segment([Pos2::new(xs[0] + radius, y), Pos2::new(xs[2] - radius, y)], Stroke::new(stroke.width, dim));
+    let head = xs[0] + (xs[2] - xs[0]) * pos / 2.0;
+    if lit > 0.0 && head > xs[0] + radius {
+        p.line_segment([Pos2::new(xs[0] + radius, y), Pos2::new(head.min(xs[2] - radius), y)], Stroke::new(stroke.width, color.gamma_multiply(lit)));
+    }
+    for (i, &x) in xs.iter().enumerate() {
+        let glow = steps_glow(pos, i);
+        let at = Pos2::new(x, y);
+        let rad = radius * (1.0 + 0.3 * glow);
+        let c = Color32::lerp(dim, color, glow.max(if i < 2 { 0.3 * lit } else { 0.0 }));
+        if i < 2 {
+            p.circle_filled(at, rad, c);
+        } else {
+            // The step to come fills in while the highlight is on it.
+            p.circle_stroke(at, rad, Stroke::new(stroke.width, c));
+            if glow > 0.0 {
+                p.circle_filled(at, rad, color.gamma_multiply(glow));
+            }
+        }
+    }
 }
 
 fn hexagon(p: &Painter, c: Pos2, radius: f32, stroke: Stroke, fill: Option<Color32>) {
@@ -746,6 +806,28 @@ mod tests {
         ctx.set_pixels_per_point(ppp);
         let _ = ctx.run(Default::default(), |_| {});
         ctx
+    }
+
+    #[test]
+    fn the_pipeline_highlight_travels_the_steps_then_fades() {
+        assert_eq!(pipeline_phase(0.0), 0.0);
+        assert!((pipeline_phase(PIPELINE_CYCLE * 2.5) - 0.5).abs() < 1e-5);
+        assert!((0.0..1.0).contains(&pipeline_phase(-0.3)));
+        // On the first dot at the start, on the last once it has travelled, lit all the way.
+        assert_eq!(steps_highlight(0.0), (0.0, 1.0));
+        assert_eq!(steps_highlight(STEPS_TRAVEL), (2.0, 1.0));
+        let (mid, _) = steps_highlight(STEPS_TRAVEL / 2.0);
+        assert!((mid - 1.0).abs() < 1e-5);
+        // It only moves forward.
+        let positions: Vec<f32> = (0..=8).map(|i| steps_highlight(STEPS_TRAVEL * i as f32 / 8.0).0).collect();
+        assert!(positions.windows(2).all(|w| w[1] >= w[0]));
+        // Then the line fades back before the next run.
+        assert_eq!(steps_highlight(1.0), (2.0, 0.0));
+        // Each dot in turn is the lit one.
+        for i in 0..3 {
+            assert_eq!(steps_glow(i as f32, i), 1.0);
+            assert_eq!(steps_glow(i as f32, (i + 1) % 3), 0.0);
+        }
     }
 
     /// Every pane header icon, drawn in the same icon rect, has the same ink height and the

@@ -307,6 +307,31 @@ impl Agent {
     pub fn shown_pane(&self) -> Option<PaneId> {
         shown_pane(self.pane, &self.source)
     }
+
+    /// Whether its app tile moves: a pipeline's does while it's running.
+    pub fn tile_animates(&self) -> bool {
+        tile_animates(self.kind, self.status)
+    }
+
+    /// Where its app tile's motion is at `time` (seconds), or `None` when the tile is still
+    /// (see [`tile_phase`]).
+    pub fn tile_phase(&self, animate: bool, time: f64) -> Option<f32> {
+        tile_phase(self.kind, self.status, animate, time)
+    }
+}
+
+/// Whether an agent of `kind` in `status` has a moving app tile: a pipeline that's running.
+pub fn tile_animates(kind: AgentKind, status: Status) -> bool {
+    kind == AgentKind::Pipeline && status == Status::Working
+}
+
+/// Where the app tile of an agent of `kind` in `status` is in its motion at `time` (seconds;
+/// see [`icons::pipeline_phase`]), or `None` when it's still: it isn't a running pipeline, or
+/// animations are off (`animate`).
+///
+/// [`icons::pipeline_phase`]: crate::ui::icons::pipeline_phase
+pub fn tile_phase(kind: AgentKind, status: Status, animate: bool, time: f64) -> Option<f32> {
+    (animate && tile_animates(kind, status)).then(|| crate::ui::icons::pipeline_phase(time))
 }
 
 /// The panes the Agents pane marks "Viewing": those of the tab on screen (on the Agents tab,
@@ -459,6 +484,9 @@ pub struct Tracker {
     agents: Agents,
     /// How many of them are in each state, in numbers and words, as of the last change.
     tally: Tally,
+    /// Each pipeline's status as its card shows it (see [`Tracker::pipeline_status`]), as of
+    /// the last change.
+    pipelines: HashMap<PaneId, Status>,
     since: HashMap<PaneId, (Status, Instant)>,
     /// The pane being looked at (the shown tab's focused pane, window focused).
     seen: Option<PaneId>,
@@ -527,6 +555,7 @@ impl Tracker {
 
     /// The list changed: count it again, and reword the counts if they came out different.
     fn recount(&mut self) {
+        self.pipelines = pipeline_statuses(&self.agents);
         let mut c = Counts::default();
         for a in self.agents.iter().filter(|a| a.kind != AgentKind::Pipeline && !a.team.sub) {
             match a.status {
@@ -579,6 +608,15 @@ impl Tracker {
         &self.agents
     }
 
+    /// The status of the pipeline with key `pane`, as its card in the Agents pane shows it: a
+    /// pipeline with stages is as far along as they are (its runner printing doesn't count;
+    /// see [`groups`]), one inside a team its own. `None` if it isn't a pipeline.
+    ///
+    /// [`groups`]: super::group::groups
+    pub fn pipeline_status(&self, pane: PaneId) -> Option<Status> {
+        self.pipelines.get(&pane).copied()
+    }
+
     /// How many agents are in each state (a pipeline isn't one: its stages are; nor is a
     /// sub-agent: its agent is). Counted when the list changes, not here.
     pub fn counts(&self) -> Counts {
@@ -594,6 +632,20 @@ impl Tracker {
     pub fn headline(&self) -> &str {
         &self.tally.headline
     }
+}
+
+/// Each pipeline's status as the Agents pane shows it: a team's lead by its stages, any
+/// other by its own.
+fn pipeline_statuses(agents: &[Arc<Agent>]) -> HashMap<PaneId, Status> {
+    if !agents.iter().any(|a| a.kind == AgentKind::Pipeline) {
+        return HashMap::new();
+    }
+    let leads: HashMap<PaneId, Status> = super::group::groups(agents).iter().map(|g| (g.key(), g.lead.status)).collect();
+    agents
+        .iter()
+        .filter(|a| a.kind == AgentKind::Pipeline)
+        .map(|a| (a.pane, leads.get(&a.pane).copied().unwrap_or(a.status)))
+        .collect()
 }
 
 /// The order the list is in: by status, then tab, then pane.

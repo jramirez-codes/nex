@@ -691,9 +691,13 @@ impl App {
             for g in self.strip.tab_ghosts.iter_mut().filter(|g| g.index > index) {
                 g.index -= 1;
             }
-            let (title, process) = label.unwrap_or_else(|| self.pane_label_owned(self.tab_header_pane(&tab)));
+            let (title, mut process) = label.unwrap_or_else(|| self.pane_label_owned(self.tab_header_pane(&tab)));
             let (mark, title) = icons::title_mark(&process, &title);
-            let (mark, title) = (mark.map(str::to_string), title.to_string());
+            let (mut mark, title) = (mark.map(str::to_string), title.to_string());
+            // A tab showing a pipeline closes with the pipeline's tile it had (at rest).
+            if self.pane_pipeline(self.tab_header_pane(&tab)).is_some() {
+                (process, mark) = (icons::PIPELINE_PROCESS.to_string(), None);
+            }
             let drawn = TabDrawn { active: drawn.active && !self.home_active, ..drawn };
             self.strip.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
         }

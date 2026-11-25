@@ -478,8 +478,7 @@ impl AgentsPane {
             p.multiply_opacity(opacity);
             match team {
                 Some(g) => {
-                    // Working dots and a stage's glowing ring end; a Needs-you capsule's tint.
-                    breathing |= g.lead.status == Status::Working || g.members.iter().any(|m| m.agent.status == Status::NeedsYou);
+                    breathing |= team_breathes(&g);
                     let leaving = card.leaving;
                     // Its rows and capsules slide, unless the card itself was resized.
                     let inside = motion.teams.entry(id).or_default();
@@ -776,12 +775,13 @@ fn tile_look(f: &Frame, t: &TileMotion, working: bool) -> TileLook {
 
 /// A pipeline's app tile `tile` with its ring (under) and badge (over).
 fn pipeline_tile(f: &Frame, p: &Painter, tile: Rect, agent: &Agent, look: Option<&TileLook>) {
+    let phase = agent.tile_phase(f.animate, f.time);
     let Some(look) = look else {
-        icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref());
+        icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref(), phase);
         return;
     };
     icons::tile_ring(p, tile, look.ring, ACCENT, look.glow);
-    icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref());
+    icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref(), phase);
     match look.badge {
         Some((Badge::NeedsYou, scale, opacity)) => icons::badge_alert(p, tile, f.c.yellow, scale, opacity, look.breath),
         Some((Badge::Done, scale, opacity)) => icons::badge_done(p, tile, f.c.green, scale, opacity),
@@ -1223,6 +1223,13 @@ fn needs_you_tint(f: &Frame) -> Color32 {
     f.c.yellow.gamma_multiply(strength)
 }
 
+/// Whether anything on a team's card moves, so the pane keeps repainting: its lead's dot, a
+/// stage's glowing ring end (and a pipeline lead's tile) while it works, a Needs-you
+/// capsule's tint, or a running pipeline's tile among its helpers.
+fn team_breathes(g: &Group) -> bool {
+    g.lead.status == Status::Working || g.members.iter().any(|m| m.agent.status == Status::NeedsYou || m.agent.tile_animates())
+}
+
 /// The status dot. While working it breathes, and a soft ring keeps rippling out of it.
 fn status_dot(f: &Frame, p: &Painter, at: Pos2, status: Status, color: Color32) {
     if status != Status::Working || !f.animate {
@@ -1309,6 +1316,46 @@ mod tests {
 
         // Cut off after the first stage: its line still runs on, out of the list.
         assert_eq!(branch_slots(list, g, 1), [(slot(0), false)]);
+    }
+
+    fn pipeline(pane: PaneId, status: Status) -> Agent {
+        Agent { kind: AgentKind::Pipeline, status, ..agent(pane, None) }
+    }
+
+    #[test]
+    fn only_a_running_pipelines_tile_moves_and_only_with_animations_on() {
+        let t = 0.3;
+        assert!(pipeline(1, Status::Working).tile_phase(true, t).is_some());
+        assert_eq!(pipeline(1, Status::Working).tile_phase(false, t), None, "animations off");
+        for status in [Status::Idle, Status::Done, Status::NeedsYou] {
+            assert_eq!(pipeline(1, status).tile_phase(true, t), None, "{status:?}");
+        }
+        let claude = Agent { status: Status::Working, ..agent(1, None) };
+        assert_eq!(claude.tile_phase(true, t), None, "only pipelines have a moving tile");
+        // The phase goes round once every cycle.
+        let p = pipeline(1, Status::Working);
+        assert_eq!(p.tile_phase(true, 0.0), p.tile_phase(true, icons::PIPELINE_CYCLE));
+    }
+
+    #[test]
+    fn a_running_pipeline_keeps_its_card_breathing() {
+        let working = |pane, parent| Agent { status: Status::Working, ..agent(pane, parent) };
+        // A pipeline whose stage is working: its card says Working, its tile moves.
+        let agents = Agents::new(vec![pipeline(1, Status::Working), working(2, Some(1)), agent(3, Some(1))]);
+        let teams = groups(&agents);
+        let g = teams.iter().find(|g| g.key() == 1).unwrap();
+        assert!(g.is_team() && team_breathes(g));
+        assert!(g.lead.tile_phase(true, 0.2).is_some());
+        // A pipeline in an idle agent's team, its runner printing between stages: the card
+        // is idle, but the pipeline's row shows it working, its tile moving.
+        let nested = Agent { team: Team { parent: Some(1), role: None, started: 2, sub: false }, ..pipeline(2, Status::Working) };
+        let agents = Agents::new(vec![agent(1, None), nested, agent(3, Some(2))]);
+        let teams = groups(&agents);
+        let g = teams.iter().find(|g| g.key() == 1).unwrap();
+        assert!(g.lead.status == Status::Idle && team_breathes(g));
+        // Nothing working: still.
+        let agents = Agents::new(vec![pipeline(1, Status::Idle), agent(2, Some(1))]);
+        assert!(groups(&agents).iter().all(|g| !team_breathes(g)));
     }
 
     #[test]
