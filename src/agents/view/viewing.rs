@@ -2,7 +2,7 @@
 //! [`Viewing`](crate::agents::model::Viewing)). A small pill with an eye left of the status
 //! pill, and a soft accent ring around the card: full, with a glow, for the agent in the
 //! focused pane; fainter for one sharing its tab. In an open team, a viewed helper's row
-//! gets a thin accent rule and an eye.
+//! gets a soft rounded accent tint, like a selected row in an inset list, and an eye.
 
 use egui::epaint::Shadow;
 use egui::{Color32, Painter, Pos2, Rect, Vec2};
@@ -78,14 +78,19 @@ pub(super) fn pill(p: &Painter, right: f32, y: f32, seen: Seen, t: f32, compact:
     r.left()
 }
 
-/// A viewed helper's row in an open team: a thin accent rule down its leading edge.
-pub(super) fn row_rule(p: &Painter, inner: Rect, seen: Seen) {
-    let ink = match seen {
-        Seen::Primary => ACCENT,
-        Seen::Shared => ACCENT.gamma_multiply(0.5),
-    };
-    let rule = Rect::from_min_max(Pos2::new(inner.left(), inner.top() + 8.0), Pos2::new(inner.left() + 3.0, inner.bottom() - 8.0));
-    p.rect_filled(rule, 1.5, ink);
+/// The tint behind a viewed helper's row: the pill's fill for the agent in the focused pane,
+/// half as strong for one sharing its tab.
+fn row_tint(seen: Seen) -> Color32 {
+    match seen {
+        Seen::Primary => ACCENT.gamma_multiply(0.14),
+        Seen::Shared => ACCENT.gamma_multiply(0.07),
+    }
+}
+
+/// A viewed helper's row in an open team: its inner rect filled with a soft accent tint,
+/// rounded like the hover fill (which is drawn over it).
+pub(super) fn row_fill(p: &Painter, inner: Rect, seen: Seen) {
+    p.rect_filled(inner, 8, row_tint(seen));
 }
 
 /// The eye on a viewed helper's row, centred on `at`.
@@ -128,6 +133,14 @@ mod tests {
         assert_eq!(team_seen(&on(&[1, 9], Some(9)), team), Some(Seen::Shared));
         assert_eq!(team_seen(&on(&[3, 9], Some(3)), team), Some(Seen::Shared), "a helper in view marks the team as a neighbour");
         assert_eq!(team_seen(&on(&[9], Some(9)), team), None);
+    }
+
+    #[test]
+    fn a_viewed_row_is_tinted_fuller_for_the_focused_pane_than_for_a_neighbour() {
+        let (primary, shared) = (row_tint(Seen::Primary), row_tint(Seen::Shared));
+        assert_eq!(primary, ACCENT.gamma_multiply(0.14), "the focused agent's row matches the pill's fill");
+        assert!(shared.a() < primary.a(), "a neighbour's row is fainter");
+        assert!(shared.a() > 0);
     }
 
     #[test]

@@ -598,16 +598,16 @@ impl AgentsPane {
                 }
                 hit.on_hover_cursor(egui::CursorIcon::PointingHand);
             }
+            let seen = (!m.leaving).then(|| f.viewing.of(&m.member.agent)).flatten();
+            if let Some(seen) = seen {
+                viewing::row_fill(&rp, inner, seen);
+            }
             let hover = f.ui.ctx().animate_bool_with_time(f.id(("row-hover", id)), hovered, 0.12);
             if hover > 0.0 {
                 rp.rect_filled(inner, 8, white_alpha((8.0 * hover) as u8));
             }
             if self.selected == Some(id) && f.focused && !m.leaving {
                 rp.rect_stroke(inner, 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
-            }
-            let seen = (!m.leaving).then(|| f.viewing.of(&m.member.agent)).flatten();
-            if let Some(seen) = seen {
-                viewing::row_rule(&rp, inner, seen);
             }
             helper_row(f, &rp, row, &m.member, &m.tag, seen);
         }

@@ -6,6 +6,11 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- In an open team card on the Agents pane, the helper or stage you're viewing is shown by a
+  soft rounded accent tint behind its row, in place of the thin accent bar down its left edge.
+
 ### Fixed
 
 - On the Agents tab, no agent card shows the "Viewing" ring any more: the terminal tab you
