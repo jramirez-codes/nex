@@ -8,6 +8,15 @@
   3. Claude Code running in a pane
   4. Shell with git history
   5. Connect screen
+- `promo/`: six captioned screenshots at the same 1206 × 2622, made by
+  `tools/demo/appstore.py` on Linux (no Mac or Simulator): the Agents pane with the demo
+  pipeline (builders working, then review), one of its agents, the Changes pane's diff, the
+  file explorer and a shell. `promo/screen/` has the bare screens. The script runs
+  `nex --remote` at an iPhone's shape against a private sshd with a throwaway home, and draws
+  the status bar and home indicator itself; the on-screen keyboard button isn't in them, and
+  the window is 4% wider than the phone (a desktop nex's minimum), so everything is that much
+  smaller than on a real iPhone. Run it again after a UI change: `tools/demo/appstore.py`
+  (`--plain` for no captions).
 - `0*.jpg`: the first three at 1320 × 2868 (the 6.9" size), used for 0.14.0.
 - `source/`: full-size Simulator captures the Agents shots came from.
 

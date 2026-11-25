@@ -106,7 +106,7 @@ Outside the Rust code:
 | `packaging/macos/` | `nex.app`'s `Info.plist`, icon and `make-app.sh` (used by `install.sh` and the release workflow) |
 | `site/` | the website (Vite + React, prerendered), deployed by `.github/workflows/pages.yml` |
 | `bench/` | latency and memory benchmarks against other terminals (see `bench/README.md`) |
-| `tools/demo/` | scripts that record the demo GIFs |
+| `tools/demo/` | scripts that record the demo GIFs, and the App Store's iPhone screenshots (`appstore.py`) |
 
 ## Rules the code follows
 
