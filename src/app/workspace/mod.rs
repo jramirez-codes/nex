@@ -176,7 +176,7 @@ impl App {
         let id = self.alloc_pane_id();
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);
-        let remote = crate::terminal::RemotePane { host, session, keep };
+        let remote = crate::terminal::RemotePane { host, session, keep, command: self.launch_next.take() };
         match Terminal::spawn_remote(&self.cfg, remote, cwd, size, cell_px(ctx, m), ctx) {
             Ok(t) => {
                 self.panes.insert(id, t);

@@ -509,7 +509,7 @@ fn on_the_agents_tab_a_terminal_opened_there_marks_its_ssh_agent_viewing_and_onl
 }
 
 #[test]
-fn a_sub_agent_jumps_to_the_pane_of_the_agent_running_it() {
+fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
     use crate::agents::model::{Team, sub_key};
     let ctx = egui::Context::default();
     let mut app = new_app(&ctx, Config::default());
@@ -526,18 +526,26 @@ fn a_sub_agent_jumps_to_the_pane_of_the_agent_running_it() {
     let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.agents.contains_key(p)).unwrap();
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
 
-    // A sub-agent of `lead` (the card it's under), which `pane` shows, as the poll makes them.
-    let sub = |lead: &Probe, pane: u64, id: &str| Probe {
-        pane: sub_key(lead.pane, id),
-        source: Source::Sub { lead: lead.pane, pane: Some(pane) },
-        reported: Some(Status::Working),
-        team: Team { parent: Some(lead.pane), role: Some("Explore".into()), started: 1, sub: true },
-        ..lead.clone()
+    // A sub-agent of `lead` (the card it's under), as the poll makes them: shown in the
+    // pane `app` has following it, if any.
+    let sub = |app: &crate::app::App, lead: &Probe, sub_id: &str| {
+        let key = sub_key(lead.pane, sub_id);
+        let pane = app.sub_views.get(&key).copied();
+        Probe {
+            pane: key,
+            tab: pane.and_then(|p| app.tabs.iter().position(|t| t.contains(p))),
+            source: Source::Sub { lead: lead.pane, id: sub_id.into(), pane },
+            reported: Some(Status::Working),
+            team: Team { parent: Some(lead.pane), role: Some("Explore".into()), started: 1, sub: true },
+            ..lead.clone()
+        }
     };
     let lead_claude = probe(claude, Some(0), AgentKind::Claude, "busy");
     let lead_codex = probe(codex, Some(1), AgentKind::Codex, "busy");
-    // A pipeline stage on an ssh host, attached to in the third tab, running one of its own.
-    let target = crate::remote::SshTarget { opts: vec![], destination: "devbox".into() };
+    // A pipeline stage on an ssh host, attached to in the third tab, running one of its
+    // own. Its ssh never gets anywhere (a proxy that just waits): the tab stays open.
+    let opts = vec!["-o".to_string(), "ProxyCommand=sleep 5".to_string()];
+    let target = crate::remote::SshTarget { opts, destination: "nex-test.invalid".into() };
     let pipe = Probe {
         pane: remote_key("devbox", "pipe"),
         kind: AgentKind::Pipeline,
@@ -554,35 +562,91 @@ fn a_sub_agent_jumps_to_the_pane_of_the_agent_running_it() {
         ..probe(0, Some(2), AgentKind::Claude, "")
     };
     let pipe_key = pipe.pane;
-    let subs = [(sub(&lead_claude, claude, "c1"), claude, claude), (sub(&lead_codex, codex, "x1"), codex, codex), (sub(&stage, stage_pane, "s1"), stage_pane, pipe_key)];
-    let mut agents = vec![lead_claude.clone(), lead_codex.clone(), pipe, stage];
-    agents.extend(subs.iter().map(|(p, _, _)| p.clone()));
-    app.agent_tracker.update(agents, Instant::now());
+    let leads = [(lead_claude.clone(), "c1", claude), (lead_codex.clone(), "x1", codex), (stage.clone(), "s1", pipe_key)];
+    let poll = |app: &mut crate::app::App| {
+        let mut agents = vec![lead_claude.clone(), lead_codex.clone(), pipe.clone(), stage.clone()];
+        agents.extend(leads.iter().map(|(lead, s, _)| sub(app, lead, s)));
+        app.agent_tracker.update(agents, Instant::now());
+    };
+    poll(&mut app);
     run(&mut app, &ctx, 1400.0);
 
-    let tabs = app.tabs.len();
-    for (sub, pane, card) in subs {
+    let key = |app: &mut crate::app::App, k| app.agents.get_mut(&id).unwrap().key(k, egui::Modifiers::NONE);
+    let to_agents = |app: &mut crate::app::App| {
         if !app.home_active {
             app.pending.push(Action::ToggleAgentsTab);
-            run(&mut app, &ctx, 1400.0);
+            run(app, &ctx, 1400.0);
         }
         assert!(app.home_active);
-        // Space opens its card, the arrows go down its rows to it, Enter jumps.
-        let key = |app: &mut crate::app::App, k| app.agents.get_mut(&id).unwrap().key(k, egui::Modifiers::NONE);
-        app.agents.get_mut(&id).unwrap().selected = Some(card);
+    };
+    for (n, (lead, sub_id, card)) in leads.iter().enumerate() {
+        let sub_card = sub_key(lead.pane, sub_id);
+        to_agents(&mut app);
+        // Space opens its card, the arrows go down its rows to it, then Enter (the first
+        // time) or Space (the second).
+        app.agents.get_mut(&id).unwrap().selected = Some(*card);
         key(&mut app, egui::Key::Space);
         run(&mut app, &ctx, 1400.0);
         for _ in 0..3 {
-            if app.agents[&id].selected != Some(sub.pane) {
+            if app.agents[&id].selected != Some(sub_card) {
                 key(&mut app, egui::Key::ArrowDown);
             }
         }
-        assert_eq!(app.agents[&id].selected, Some(sub.pane));
+        assert_eq!(app.agents[&id].selected, Some(sub_card));
+        let tabs = app.tabs.len();
         key(&mut app, egui::Key::Enter);
         run(&mut app, &ctx, 1400.0);
         run(&mut app, &ctx, 1400.0);
+        assert_eq!(app.tabs.len(), tabs + 1, "sub-agent {n} opened a tab of its own");
         assert!(!app.home_active);
-        assert_eq!(app.focused_pane(), Some(pane), "{:?}'s sub-agent shows in its pane", sub.kind);
+        let view = app.focused_pane().unwrap();
+        assert!(![claude, codex, stage_pane].contains(&view), "not its agent's pane");
+        assert_eq!(app.sub_views.get(&sub_card), Some(&view));
+        poll(&mut app);
+        let shown = app.agent_tracker.agents().iter().find(|a| a.pane == sub_card).unwrap().shown_pane();
+        assert_eq!(shown, Some(view), "its card's pane is the tab following it");
+
+        // Again, from another tab: that tab is focused, none opened.
+        app.show_tab(0);
+        to_agents(&mut app);
+        app.agents.get_mut(&id).unwrap().selected = Some(sub_card);
+        key(&mut app, egui::Key::Space);
+        run(&mut app, &ctx, 1400.0);
+        run(&mut app, &ctx, 1400.0);
+        assert_eq!((app.tabs.len(), app.focused_pane()), (tabs + 1, Some(view)), "sub-agent {n}'s tab, focused");
     }
-    assert_eq!(app.tabs.len(), tabs, "no tab opened for one");
+
+    // Its agent's pane on screen beside the Agents pane makes no difference.
+    app.show_tab(0);
+    run(&mut app, &ctx, 1400.0);
+    app.split_agents(&ctx, claude, crate::layout::Axis::Horizontal);
+    run(&mut app, &ctx, 1400.0);
+    let side = app.tabs[0].root.iter().find(|p| app.agents.contains_key(p)).unwrap();
+    // (Tracking for real finds no agents in these shells: the poll stands in for it.)
+    poll(&mut app);
+    run(&mut app, &ctx, 1400.0);
+    let c1 = sub_key(claude, "c1");
+    let tabs = app.tabs.len();
+    app.agents.get_mut(&side).unwrap().selected = Some(claude);
+    app.agents.get_mut(&side).unwrap().key(egui::Key::Space, egui::Modifiers::NONE);
+    run(&mut app, &ctx, 1400.0);
+    app.agents.get_mut(&side).unwrap().selected = Some(c1);
+    app.agents.get_mut(&side).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    run(&mut app, &ctx, 1400.0);
+    run(&mut app, &ctx, 1400.0);
+    assert_eq!(app.tabs.len(), tabs);
+    assert_eq!(app.focused_pane(), app.sub_views.get(&c1).copied(), "its tab, not the agent's pane already on screen");
+
+    // Closing the tab closes only the view: the next click opens a new one.
+    let view = app.sub_views[&c1];
+    app.close_pane(&ctx, view);
+    run(&mut app, &ctx, 1400.0);
+    app.track_agents();
+    assert!(!app.sub_views.contains_key(&c1));
+    assert!(app.panes.contains_key(&claude), "its agent's pane is untouched");
+    poll(&mut app);
+    let tabs = app.tabs.len();
+    app.focus_agent(&ctx, c1);
+    run(&mut app, &ctx, 1400.0);
+    assert_eq!(app.tabs.len(), tabs + 1);
 }

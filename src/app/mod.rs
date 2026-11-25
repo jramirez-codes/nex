@@ -178,6 +178,11 @@ pub struct App {
     adopt: Vec<String>,
     /// The agent session the next remote pane attaches to (picked in the Agents pane).
     attach_next: Option<String>,
+    /// What the next remote pane runs instead of a shell (a sub-agent's tab).
+    launch_next: Option<Vec<String>>,
+    /// The pane showing each sub-agent opened from the Agents pane, by its card's key (see
+    /// `workspace/agents.rs`).
+    sub_views: std::collections::HashMap<crate::layout::PaneId, crate::layout::PaneId>,
     /// The folder on the host the next pane opened there starts in, when it isn't the
     /// focused pane's (a Files pane's "Open Terminal Here").
     next_remote_cwd: Option<String>,
@@ -298,6 +303,8 @@ impl App {
             connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
             adopt: Vec::new(),
             attach_next: None,
+            launch_next: None,
+            sub_views: std::collections::HashMap::new(),
             next_remote_cwd: None,
         }
     }

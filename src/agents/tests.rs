@@ -233,7 +233,7 @@ fn space_opens_and_closes_a_team_and_keys_go_through_its_helpers() {
 }
 
 #[test]
-fn space_on_a_sub_agents_row_jumps_to_it_rather_than_closing_its_team() {
+fn space_on_a_sub_agents_row_opens_its_tab_rather_than_closing_its_team() {
     let mut a = AgentsPane::new();
     // An open team: an agent (1), a helper (2), and a sub-agent it runs.
     let s = sub_key(1, "a1b2");
@@ -242,7 +242,7 @@ fn space_on_a_sub_agents_row_jumps_to_it_rather_than_closing_its_team() {
     a.targets = vec![(1, at(0.0, 0.0, 620.0, 74.0)), (2, at(12.0, 76.0, 596.0, 46.0)), (s, at(12.0, 122.0, 596.0, 46.0))];
     a.selected = Some(s);
     assert!(a.key(Key::Space, Modifiers::NONE));
-    assert_eq!(a.requests, vec![super::Request::Focus(s)], "the app shows it in its agent's pane");
+    assert_eq!(a.requests, vec![super::Request::Focus(s)], "the app opens (or focuses) its tab");
     assert_eq!(a.expanded.get(&1), Some(&false), "still open");
     assert!(a.key(Key::Enter, Modifiers::NONE));
     assert_eq!(a.requests, vec![super::Request::Focus(s), super::Request::Focus(s)]);
@@ -398,7 +398,7 @@ fn sub_agents_are_not_counted_and_never_ask_for_you() {
     let sub = |id: &str, status| Probe {
         pane: sub_key(1, id),
         title: format!("task {id}"),
-        source: Source::Sub { lead: 1, pane: Some(1) },
+        source: Source::Sub { lead: 1, id: "x".into(), pane: Some(1) },
         reported: Some(status),
         team: Team { parent: Some(1), role: Some("Explore".into()), started: 0, sub: true },
         ..lead.clone()
@@ -491,7 +491,8 @@ fn viewing_marks_the_agents_in_the_tabs_panes_the_focused_one_first() {
         *pane = Some(5);
     }
     let mut sub = probe(sub_key(1, "x"), 0, AgentKind::Claude, now);
-    sub.source = Source::Sub { lead: 1, pane: Some(1) };
+    // Its tab is pane 9.
+    sub.source = Source::Sub { lead: 1, id: "x".into(), pane: Some(9) };
     sub.team = Team { parent: Some(1), role: None, started: 0, sub: true };
     if let Source::Remote { pane, .. } = &mut detached.source {
         *pane = None;
@@ -506,7 +507,8 @@ fn viewing_marks_the_agents_in_the_tabs_panes_the_focused_one_first() {
     assert_eq!(seen(&split, 3), None, "on another tab");
     assert_eq!(seen(&split, remote_key("devbox", "b")), Some(Seen::Shared), "an ssh agent by the pane attached to it");
     assert_eq!(seen(&split, remote_key("devbox", "a")), None, "a detached one never is");
-    assert_eq!(seen(&split, sub_key(1, "x")), Some(Seen::Shared), "a helper by its lead's pane");
+    assert_eq!(seen(&split, sub_key(1, "x")), None, "a sub-agent by its own tab, not its agent's pane");
+    assert_eq!(seen(&Viewing { panes: vec![9], primary: Some(9) }, sub_key(1, "x")), Some(Seen::Primary));
     // Zoomed: only the focused pane.
     let zoomed = Viewing { panes: vec![1], primary: Some(1) };
     assert_eq!(seen(&zoomed, 1), Some(Seen::Primary));

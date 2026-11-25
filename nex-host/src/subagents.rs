@@ -100,27 +100,60 @@ fn claude_project(cwd: &str) -> String {
     cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
 }
 
-/// The sub-agents of the Claude Code conversation the session file `claude` describes, with
-/// Claude Code's config folder at `config` (see [`crate::claude::config_dir`]).
-pub fn claude_in(config: &Path, claude: &Claude, now: u64) -> Vec<SubAgent> {
-    let Some(id) = claude.session_id.as_deref().filter(|id| crate::claude::valid_id(id)) else { return Vec::new() };
-    let mut cache = cache();
-    cache.trim();
+/// The folder of the Claude Code conversation `claude` describes, under `config`.
+fn claude_dir(cache: &mut Cache, config: &Path, claude: &Claude) -> Option<PathBuf> {
+    let id = claude.session_id.as_deref().filter(|id| crate::claude::valid_id(id))?;
     let projects = config.join("projects");
     let key = (projects.clone(), id.to_string());
-    let dir = match cache.claude_dirs.get(&key) {
-        Some(d) if d.is_dir() => d.clone(),
+    match cache.claude_dirs.get(&key) {
+        Some(d) if d.is_dir() => Some(d.clone()),
         _ => {
             let guess = claude.cwd.as_deref().map(|c| projects.join(claude_project(c)).join(id)).filter(|d| d.is_dir());
             // Started in another folder than the one it's in now: look for it.
-            let found = guess.or_else(|| {
-                std::fs::read_dir(&projects).ok()?.flatten().map(|e| e.path().join(id)).find(|d| d.is_dir())
-            });
-            let Some(d) = found else { return Vec::new() };
-            cache.claude_dirs.insert(key, d.clone());
-            d
+            let found = guess.or_else(|| std::fs::read_dir(&projects).ok()?.flatten().map(|e| e.path().join(id)).find(|d| d.is_dir()))?;
+            cache.claude_dirs.insert(key, found.clone());
+            Some(found)
         }
-    };
+    }
+}
+
+/// Whether `id` can name a sub-agent's file: no path in it.
+fn valid_sub_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 128 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// The transcript of sub-agent `id` of the Claude Code conversation `claude` describes, with
+/// Claude Code's config folder at `config` (its `.meta.json` is beside it).
+pub fn claude_transcript(config: &Path, claude: &Claude, id: &str) -> Option<PathBuf> {
+    if !valid_sub_id(id) {
+        return None;
+    }
+    let mut cache = cache();
+    let dir = claude_dir(&mut cache, config, claude)?.join("subagents");
+    let meta = dir.join(format!("agent-{id}.meta.json"));
+    let transcript = dir.join(format!("agent-{id}.jsonl"));
+    (meta.is_file() || transcript.is_file()).then_some(transcript)
+}
+
+/// The rollout of the Codex thread `id`, with Codex's home at `home`: in the newest day
+/// folders, named after it or saying so on its first line.
+pub fn codex_rollout(home: &Path, id: &str) -> Option<PathBuf> {
+    if !valid_sub_id(id) {
+        return None;
+    }
+    let mut rollouts: Vec<PathBuf> = codex_days(home).into_iter().flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path())).filter(|p| is_rollout(p)).collect();
+    rollouts.sort();
+    rollouts.reverse();
+    let named = rollouts.iter().find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(&format!("-{id}.jsonl"))));
+    named.cloned().or_else(|| rollouts.into_iter().find(|p| first_line(p).and_then(|l| parse_codex_head(&l)).is_some_and(|h| h.id == id)))
+}
+
+/// The sub-agents of the Claude Code conversation the session file `claude` describes, with
+/// Claude Code's config folder at `config` (see [`crate::claude::config_dir`]).
+pub fn claude_in(config: &Path, claude: &Claude, now: u64) -> Vec<SubAgent> {
+    let mut cache = cache();
+    cache.trim();
+    let Some(dir) = claude_dir(&mut cache, config, claude) else { return Vec::new() };
     let Ok(entries) = std::fs::read_dir(dir.join("subagents")) else { return Vec::new() };
     let mut out = Vec::new();
     for e in entries.flatten() {
@@ -161,13 +194,13 @@ pub fn claude(claude: &Claude) -> Vec<SubAgent> {
 
 /// What a rollout's first line (`session_meta`) says.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct CodexHead {
-    id: String,
+pub(crate) struct CodexHead {
+    pub(crate) id: String,
     cwd: Option<String>,
     /// The thread that spawned it, for a sub-agent.
     parent: Option<String>,
-    name: Option<String>,
-    role: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) role: Option<String>,
 }
 
 fn find_key<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
@@ -177,7 +210,7 @@ fn find_key<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::V
     }
 }
 
-fn parse_codex_head(line: &str) -> Option<CodexHead> {
+pub(crate) fn parse_codex_head(line: &str) -> Option<CodexHead> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     if v.get("type")?.as_str()? != "session_meta" {
         return None;

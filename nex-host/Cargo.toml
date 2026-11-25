@@ -12,7 +12,7 @@ publish = false
 [features]
 default = ["daemon"]
 # The `nex-host` program itself. Without it this is only the protocol nex speaks to it.
-daemon = ["dep:alacritty_terminal", "dep:libc", "dep:toml"]
+daemon = ["dep:alacritty_terminal", "dep:toml"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -20,7 +20,8 @@ serde_json = "1"
 
 [target.'cfg(unix)'.dependencies]
 alacritty_terminal = { version = "0.26.0", default-features = false, optional = true }
-libc = { version = "0.2", optional = true }
+# Also for a sub-agent's tab (`transcript`): typing there isn't echoed.
+libc = "0.2"
 # Pipeline files (`nex-host pipe`).
 toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std"], optional = true }
 

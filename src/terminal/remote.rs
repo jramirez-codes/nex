@@ -109,6 +109,8 @@ pub struct Start {
     pub session: SessionSlot,
     /// Closing the pane leaves the session running (an agent) instead of ending it.
     pub keep: bool,
+    /// What a new session runs instead of a shell (`None`: a shell).
+    pub command: Option<Vec<String>>,
     /// Where a new shell starts on the host (`None`: home).
     pub cwd: Option<String>,
     pub cols: u16,
@@ -130,7 +132,7 @@ pub fn open(start: Start, osc7: Slot, alert: Alert, agent: AgentSlot) -> io::Res
 
 /// Carry one pane to its session on the host until one of them ends.
 fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiver<(u16, u16)>) {
-    let Start { host, session, keep, cwd, cols, rows } = start;
+    let Start { host, session, keep, command, cwd, cols, rows } = start;
     let size = Arc::new(Mutex::new((cols, rows)));
     // Where keys and resizes go: the attached connection's input, while there is one.
     let to_host: Arc<Mutex<Option<ExecWriter>>> = Arc::default();
@@ -187,7 +189,7 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
         let id = session.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let attached = match id {
             Some(id) => attach(&host, &id, cols, rows),
-            None => launch(&host, cwd.clone(), cols, rows).and_then(|id| {
+            None => launch(&host, cwd.clone(), command.clone(), cols, rows).and_then(|id| {
                 *session.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
                 attach(&host, &id, cols, rows)
             }),
@@ -279,8 +281,16 @@ fn request(host: &RemoteHost, request: &Request) -> Result<(Response, crate::rem
     })
 }
 
-/// Start a shell on the host; its session id.
-fn launch(host: &RemoteHost, cwd: Option<String>, cols: u16, rows: u16) -> Result<String, Attach> {
+/// Start a shell on the host (or `command`, under [`VIEW_KIND`]); its session id.
+fn launch(host: &RemoteHost, cwd: Option<String>, command: Option<Vec<String>>, cols: u16, rows: u16) -> Result<String, Attach> {
+    if let Some(argv) = command {
+        let req = Request::Launch { argv, kind: Some(VIEW_KIND.into()), name: None, cwd, cols: Some(cols), rows: Some(rows), env: None, parent: None };
+        let (r, _) = request(host, &req)?;
+        return match r.id {
+            Some(id) if r.ok => Ok(id),
+            _ => Err(Attach::Gone(format!("couldn't start it on {}: {}", host.server, r.error.unwrap_or_default()))),
+        };
+    }
     let shell = |argv: Vec<String>| Request::Launch { argv, kind: Some(proto::SHELL_KIND.into()), name: None, cwd: cwd.clone(), cols: Some(cols), rows: Some(rows), env: None, parent: None };
     let (mut r, _) = request(host, &shell(Vec::new()))?;
     if !r.ok && r.error.as_deref().is_some_and(|e| e.contains("nothing to run")) {
@@ -293,6 +303,10 @@ fn launch(host: &RemoteHost, cwd: Option<String>, cols: u16, rows: u16) -> Resul
         _ => Err(Attach::Gone(format!("couldn't start a shell on {}: {}", host.server, r.error.unwrap_or_default()))),
     }
 }
+
+/// The kind of session a pane runs a command in (a sub-agent's tab): neither a shell to
+/// adopt again nor an agent to list.
+pub const VIEW_KIND: &str = "view";
 
 /// The user's shell, interactive, for a daemon that needs a command.
 const OLD_DAEMON_SHELL: &[&str] = &["sh", "-c", "exec \"${SHELL:-/bin/sh}\" -i"];

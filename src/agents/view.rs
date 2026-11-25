@@ -32,8 +32,9 @@
 //! has them: when one changes state, its row glides to its new slot over the others (which
 //! slide under it to make room) and its capsule slides along the strip. Clicks go where a
 //! row is drawn; the keys go by the slots the rows are headed for.
-//! A closed card's capsules open it, but a sub-agent's, which jumps to it (to the pane of
-//! the agent running it) like its row.
+//! A closed card's capsules open it, but a sub-agent's, which opens its tab (the one
+//! following its transcript) like its row. A team's sub-agents are drawn as a pipeline's
+//! stages are: each hangs off its agent by a connector, tagged by its type, over its folder.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -974,13 +975,8 @@ fn header_text(a: &Agent, team_size: Option<&str>) -> HeaderText {
 }
 
 /// The quiet line under a helper's tag and task: its folder (or, without one, what kind of
-/// agent it is).
+/// agent it is). A sub-agent's is its agent's folder, as a stage's is (its tag says its type).
 fn member_detail(a: &Agent) -> String {
-    // A sub-agent works in its agent's folder: what kind it is says more.
-    if a.team.sub {
-        let kind = a.team.role.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| "Sub-agent".into());
-        return format!("{kind} \u{00b7} {}", a.kind.label());
-    }
     folder(a).unwrap_or_else(|| a.kind.label().to_string())
 }
 
@@ -1142,9 +1138,10 @@ fn row_indent(depth: usize) -> f32 {
 }
 
 /// How far in member `m` of `g`'s list sits: its depth, one more in a pipeline's card,
-/// whose stages hang off the card's own (unlisted) row by a connector.
+/// whose stages hang off the card's own (unlisted) row by a connector, and one more for a
+/// sub-agent of a team's lead, which hangs off it the same way.
 fn row_depth(g: &Group, m: &Member) -> usize {
-    m.depth + g.is_pipeline() as usize
+    m.depth + (g.is_pipeline() || (m.depth == 1 && m.agent.team.sub)) as usize
 }
 
 /// Where the connectors to `g`'s stages go in its list `list` (its first `shown` rows): for
@@ -1362,6 +1359,29 @@ mod tests {
 
         // Cut off after the first stage: its line still runs on, out of the list.
         assert_eq!(branch_slots(list, g, 1), [(slot(0), false)]);
+    }
+
+    /// A team's sub-agents are drawn as a pipeline's stages are: as far in, off the same
+    /// column by the same connector, with the same tag and line under it.
+    #[test]
+    fn a_teams_sub_agents_are_laid_out_as_a_pipelines_stages() {
+        let mut pipe = agent(1, None);
+        pipe.kind = AgentKind::Pipeline;
+        let stage = |pane| Agent { team: Team { role: Some("Explore".into()), ..agent(pane, Some(1)).team }, ..agent(pane, Some(1)) };
+        let pipeline = groups(&Agents::new(vec![pipe, stage(2), stage(3)]));
+        let mut team = vec![agent(1, None), sub(2, Some("Explore"), 2), sub(3, Some("Explore"), 3)];
+        for a in &mut team[1..] {
+            a.name = "a".into();
+        }
+        let team = groups(&Agents::new(team));
+        let list = Rect::from_min_size(Pos2::new(100.0, 0.0), Vec2::new(400.0, 2.0 * ROW_H));
+        let (p, t) = (&pipeline[0], &team[0]);
+        let depths = |g: &Group| g.members.iter().map(|m| row_depth(g, m)).collect::<Vec<_>>();
+        assert_eq!(depths(t), depths(p));
+        assert_eq!(branch_slots(list, t, 2), branch_slots(list, p, 2));
+        assert_eq!(member_tags(t), member_tags(p));
+        assert_eq!(member_detail(&t.members[0].agent), member_detail(&p.members[0].agent));
+        assert!(t.strip().iter().all(|s| matches!(s, Step::Helper(_))), "capsules side by side, as one step's stages");
     }
 
     fn pipeline(pane: PaneId, status: Status) -> Agent {
@@ -1651,7 +1671,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_a_sub_agent_jumps_to_it_from_its_capsule_and_its_row() {
+    fn clicking_a_sub_agent_opens_its_tab_from_its_capsule_and_its_row() {
         let ctx = egui::Context::default();
         crate::render::fonts::install(&ctx, &crate::config::Config::default());
         crate::ui::glide::set_animations(&ctx, false);
@@ -1667,8 +1687,8 @@ mod tests {
         let card = layout(&teams, body.width() - 2.0 * SIDE, &HashMap::new()).cards[0].1.translate(body.min.to_vec2());
         let strip_y = card.top() + CARD_H + STRIP_H / 2.0;
 
-        // The first capsule, at the start of the strip, is a sub-agent's: it jumps, and the
-        // card stays closed.
+        // The first capsule, at the start of the strip, is a sub-agent's: it asks for its tab
+        // (the app opens or focuses it), and the card stays closed.
         let first = teams[0].strip()[0].agent().unwrap().pane;
         click(&ctx, &mut pane, &agents, &mut time, Pos2::new(card.left() + 14.0 + 12.0, strip_y));
         assert_eq!(pane.requests, vec![super::super::Request::Focus(first)]);
@@ -1680,12 +1700,31 @@ mod tests {
         assert_eq!(pane.expanded.get(&1), Some(&false));
         assert!(pane.requests.is_empty());
 
-        // Open, a sub-agent's row jumps to it too.
+        // Open, a sub-agent's row asks for it too.
         frame(&ctx, &mut pane, &agents, &mut time, vec![]);
         let open = layout(&teams, body.width() - 2.0 * SIDE, &pane.expanded).cards[0].1.translate(body.min.to_vec2());
         let second = shown_members(&teams[0], false)[1].agent.pane;
         click(&ctx, &mut pane, &agents, &mut time, row_rect(open, 1).center());
         assert_eq!(pane.requests, vec![super::super::Request::Focus(second)]);
+
+        // So does one under a pipeline's stage, in the pipeline's card.
+        let mut pipe = agent(1, None);
+        pipe.kind = AgentKind::Pipeline;
+        let mut stage = helper(2, "build", Some("build"), 5);
+        stage.team.parent = Some(1);
+        let mut under = sub(3, Some("Explore"), 10);
+        under.team.parent = Some(2);
+        let agents = Agents::new(vec![pipe, stage, under]);
+        let mut pane = AgentsPane::new();
+        pane.expanded.insert(1, false);
+        for _ in 0..3 {
+            frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+        }
+        let teams = groups(&agents);
+        let open = layout(&teams, body.width() - 2.0 * SIDE, &pane.expanded).cards[0].1.translate(body.min.to_vec2());
+        assert_eq!(shown_members(&teams[0], false)[1].agent.pane, 3);
+        click(&ctx, &mut pane, &agents, &mut time, row_rect(open, 1).center());
+        assert_eq!(pane.requests, vec![super::super::Request::Focus(3)]);
     }
 
     #[test]
@@ -1934,12 +1973,10 @@ mod tests {
         a.team.role = Some("review".into());
         a.task = Some("Read the diff".into());
         assert_eq!(member_detail(&a), "nex-wt-review", "the folder alone: its task is on the line above");
-        // A sub-agent works in its agent's folder: what kind it is.
+        // A sub-agent's is its agent's folder, as a stage's is: its tag says its type.
         a.team.sub = true;
         a.team.role = Some("Explore".into());
-        assert_eq!(member_detail(&a), "Explore · Claude Code");
-        a.team.role = None;
-        assert_eq!(member_detail(&a), "Sub-agent · Claude Code");
+        assert_eq!(member_detail(&a), "nex-wt-review");
     }
 
     /// A helper of card 1 that `nex-host` started as `session`, at `started`.
@@ -2030,7 +2067,7 @@ mod tests {
             rows,
             [
                 row("Build-01", None, "nex-feature-build-17"),
-                row("Explore-01", Some("Find where titles are set"), "Explore · Claude Code"),
+                row("Explore-01", Some("Find where titles are set"), "Claude Code"),
                 row("Build-02", Some("Fix the login redirect"), "Claude Code"),
                 row("Merge-01", None, "Claude Code"),
             ],
