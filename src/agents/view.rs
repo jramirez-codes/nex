@@ -1563,8 +1563,7 @@ mod tests {
         assert!((card(&pane).tile.ring(time) - 1.0 / 3.0).abs() < 1e-6, "1 of 3 stages finished");
         assert!(card(&pane).tile.badge(time).is_none());
 
-        // Stage 3 finishes: the ring eases on to 2 of 3, the card's badge pops in, and the
-        // stage's capsule draws its tick.
+        // Stage 3 finishes: the ring eases on to 2 of 3 and the stage's capsule draws its tick.
         agents[2].status = Status::Done;
         let list = Agents::new(agents.clone());
         frame(&ctx, &mut pane, &list, &mut time, vec![]);
@@ -1574,12 +1573,26 @@ mod tests {
         let ring = card(&pane).tile.ring(time);
         assert!(1.0 / 3.0 < ring && ring < 2.0 / 3.0, "on its way: {ring}");
         assert!(card(&pane).busy(time) && pane.view.motion.teams[&1].busy(time));
-        while time < started + MOVE.max(POP).max(TICK) {
+        while time < started + MOVE.max(TICK) {
             frame(&ctx, &mut pane, &list, &mut time, vec![]);
         }
         assert!((card(&pane).tile.ring(time) - 2.0 / 3.0).abs() < 1e-6);
-        assert_eq!(card(&pane).tile.badge(time), Some((Badge::Done, 1.0, 1.0)));
         assert_eq!(pane.view.motion.teams[&1].tick(time, 3), 1.0);
+        // The team is Done (an unseen stage finished), but stage 4 still works: no tick yet.
+        assert_eq!(pane.view.teams[&1].lead.status, Status::Done);
+        assert_eq!(card(&pane).tile.badge(time), None, "no Done badge mid-run");
+
+        // The last stage finishes: the ring closes and the Done badge pops in.
+        agents[3].status = Status::Done;
+        let list = Agents::new(agents.clone());
+        frame(&ctx, &mut pane, &list, &mut time, vec![]);
+        let started = time;
+        assert_eq!(card(&pane).tile.badge(time).map(|b| b.0), Some(Badge::Done));
+        while time < started + MOVE.max(POP).max(TICK) {
+            frame(&ctx, &mut pane, &list, &mut time, vec![]);
+        }
+        assert!((card(&pane).tile.ring(time) - 1.0).abs() < 1e-6);
+        assert_eq!(card(&pane).tile.badge(time), Some((Badge::Done, 1.0, 1.0)));
         assert!(!card(&pane).busy(time) && !pane.view.motion.teams[&1].busy(time), "settled: no more redraws");
     }
 

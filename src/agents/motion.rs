@@ -205,13 +205,16 @@ impl Default for TileMotion {
 }
 
 impl TileMotion {
-    /// Head for `progress` (see [`stage_progress`]) and the badge `status` calls for; `seen`:
+    /// Head for `progress` (see [`stage_progress`]) and the badge `status` calls for (Done
+    /// only once every stage has finished); `seen`:
     /// its card is on screen. `animate` false (or the first update) puts it all in place.
     pub fn update(&mut self, now: f64, progress: f32, status: Status, seen: bool, animate: bool) {
         let animate = animate && !std::mem::take(&mut self.fresh);
         self.animate = animate;
         self.ring.set(now, progress, animate);
-        let badge = Badge::of(status);
+        // A finished stage makes the team Done while the others still work: the tick waits
+        // for the last one.
+        let badge = Badge::of(status).filter(|b| *b != Badge::Done || progress >= 1.0);
         if badge != self.badge && badge.is_some() {
             if badge == Some(Badge::Done) && animate {
                 // It pops in from nothing: the scale is its entrance.
@@ -742,6 +745,9 @@ mod tests {
         let mut t = TileMotion::default();
         t.update(0.0, 0.5, Status::Working, false, true);
         assert!(t.badge(0.0).is_none());
+        // A stage done while others still work makes the team Done, but the run isn't.
+        t.update(0.5, 2.0 / 3.0, Status::Done, false, true);
+        assert!(t.badge(0.5).is_none() && !t.busy(0.5 + MOVE));
         t.update(1.0, 1.0, Status::Done, false, true);
         let (badge, scale, opacity) = t.badge(1.0).unwrap();
         assert_eq!((badge, scale, opacity), (Badge::Done, 0.0, 1.0), "from nothing");
