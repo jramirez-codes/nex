@@ -265,13 +265,14 @@ pub fn check(p: &Painter, at: Pos2, scale: f32, stroke: Stroke, drawn: f32) {
     }
 }
 
-/// Where a tile's corner badge sits, and how big it is.
+/// Where a tile's corner badge sits, and how big it is: on its top-left corner, like the
+/// attention dot on a tab's icon.
 fn badge_spot(tile: Rect) -> (Pos2, f32) {
     let r = (tile.width() * 0.2).max(5.5);
-    (Pos2::new(tile.right() - r * 0.25, tile.top() + r * 0.25), r)
+    (Pos2::new(tile.left() + r * 0.25, tile.top() + r * 0.25), r)
 }
 
-/// An iOS-style badge on app tile `tile`'s top-right corner: a disc of `fill` `scale` times its
+/// An iOS-style badge on app tile `tile`'s top-left corner: a disc of `fill` `scale` times its
 /// size, `opacity` (0 to 1) in, with `breath` (0 to 1) swelling a soft halo round it. Returns
 /// its centre and radius, for its glyph.
 fn badge_disc(p: &Painter, tile: Rect, fill: Color32, scale: f32, opacity: f32, breath: f32) -> Option<(Pos2, f32)> {
@@ -766,6 +767,17 @@ mod tests {
         assert_eq!(polyline_prefix(&pts, 0.125), vec![Pos2::ZERO, Pos2::new(5.0, 0.0)]);
         assert_eq!(polyline_prefix(&pts, 0.5), vec![Pos2::ZERO, Pos2::new(10.0, 0.0), Pos2::new(10.0, 10.0)]);
         assert_eq!(polyline_prefix(&pts, 1.0), pts.to_vec());
+    }
+
+    /// A tile's badge sits on its top-left corner, like a tab's attention dot, overhanging it a
+    /// little and staying clear of the right side (where a card's status pill is).
+    #[test]
+    fn a_tiles_badge_sits_on_its_top_left_corner() {
+        let tile = Rect::from_min_size(Pos2::new(14.0, 17.0), Vec2::splat(40.0));
+        let (at, r) = badge_spot(tile);
+        assert!(at.x - r < tile.left() && at.x + r < tile.center().x, "{at:?} r {r}");
+        assert!(at.y - r < tile.top() && at.y < tile.center().y, "{at:?} r {r}");
+        assert!(at.x - r > 0.0 && at.y - r > 0.0, "inside the card's padding");
     }
 
     /// The ring starts at the top's middle, goes clockwise (right first), and closes.

@@ -20,8 +20,9 @@
 //! and helper row alike.
 //!
 //! A pipeline's tile carries a progress ring (how many of its stages have finished) and an
-//! iOS-style corner badge (an amber `!` while it needs you, a green tick while it's done and
-//! unseen); a stage that finishes draws its tick in. The timing is `motion`'s `TileMotion`
+//! iOS-style badge on its top-left corner, where a tab's attention dot sits (an amber `!`
+//! while it needs you, a green tick while it's done and unseen); a stage that finishes draws
+//! its tick in. The timing is `motion`'s `TileMotion`
 //! and `TeamMotion::tick`; the shapes are `icons`' `tile_ring`, `badge_alert` and `badge_done`.
 //!
 //! A frame copies no agent: the teams are worked out when the tracker's list changes (its
