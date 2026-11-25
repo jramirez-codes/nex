@@ -6,6 +6,11 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- In an open team card on the Agents pane, a pipeline's stages hang off it by rounded
+  `├` / `└` hairline connectors, and nested rows sit on a wider indent.
+
 ### Fixed
 
 - On the Agents tab, no agent card shows the "Viewing" ring any more: the terminal tab you
