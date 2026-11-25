@@ -36,7 +36,7 @@ mod tests;
 pub use frame::{FRAME_INPUT, FRAME_MAX, FRAME_RESIZE, frame, resize_frame};
 pub use message::{Message, MessageKind, Payload, USER, Verdict};
 pub use request::{RECV_DEFAULT_MS, Request, Response};
-pub use session::{BUSY_WINDOW_MS, CLAUDE_IDLE_MARK, Claude, PIPELINE_KIND, SHELL_KIND, Session, Status, SubAgent, TITLE_SEP, pipeline_title, split_pipeline_title};
+pub use session::{BUSY_WINDOW_MS, Claude, PIPELINE_KIND, SHELL_KIND, Session, Status, SubAgent, TITLE_SEP, pipeline_title, split_pipeline_title};
 
 /// Bumped whenever a change here would confuse the other side.
 pub const PROTOCOL: u32 = 3;

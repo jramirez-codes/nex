@@ -18,9 +18,8 @@ src/
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
 ├── layout.rs         binary split tree + directional focus (PaneId, Axis)
-├── session/          the saved window layout (session.json)
-│   ├── mod.rs            its format, saving and loading, the single-writer lock
-│   └── claude.rs         restored Claude Code panes resume their conversation
+├── session/          the saved window layout (session.json): its format, saving and loading,
+│                     the single-writer lock
 ├── app/              the application: state and frame loop (mod.rs), plus
 │   ├── actions.rs        the actions and carrying them out
 │   ├── reload.rs         live config reload
@@ -64,6 +63,7 @@ src/
 ├── agents/           the Agents pane: every Claude Code / Codex agent at a glance
 │   ├── mod.rs            the pane's state and keys
 │   ├── model.rs          which panes are agents and what they're doing (Tracker)
+│   ├── local.rs          the agent CLIs (nex-host's `clis`) as they run in this machine's panes
 │   ├── motion.rs         cards moving between sections
 │   ├── notify.rs         the Agents tab's badge, and when to send a system notification
 │   └── view.rs           drawing and the mouse
@@ -95,7 +95,8 @@ nex-android/          the Android app: nex's library as NativeActivity's shared 
 nex-ios/              the iPhone app: nex's library as a static library, linked and signed by
                       a small Xcode project (see nex-ios/README.md)
 nex-host/             the helper on ssh hosts (see nex-host/README.md); nex itself links only
-                      its protocol (`proto`, `claude`, `paths`), built without the `daemon` feature
+                      its protocol and the agent CLIs (`proto`, `clis`, `subagents`, `transcript`,
+                      `paths`), built without the `daemon` feature
 ```
 
 Outside the Rust code:
@@ -135,6 +136,10 @@ Outside the Rust code:
   the daemon already running hands over to the new one only once none of its agents is
   running (`nex-host/src/daemon/retire.rs`, `nex-host/src/client.rs`), and until then
   `watch` marks its lines with `daemon_version` so the Agents pane says an update is pending.
+- **A new agent CLI** (beside Claude Code and Codex): a module in `nex-host/src/clis/` that
+  implements `AgentCli` (`clis/codex/` is the smaller example), listed in `clis::ALL`. nex,
+  the daemon, `spawn`, the shim and `skill install` all ask the registry; `clis/tests.rs`
+  checks what every registered CLI must do. Its app tile's color is in `ui/icons.rs`.
 - **A config option:** `config.rs`, then document it in `config.example` and the README.
 
 ## Demo recordings

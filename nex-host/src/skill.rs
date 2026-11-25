@@ -1,12 +1,15 @@
-//! The manual for agents: `nex-host skill` prints it, `skill install` makes Claude Code and
-//! Codex find it on their own (a Claude Code skill in `~/.claude/skills/nex/SKILL.md`, a
-//! marked block in `~/.codex/AGENTS.md`), `skill remove` takes them out again.
+//! The manual for agents: `nex-host skill` prints it, `skill install` makes each agent CLI
+//! find it on its own where its [`AgentCli::manual`] says (Claude Code: a skill in
+//! `~/.claude/skills/nex/SKILL.md`; Codex: a marked block in `~/.codex/AGENTS.md`), `skill
+//! remove` takes them out again.
 //!
 //! Agents a nex-host `spawn` starts don't need it: their task says how to report. It's for
 //! the agent doing the delegating.
 
 use std::io;
 use std::path::PathBuf;
+
+use nex_host::clis::{self, AgentCli, Manual};
 
 use crate::shim::{with_marked, without_marked};
 
@@ -63,63 +66,74 @@ fn home() -> io::Result<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| io::Error::other("$HOME is unset"))
 }
 
-fn claude_skill() -> io::Result<PathBuf> {
-    let dir = match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
-        Some(d) => PathBuf::from(d),
-        None => home()?.join(".claude"),
-    };
-    Ok(dir.join("skills/nex/SKILL.md"))
+/// The CLI's home folder for its manual: its variable when set at all (unlike
+/// [`AgentCli::home`], a relative one counts too), else its folder in `$HOME`.
+fn cli_home(cli: &dyn AgentCli) -> io::Result<PathBuf> {
+    match std::env::var_os(cli.home_var()).filter(|d| !d.is_empty()) {
+        Some(d) => Ok(PathBuf::from(d)),
+        None => Ok(home()?.join(cli.home_folder())),
+    }
 }
 
-fn codex_agents() -> io::Result<PathBuf> {
-    let dir = match std::env::var_os("CODEX_HOME").filter(|d| !d.is_empty()) {
-        Some(d) => PathBuf::from(d),
-        None => home()?.join(".codex"),
-    };
-    Ok(dir.join("AGENTS.md"))
+/// Each CLI's manual, with where it goes.
+fn manuals() -> io::Result<Vec<(PathBuf, Manual)>> {
+    let mut out = Vec::new();
+    for cli in clis::ALL {
+        if let Some(m) = cli.manual(MANUAL) {
+            let path = match &m {
+                Manual::File { path, .. } | Manual::Block { path, .. } => cli_home(&**cli)?.join(path),
+            };
+            out.push((path, m));
+        }
+    }
+    Ok(out)
 }
 
-fn skill_file() -> String {
-    format!(
-        "---\nname: nex\ndescription: Delegate to and talk with other coding agents through nex-host (spawn helpers, send messages, get their reports, run pipelines). Use when $NEX_AGENT_ID is set and the work would go better split between agents, or when a <nex-message> block arrives in your input.\n---\n\n{MANUAL}"
-    )
-}
-
-fn codex_block() -> String {
-    format!("{BEGIN}\n{MANUAL}{END}\n")
+/// A [`Manual::Block`]'s text, between the marks.
+fn block(text: &str) -> String {
+    format!("{BEGIN}\n{text}{END}\n")
 }
 
 pub fn install() -> io::Result<Vec<PathBuf>> {
-    let skill = claude_skill()?;
-    if let Some(dir) = skill.parent() {
-        std::fs::create_dir_all(dir)?;
+    let mut done = Vec::new();
+    for (path, m) in manuals()? {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        match m {
+            Manual::File { text, .. } => std::fs::write(&path, text)?,
+            Manual::Block { text, .. } => {
+                let old = std::fs::read_to_string(&path).unwrap_or_default();
+                std::fs::write(&path, with_marked(&old, BEGIN, END, &block(&text)))?;
+            }
+        }
+        done.push(path);
     }
-    std::fs::write(&skill, skill_file())?;
-    let agents = codex_agents()?;
-    if let Some(dir) = agents.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let text = std::fs::read_to_string(&agents).unwrap_or_default();
-    std::fs::write(&agents, with_marked(&text, BEGIN, END, &codex_block()))?;
-    Ok(vec![skill, agents])
+    Ok(done)
 }
 
 pub fn remove() -> io::Result<Vec<PathBuf>> {
     let mut done = Vec::new();
-    let skill = claude_skill()?;
-    if skill.exists() {
-        std::fs::remove_file(&skill)?;
-        if let Some(dir) = skill.parent() {
-            let _ = std::fs::remove_dir(dir);
+    for (path, m) in manuals()? {
+        match m {
+            Manual::File { .. } => {
+                if path.exists() {
+                    std::fs::remove_file(&path)?;
+                    if let Some(dir) = path.parent() {
+                        let _ = std::fs::remove_dir(dir);
+                    }
+                    done.push(path);
+                }
+            }
+            Manual::Block { .. } => {
+                if let Ok(text) = std::fs::read_to_string(&path)
+                    && text.contains(BEGIN)
+                {
+                    std::fs::write(&path, without_marked(&text, BEGIN, END))?;
+                    done.push(path);
+                }
+            }
         }
-        done.push(skill);
-    }
-    let agents = codex_agents()?;
-    if let Ok(text) = std::fs::read_to_string(&agents)
-        && text.contains(BEGIN)
-    {
-        std::fs::write(&agents, without_marked(&text, BEGIN, END))?;
-        done.push(agents);
     }
     Ok(done)
 }
@@ -150,18 +164,27 @@ pub fn run(args: &[String]) -> io::Result<i32> {
 mod tests {
     use super::*;
 
+    fn text(cli: clis::Cli) -> String {
+        match cli.manual(MANUAL).unwrap() {
+            Manual::File { text, .. } | Manual::Block { text, .. } => text,
+        }
+    }
+
     #[test]
     fn the_codex_block_goes_in_and_comes_out() {
         let mine = "# My rules\nBe nice.\n";
-        let added = with_marked(mine, BEGIN, END, &codex_block());
+        let codex = block(&text(clis::CODEX));
+        let added = with_marked(mine, BEGIN, END, &codex);
         assert!(added.starts_with(mine) && added.contains("nex-host done"));
-        assert_eq!(with_marked(&added, BEGIN, END, &codex_block()), added);
+        assert_eq!(with_marked(&added, BEGIN, END, &codex), added);
         assert_eq!(without_marked(&added, BEGIN, END), mine);
     }
 
     #[test]
     fn the_skill_has_frontmatter_and_the_commands() {
-        let s = skill_file();
+        assert!(matches!(clis::CLAUDE.manual(MANUAL), Some(Manual::File { path: "skills/nex/SKILL.md", .. })));
+        assert!(matches!(clis::CODEX.manual(MANUAL), Some(Manual::Block { path: "AGENTS.md", .. })));
+        let s = text(clis::CLAUDE);
         assert!(s.starts_with("---\nname: nex\ndescription: "));
         for verb in ["spawn", "send", "done", "read", "recv", "pipe"] {
             assert!(MANUAL.contains(&format!("nex-host {verb} ")), "{verb}");

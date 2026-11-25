@@ -4,9 +4,10 @@
 //! printing what's added: the task it was given, what it says, each tool call on one line
 //! and the start of each result. It's read-only, and says so.
 //!
-//! - Claude Code: `agent-<id>.jsonl`, finished once `agent-<id>.meta.json` beside it says
-//!   `finished: true`.
-//! - Codex (best effort): its rollout file, finished at its `task_complete` event.
+//! Each CLI knows its own file ([`AgentCli::render`](crate::clis::AgentCli::render), in its
+//! module under [`crate::clis`]): which lines are the task, what it says, its tool calls and
+//! their results, and how to tell it has finished. [`Printer`] is how it prints them, the
+//! same for every CLI.
 //!
 //! [`Renderer`] turns one line of the file into what to print (skipping anything it doesn't
 //! know or can't parse); [`follow`] reads the file as it grows. `nex-host subagent` runs it
@@ -16,13 +17,15 @@ use std::io::{self, BufRead, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use crate::clis::Cli;
+
 /// How often [`follow`] looks for more.
 const POLL: Duration = Duration::from_millis(300);
 /// A tool result's lines shown, and how long a printed line gets.
 const RESULT_LINES: usize = 4;
 const LINE_CHARS: usize = 200;
 /// A tool call's argument, cut to this.
-const ARG_CHARS: usize = 100;
+pub const ARG_CHARS: usize = 100;
 
 const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
@@ -34,37 +37,25 @@ const RESET: &str = "\x1b[0m";
 /// The tab's one dim line saying what it is.
 pub const READ_ONLY: &str = "Sub-agent transcript \u{00b7} read-only: it follows the agent's file, typing here does nothing";
 
-/// Whose file it is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Format {
-    Claude,
-    Codex,
-}
-
-impl Format {
-    /// A Codex rollout starts with its `session_meta`; anything else is taken for Claude
-    /// Code's.
-    pub fn sniff(first_line: &str) -> Format {
-        match serde_json::from_str::<serde_json::Value>(first_line) {
-            Ok(v) if v.get("type").and_then(|t| t.as_str()) == Some("session_meta") => Format::Codex,
-            _ => Format::Claude,
-        }
-    }
-}
-
-/// Turns the file's lines into what the tab prints.
+/// Turns the file's lines into what the tab prints, for the CLI that wrote it.
 pub struct Renderer {
-    format: Format,
-    /// The task has been printed (the first user message is the task; later ones are
-    /// harness reminders, or messages sent to it).
-    tasked: bool,
-    /// Codex said its task is complete.
-    pub finished: bool,
+    cli: Cli,
+    out: Printer,
 }
 
 impl Renderer {
-    pub fn new(format: Format) -> Renderer {
-        Renderer { format, tasked: false, finished: false }
+    pub fn new(cli: Cli) -> Renderer {
+        Renderer { cli, out: Printer::default() }
+    }
+
+    /// Whose file it is.
+    pub fn cli(&self) -> Cli {
+        self.cli
+    }
+
+    /// The file itself said the sub-agent has finished.
+    pub fn finished(&self) -> bool {
+        self.out.finished
     }
 
     /// What to print for `line` (one JSON line of the file), one string per terminal line.
@@ -75,19 +66,35 @@ impl Renderer {
             return Vec::new();
         }
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { return Vec::new() };
-        let mut out = Vec::new();
-        match self.format {
-            Format::Claude => self.claude(&v, &mut out),
-            Format::Codex => self.codex(&v, &mut out),
-        }
-        out
+        self.cli.render(&v, &mut self.out);
+        std::mem::take(&mut self.out.lines)
+    }
+}
+
+/// What a CLI's [`render`](crate::clis::AgentCli::render) prints a transcript's lines with:
+/// the same look for every CLI, and nothing from the file acted on (see [`clean`]).
+#[derive(Default)]
+pub struct Printer {
+    lines: Vec<String>,
+    /// The task has been printed (the first user message is the task; later ones are
+    /// harness reminders, or messages sent to it).
+    tasked: bool,
+    finished: bool,
+}
+
+impl Printer {
+    /// Whether the task has been printed yet.
+    pub fn tasked(&self) -> bool {
+        self.tasked
     }
 
-    fn task(&mut self, text: &str, out: &mut Vec<String>) {
+    /// A message to the sub-agent: the first is its task. Harness text (`<…>`) is skipped.
+    pub fn task(&mut self, text: &str) {
         let text = text.trim();
         if text.is_empty() || text.starts_with('<') {
             return;
         }
+        let out = &mut self.lines;
         if self.tasked {
             out.push(String::new());
             out.push(format!("{CYAN}{BOLD}\u{203a} Message{RESET}"));
@@ -98,11 +105,13 @@ impl Renderer {
         out.extend(text.lines().map(|l| format!("  {}", cut(l, LINE_CHARS * 4))));
     }
 
-    fn say(text: &str, out: &mut Vec<String>) {
+    /// What the sub-agent says.
+    pub fn say(&mut self, text: &str) {
         let text = text.trim();
         if text.is_empty() {
             return;
         }
+        let out = &mut self.lines;
         out.push(String::new());
         // The text often quotes what it read: its escape sequences must not reach the tab.
         let mut lines = text.lines().map(clean);
@@ -112,12 +121,15 @@ impl Renderer {
         out.extend(lines.map(|l| format!("  {l}")));
     }
 
-    fn call(name: &str, arg: Option<String>, out: &mut Vec<String>) {
+    /// A tool call, with the argument that says what it does (see [`key_arg`]).
+    pub fn call(&mut self, name: &str, arg: Option<String>) {
         let arg = arg.map(|a| format!("{DIM}({a}){RESET}")).unwrap_or_default();
-        out.push(format!("{GREEN}\u{25cf}{RESET} {BOLD}{}{RESET}{arg}", cut(name, ARG_CHARS)));
+        self.lines.push(format!("{GREEN}\u{25cf}{RESET} {BOLD}{}{RESET}{arg}", cut(name, ARG_CHARS)));
     }
 
-    fn result(text: &str, error: bool, out: &mut Vec<String>) {
+    /// A tool's result: its first few lines.
+    pub fn result(&mut self, text: &str, error: bool) {
+        let out = &mut self.lines;
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
         let color = if error { RED } else { DIM };
         if lines.is_empty() {
@@ -133,87 +145,14 @@ impl Renderer {
         }
     }
 
-    fn claude(&mut self, v: &serde_json::Value, out: &mut Vec<String>) {
-        let Some(content) = v.get("message").and_then(|m| m.get("content")) else { return };
-        match v.get("type").and_then(|t| t.as_str()) {
-            Some("user") => match content {
-                serde_json::Value::String(s) => self.task(s, out),
-                serde_json::Value::Array(blocks) => {
-                    for b in blocks {
-                        match b.get("type").and_then(|t| t.as_str()) {
-                            Some("tool_result") => {
-                                let error = b.get("is_error").and_then(|e| e.as_bool()).unwrap_or(false);
-                                Self::result(&text_of(b.get("content")), error, out);
-                            }
-                            Some("text") if !self.tasked => self.task(b.get("text").and_then(|t| t.as_str()).unwrap_or(""), out),
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            },
-            Some("assistant") => {
-                for b in content.as_array().into_iter().flatten() {
-                    match b.get("type").and_then(|t| t.as_str()) {
-                        Some("text") => Self::say(b.get("text").and_then(|t| t.as_str()).unwrap_or(""), out),
-                        Some("tool_use") => {
-                            let name = b.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
-                            Self::call(name, b.get("input").and_then(key_arg), out);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn codex(&mut self, v: &serde_json::Value, out: &mut Vec<String>) {
-        let Some(p) = v.get("payload") else { return };
-        let kind = p.get("type").and_then(|t| t.as_str());
-        match v.get("type").and_then(|t| t.as_str()) {
-            Some("event_msg") if kind == Some("task_complete") => self.finished = true,
-            Some("response_item") => match kind {
-                Some("message") => {
-                    let text = text_of(p.get("content"));
-                    match p.get("role").and_then(|r| r.as_str()) {
-                        Some("user") => self.task(&text, out),
-                        Some("assistant") => Self::say(&text, out),
-                        _ => {}
-                    }
-                }
-                Some("function_call") | Some("custom_tool_call") => {
-                    let name = p.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
-                    // A function call's arguments are a JSON string; a custom tool's input is text.
-                    let args = p.get("arguments").and_then(|a| a.as_str()).and_then(|a| serde_json::from_str::<serde_json::Value>(a).ok());
-                    let arg = args.as_ref().and_then(key_arg).or_else(|| p.get("input").and_then(|i| i.as_str()).map(|i| cut(i.lines().next().unwrap_or(""), ARG_CHARS)));
-                    Self::call(name, arg, out);
-                }
-                Some("local_shell_call") => {
-                    let cmd = p.get("action").and_then(|a| a.get("command")).map(|c| match c {
-                        serde_json::Value::Array(words) => words.iter().filter_map(|w| w.as_str()).collect::<Vec<_>>().join(" "),
-                        other => other.as_str().unwrap_or("").to_string(),
-                    });
-                    Self::call("shell", cmd.map(|c| cut(&c, ARG_CHARS)), out);
-                }
-                Some("function_call_output") | Some("custom_tool_call_output") => {
-                    let output = p.get("output");
-                    // Sometimes the output is itself JSON with an `output` field.
-                    let text = match output.and_then(|o| o.as_str()).and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) {
-                        Some(inner) if inner.get("output").is_some() => text_of(inner.get("output")),
-                        _ => text_of(output),
-                    };
-                    Self::result(&text, false, out);
-                }
-                _ => {}
-            },
-            _ => {}
-        }
+    /// The file says the sub-agent has finished.
+    pub fn finish(&mut self) {
+        self.finished = true;
     }
 }
 
 /// The text in a message's content: a string, or the `text` of each block in a list.
-fn text_of(v: Option<&serde_json::Value>) -> String {
+pub fn text_of(v: Option<&serde_json::Value>) -> String {
     match v {
         Some(serde_json::Value::String(s)) => s.clone(),
         Some(serde_json::Value::Array(blocks)) => blocks
@@ -228,7 +167,7 @@ fn text_of(v: Option<&serde_json::Value>) -> String {
 
 /// The argument that says what a tool call does: its command, file, pattern, address, …,
 /// else its first short text. One line, cut short.
-fn key_arg(input: &serde_json::Value) -> Option<String> {
+pub fn key_arg(input: &serde_json::Value) -> Option<String> {
     const KEYS: [&str; 12] = ["command", "cmd", "file_path", "path", "pattern", "query", "url", "description", "skill", "subagent_type", "prompt", "plan"];
     let obj = input.as_object()?;
     let text = |v: &serde_json::Value| match v {
@@ -243,7 +182,7 @@ fn key_arg(input: &serde_json::Value) -> Option<String> {
 
 /// `s` cut to `n` characters, with an ellipsis when it was longer. Control characters (a
 /// result's own escape sequences) are dropped: they'd restyle the tab.
-fn cut(s: &str, n: usize) -> String {
+pub fn cut(s: &str, n: usize) -> String {
     let clean = clean(s);
     if clean.chars().count() <= n { clean } else { clean.chars().take(n.saturating_sub(1)).chain(['\u{2026}']).collect() }
 }
@@ -254,20 +193,6 @@ fn cut(s: &str, n: usize) -> String {
 /// plain characters.
 fn clean(s: &str) -> String {
     s.chars().map(|c| if c == '\t' { ' ' } else { c }).filter(|c| !c.is_control()).collect()
-}
-
-/// What the meta file beside a Claude Code transcript says: its description, and whether it
-/// finished.
-fn claude_meta(transcript: &Path) -> (Option<String>, bool) {
-    let meta = claude_meta_path(transcript);
-    let Some(v) = std::fs::read_to_string(meta).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) else { return (None, false) };
-    let s = |k: &str| v.get(k).and_then(|d| d.as_str()).map(str::trim).filter(|d| !d.is_empty()).map(str::to_string);
-    (s("description").or_else(|| s("agentType")), v.get("finished").and_then(|f| f.as_bool()).unwrap_or(false))
-}
-
-fn claude_meta_path(transcript: &Path) -> PathBuf {
-    let name = transcript.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    transcript.with_file_name(format!("{}.meta.json", name.strip_suffix(".jsonl").unwrap_or(name)))
 }
 
 fn mtime(p: &Path) -> Option<SystemTime> {
@@ -290,27 +215,20 @@ impl Follower {
         Follower { path, offset: 0, partial: Vec::new(), renderer: None, meta_seen: None, meta_finished: false }
     }
 
-    /// What its tab is called: Claude Code's description of the task, else Codex's name
-    /// for the thread (`None` until the file says).
+    /// What its tab is called, as its CLI reads it from the file (`None` until it says).
     pub fn title(&self) -> Option<String> {
-        match self.format()? {
-            Format::Claude => claude_meta(&self.path).0,
-            Format::Codex => {
-                let head = std::fs::File::open(&self.path).ok().and_then(|f| io::BufReader::new(f).lines().next()?.ok())?;
-                let h = crate::subagents::parse_codex_head(&head)?;
-                h.name.or(h.role)
-            }
-        }
+        self.cli()?.transcript_title(&self.path)
     }
 
-    fn format(&self) -> Option<Format> {
+    /// Whose file it is: known once its first line is (see [`crate::clis::of_transcript`]).
+    fn cli(&self) -> Option<Cli> {
         if let Some(r) = &self.renderer {
-            return Some(r.format);
+            return Some(r.cli());
         }
         let f = std::fs::File::open(&self.path).ok()?;
         let mut first = String::new();
         io::BufReader::new(f.take(256 * 1024)).read_line(&mut first).ok()?;
-        (!first.trim().is_empty()).then(|| Format::sniff(&first))
+        (!first.trim().is_empty()).then(|| crate::clis::of_transcript(&first))
     }
 
     /// The lines added since last time, rendered (complete lines only).
@@ -334,27 +252,27 @@ impl Follower {
         let text = String::from_utf8_lossy(&complete);
         let mut out = Vec::new();
         for line in text.lines() {
-            let r = self.renderer.get_or_insert_with(|| Renderer::new(Format::sniff(line)));
+            let r = self.renderer.get_or_insert_with(|| Renderer::new(crate::clis::of_transcript(line)));
             out.extend(r.line(line));
         }
         out
     }
 
-    /// Whether the sub-agent has finished: its meta file says so (Claude Code), or its
-    /// rollout did (Codex).
+    /// Whether the sub-agent has finished: the file said so, or the file its CLI keeps
+    /// beside it does ([`AgentCli::finish_file`](crate::clis::AgentCli::finish_file)). Until
+    /// the file has a line, it's taken for Claude Code's.
     pub fn finished(&mut self) -> bool {
-        match self.renderer.as_ref().map(|r| r.format) {
-            Some(Format::Codex) => self.renderer.as_ref().is_some_and(|r| r.finished),
-            _ => {
-                let meta = claude_meta_path(&self.path);
-                let m = mtime(&meta);
-                if m.is_some() && m != self.meta_seen {
-                    self.meta_seen = m;
-                    self.meta_finished = claude_meta(&self.path).1;
-                }
-                self.meta_finished
-            }
+        if self.renderer.as_ref().is_some_and(Renderer::finished) {
+            return true;
         }
+        let cli = self.cli().unwrap_or(crate::clis::CLAUDE);
+        let Some(file) = cli.finish_file(&self.path) else { return false };
+        let m = mtime(&file);
+        if m.is_some() && m != self.meta_seen {
+            self.meta_seen = m;
+            self.meta_finished = cli.finished_in(&file);
+        }
+        self.meta_finished
     }
 }
 
@@ -382,8 +300,8 @@ pub fn follow(path: &Path, title: Option<&str>, out: &mut impl Write, stop: impl
         if !lines.is_empty() {
             out.flush()?;
         }
-        // Codex says so in the file itself: known only once it's read.
-        if done || f.renderer.as_ref().is_some_and(|r| r.format == Format::Codex && r.finished) {
+        // A CLI may say so in the file itself: known only once it's read.
+        if done || f.renderer.as_ref().is_some_and(Renderer::finished) {
             writeln!(out, "\n{}", finished_line())?;
             return out.flush();
         }
@@ -438,11 +356,11 @@ pub fn run(path: Option<&Path>, why: &str) -> io::Result<i32> {
     Ok(0)
 }
 
+/// What the CLIs' transcript tests share.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn strip(lines: &[String]) -> Vec<String> {
+pub(crate) mod testing {
+    /// `lines` without their escape sequences (the styling).
+    pub(crate) fn strip(lines: &[String]) -> Vec<String> {
         lines.iter().map(|l| {
             let mut out = String::new();
             let mut chars = l.chars().peekable();
@@ -461,63 +379,29 @@ mod tests {
         }).collect()
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::transcript::testing::strip;
+
     const TASK: &str = r#"{"parentUuid":null,"isSidechain":true,"agentId":"a1","type":"user","message":{"role":"user","content":"Map the view code\nand report back"},"uuid":"u1"}"#;
-    const REMINDER: &str = r#"{"type":"user","message":{"role":"user","content":"<system-reminder>\nignore me\n</system-reminder>"}}"#;
     const TEXT: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Looking at view.rs first."}]}}"#;
     const CALL: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"grep -n fn src/agents/view.rs\nsecond line","description":"Find functions"}}]}}"#;
-
-    fn long_result() -> String {
-        let text: Vec<String> = (1..=10).map(|i| format!("line {i}")).collect();
-        serde_json::json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":text.join("\n")}]}}).to_string()
-    }
-
-    #[test]
-    fn claude_codes_task_text_and_tool_calls() {
-        let mut r = Renderer::new(Format::Claude);
-        assert_eq!(strip(&r.line(TASK)), ["\u{203a} Task", "  Map the view code", "  and report back"]);
-        assert!(r.line(REMINDER).is_empty(), "harness reminders aren't the task");
-        assert_eq!(strip(&r.line(TEXT)), ["", "\u{25cf} Looking at view.rs first."], "thinking isn't shown");
-        assert_eq!(strip(&r.line(CALL)), ["\u{25cf} Bash(grep -n fn src/agents/view.rs)"], "one line: the command's first");
-        let read = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/w/src/lib.rs","limit":20}}]}}"#;
-        assert_eq!(strip(&r.line(read)), ["\u{25cf} Read(/w/src/lib.rs)"]);
-    }
-
-    #[test]
-    fn a_long_tool_result_is_cut_to_a_few_lines() {
-        let mut r = Renderer::new(Format::Claude);
-        assert_eq!(strip(&r.line(&long_result())), ["  \u{2514} line 1", "    line 2", "    line 3", "    line 4", "    \u{2026} +6 lines"]);
-        let blocks = r#"{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":[{"type":"text","text":"boom"}]}]}}"#;
-        assert_eq!(strip(&r.line(blocks)), ["  \u{2514} boom"]);
-        let wide = serde_json::json!({"type":"user","message":{"content":[{"type":"tool_result","content":"x".repeat(500)}]}}).to_string();
-        let got = strip(&r.line(&wide));
-        assert_eq!(got.len(), 1);
-        assert!(got[0].chars().count() < 220 && got[0].ends_with('\u{2026}'));
-    }
-
-    #[test]
-    fn malformed_and_unknown_lines_print_nothing() {
-        let mut r = Renderer::new(Format::Claude);
-        for junk in ["not json", "{\"type\":", "[]", "{}", r#"{"type":"attachment","attachment":{}}"#, r#"{"type":"assistant","message":{"content":"odd"}}"#, r#"{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}"#] {
-            let out = r.line(junk);
-            assert!(out.iter().all(|l| !l.contains("panic")), "{junk}");
-        }
-        assert!(r.line("not json").is_empty());
-        assert!(r.line(r#"{"type":"attachment","attachment":{}}"#).is_empty());
-        // A tool call with no input still reads.
-        assert_eq!(strip(&r.line(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Glob"}]}}"#)), ["\u{25cf} Glob"]);
-    }
 
     #[test]
     fn escape_sequences_in_the_file_never_reach_the_terminal() {
         const EVIL: &str = "x\u{1b}]52;c;aGk=\u{7}y\u{1b}[2J\u{9b}31mz\u{1b}]2;pwned\u{7}";
         // Our own styling is ESC-led too: compare without it.
         let ours = |lines: &[String]| lines.iter().map(|l| [DIM, BOLD, RED, GREEN, CYAN, RESET].iter().fold(l.clone(), |l, s| l.replace(s, ""))).collect::<Vec<_>>();
-        let mut r = Renderer::new(Format::Claude);
+        let mut r = Renderer::new(crate::clis::CLAUDE);
         let text = serde_json::json!({"type":"assistant","message":{"content":[{"type":"text","text":format!("{EVIL}\nsecond {EVIL}")}]}}).to_string();
         let call = serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":EVIL,"input":{"command":EVIL}}]}}).to_string();
         let task = serde_json::json!({"type":"user","message":{"content":format!("do {EVIL}")}}).to_string();
         let result = serde_json::json!({"type":"user","message":{"content":[{"type":"tool_result","content":EVIL}]}}).to_string();
-        let mut codex = Renderer::new(Format::Codex);
+        let mut codex = Renderer::new(crate::clis::CODEX);
         let codex_text = serde_json::json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":EVIL}]}}).to_string();
         let codex_call = serde_json::json!({"type":"response_item","payload":{"type":"custom_tool_call","name":EVIL,"input":EVIL}}).to_string();
         let mut all = Vec::new();
@@ -537,26 +421,6 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         assert!(!text.contains("\u{7}") && !text.contains("]52;c;aGk=\u{7}") && !text.contains("\u{9b}"));
         assert_eq!(text.matches('\u{1b}').count(), 3, "only our own: hide the cursor, dim, reset");
-    }
-
-    #[test]
-    fn codex_rollouts_read_the_same_way() {
-        let mut r = Renderer::new(Format::Codex);
-        let head = r#"{"type":"session_meta","payload":{"id":"k1","cwd":"/w","source":{"subagent":{"thread_spawn":{"parent_thread_id":"p1"}}},"agent_role":"explorer"}}"#;
-        assert_eq!(Format::sniff(head), Format::Codex);
-        assert_eq!(Format::sniff(TASK), Format::Claude);
-        assert!(r.line(head).is_empty());
-        let env = r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>x</environment_context>"}]}}"#;
-        assert!(r.line(env).is_empty());
-        let task = r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Find the bug"}]}}"#;
-        assert_eq!(strip(&r.line(task)), ["\u{203a} Task", "  Find the bug"]);
-        let call = r#"{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"bash\",\"-lc\",\"ls\"]}","call_id":"c1"}}"#;
-        assert_eq!(strip(&r.line(call)), ["\u{25cf} shell(bash -lc ls)"]);
-        let output = r#"{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"{\"output\":\"a\\nb\",\"metadata\":{}}"}}"#;
-        assert_eq!(strip(&r.line(output)), ["  \u{2514} a", "    b"]);
-        assert!(!r.finished);
-        assert!(r.line(r#"{"type":"event_msg","payload":{"type":"task_complete"}}"#).is_empty());
-        assert!(r.finished);
     }
 
     fn tmp(name: &str) -> PathBuf {

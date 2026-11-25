@@ -14,13 +14,15 @@
 //! on, or go back to) say so: a "Viewing" pill and an accent ring, strongest for the one in
 //! the focused pane ([`model::Viewing`]).
 //!
-//! `model` (which panes are agents and what they're doing), `group` (teams), `motion` (how
+//! `model` (which panes are agents and what they're doing), `local` (the agent CLIs,
+//! `nex_host::clis`, as they run in this machine's panes), `group` (teams), `motion` (how
 //! cards, rows and capsules move), `view` (drawing and the mouse), `notify` (the Agents tab's
 //! badge, and when to send a system notification), and here: the pane's state and keys. The app keeps one [`model::Tracker`] for every Agents pane, updated with the
 //! process poll. Its agents are shared (`Arc`) down to the cards, and the teams made from
 //! them are kept until the list changes: a frame copies none of them.
 
 mod group;
+pub mod local;
 pub mod model;
 mod motion;
 pub mod notify;

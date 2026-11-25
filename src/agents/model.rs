@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use nex_host::clis::Cli;
+
 use crate::layout::PaneId;
 
 /// Output this recent (and not just the echo of typing) counts as working.
@@ -24,52 +26,52 @@ const BUSY_WINDOW: Duration = Duration::from_millis(nex_host::proto::BUSY_WINDOW
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AgentKind {
-    Claude,
-    Codex,
+    /// One of the agent CLIs (`nex_host::clis`: Claude Code, Codex).
+    Cli(Cli),
     /// `nex-host pipe` running a pipeline on an ssh host: its stages are its team.
     Pipeline,
 }
 
 impl AgentKind {
+    /// Claude Code and Codex, for tests.
+    #[cfg(test)]
+    pub const CLAUDE: AgentKind = AgentKind::Cli(nex_host::clis::CLAUDE);
+    #[cfg(test)]
+    pub const CODEX: AgentKind = AgentKind::Cli(nex_host::clis::CODEX);
+
     /// The agent a foreground process is, from its name and command line.
     pub fn detect(process: &str, argv: &[String]) -> Option<AgentKind> {
-        if crate::session::claude::is_claude(argv) || process == "claude" {
-            return Some(AgentKind::Claude);
-        }
-        let base = |s: &str| s.rsplit('/').next().unwrap_or(s).to_string();
-        let codex = |s: &str| base(s) == "codex" || s.ends_with("@openai/codex/bin/codex.js");
-        match argv {
-            _ if process == "codex" => Some(AgentKind::Codex),
-            [first, ..] if codex(first) => Some(AgentKind::Codex),
-            [runtime, script, ..] if matches!(base(runtime).as_str(), "node" | "bun") && codex(script) => Some(AgentKind::Codex),
-            _ => None,
-        }
+        nex_host::clis::ALL.iter().find(|c| process == c.kind() || c.program_len(argv).is_some()).map(|c| AgentKind::Cli(*c))
     }
 
     /// The agent `nex-host` reports as `kind` (`claude`, `codex`, `pipeline`); other programs
     /// it holds aren't agents.
     pub fn from_name(kind: &str) -> Option<AgentKind> {
         match kind {
-            "claude" => Some(AgentKind::Claude),
-            "codex" => Some(AgentKind::Codex),
             nex_host::proto::PIPELINE_KIND => Some(AgentKind::Pipeline),
-            _ => None,
+            _ => nex_host::clis::by_kind(kind).map(AgentKind::Cli),
+        }
+    }
+
+    /// Its CLI, unless it's a pipeline.
+    pub fn cli(self) -> Option<Cli> {
+        match self {
+            AgentKind::Cli(c) => Some(c),
+            AgentKind::Pipeline => None,
         }
     }
 
     /// The process name its app tile is drawn for (see `ui::icons::app_tile`).
     pub fn process(self) -> &'static str {
         match self {
-            AgentKind::Claude => "claude",
-            AgentKind::Codex => "codex",
+            AgentKind::Cli(c) => c.kind(),
             AgentKind::Pipeline => crate::ui::icons::PIPELINE_PROCESS,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            AgentKind::Claude => "Claude Code",
-            AgentKind::Codex => "Codex",
+            AgentKind::Cli(c) => c.label(),
             AgentKind::Pipeline => "Pipeline",
         }
     }
@@ -231,11 +233,11 @@ impl Probe {
         if let Some(s) = reported {
             return s;
         }
-        if self.kind == AgentKind::Claude
+        if let Some(cli) = self.kind.cli()
             && let Some(mark) = &self.mark
+            && let Some(s) = cli.title_status(mark).and_then(Status::from_host)
         {
-            let idle = mark.chars().eq([nex_host::proto::CLAUDE_IDLE_MARK]);
-            return if idle { Status::Idle } else { Status::Working };
+            return s;
         }
         let recent = |t: Instant| now.saturating_duration_since(t) < BUSY_WINDOW;
         if recent(self.last_output) && !recent(self.last_input) { Status::Working } else { Status::Idle }

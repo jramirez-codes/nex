@@ -9,8 +9,6 @@ use serde_json::{Map, Value, json};
 
 use crate::layout::Axis;
 
-pub mod claude;
-
 /// Format version written to and required in the file.
 pub const VERSION: u32 = 1;
 

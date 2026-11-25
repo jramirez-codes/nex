@@ -21,6 +21,7 @@ use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{self, Term};
 use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
+use nex_host::clis::{self, Running};
 use nex_host::proto::{self, Session, Status};
 
 use crate::daemon::{deliver, pty, redraw};
@@ -384,13 +385,11 @@ impl Agent {
             _ => self.pid,
         };
         let kind = running.as_deref().unwrap_or(&self.kind);
-        let claude = (kind == "claude" && exit.is_none()).then(|| nex_host::claude::read(agent_pid)).flatten();
-        let subagents = match (kind, &claude) {
-            _ if exit.is_some() => Vec::new(),
-            ("claude", Some(c)) => nex_host::subagents::claude(c),
-            ("codex", _) => nex_host::subagents::codex(agent_pid, &self.cwd),
-            _ => Vec::new(),
-        };
+        let cli = clis::by_kind(kind).filter(|_| exit.is_none());
+        let home = cli.and_then(|c| c.home());
+        let claude = cli.zip(home.as_deref()).and_then(|(c, h)| c.session(h, agent_pid, clis::proc_start(agent_pid).as_deref()));
+        let me = Running { pid: agent_pid, cwd: &self.cwd, session: claude.as_ref() };
+        let subagents = cli.zip(home.as_deref()).map(|(c, h)| c.subagents(h, &me, nex_host::subagents::now_ms())).unwrap_or_default();
         let mut s = Session {
             id: self.id.clone(),
             kind: self.kind.clone(),
@@ -415,46 +414,30 @@ impl Agent {
         };
         s.status = s.compute_status(now);
         // Without a session file to say so (before it reaches its prompt, and in versions that
-        // don't write one), Claude Code asking the user something shows only on its screen:
-        // trusting the folder, a new MCP server, a tool's permission. Typing a message in
-        // would answer it (Enter takes the default: "No, exit" when trusting the folder).
-        if s.status != Status::Exited && s.agent_kind() == "claude" && s.claude.is_none() && claude_dialog(&self.text(DIALOG_LINES)) {
+        // don't write one), a CLI asking the user something may show it only on its screen
+        // (Claude Code: trusting the folder, a new MCP server, a tool's permission). Typing a
+        // message in would answer it (Enter takes the default: "No, exit" when trusting the
+        // folder).
+        let marks = clis::by_kind(s.agent_kind()).map_or(&[][..], |c| c.dialog_marks());
+        if s.status != Status::Exited && !marks.is_empty() && s.claude.is_none() && shows_any(&self.text(DIALOG_LINES), marks) {
             s.status = Status::NeedsYou;
         }
         s
     }
 }
 
-/// How many lines at the bottom of the screen a Claude Code start-up dialog fits in.
+/// How many lines at the bottom of the screen a start-up dialog fits in.
 const DIALOG_LINES: usize = 40;
 
-/// What Claude Code's dialogs show: asking to trust the folder, a choice confirmed with
-/// Enter, asking permission for a tool.
-const CLAUDE_DIALOG: [&str; 4] = ["trust this folder", "Enter to confirm", "Do you want to proceed?", "Esc to cancel"];
-
-/// Whether `screen` shows one of Claude Code's dialogs ([`CLAUDE_DIALOG`]).
-fn claude_dialog(screen: &str) -> bool {
-    CLAUDE_DIALOG.iter().any(|s| screen.contains(s))
+/// Whether `screen` shows any of a CLI's [`dialog_marks`](nex_host::clis::AgentCli::dialog_marks).
+fn shows_any(screen: &str, marks: &[&str]) -> bool {
+    marks.iter().any(|m| screen.contains(m))
 }
 
-/// `claude` or `codex`, when `argv` runs one of them (directly or under node / bun).
+/// The agent CLI's kind (`claude`, `codex`), when `argv` runs one (directly or under node /
+/// bun). See [`clis::detect`].
 pub fn detect_kind(argv: &[String]) -> Option<&'static str> {
-    let base = |s: &str| s.rsplit('/').next().unwrap_or(s).to_string();
-    let is = |s: &str, name: &str, script: &str| base(s) == name || s.ends_with(script);
-    let pick = |s: &str| {
-        if is(s, "claude", "@anthropic-ai/claude-code/cli.js") {
-            Some("claude")
-        } else if is(s, "codex", "@openai/codex/bin/codex.js") {
-            Some("codex")
-        } else {
-            None
-        }
-    };
-    match argv {
-        [runtime, script, ..] if matches!(base(runtime).as_str(), "node" | "bun") => pick(script),
-        [first, ..] => pick(first),
-        [] => None,
-    }
+    clis::detect(argv).map(|c| c.kind())
 }
 
 /// `argv` as one word for a shell: `'it'\''s'`.
@@ -475,12 +458,14 @@ mod tests {
 
     #[test]
     fn sees_claude_start_up_dialogs() {
+        let dialog = |screen: &str| shows_any(screen, clis::CLAUDE.dialog_marks());
         let trust = " Quick safety check: Is this a project you created or one you trust?\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel";
-        assert!(claude_dialog(trust));
-        assert!(claude_dialog(" New MCP server found in .mcp.json: db\n ❯ Use this server\n Enter to confirm · Esc to cancel"));
-        assert!(claude_dialog(" Bash command\n Do you want to proceed?\n ❯ 1. Yes\n   3. No\n\n Esc to cancel · Tab to amend"));
-        assert!(!claude_dialog("✻ Reading files… (esc to interrupt)"));
-        assert!(!claude_dialog("╭──────╮\n│ > Try \"fix the tests\" │\n╰──────╯\n  ? for shortcuts"));
+        assert!(dialog(trust));
+        assert!(dialog(" New MCP server found in .mcp.json: db\n ❯ Use this server\n Enter to confirm · Esc to cancel"));
+        assert!(dialog(" Bash command\n Do you want to proceed?\n ❯ 1. Yes\n   3. No\n\n Esc to cancel · Tab to amend"));
+        assert!(!dialog("✻ Reading files… (esc to interrupt)"));
+        assert!(!dialog("╭──────╮\n│ > Try \"fix the tests\" │\n╰──────╯\n  ? for shortcuts"));
+        assert!(!shows_any(trust, clis::CODEX.dialog_marks()), "Codex has none");
     }
 
     #[test]

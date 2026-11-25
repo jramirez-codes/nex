@@ -8,11 +8,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::agents::AgentsPane;
+use crate::agents::{AgentsPane, local};
 use crate::agents::model::{AgentKind, Probe, Source, Status, Team, Viewing, is_remote_key, remote_key, sub_key};
 use crate::layout::{Axis, PaneId};
 use crate::remote::SshTarget;
-use crate::session::claude;
 use crate::ui::icons;
 
 use crate::app::App;
@@ -80,12 +79,10 @@ impl App {
                 }
                 let Some((pid, argv)) = t.foreground_job() else { continue };
                 let Some(kind) = AgentKind::detect(&t.process, argv) else { continue };
-                let session = (kind == AgentKind::Claude).then(|| claude::session_info(pid)).flatten().unwrap_or_default();
-                let subagents = match kind {
-                    AgentKind::Claude => claude::subagents(&session),
-                    AgentKind::Codex => codex_subagents(pid, t.cwd.as_deref()),
-                    AgentKind::Pipeline => Vec::new(),
-                };
+                let Some(cli) = kind.cli() else { continue };
+                let session = local::session(cli, pid);
+                let subagents = local::subagents(cli, pid, t.cwd.as_deref(), session.as_ref());
+                let session = session.unwrap_or_default();
                 let title = t.title();
                 let (mark, rest) = icons::title_mark(&t.process, title);
                 let lead = Probe {
@@ -328,11 +325,7 @@ impl App {
     /// can't be found: the tab says so).
     fn local_follower(&self, lead: PaneId, id: &str) -> Option<Vec<String>> {
         let t = self.panes.get(&lead)?;
-        let path = t.foreground_job().and_then(|(pid, argv)| match AgentKind::detect(&t.process, argv)? {
-            AgentKind::Claude => claude::subagent_transcript(&claude::session_info(pid)?, id),
-            AgentKind::Codex => nex_host::subagents::codex_rollout(&codex_home()?, id),
-            AgentKind::Pipeline => None,
-        });
+        let path = t.foreground_job().and_then(|(pid, argv)| local::subagent_transcript(AgentKind::detect(&t.process, argv)?.cli()?, pid, t.cwd.as_deref(), id));
         follower_command(&path.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
     }
 
@@ -408,14 +401,6 @@ impl App {
     }
 }
 
-/// The sub-agents the Codex process `pid` (in `cwd`) spawned, with Codex's home on this
-/// machine: `$CODEX_HOME`, else `~/.codex`.
-fn codex_subagents(pid: u32, cwd: Option<&std::path::Path>) -> Vec<nex_host::proto::SubAgent> {
-    let Some(home) = codex_home() else { return Vec::new() };
-    let cwd = cwd.map(|c| c.to_string_lossy().into_owned()).unwrap_or_default();
-    nex_host::subagents::codex_in(&home, pid, &cwd, nex_host::subagents::now_ms())
-}
-
 /// This program, following the transcript at `path` (see `cli::Args::follow_subagent`).
 #[cfg(not(test))]
 fn follower_command(path: &str) -> Option<Vec<String>> {
@@ -427,14 +412,6 @@ fn follower_command(path: &str) -> Option<Vec<String>> {
 #[cfg(test)]
 fn follower_command(path: &str) -> Option<Vec<String>> {
     Some(vec!["sh".into(), "-c".into(), "sleep 5".into(), format!("--follow-subagent={path}")])
-}
-
-/// Codex's home on this machine: `$CODEX_HOME`, else `~/.codex`.
-fn codex_home() -> Option<PathBuf> {
-    match std::env::var_os("CODEX_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
-        Some(h) => Some(h),
-        None => Some(crate::platform::home_dir()?.join(".codex")),
-    }
 }
 
 /// `dir` on a host whose home is `home`, as `~/…` when it's in there.

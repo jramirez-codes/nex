@@ -550,10 +550,10 @@ impl Terminal {
     }
 
     /// What the shell is running, as of the last process poll, to run again when the session
-    /// is restored: the foreground job's command line, or `None` at the prompt. Claude Code
-    /// is rewritten to resume the same conversation, and an `ssh` showing an agent `nex-host`
-    /// keeps (typed in the pane, or a tab the Agents pane opened, which runs `ssh` itself
-    /// with no shell) to attach to it again.
+    /// is restored: the foreground job's command line, or `None` at the prompt. An agent CLI
+    /// that can (Claude Code) is rewritten to resume the same conversation, and an `ssh`
+    /// showing an agent `nex-host` keeps (typed in the pane, or a tab the Agents pane opened,
+    /// which runs `ssh` itself with no shell) to attach to it again.
     pub fn running_command(&self) -> Option<Vec<String>> {
         if self.process == "ssh"
             && let Some(cmd) = reattach_command(&self.process_argv, self.agent_session())
@@ -565,8 +565,8 @@ impl Terminal {
         if argv.first().is_none_or(String::is_empty) {
             return None;
         }
-        if crate::session::claude::is_claude(argv) {
-            return Some(crate::session::claude::resume_argv(argv, crate::session::claude::session_id(job).as_deref()));
+        if let Some(resume) = crate::agents::local::resume_command(argv, job) {
+            return Some(resume);
         }
         Some(argv.clone())
     }
