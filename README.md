@@ -81,8 +81,8 @@ sudo apt install ./nex_*_amd64.deb                                       # Debia
 tar xzf nex-v*-x86_64-linux.tar.gz && ./nex-v*-x86_64-linux/install.sh   # any Linux
 ```
 
-- **macOS:** unzip `nex-v*-macos-app.zip` and drag `nex.app` to Applications
-  (see [macOS](#prebuilt-releases) for the one-time quarantine step).
+- **macOS:** open `nex-v*-macos.dmg` and drag `nex.app` to Applications. It's signed and
+  notarized by Apple.
 - **Android:** install `nex-v*-android-arm64.apk` on the phone.
 
 ### Why nex?
@@ -472,14 +472,12 @@ tar xzf nex-v*-x86_64-linux.tar.gz
 ./nex-v*-x86_64-linux/install.sh         # installs to ~/.local (override with PREFIX=...)
 ```
 
-**macOS (Apple Silicon and Intel):** unzip `nex-v*-macos-app.zip` and drag `nex.app` to
-Applications. The app isn't notarized yet, so clear the download flag once before opening it:
+**macOS (Apple Silicon and Intel):** open `nex-v*-macos.dmg` and drag `nex.app` to
+Applications. It's signed and notarized by Apple, so it opens without a warning.
+`nex-v*-macos-app.zip` holds the same app if you'd rather not use the DMG.
 
-```sh
-xattr -dr com.apple.quarantine /Applications/nex.app
-```
-
-Or use the tarball, which installs `nex.app` and the `nex` command:
+Or use the tarball, which installs `nex.app` and the `nex` command. The app it builds isn't
+notarized, so clear the download flag once first:
 
 ```sh
 tar xzf nex-v*-universal-macos.tar.gz
@@ -822,7 +820,7 @@ the box. An installed Nerd Font Mono is used instead if you have one.
 
 **Is nex available on macOS, Windows or phones?**
 macOS, yes: releases include `nex.app`, a universal build for Apple Silicon and Intel Macs
-(see [Installation](#installation)). Signing and notarization are on the [roadmap](#roadmap).
+(see [Installation](#installation)), signed and notarized by Apple.
 Android, yes: releases include an APK, and the iPhone app is a beta you build yourself (see
 [Phone apps](#phone-apps)). Windows isn't supported yet, but the platform layer
 (`src/platform/`) is set up for it.
@@ -884,6 +882,7 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [x] Share your microphone with an ssh session
 - [x] Android app
 - [x] iPhone app (beta)
+- [x] Signed and notarized macOS app
 
 ### Next
 
@@ -892,7 +891,6 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [ ] Themes collection
 - [ ] Command palette
 - [ ] Color emoji
-- [ ] Signed and notarized macOS app
 - [ ] Open a sub-agent that Claude Code starts by clicking it in the Agents pane (they can't be clicked yet)
 - [ ] Pipeline agents that keep their stage and task when their session is cleared (`/clear`), so their report still reaches the pipeline
 - [ ] Better animations when an agent, or several agents, close
