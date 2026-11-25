@@ -132,6 +132,10 @@ pub struct App {
     home_tab: Option<Tab>,
     /// Whether the home tab is showing (`active` keeps the last terminal tab).
     home_active: bool,
+    /// The tabs shown before this one, for Back (see `workspace/history.rs`).
+    history: workspace::history::TabHistory,
+    /// The system Back key goes back a tab (`platform::SYSTEM_BACK`; tests turn it on).
+    system_back: bool,
     /// The sticky pane: it follows the user from tab to tab, a leaf in every tab's split
     /// tree (each tab keeps its own place and size for it). See `workspace/sticky.rs`.
     sticky: Option<PaneId>,
@@ -242,6 +246,8 @@ impl App {
             agent_notifier: agents::notify::Notifier::default(),
             home_tab: None,
             home_active: false,
+            history: Default::default(),
+            system_back: crate::platform::SYSTEM_BACK,
             sticky: None,
             sticky_glide: Default::default(),
             last_pointer: None,
@@ -312,8 +318,10 @@ impl eframe::App for App {
         self.save_session_on_exit();
     }
 
-    /// Files dragged in from another window, reported as winit does on X11.
+    /// Files dragged in from another window, reported as winit does on X11, and the system
+    /// Back key (see `workspace/history.rs`).
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.system_back(ctx, raw_input);
         // egui makes its font atlas as wide as the GPU allows (16384 px), most of it empty,
         // in memory and again on the GPU. A narrower atlas grows taller only as glyphs need it.
         raw_input.max_texture_side = raw_input.max_texture_side.map(|side| side.min(MAX_ATLAS_SIDE));
@@ -448,6 +456,7 @@ impl eframe::App for App {
             self.drain_pending(ctx);
             ctx.request_repaint();
         }
+        self.note_place();
         let buttons_height = (self.cfg.window_decorations && crate::platform::WINDOW.overlays_titlebar())
             .then(|| TITLEBAR_HEIGHT * ctx.zoom_factor());
         self.sync_window_title(ctx, frame, buttons_height);

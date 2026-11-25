@@ -1,8 +1,9 @@
 //! Tabs and panes: opening and closing them and finding the focused one (here), drawing them,
-//! their cell metrics, and dragging panes around.
+//! their cell metrics, dragging panes around, and going back to the previous tab (`history`).
 
 pub(super) mod agents;
 pub(super) mod draw;
+pub(super) mod history;
 pub(super) mod metrics;
 pub(super) mod pane_drag;
 pub(super) mod sticky;

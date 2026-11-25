@@ -22,6 +22,11 @@ All notable changes to nex are documented here. The format follows
   starts needing you and when a pipeline run finishes, once each time, and not while you're
   looking at it. Linux uses `notify-send`, macOS Notification Center through `osascript`;
   Windows, Android and iOS don't send them yet.
+- On Android, the Back button and back gesture go back to the tab shown before, like a
+  browser's Back: pressing it again walks further back, skipping tabs closed since, and the
+  Agents (or Files) tab with the dog counts as a tab. While the search field, a menu, a
+  dialog, a pane being dragged, or a Files rename or selection is open, Back closes that
+  first, as Escape does. With no tab to go back to, Back does nothing, as before.
 
 ### Changed
 

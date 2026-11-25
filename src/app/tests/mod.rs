@@ -7,6 +7,7 @@ use crate::app::App;
 use crate::config::Config;
 
 mod agents;
+mod back;
 mod drop;
 mod explorer_refresh;
 mod explorer_view;

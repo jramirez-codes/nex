@@ -29,7 +29,8 @@ src/
 │   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
 │   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
 │   ├── workspace/        tabs, splits, opening and closing panes, drawing panes, pane drag,
-│   │                     the sticky pane, and keeping Agents panes up to date
+│   │                     the sticky pane, keeping Agents panes up to date, and Back to the
+│   │                     previous tab (history.rs)
 │   ├── animation/        pane motion, tab close, tab-switch transitions, sticky glide
 │   ├── ssh/              following ssh sessions (follow), uploads, the mic button, the hosts
 │   │                     whose agents the Agents pane shows (hosts), connection sharing (sharing)

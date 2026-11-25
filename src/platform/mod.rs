@@ -35,6 +35,7 @@
 //! | `SHORTCUTS` | which [`ShortcutStyle`] the keymap uses |
 //! | `WINDOW` | the [`WindowDefaults`] for the window and its title bar |
 //! | `SOFT_KEYBOARD` | typing goes through an on-screen keyboard, shown while a terminal has focus |
+//! | `SYSTEM_BACK` | the OS has a Back button or gesture (Android), which nex sees as `Key::BrowserBack`: it closes what Escape would, else goes back a tab |
 //! | `LOCAL_SHELLS` | whether panes can run shells on this machine (not on Android: every pane works on an ssh host) |
 //! | `FALLBACK_FAMILIES` | system fonts tried for glyphs the grid font lacks |
 //! | `proc_info(pid)` | a shell's foreground process name, arguments and cwd ([`ProcInfo`]) |

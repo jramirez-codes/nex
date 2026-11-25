@@ -36,6 +36,9 @@ pub const LOCAL_SHELLS: bool = false;
 /// The on-screen keyboard: nex asks for it while a terminal has focus.
 pub const SOFT_KEYBOARD: bool = true;
 
+/// No system Back key: a keyboard's Browser Back key does nothing.
+pub const SYSTEM_BACK: bool = false;
+
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
 /// Full screen, as on Android: no decorations or window buttons, and title-bar tabs that swipe.
