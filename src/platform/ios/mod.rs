@@ -123,6 +123,10 @@ pub fn file_manager_service(_window_args: &[String]) -> Result<(), String> {
     Err("--file-manager-service is only available on Linux".into())
 }
 
+/// System notifications aren't sent on iOS yet (they need UNUserNotificationCenter and the
+/// user's permission).
+pub fn notify(_title: &str, _body: &str) {}
+
 /// Opening links in Safari needs `UIApplication.openURL`, which isn't wired up yet.
 pub fn open_uri(uri: &std::ffi::OsStr) {
     eprintln!("nex: opening {} isn't supported on iOS yet", uri.to_string_lossy());

@@ -64,6 +64,7 @@ src/
 │   ├── mod.rs            the pane's state and keys
 │   ├── model.rs          which panes are agents and what they're doing (Tracker)
 │   ├── motion.rs         cards moving between sections
+│   ├── notify.rs         the Agents tab's badge, and when to send a system notification
 │   └── view.rs           drawing and the mouse
 ├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture),
 │                     installing and watching nex-host; ssh/ is nex's own ssh client (russh):

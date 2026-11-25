@@ -33,7 +33,7 @@ animations = true           # pane splits / closes, focus fades, title-bar tabs
 tab-animation = glide       # switching tabs: glide | ink | none
 explorer-view = list        # file explorer layout: list | grid
 tab-bar = top               # top | sidebar (phone-sized touch screens: a left sidebar, bigger buttons)
-agents-tab = full           # full | icon (just the dog, with a bubble counting agents that need you or are done; Android's default)
+agents-tab = full           # full | icon (just the dog, with a bubble counting agents that need you; Android's default)
 
 cursor-style = block        # block | bar | underline
 cursor-style-blink = true
@@ -73,6 +73,11 @@ scrollback-limit = 10000
 # $XDG_STATE_HOME/nex/session.json (~/.local/state/nex/session.json), or
 # ~/Library/Application Support/nex/session.json on macOS.
 restore-session = true
+# A system notification when an agent starts needing you, and when a pipeline run finishes:
+# once each time, and not while you're looking at it (nex focused on the Agents tab or the
+# agent's pane). Linux: through notify-send (libnotify); macOS: Notification Center, as
+# Script Editor (osascript). Not sent yet on Windows, Android or iOS.
+system-notifications = false
 # Days the key lasts that nex puts on a host it logs in to with its own ssh client (the Android
 # app, `nex --remote`). You type the password once, and nex adds this device's key to the
 # host's ~/.ssh/authorized_keys with this expiry. After that the password is asked for again

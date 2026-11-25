@@ -61,6 +61,14 @@ pub fn open_uri(uri: &std::ffi::OsStr) {
     super::unix::spawn_opener("open", uri);
 }
 
+/// A Notification Center notification through `osascript` (it shows as Script Editor's):
+/// the title and body go in as arguments, so nothing in them needs escaping.
+pub fn notify(title: &str, body: &str) {
+    let script = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run"];
+    let args = script.iter().copied().chain([title, body]).map(str::to_string).collect();
+    super::unix::spawn_quiet("osascript", args);
+}
+
 /// Where to let nex use the microphone, after the OS refused it.
 pub const MIC_PERMISSION_HINT: &str = "Allow it in System Settings → Privacy & Security → Microphone, then share again.";
 

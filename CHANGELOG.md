@@ -6,6 +6,18 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Agents tab has a badge while you're on another tab: an amber dot while an agent needs
+  you (a bubble counting them on the icon-only tab), or a smaller, quieter blue dot while one
+  is done and you haven't looked at it. It scales and fades in and out, and hides while the
+  Agents tab is shown. On the icon-only tab the bubble now counts only the agents that need
+  you; done ones get the quieter dot.
+- `system-notifications = true` (off by default) sends a system notification when an agent
+  starts needing you and when a pipeline run finishes, once each time, and not while you're
+  looking at it. Linux uses `notify-send`, macOS Notification Center through `osascript`;
+  Windows, Android and iOS don't send them yet.
+
 ### Changed
 
 - In an open team card on the Agents pane, a pipeline's stages hang off it by rounded

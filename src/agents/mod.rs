@@ -12,14 +12,15 @@
 //! the focused pane ([`model::Viewing`]).
 //!
 //! `model` (which panes are agents and what they're doing), `group` (teams), `motion` (how
-//! cards, rows and capsules move), `view` (drawing and the mouse), and here: the pane's state
-//! and keys. The app keeps one [`model::Tracker`] for every Agents pane, updated with the
+//! cards, rows and capsules move), `view` (drawing and the mouse), `notify` (the Agents tab's
+//! badge, and when to send a system notification), and here: the pane's state and keys. The app keeps one [`model::Tracker`] for every Agents pane, updated with the
 //! process poll. Its agents are shared (`Arc`) down to the cards, and the teams made from
 //! them are kept until the list changes: a frame copies none of them.
 
 mod group;
 pub mod model;
 mod motion;
+pub mod notify;
 mod view;
 #[cfg(test)]
 mod tests;

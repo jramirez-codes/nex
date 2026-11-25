@@ -100,7 +100,11 @@ impl App {
         }
         let color = if active { theme.text_bright } else { theme.text_dim };
         let (icon, text) = sidebar_tile_parts(r);
-        self.files_dog(ui.ctx(), painter, Rect::from_center_size(icon.center(), Vec2::splat(36.0)), theme);
+        let dog = Rect::from_center_size(icon.center(), Vec2::splat(36.0));
+        self.files_dog(ui.ctx(), painter, dog, theme);
+        if !files {
+            self.agents_badge(ui.ctx(), painter, dog.left_top() + Vec2::new(4.0, 4.0), true, theme);
+        }
         paint::caption(painter, text, &project, FontId::proportional(12.0), color);
     }
 }

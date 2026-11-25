@@ -5,12 +5,13 @@ use std::collections::HashMap;
 use egui::emath::TSTransform;
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
+use crate::agents::notify;
 use crate::config::AgentsTab;
 use crate::layout::PaneId;
 use crate::platform;
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
-use crate::ui::glide::Glide;
+use crate::ui::glide::{Glide, Lerp};
 use crate::ui::{dog, glide, icons, paint};
 
 use crate::app::App;
@@ -164,6 +165,8 @@ pub(in crate::app) struct TabStrip {
     pub(in crate::app) strip_rect: Option<Rect>,
     /// The title-bar tabs' sideways scroll, on phones.
     pub(in crate::app) scroll: TabScroll,
+    /// What the Agents tab's badge showed last (it keeps showing it while it fades out).
+    pub(in crate::app) badge: Option<notify::Badge>,
 }
 
 /// Title-bar tabs that keep one width, [`SCROLL_TABS_ACROSS`] to the track, and swipe
@@ -390,8 +393,11 @@ impl App {
 
         let dog = Rect::from_center_size(Pos2::new(x + 9.0, cy), Vec2::splat(21.0));
         self.files_dog(ui.ctx(), painter, dog, theme);
-        if self.agents_tab_icon_only() {
-            self.agents_bubble(ui.ctx(), painter, dog.left_top() + Vec2::new(1.0, 1.0), theme);
+        let icon_only = self.agents_tab_icon_only();
+        if !files {
+            self.agents_badge(ui.ctx(), painter, dog.left_top() + Vec2::new(1.0, 1.0), icon_only, theme);
+        }
+        if icon_only {
             return;
         }
         let x = x + 26.0;
@@ -420,29 +426,41 @@ impl App {
         self.cfg.agents_tab == AgentsTab::Icon && !self.home_is_files()
     }
 
-    /// The bubble on the icon-only Agents tab, counting the agents that need you or are done:
-    /// amber (and pulsing) while any needs you, else blue; none while there are none.
-    fn agents_bubble(&self, ctx: &egui::Context, painter: &egui::Painter, center: Pos2, theme: &Theme) {
-        let counts = self.agent_tracker.counts();
-        let n = counts.needs_you + counts.done;
-        if n == 0 {
-            return;
+    /// The badge on the Agents tab's dog while you're elsewhere ([`notify::badge`]): an amber
+    /// dot while an agent needs you (a bubble counting them on the icon-only tab, pulsing),
+    /// a smaller, quieter blue one while any is done and not yet looked at. It scales and fades
+    /// in and out, and keeps showing what it last showed while it goes.
+    pub(in crate::app) fn agents_badge(&mut self, ctx: &egui::Context, painter: &egui::Painter, center: Pos2, count: bool, theme: &Theme) {
+        let shown = notify::badge(self.agent_tracker.counts(), self.home_active);
+        if shown.is_some() {
+            self.strip.badge = shown;
         }
-        let urgent = counts.needs_you > 0;
-        let color = if urgent { theme.yellow } else { theme.blue };
-        let text = if n > 9 { "9+".to_string() } else { n.to_string() };
-        let font = paint::bold(9.5);
-        let galley = painter.layout_no_wrap(text, font, theme.window);
-        let height = 14.0;
-        let width = (galley.size().x + 7.0).max(height);
-        let r = Rect::from_center_size(center, Vec2::new(width, height));
-        if urgent && self.cfg.animations {
-            let phase = (ctx.input(|i| i.time) % ATTENTION_PULSE / ATTENTION_PULSE) as f32;
-            painter.rect_filled(r.expand(5.0 * phase), 12, color.gamma_multiply(0.4 * (1.0 - phase)));
-            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        let animate = glide::animations(ctx);
+        let id = Id::new("agents-tab-badge");
+        let t = if animate { ctx.animate_bool_with_time_and_easing(id, shown.is_some(), BADGE_FADE, glide::ease_out) } else { f32::from(u8::from(shown.is_some())) };
+        let Some(badge) = self.strip.badge.filter(|_| t > 0.0) else { return };
+        // Needs you ↔ done cross-fades too: color and size.
+        let urgent = matches!(badge, notify::Badge::NeedsYou(_));
+        let u = if animate { ctx.animate_bool_with_time(id.with("urgent"), urgent, BADGE_FADE) } else { f32::from(u8::from(urgent)) };
+        let color = Color32::lerp(theme.blue.gamma_multiply(0.85), theme.yellow, u).gamma_multiply(t);
+        let ring = Stroke::new(1.5_f32, theme.window.gamma_multiply(t));
+        let scale = 0.4 + 0.6 * t;
+        if let (true, notify::Badge::NeedsYou(n)) = (count, badge) {
+            let font = paint::bold(9.5 * scale);
+            let galley = painter.layout_no_wrap(notify::badge_count(n), font, theme.window.gamma_multiply(t));
+            let height = 14.0 * scale;
+            let r = Rect::from_center_size(center, Vec2::new((galley.size().x + 7.0 * scale).max(height), height));
+            if self.cfg.animations && t >= 1.0 {
+                let phase = (ctx.input(|i| i.time) % ATTENTION_PULSE / ATTENTION_PULSE) as f32;
+                painter.rect_filled(r.expand(5.0 * phase), 12, color.gamma_multiply(0.4 * (1.0 - phase)));
+                ctx.request_repaint_after(std::time::Duration::from_millis(33));
+            }
+            painter.rect(r, 7.0 * scale, color, ring, StrokeKind::Outside);
+            painter.galley(r.center() - galley.size() / 2.0, galley, theme.window.gamma_multiply(t));
+        } else {
+            let radius = (3.0 + 1.0 * u) * scale;
+            painter.circle(center, radius, color, ring);
         }
-        painter.rect(r, 7, color, Stroke::new(1.5_f32, theme.window), StrokeKind::Outside);
-        painter.galley(r.center() - galley.size() / 2.0, galley, theme.window);
     }
 
     /// The nex dog marking the Files tab (title-bar label or sidebar tile). It wakes up at
@@ -752,6 +770,9 @@ impl App {
         }
     }
 }
+
+/// How long the Agents tab's badge takes to scale and fade in or out, in seconds.
+const BADGE_FADE: f32 = 0.22;
 
 /// One pulse of the attention dot, in seconds.
 const ATTENTION_PULSE: f64 = 1.6;

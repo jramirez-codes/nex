@@ -124,6 +124,8 @@ pub struct App {
     /// Every agent running in a pane and what it's doing, as of the last process poll; what
     /// Agents panes and the title bar's Agents label show.
     agent_tracker: agents::model::Tracker,
+    /// Which agent changes get a system notification (`system-notifications`).
+    agent_notifier: agents::notify::Notifier,
     /// The home tab, outside `tabs`: the Files tab (the title-bar directory label is its
     /// tab), or the Agents tab when it holds an Agents pane (see `home_is_files`). Saved in
     /// the session as `explorer`.
@@ -237,6 +239,7 @@ impl App {
             agents: HashMap::new(),
             agent_requests: Vec::new(),
             agent_tracker: agents::model::Tracker::default(),
+            agent_notifier: agents::notify::Notifier::default(),
             home_tab: None,
             home_active: false,
             sticky: None,
@@ -284,6 +287,7 @@ impl App {
                 tab_hits: Vec::new(),
                 strip_rect: None,
                 scroll: chrome::titlebar::TabScroll::new(crate::platform::WINDOW.scroll_tabs),
+                badge: None,
             },
             connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
             adopt: Vec::new(),
@@ -564,6 +568,22 @@ impl App {
         // dock/taskbar, as a bell does.
         if self.agent_tracker.take_alerted() && !window_focused {
             ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        }
+        self.send_agent_notifications(window_focused, seen);
+    }
+
+    /// With `system-notifications` on, a system notification for each agent that started
+    /// needing you and each pipeline run that finished, unless it's on screen. Off, the
+    /// notifier starts over, so turning it on doesn't send what was already so.
+    fn send_agent_notifications(&mut self, focused: bool, pane: Option<PaneId>) {
+        if !self.cfg.system_notifications {
+            self.agent_notifier = agents::notify::Notifier::default();
+            return;
+        }
+        let looking = agents::notify::Looking { focused, agents_tab: self.home_active && !self.home_is_files(), pane };
+        let list = self.agent_tracker.agents();
+        for note in self.agent_notifier.update(list, list.generation(), looking) {
+            crate::platform::notify(&note.title, &note.body);
         }
     }
 

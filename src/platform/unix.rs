@@ -49,6 +49,21 @@ pub fn spawn_opener(program: &str, uri: &std::ffi::OsStr) {
         .spawn();
 }
 
+/// Run `program args…` in the background, without inheriting stdio, and wait for it on a
+/// thread of its own so it leaves no zombie behind.
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
+pub fn spawn_quiet(program: &'static str, args: Vec<String>) {
+    let child = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    if let Ok(mut child) = child {
+        std::thread::spawn(move || child.wait());
+    }
+}
+
 /// PTY options for alacritty_terminal (the same struct on every unix).
 pub fn pty_options(
     shell: Option<alacritty_terminal::tty::Shell>,

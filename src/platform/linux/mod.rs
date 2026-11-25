@@ -63,6 +63,13 @@ pub fn open_uri(uri: &std::ffi::OsStr) {
     super::unix::spawn_opener("xdg-open", uri);
 }
 
+/// A desktop notification through `notify-send` (libnotify, which speaks the freedesktop
+/// `org.freedesktop.Notifications` D-Bus interface). Nothing happens without it.
+pub fn notify(title: &str, body: &str) {
+    let args = ["--app-name=nex", "--icon=nex", "--", title, body].map(str::to_string).to_vec();
+    super::unix::spawn_quiet("notify-send", args);
+}
+
 /// Where to let nex use the microphone, after the OS refused it.
 pub const MIC_PERMISSION_HINT: &str = "Check that your user can open audio devices (the `audio` group), and that no other app has the microphone.";
 

@@ -141,6 +141,9 @@ pub fn file_manager_service(_window_args: &[String]) -> Result<(), String> {
     Err("--file-manager-service is only available on Linux".into())
 }
 
+/// System notifications aren't sent on Windows yet (they need a toast through WinRT).
+pub fn notify(_title: &str, _body: &str) {}
+
 /// Open a URI with its default app.
 pub fn open_uri(uri: &std::ffi::OsStr) {
     let _ = std::process::Command::new("cmd")
