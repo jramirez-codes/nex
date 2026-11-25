@@ -507,3 +507,82 @@ fn on_the_agents_tab_a_terminal_opened_there_marks_its_ssh_agent_viewing_and_onl
     assert_eq!(seen(&app, &v, key), None);
     assert!(seen(&app, &v, shell).is_some() && seen(&app, &v, pinned).is_some());
 }
+
+#[test]
+fn a_sub_agent_jumps_to_the_pane_of_the_agent_running_it() {
+    use crate::agents::model::{Team, sub_key};
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx, Config::default());
+    run(&mut app, &ctx, 1400.0);
+    let claude = app.focused_pane().unwrap();
+    app.pending.push(Action::NewTab);
+    run(&mut app, &ctx, 1400.0);
+    let codex = app.focused_pane().unwrap();
+    app.pending.push(Action::NewTab);
+    run(&mut app, &ctx, 1400.0);
+    let stage_pane = app.focused_pane().unwrap();
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.agents.contains_key(p)).unwrap();
+    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+
+    // A sub-agent of `lead` (the card it's under), which `pane` shows, as the poll makes them.
+    let sub = |lead: &Probe, pane: u64, id: &str| Probe {
+        pane: sub_key(lead.pane, id),
+        source: Source::Sub { lead: lead.pane, pane: Some(pane) },
+        reported: Some(Status::Working),
+        team: Team { parent: Some(lead.pane), role: Some("Explore".into()), started: 1, sub: true },
+        ..lead.clone()
+    };
+    let lead_claude = probe(claude, Some(0), AgentKind::Claude, "busy");
+    let lead_codex = probe(codex, Some(1), AgentKind::Codex, "busy");
+    // A pipeline stage on an ssh host, attached to in the third tab, running one of its own.
+    let target = crate::remote::SshTarget { opts: vec![], destination: "devbox".into() };
+    let pipe = Probe {
+        pane: remote_key("devbox", "pipe"),
+        kind: AgentKind::Pipeline,
+        source: Source::Remote { host: "devbox".into(), target: target.clone(), session: "pipe".into(), pane: None },
+        reported: Some(Status::Working),
+        ..probe(0, None, AgentKind::Pipeline, "")
+    };
+    let stage = Probe {
+        pane: remote_key("devbox", "build"),
+        tab: Some(2),
+        source: Source::Remote { host: "devbox".into(), target, session: "build".into(), pane: Some(stage_pane) },
+        reported: Some(Status::Working),
+        team: Team { parent: Some(pipe.pane), role: Some("build".into()), started: 1, sub: false },
+        ..probe(0, Some(2), AgentKind::Claude, "")
+    };
+    let pipe_key = pipe.pane;
+    let subs = [(sub(&lead_claude, claude, "c1"), claude, claude), (sub(&lead_codex, codex, "x1"), codex, codex), (sub(&stage, stage_pane, "s1"), stage_pane, pipe_key)];
+    let mut agents = vec![lead_claude.clone(), lead_codex.clone(), pipe, stage];
+    agents.extend(subs.iter().map(|(p, _, _)| p.clone()));
+    app.agent_tracker.update(agents, Instant::now());
+    run(&mut app, &ctx, 1400.0);
+
+    let tabs = app.tabs.len();
+    for (sub, pane, card) in subs {
+        if !app.home_active {
+            app.pending.push(Action::ToggleAgentsTab);
+            run(&mut app, &ctx, 1400.0);
+        }
+        assert!(app.home_active);
+        // Space opens its card, the arrows go down its rows to it, Enter jumps.
+        let key = |app: &mut crate::app::App, k| app.agents.get_mut(&id).unwrap().key(k, egui::Modifiers::NONE);
+        app.agents.get_mut(&id).unwrap().selected = Some(card);
+        key(&mut app, egui::Key::Space);
+        run(&mut app, &ctx, 1400.0);
+        for _ in 0..3 {
+            if app.agents[&id].selected != Some(sub.pane) {
+                key(&mut app, egui::Key::ArrowDown);
+            }
+        }
+        assert_eq!(app.agents[&id].selected, Some(sub.pane));
+        key(&mut app, egui::Key::Enter);
+        run(&mut app, &ctx, 1400.0);
+        run(&mut app, &ctx, 1400.0);
+        assert!(!app.home_active);
+        assert_eq!(app.focused_pane(), Some(pane), "{:?}'s sub-agent shows in its pane", sub.kind);
+    }
+    assert_eq!(app.tabs.len(), tabs, "no tab opened for one");
+}

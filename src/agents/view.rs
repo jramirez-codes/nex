@@ -31,6 +31,8 @@
 //! has them: when one changes state, its row glides to its new slot over the others (which
 //! slide under it to make room) and its capsule slides along the strip. Clicks go where a
 //! row is drawn; the keys go by the slots the rows are headed for.
+//! A closed card's capsules open it, but a sub-agent's, which jumps to it (to the pane of
+//! the agent running it) like its row.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -524,7 +526,8 @@ impl AgentsPane {
         let pill = agent_header(f, p, head, &g.lead, &look, Some((&size, t)));
 
         // Clicking the chevron opens and closes it (over the header's own click, which
-        // jumps to the lead); so do the capsules while it's closed.
+        // jumps to the lead); so do the capsules while it's closed, but a sub-agent's, which
+        // jumps to the agent running it.
         if !leaving && let Some(hit) = f.interact(chevron_hit(pill), ("chevron", key)) {
             if hit.clicked() {
                 self.selected = Some(key);
@@ -548,7 +551,16 @@ impl AgentsPane {
             p.line_segment([Pos2::new(r.left() + 14.0, y), Pos2::new(r.right() - 14.0, y)], Stroke::new(1.0_f32, white_alpha((12.0 * sep_alpha) as u8)));
             let mut sp = p.clone();
             sp.multiply_opacity(sep_alpha);
-            capsules(f, &sp, Rect::from_min_size(Pos2::new(r.left() + 14.0, y), Vec2::new(r.width() - 28.0, STRIP_H)), g, inside, slide);
+            let subs = capsules(f, &sp, Rect::from_min_size(Pos2::new(r.left() + 14.0, y), Vec2::new(r.width() - 28.0, STRIP_H)), g, inside, slide);
+            // Over the strip's click (the later one takes it).
+            for (pane, cap) in subs {
+                if !leaving && t < 0.01 && let Some(hit) = f.interact(cap, ("capsule", pane)) {
+                    if hit.clicked() {
+                        self.jump(pane);
+                    }
+                    hit.on_hover_cursor(egui::CursorIcon::PointingHand);
+                }
+            }
         } else {
             inside.close_capsules();
         }
@@ -1031,7 +1043,8 @@ fn capsule_layout(steps: &[Step], widths: &[f32], strip_w: f32) -> CapsuleLayout
 /// helpers only, with a pipeline among them opened into its stages after its name (see
 /// [`capsule_layout`]). A capsule is drawn where `inside` has it on the way to its place
 /// (`slide`: gliding there when the order changes); one going into the `+N` fades.
-fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group, inside: &mut TeamMotion, slide: bool) {
+/// Returns where the sub-agents' capsules are, which take clicks of their own.
+fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group, inside: &mut TeamMotion, slide: bool) -> Vec<(PaneId, Rect)> {
     let c = f.c;
     let now = f.time;
     let steps = g.strip();
@@ -1081,17 +1094,23 @@ fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group, inside: &mut TeamMot
         }
     }
     shown.sort_by_key(|&(_, _, moving)| moving);
+    let mut subs = Vec::new();
     for (i, a, _) in shown {
         let m = &inside.capsules[&a.pane];
         let mut cp = p.clone();
-        cp.multiply_opacity(m.opacity.get(now));
+        let opacity = m.opacity.get(now);
+        cp.multiply_opacity(opacity);
         let cap = Rect::from_min_size(Pos2::new(strip.left() + m.x.get(now), y - CAPSULE_H / 2.0), Vec2::new(widths[i], CAPSULE_H));
+        if a.team.sub && opacity > 0.5 {
+            subs.push((a.pane, cap));
+        }
         let color = status_color(a.status, c);
         let fill = if a.status == Status::NeedsYou { needs_you_tint(f) } else { white_alpha(9) };
         cp.rect_filled(cap, 12, fill);
         member_glyph(f, &cp, Pos2::new(cap.left() + 12.0, y), a.status, color, inside.tick(now, a.pane));
         cp.galley(Pos2::new(cap.left() + 21.0, y - galleys[i].size().y / 2.0), galleys[i].clone(), c.text_bright);
     }
+    subs
 }
 
 /// Where a helper row's text starts, for a row whose left edge is `left`: after its tile,
@@ -1584,6 +1603,44 @@ mod tests {
         pane.requests.clear();
         click(&ctx, &mut pane, &agents, &mut time, head.left_center() + Vec2::new(30.0, 0.0));
         assert_eq!(pane.requests, vec![super::super::Request::Focus(1)]);
+    }
+
+    #[test]
+    fn clicking_a_sub_agent_jumps_to_it_from_its_capsule_and_its_row() {
+        let ctx = egui::Context::default();
+        crate::render::fonts::install(&ctx, &crate::config::Config::default());
+        crate::ui::glide::set_animations(&ctx, false);
+        // An agent running two sub-agents.
+        let agents = Agents::new(vec![agent(1, None), sub(2, Some("Explore"), 10), sub(3, Some("Plan"), 20)]);
+        let mut pane = AgentsPane::new();
+        let mut time = 0.0;
+        for _ in 0..3 {
+            frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+        }
+        let body = Rect::from_min_max(Pos2::new(0.0, 6.0), Pos2::new(800.0, 600.0));
+        let teams = groups(&agents);
+        let card = layout(&teams, body.width() - 2.0 * SIDE, &HashMap::new()).cards[0].1.translate(body.min.to_vec2());
+        let strip_y = card.top() + CARD_H + STRIP_H / 2.0;
+
+        // The first capsule, at the start of the strip, is a sub-agent's: it jumps, and the
+        // card stays closed.
+        let first = teams[0].strip()[0].agent().unwrap().pane;
+        click(&ctx, &mut pane, &agents, &mut time, Pos2::new(card.left() + 14.0 + 12.0, strip_y));
+        assert_eq!(pane.requests, vec![super::super::Request::Focus(first)]);
+        assert!(pane.expanded.is_empty(), "rather than opening the card");
+        pane.requests.clear();
+
+        // The strip past the capsules still opens it.
+        click(&ctx, &mut pane, &agents, &mut time, Pos2::new(card.right() - 20.0, strip_y));
+        assert_eq!(pane.expanded.get(&1), Some(&false));
+        assert!(pane.requests.is_empty());
+
+        // Open, a sub-agent's row jumps to it too.
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+        let open = layout(&teams, body.width() - 2.0 * SIDE, &pane.expanded).cards[0].1.translate(body.min.to_vec2());
+        let second = shown_members(&teams[0], false)[1].agent.pane;
+        click(&ctx, &mut pane, &agents, &mut time, row_rect(open, 1).center());
+        assert_eq!(pane.requests, vec![super::super::Request::Focus(second)]);
     }
 
     #[test]

@@ -5,7 +5,9 @@
 //! as capsules (a pipeline's as steps), and open into a list inside the card, the ones that
 //! need you first (a helper changing state glides to its new place). There each helper is a
 //! row: its tag (`Build-01`: what it's for and which one) and the task its
-//! terminal's title says it's on, live, over its folder. A pipeline's card says how its run
+//! terminal's title says it's on, live, over its folder. A sub-agent (Claude Code's or
+//! Codex's) has no pane of its own: clicking its row or capsule (or Enter / Space on it)
+//! jumps to the pane of the agent running it. A pipeline's card says how its run
 //! stands (`Feature · 2 building · 1 in review`) over the last thing that happened, from the
 //! title `nex-host pipe` gives its terminal. The agents on screen (in the terminal tab you're
 //! on, or go back to) say so: a "Viewing" pill and an accent ring, strongest for the one in
@@ -85,8 +87,8 @@ impl AgentsPane {
     }
 
     /// Arrow keys (and j / k / h / l) move the highlight, Enter jumps to the agent, Space
-    /// opens or closes a team (anything else: jumps to it), Delete stops one on an ssh host
-    /// (after asking).
+    /// opens or closes a team (on a sub-agent's row, or anything else: jumps to it, a
+    /// sub-agent's being its agent's pane), Delete stops one on an ssh host (after asking).
     /// Returns whether the key was used.
     pub fn key(&mut self, key: Key, modifiers: Modifiers) -> bool {
         if modifiers.command || modifiers.alt || modifiers.ctrl {
@@ -100,7 +102,7 @@ impl AgentsPane {
             Key::ArrowLeft | Key::H => self.move_by(-1),
             Key::Home => self.move_by(isize::MIN),
             Key::End => self.move_by(isize::MAX),
-            Key::Space if selected.is_some_and(|p| self.team_of.contains_key(&p)) => {
+            Key::Space if selected.is_some_and(|p| self.team_of.contains_key(&p) && !model::is_sub_key(p)) => {
                 if let Some(lead) = selected.and_then(|p| self.team_of.get(&p).copied()) {
                     self.toggle_team(lead);
                 }
