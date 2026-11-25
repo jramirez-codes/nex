@@ -3,6 +3,9 @@
 //! state glides out of one section into another while the cards around it slide over to
 //! make room; cards and headers fade in when they appear and out when they go; borders and
 //! status tints cross-fade, and the "Viewing" highlight eases in and out ([`SeenFade`]).
+//! A pipeline's tile has a progress ring that eases round as its stages finish and a corner
+//! badge that pops in when it's done or breathes while it needs you ([`TileMotion`]); a
+//! helper's tick draws itself in when it finishes ([`TeamMotion::tick`]).
 //!
 //! Inside a team's card the same goes for its helpers ([`TeamMotion`], by the team's lead):
 //! when one changes state and the order changes, its row in the open list and its capsule
@@ -127,6 +130,135 @@ impl SeenFade {
     }
 }
 
+/// A stage's tick drawing itself in, once it's done.
+pub const TICK: f64 = 0.3;
+/// The Done badge popping in.
+pub const POP: f64 = 0.35;
+/// One slow breath of a Needs-you badge or capsule tint, in seconds.
+pub const BREATH: f64 = 2.4;
+
+/// Scale of a badge `t` (0 to 1) into its pop: from nothing, a little past full size
+/// (about 1.1), and settling back to 1. An ease-out-back, the overshoot a small spring gives.
+pub fn spring_pop(t: f32) -> f32 {
+    const C1: f32 = 1.701_58;
+    const C3: f32 = C1 + 1.0;
+    let u = t.clamp(0.0, 1.0) - 1.0;
+    1.0 + C3 * u * u * u + C1 * u * u
+}
+
+/// How far into a breath it is at `time` seconds, 0 (out) to 1 (in): a slow, even sine,
+/// flat at both ends so it never snaps.
+pub fn breath(time: f64) -> f32 {
+    (0.5 - 0.5 * (time / BREATH * std::f64::consts::TAU).cos()) as f32
+}
+
+/// How far a pipeline's stages are through, 0 to 1, given each stage's status: the ones
+/// done (or done and since looked at: idle) over all of them. `None` without stages.
+pub fn stage_progress(stages: impl IntoIterator<Item = Status>) -> Option<f32> {
+    let (mut done, mut all) = (0, 0);
+    for s in stages {
+        all += 1;
+        done += usize::from(matches!(s, Status::Done | Status::Idle));
+    }
+    (all > 0).then(|| done as f32 / all as f32)
+}
+
+/// The badge in a pipeline tile's corner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Badge {
+    /// An amber `!`: a stage needs you.
+    NeedsYou,
+    /// A green tick: it finished, and you haven't looked yet.
+    Done,
+}
+
+impl Badge {
+    pub fn of(status: Status) -> Option<Badge> {
+        match status {
+            Status::NeedsYou => Some(Badge::NeedsYou),
+            Status::Done => Some(Badge::Done),
+            _ => None,
+        }
+    }
+}
+
+/// A pipeline tile's progress ring and corner badge. The ring eases to each new fraction of
+/// stages done; a Done badge pops in on a small spring, a Needs-you one fades in and breathes
+/// until its card is looked at; either fades out (as it was) when it goes.
+pub struct TileMotion {
+    ring: Tween<f32>,
+    /// The badge shown, or the last one while it fades out.
+    badge: Option<Badge>,
+    opacity: Tween<f32>,
+    /// When the Done badge started popping in.
+    popped: f64,
+    /// Looked at since it started needing you: the badge holds still.
+    looked: bool,
+    animate: bool,
+    fresh: bool,
+}
+
+impl Default for TileMotion {
+    fn default() -> Self {
+        TileMotion { ring: Tween::new(0.0, MOVE, ease_in_out), badge: None, opacity: Tween::new(0.0, VIEW, ease_in_out), popped: f64::NEG_INFINITY, looked: false, animate: true, fresh: true }
+    }
+}
+
+impl TileMotion {
+    /// Head for `progress` (see [`stage_progress`]) and the badge `status` calls for; `seen`:
+    /// its card is on screen. `animate` false (or the first update) puts it all in place.
+    pub fn update(&mut self, now: f64, progress: f32, status: Status, seen: bool, animate: bool) {
+        let animate = animate && !std::mem::take(&mut self.fresh);
+        self.animate = animate;
+        self.ring.set(now, progress, animate);
+        let badge = Badge::of(status);
+        if badge != self.badge && badge.is_some() {
+            if badge == Some(Badge::Done) && animate {
+                // It pops in from nothing: the scale is its entrance.
+                self.popped = now;
+                self.opacity.snap(1.0);
+            } else {
+                self.popped = f64::NEG_INFINITY;
+                self.opacity.set(now, if self.badge.is_some() { 1.0 } else { 0.0 }, false);
+            }
+            self.badge = badge;
+        }
+        self.opacity.set(now, f32::from(u8::from(badge.is_some())), animate);
+        if !self.opacity.moving(now) && badge.is_none() {
+            self.badge = None;
+        }
+        self.looked = status == Status::NeedsYou && (self.looked || seen);
+    }
+
+    /// The ring's fraction, 0 to 1.
+    pub fn ring(&self, now: f64) -> f32 {
+        self.ring.get(now)
+    }
+
+    /// The badge to draw: which, its scale, and its opacity.
+    pub fn badge(&self, now: f64) -> Option<(Badge, f32, f32)> {
+        let badge = self.badge?;
+        let t = ((now - self.popped) / POP) as f32;
+        Some((badge, spring_pop(t), self.opacity.get(now)))
+    }
+
+    /// A Needs-you badge nobody has looked at yet: it breathes.
+    pub fn breathing(&self) -> bool {
+        self.badge == Some(Badge::NeedsYou) && !self.looked && self.animate
+    }
+
+    /// The ring easing, or the badge popping or fading.
+    pub fn busy(&self, now: f64) -> bool {
+        self.ring.moving(now) || self.opacity.moving(now) || (now - self.popped) < POP
+    }
+}
+
+/// How far a done stage's tick has drawn itself, 0 to 1, `since` seconds after it finished:
+/// eased like the rest of the pane, over [`TICK`].
+pub fn tick_drawn(since: f64) -> f32 {
+    ease_in_out((since / TICK) as f32)
+}
+
 /// A card's place and colors, plus the agent it showed last (to draw it while it fades out
 /// after its pane is gone): the tracker's own, shared, not a copy.
 pub struct CardMotion {
@@ -141,6 +273,8 @@ pub struct CardMotion {
     pub seen: SeenFade,
     /// Its "Viewing" ring: as `seen`, but off while the card has the keyboard's ring.
     pub ring: SeenFade,
+    /// A pipeline's progress ring and badge on its tile.
+    pub tile: TileMotion,
     pub leaving: bool,
     /// Just created: its border and tint start out in their colors instead of fading in.
     pub new_colors: bool,
@@ -162,6 +296,7 @@ impl CardMotion {
             opacity: Tween::new(0.0, FADE, ease_out),
             seen: SeenFade::default(),
             ring: SeenFade::default(),
+            tile: TileMotion::default(),
             leaving: false,
             new_colors: true,
             section_change: false,
@@ -206,7 +341,7 @@ impl CardMotion {
 
     /// Whether anything about it is still changing.
     pub fn busy(&self, now: f64) -> bool {
-        self.pulse_t(now).is_some() || self.rect.moving(now) || self.border.moving(now) || self.border_width.moving(now) || self.tint.moving(now) || self.opacity.moving(now) || self.seen.busy(now) || self.ring.busy(now)
+        self.pulse_t(now).is_some() || self.rect.moving(now) || self.border.moving(now) || self.border_width.moving(now) || self.tint.moving(now) || self.opacity.moving(now) || self.seen.busy(now) || self.ring.busy(now) || self.tile.busy(now)
     }
 }
 
@@ -238,6 +373,8 @@ pub struct RowMotion {
     pub opacity: Tween<f32>,
     /// Its "Viewing" rule and eye.
     pub seen: SeenFade,
+    /// A nested pipeline's progress ring and badge on its tile.
+    pub tile: TileMotion,
     pub leaving: bool,
     /// Its current move is its own helper changing state (not just making room for one
     /// that did): only such a row is drawn over the others on its way.
@@ -254,6 +391,7 @@ impl RowMotion {
             y: Tween::new(y, MOVE, ease_in_out),
             opacity: Tween::new(0.0, FADE, ease_out),
             seen: SeenFade::default(),
+            tile: TileMotion::default(),
             leaving: false,
             status_change: false,
             changed: f64::NEG_INFINITY,
@@ -266,7 +404,7 @@ impl RowMotion {
     }
 
     pub fn busy(&self, now: f64) -> bool {
-        self.y.moving(now) || self.opacity.moving(now) || self.seen.busy(now)
+        self.y.moving(now) || self.opacity.moving(now) || self.seen.busy(now) || self.tile.busy(now)
     }
 }
 
@@ -293,6 +431,9 @@ pub struct TeamMotion {
     /// How wide the card was last laid out: when that changes, everything inside is put in
     /// place instead of sliding.
     pub width: f32,
+    /// Each helper's status as last seen, and when it last became done (its tick draws
+    /// itself in from then).
+    ticks: HashMap<PaneId, (Status, f64)>,
 }
 
 impl TeamMotion {
@@ -372,9 +513,33 @@ impl TeamMotion {
         self.capsules.clear();
     }
 
-    /// Whether a row or capsule is still moving or fading.
+    /// Note the helpers' statuses: one that has just become done draws its tick in. One seen
+    /// for the first time (or `animate` false) shows it whole.
+    pub fn note_statuses<'a>(&mut self, now: f64, animate: bool, helpers: impl IntoIterator<Item = &'a Agent>) {
+        let mut present = HashSet::new();
+        for a in helpers {
+            present.insert(a.pane);
+            let t = self.ticks.entry(a.pane).or_insert((a.status, f64::NEG_INFINITY));
+            if a.status != t.0 {
+                if a.status == Status::Done && animate {
+                    t.1 = now;
+                } else if !animate {
+                    t.1 = f64::NEG_INFINITY;
+                }
+                t.0 = a.status;
+            }
+        }
+        self.ticks.retain(|p, _| present.contains(p));
+    }
+
+    /// How far helper `pane`'s tick is drawn, 0 to 1 (1 for one that isn't drawing).
+    pub fn tick(&self, now: f64, pane: PaneId) -> f32 {
+        self.ticks.get(&pane).map_or(1.0, |&(_, at)| tick_drawn(now - at))
+    }
+
+    /// Whether a row or capsule is still moving or fading, or a tick drawing.
     pub fn busy(&self, now: f64) -> bool {
-        self.rows.values().any(|r| r.busy(now)) || self.capsules.values().any(|c| c.busy(now))
+        self.rows.values().any(|r| r.busy(now)) || self.capsules.values().any(|c| c.busy(now)) || self.ticks.values().any(|&(_, at)| now - at < TICK)
     }
 
     /// Drop the rows and capsules that have finished fading out.
@@ -545,6 +710,111 @@ mod tests {
         card.set_colors(1.0, Color32::WHITE, 1.0, Color32::WHITE, None, None, true);
         assert!(card.busy(1.0 + VIEW / 2.0));
         assert!(!card.busy(1.0 + VIEW.max(COLOR)) && card.seen.shown(1.0 + VIEW) == 0.0);
+    }
+
+    #[test]
+    fn the_ring_counts_finished_stages_and_eases_to_each_new_value() {
+        assert_eq!(stage_progress([]), None);
+        assert_eq!(stage_progress([Status::Done, Status::Idle, Status::Working]), Some(2.0 / 3.0));
+        assert_eq!(stage_progress([Status::NeedsYou, Status::Working]), Some(0.0));
+
+        let mut t = TileMotion::default();
+        t.update(0.0, 1.0 / 3.0, Status::Working, false, true);
+        assert_eq!((t.ring(0.0), t.busy(0.0)), (1.0 / 3.0, false), "the first frame is as it is");
+        t.update(1.0, 2.0 / 3.0, Status::Working, false, true);
+        assert_eq!(t.ring(1.0), 1.0 / 3.0);
+        let mid = t.ring(1.0 + MOVE / 2.0);
+        assert!((mid - 0.5).abs() < 1e-5 && t.busy(1.0 + MOVE / 2.0), "halfway: {mid}");
+        assert!(t.ring(1.0 + MOVE / 8.0) - 1.0 / 3.0 < 0.01, "eases out of the start");
+        assert_eq!((t.ring(1.0 + MOVE), t.busy(1.0 + MOVE)), (2.0 / 3.0, false));
+        // With animations off it jumps.
+        t.update(2.0, 1.0, Status::Working, false, false);
+        assert_eq!((t.ring(2.0), t.busy(2.0)), (1.0, false));
+    }
+
+    #[test]
+    fn the_done_badge_pops_in_on_a_small_spring_and_stays_until_looked_at() {
+        assert_eq!(spring_pop(0.0), 0.0);
+        assert!((spring_pop(1.0) - 1.0).abs() < 1e-6);
+        let peak = (0..=100).map(|i| spring_pop(i as f32 / 100.0)).fold(0.0, f32::max);
+        assert!((1.08..1.12).contains(&peak), "overshoots to about 1.1: {peak}");
+
+        let mut t = TileMotion::default();
+        t.update(0.0, 0.5, Status::Working, false, true);
+        assert!(t.badge(0.0).is_none());
+        t.update(1.0, 1.0, Status::Done, false, true);
+        let (badge, scale, opacity) = t.badge(1.0).unwrap();
+        assert_eq!((badge, scale, opacity), (Badge::Done, 0.0, 1.0), "from nothing");
+        assert!(t.badge(1.0 + POP * 0.7).unwrap().1 > 1.05, "past full size on the way");
+        assert!(t.busy(1.0 + POP * 0.7));
+        assert_eq!(t.badge(1.0 + POP).unwrap().1, 1.0);
+        // It stays while Done, still, asking for no redraws.
+        t.update(5.0, 1.0, Status::Done, true, true);
+        assert!(!t.busy(5.0) && t.badge(5.0).unwrap().1 == 1.0 && !t.breathing());
+        // Looked at, the agent turns idle: the badge fades out, then is gone.
+        t.update(6.0, 1.0, Status::Idle, true, true);
+        assert_eq!(t.badge(6.0 + VIEW / 2.0).unwrap().0, Badge::Done);
+        assert!(t.badge(6.0 + VIEW / 2.0).unwrap().2 < 1.0 && t.busy(6.0 + VIEW / 2.0));
+        t.update(6.0 + VIEW, 1.0, Status::Idle, true, true);
+        assert!(t.badge(6.0 + VIEW).is_none() && !t.busy(6.0 + VIEW));
+
+        // A card that's already done when first drawn, or with animations off, doesn't pop.
+        let mut t = TileMotion::default();
+        t.update(0.0, 1.0, Status::Done, false, true);
+        assert_eq!(t.badge(0.0).map(|b| b.1), Some(1.0));
+        t.update(1.0, 1.0, Status::Idle, false, false);
+        t.update(2.0, 1.0, Status::Done, false, false);
+        assert_eq!((t.badge(2.0).map(|b| b.1), t.busy(2.0)), (Some(1.0), false));
+    }
+
+    #[test]
+    fn the_needs_you_badge_fades_in_and_breathes_until_looked_at() {
+        assert_eq!((breath(0.0), breath(BREATH)), (0.0, 0.0));
+        assert!((breath(BREATH / 2.0) - 1.0).abs() < 1e-6);
+        assert!((0..100).all(|i| (0.0..=1.0).contains(&breath(i as f64 * 0.137))));
+
+        let mut t = TileMotion::default();
+        t.update(0.0, 0.0, Status::Working, false, true);
+        t.update(1.0, 0.0, Status::NeedsYou, false, true);
+        let (badge, scale, opacity) = t.badge(1.0).unwrap();
+        assert_eq!((badge, scale, opacity), (Badge::NeedsYou, 1.0, 0.0), "fades in, no pop");
+        assert_eq!(t.badge(1.0 + VIEW).unwrap().2, 1.0);
+        assert!(t.breathing());
+        // On screen: it holds still from then on, even once you look away again.
+        t.update(2.0, 0.0, Status::NeedsYou, true, true);
+        assert!(!t.breathing());
+        t.update(3.0, 0.0, Status::NeedsYou, false, true);
+        assert!(!t.breathing());
+        // A new need breathes again.
+        t.update(4.0, 0.0, Status::Working, false, true);
+        t.update(5.0, 0.0, Status::NeedsYou, false, true);
+        assert!(t.breathing());
+        // With animations off, nothing breathes.
+        t.update(6.0, 0.0, Status::NeedsYou, false, false);
+        assert!(!t.breathing());
+    }
+
+    #[test]
+    fn a_tick_draws_itself_in_when_its_helper_finishes() {
+        assert_eq!((tick_drawn(0.0), tick_drawn(TICK)), (0.0, 1.0));
+        assert!((tick_drawn(TICK / 2.0) - 0.5).abs() < 1e-6);
+        assert!(tick_drawn(TICK / 4.0) < 0.25, "eases in like the rest of the pane");
+
+        let mut t = TeamMotion::default();
+        let (a, b) = (agent(1, Status::Working), agent(2, Status::Done));
+        t.note_statuses(0.0, true, [&*a, &*b]);
+        assert_eq!((t.tick(0.0, 2), t.busy(0.0)), (1.0, false), "one already done is drawn whole");
+        let a = agent(1, Status::Done);
+        t.note_statuses(1.0, true, [&*a, &*b]);
+        assert_eq!(t.tick(1.0, 1), 0.0);
+        assert!(t.busy(1.0 + TICK / 2.0) && t.tick(1.0 + TICK / 2.0, 1) > 0.0);
+        assert_eq!((t.tick(1.0 + TICK, 1), t.busy(1.0 + TICK)), (1.0, false));
+        // With animations off it's simply there.
+        let c = agent(3, Status::Working);
+        t.note_statuses(2.0, false, [&*a, &*b, &*c]);
+        let c = agent(3, Status::Done);
+        t.note_statuses(3.0, false, [&*a, &*b, &*c]);
+        assert_eq!(t.tick(3.0, 3), 1.0);
     }
 
     fn agent(pane: PaneId, status: Status) -> Arc<Agent> {

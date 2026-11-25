@@ -19,6 +19,11 @@
 //! one sharing its tab. The mark eases in and out (see `motion`'s `SeenFade`), on every card
 //! and helper row alike.
 //!
+//! A pipeline's tile carries a progress ring (how many of its stages have finished) and an
+//! iOS-style corner badge (an amber `!` while it needs you, a green tick while it's done and
+//! unseen); a stage that finishes draws its tick in. The timing is `motion`'s `TileMotion`
+//! and `TeamMotion::tick`; the shapes are `icons`' `tile_ring`, `badge_alert` and `badge_done`.
+//!
 //! A frame copies no agent: the teams are worked out when the tracker's list changes (its
 //! generation) and kept, shared, until it changes again.
 //!
@@ -44,7 +49,7 @@ use crate::ui::{icons, paint};
 use super::AgentsPane;
 use super::group::{Group, Member, Step, groups, same_step};
 use super::model::{Agent, AgentKind, Agents, Source, Status, Viewing, elapsed};
-use super::motion::{Motion, TeamMotion};
+use super::motion::{Badge, Motion, TeamMotion, TileMotion, breath, stage_progress};
 
 mod viewing;
 
@@ -458,12 +463,23 @@ impl AgentsPane {
             card.set_colors(now, border, border_width, status_color(card.agent.status, f.c), seen, ring, f.animate);
             let (border, border_width) = viewing::ring_over((card.border.get(now), card.border_width.get(now)), card.ring.shown(now), card.ring.primary(now));
             let (shown, primary) = (card.seen.shown(now), card.seen.primary(now));
-            let look = Look { hover, lift, border, border_width, tint: card.tint.get(now), glow: shown * primary, seen: (shown, primary) };
+            // A pipeline's tile: a ring for how far its stages are, a badge for how it stands.
+            let tile = match &team {
+                Some(g) if g.is_pipeline() => pipeline_state(&g.direct().filter(|m| !m.agent.team.sub).map(|m| &*m.agent).collect::<Vec<_>>()).map(|(progress, _, working)| {
+                    card.tile.update(now, progress, g.lead.status, seen.is_some(), f.animate);
+                    busy |= card.tile.busy(now);
+                    breathing |= card.tile.breathing();
+                    tile_look(f, &card.tile, working)
+                }),
+                _ => None,
+            };
+            let look = Look { hover, lift, border, border_width, tint: card.tint.get(now), glow: shown * primary, seen: (shown, primary), tile };
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
             match team {
                 Some(g) => {
-                    breathing |= g.lead.status == Status::Working;
+                    // Working dots and a stage's glowing ring end; a Needs-you capsule's tint.
+                    breathing |= g.lead.status == Status::Working || g.members.iter().any(|m| m.agent.status == Status::NeedsYou);
                     let leaving = card.leaving;
                     // Its rows and capsules slide, unless the card itself was resized.
                     let inside = motion.teams.entry(id).or_default();
@@ -488,6 +504,8 @@ impl AgentsPane {
     #[allow(clippy::too_many_arguments)]
     fn team_card(&mut self, f: &Frame, p: &Painter, r: Rect, g: &Group, look: Look, leaving: bool, inside: &mut TeamMotion, slide: bool) {
         let key = g.key();
+        // A helper that has just finished draws its tick in, in its capsule and its row.
+        inside.note_statuses(f.time, f.animate, g.members.iter().map(|m| &*m.agent));
         let open = self.expanded.get(&key).copied();
         let closed_h = team_height(g, None);
         let open_h = team_height(g, Some(open.unwrap_or(false)));
@@ -555,6 +573,17 @@ impl AgentsPane {
             let seen = (!m.leaving).then(|| f.viewing.of(&m.member.agent)).flatten();
             m.seen.set(now, seen, f.animate);
         }
+        // A pipeline among the helpers: its tile's ring and badge, from its own stages.
+        let mut tiles: HashMap<PaneId, TileLook> = HashMap::new();
+        for (i, member) in g.members.iter().enumerate().filter(|(_, m)| m.agent.kind == AgentKind::Pipeline) {
+            let stages: Vec<&Agent> = g.under(i).filter(|s| !s.agent.team.sub).map(|s| &*s.agent).collect();
+            let Some(row) = inside.rows.get_mut(&member.agent.pane) else { continue };
+            if let Some((progress, status, working)) = pipeline_state(&stages) {
+                let seen = !row.leaving && std::iter::once(&*member.agent).chain(stages.iter().copied()).any(|a| f.viewing.of(a).is_some());
+                row.tile.update(now, progress, status, seen, f.animate);
+                tiles.insert(member.agent.pane, tile_look(f, &row.tile, working));
+            }
+        }
 
         // The hairlines stay where the slots are, each starting at its slot's text.
         for (i, m) in rows.iter().enumerate() {
@@ -605,7 +634,8 @@ impl AgentsPane {
             if self.highlighted() == Some(id) && f.focused && !m.leaving {
                 rp.rect_stroke(inner, 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
             }
-            helper_row(f, &rp, row, &m.member, row_depth(g, &m.member), &m.tag, seen);
+            let glyph = (inside.tick(now, id), tiles.get(&id).copied());
+            helper_row(f, &rp, row, &m.member, row_depth(g, &m.member), &m.tag, seen, glyph);
         }
         if g.members.len() > ROWS_SHOWN {
             let more = Rect::from_min_size(Pos2::new(list.left(), list.top() + rows.len() as f32 * ROW_H), Vec2::new(list.width(), MORE_H));
@@ -708,6 +738,55 @@ struct Look {
     /// How far its "Viewing" pill is in, and how far toward the focused pane's look (0 to 1
     /// each).
     seen: (f32, f32),
+    /// A pipeline's tile: its ring and badge.
+    tile: Option<TileLook>,
+}
+
+/// A pipeline tile's progress ring and corner badge, as drawn this frame (see [`TileMotion`]).
+#[derive(Clone, Copy)]
+struct TileLook {
+    /// How far round the ring is, 0 to 1.
+    ring: f32,
+    /// How bright the ring's leading end glows (a stage is working), 0 to 1.
+    glow: f32,
+    /// The badge, its scale and its opacity.
+    badge: Option<(Badge, f32, f32)>,
+    /// Where a Needs-you badge's breath is, 0 to 1 (0: still).
+    breath: f32,
+}
+
+/// How a pipeline stands from its `stages`: the fraction done, the most urgent status among
+/// them, and whether one is at work. `None` before it has any.
+fn pipeline_state(stages: &[&Agent]) -> Option<(f32, Status, bool)> {
+    let progress = stage_progress(stages.iter().map(|a| a.status))?;
+    let status = stages.iter().map(|a| a.status).min()?;
+    Some((progress, status, stages.iter().any(|a| a.status == Status::Working)))
+}
+
+/// `t` as drawn this frame: the working glow pulses with the status dots, the Needs-you
+/// badge breathes until looked at. With animations off, both hold still at full.
+fn tile_look(f: &Frame, t: &TileMotion, working: bool) -> TileLook {
+    let glow = match (working, f.animate) {
+        (false, _) => 0.0,
+        (true, false) => 1.0,
+        (true, true) => 0.65 + 0.35 * (0.5 + 0.5 * (f.time as f32 * std::f32::consts::TAU * 0.55).sin()),
+    };
+    TileLook { ring: t.ring(f.time), glow, badge: t.badge(f.time), breath: if t.breathing() { breath(f.time) } else { 0.0 } }
+}
+
+/// A pipeline's app tile `tile` with its ring (under) and badge (over).
+fn pipeline_tile(f: &Frame, p: &Painter, tile: Rect, agent: &Agent, look: Option<&TileLook>) {
+    let Some(look) = look else {
+        icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref());
+        return;
+    };
+    icons::tile_ring(p, tile, look.ring, ACCENT, look.glow);
+    icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref());
+    match look.badge {
+        Some((Badge::NeedsYou, scale, opacity)) => icons::badge_alert(p, tile, f.c.yellow, scale, opacity, look.breath),
+        Some((Badge::Done, scale, opacity)) => icons::badge_done(p, tile, f.c.green, scale, opacity),
+        None => {}
+    }
 }
 
 /// The border a card heads for: the accent when it's the selected one in the focused pane,
@@ -759,7 +838,7 @@ fn card_body(p: &Painter, r: Rect, look: &Look) {
 fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, team: Option<(&str, f32)>) -> Rect {
     let c = f.c;
     let tile = Rect::from_center_size(Pos2::new(r.left() + 14.0 + TILE / 2.0, r.top() + CARD_H / 2.0), Vec2::splat(TILE));
-    icons::app_tile(p, tile, agent.kind.process(), agent.mark.as_deref());
+    pipeline_tile(f, p, tile, agent, look.tile.as_ref());
 
     // The status pill, top right, with the time in that state under it.
     let color = look.tint;
@@ -998,9 +1077,9 @@ fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group, inside: &mut TeamMot
         cp.multiply_opacity(m.opacity.get(now));
         let cap = Rect::from_min_size(Pos2::new(strip.left() + m.x.get(now), y - CAPSULE_H / 2.0), Vec2::new(widths[i], CAPSULE_H));
         let color = status_color(a.status, c);
-        let fill = if a.status == Status::NeedsYou { c.yellow.gamma_multiply(0.14) } else { white_alpha(9) };
+        let fill = if a.status == Status::NeedsYou { needs_you_tint(f) } else { white_alpha(9) };
         cp.rect_filled(cap, 12, fill);
-        member_glyph(f, &cp, Pos2::new(cap.left() + 12.0, y), a.status, color);
+        member_glyph(f, &cp, Pos2::new(cap.left() + 12.0, y), a.status, color, inside.tick(now, a.pane));
         cp.galley(Pos2::new(cap.left() + 21.0, y - galleys[i].size().y / 2.0), galleys[i].clone(), c.text_bright);
     }
 }
@@ -1079,11 +1158,12 @@ fn branch_lines(p: &Painter, list: Rect, g: &Group, shown: usize) {
 /// One helper's row in an open team: tile (indented for a helper's own helpers), its `tag`
 /// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
 /// in, and its status with how long it has been in it.
-fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: &str, seen: (f32, f32)) {
+#[allow(clippy::too_many_arguments)]
+fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: &str, seen: (f32, f32), (tick, tile_look): (f32, Option<TileLook>)) {
     let c = f.c;
     let a = &m.agent;
     let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + row_indent(depth) + 13.0, row.center().y), Vec2::splat(26.0));
-    icons::app_tile(p, tile, a.kind.process(), a.mark.as_deref());
+    pipeline_tile(f, p, tile, a, tile_look.as_ref());
     let x = row_text_x(row.left(), depth);
 
     let color = status_color(a.status, c);
@@ -1093,7 +1173,7 @@ fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: 
     let label_g = p.layout_no_wrap(a.status.label().to_string(), paint::bold(11.0), color);
     let label_x = since_x - 12.0 - label_g.size().x;
     let dot = Pos2::new(label_x - 9.0, row.center().y);
-    status_dot(f, p, dot, a.status, color);
+    member_glyph(f, p, dot, a.status, color, tick);
     p.galley(Pos2::new(label_x, row.center().y - label_g.size().y / 2.0), label_g, color);
     p.galley(Pos2::new(since_x, row.center().y - since_g.size().y / 2.0), since_g, c.text_dim);
 
@@ -1122,15 +1202,25 @@ fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: 
     paint::faded_text(p, Pos2::new(x, row.top() + 32.0), &detail, ui_font(11.5), c.text_dim, room, 16.0);
 }
 
-/// A helper's status in a capsule: a tick once it's done, else its dot.
-fn member_glyph(f: &Frame, p: &Painter, at: Pos2, status: Status, color: Color32) {
+/// A helper's status in a capsule or row: a tick once it's done, else its dot. `drawn` (0 to
+/// 1): how far a tick that has just appeared is drawn in; the dot it replaces shrinks away
+/// as the stroke goes.
+fn member_glyph(f: &Frame, p: &Painter, at: Pos2, status: Status, color: Color32, drawn: f32) {
     if status == Status::Done {
-        let stroke = Stroke::new(1.6_f32, color);
-        p.line_segment([at + Vec2::new(-3.5, 0.2), at + Vec2::new(-1.0, 2.8)], stroke);
-        p.line_segment([at + Vec2::new(-1.0, 2.8), at + Vec2::new(3.8, -2.6)], stroke);
+        if drawn < 1.0 {
+            let gone = (drawn * 2.0).min(1.0);
+            p.circle_filled(at, 3.5 * (1.0 - 0.6 * gone), color.gamma_multiply(1.0 - gone));
+        }
+        icons::check(p, at, 1.0, Stroke::new(1.6_f32, color), drawn);
     } else {
         status_dot(f, p, at, status, color);
     }
+}
+
+/// A Needs-you capsule's fill: amber, breathing slowly (steady with animations off).
+fn needs_you_tint(f: &Frame) -> Color32 {
+    let strength = if f.animate { 0.09 + 0.1 * breath(f.time) } else { 0.14 };
+    f.c.yellow.gamma_multiply(strength)
 }
 
 /// The status dot. While working it breathes, and a soft ring keeps rippling out of it.
@@ -1452,6 +1542,45 @@ mod tests {
         let second = teams(&pane);
         assert!(!Arc::ptr_eq(&first, &second));
         assert_eq!(second.iter().map(|g| (g.key(), g.lead.status)).collect::<Vec<_>>(), [(3, Status::Working), (1, Status::Idle)]);
+    }
+
+    #[test]
+    fn a_pipelines_tile_rings_its_finished_stages_and_a_finished_stage_draws_its_tick() {
+        use crate::agents::motion::{Badge, MOVE, POP, TICK};
+        let ctx = egui::Context::default();
+        crate::render::fonts::install(&ctx, &crate::config::Config::default());
+        crate::ui::glide::set_animations(&ctx, true);
+        let stage = |pane, status| Agent { status, ..agent(pane, Some(1)) };
+        let mut agents = vec![Agent { kind: AgentKind::Pipeline, ..agent(1, None) }, stage(2, Status::Idle), stage(3, Status::Working), stage(4, Status::Working)];
+        let mut pane = AgentsPane::new();
+        let mut time = 0.0;
+        for _ in 0..2 {
+            frame(&ctx, &mut pane, &Agents::new(agents.clone()), &mut time, vec![]);
+        }
+        fn card(pane: &AgentsPane) -> &crate::agents::motion::CardMotion {
+            &pane.view.motion.cards[&1]
+        }
+        assert!((card(&pane).tile.ring(time) - 1.0 / 3.0).abs() < 1e-6, "1 of 3 stages finished");
+        assert!(card(&pane).tile.badge(time).is_none());
+
+        // Stage 3 finishes: the ring eases on to 2 of 3, the card's badge pops in, and the
+        // stage's capsule draws its tick.
+        agents[2].status = Status::Done;
+        let list = Agents::new(agents.clone());
+        frame(&ctx, &mut pane, &list, &mut time, vec![]);
+        let started = time;
+        assert_eq!(pane.view.motion.teams[&1].tick(time, 3), 0.0);
+        frame(&ctx, &mut pane, &list, &mut time, vec![]);
+        let ring = card(&pane).tile.ring(time);
+        assert!(1.0 / 3.0 < ring && ring < 2.0 / 3.0, "on its way: {ring}");
+        assert!(card(&pane).busy(time) && pane.view.motion.teams[&1].busy(time));
+        while time < started + MOVE.max(POP).max(TICK) {
+            frame(&ctx, &mut pane, &list, &mut time, vec![]);
+        }
+        assert!((card(&pane).tile.ring(time) - 2.0 / 3.0).abs() < 1e-6);
+        assert_eq!(card(&pane).tile.badge(time), Some((Badge::Done, 1.0, 1.0)));
+        assert_eq!(pane.view.motion.teams[&1].tick(time, 3), 1.0);
+        assert!(!card(&pane).busy(time) && !pane.view.motion.teams[&1].busy(time), "settled: no more redraws");
     }
 
     #[test]

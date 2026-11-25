@@ -20,6 +20,18 @@ All notable changes to nex are documented here. The format follows
   agent comes on screen and fades back out when it leaves, instead of switching on and off
   at once. Every card uses the same smooth curve, and an interrupted fade turns back from
   where it is.
+- On the Agents pane, a pipeline's app tile shows how its run stands. A thin ring around the
+  tile fills as its stages finish (2 of 3 done is two thirds of the way round), easing to each
+  new value, and its leading end glows softly while a stage is working. A corner badge, like
+  an iOS app badge, says what wants you: an amber `!` that breathes gently until you look at
+  it, or a green tick that pops in on a small spring when the run is done and stays until you
+  view it. A nested pipeline's row in an open team gets the same ring and badge.
+- In a team's capsules and helper rows, a stage that finishes no longer swaps its dot for a
+  tick at once: the dot shrinks away as the check mark draws itself in over 0.3 seconds. Helper
+  rows show that tick for Done too, like the capsules.
+- A Needs-you capsule's amber tint breathes slowly instead of being a flat fill.
+- All of it holds still (drawn in its final state) with `animations` off, and the pane only
+  redraws while something is changing, working or needing you.
 
 ### Fixed
 
