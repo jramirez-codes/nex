@@ -15,9 +15,6 @@ pub const SHELL_KIND: &str = "shell";
 pub const PIPELINE_KIND: &str = "pipeline";
 /// Output this recent (and not just the echo of typing) counts as working.
 pub const BUSY_WINDOW_MS: u64 = 1500;
-/// Claude Code's title glyph while it waits at its prompt; spinner frames replace it while
-/// it works.
-pub const CLAUDE_IDLE_MARK: char = '✳';
 /// What sits between the two halves of the terminal title a pipeline's runner sets, for the
 /// Agents pane's card: how its work stands (`2 building · 1 in review`), then the last
 /// thing that happened. See [`pipeline_title`].
@@ -168,7 +165,8 @@ impl Session {
     }
 
     /// The best guess at what it's doing at `now` (unix ms): ended, then Claude Code's own
-    /// word, then the bell, then Claude's title mark (✳ waiting, a spinner frame working),
+    /// word, then the bell, then the title mark of a CLI that keeps one there
+    /// (`AgentCli::title_status`: Claude Code's ✳ waiting, a spinner frame working),
     /// then whether it has been printing on its own. nex's `agents::model::Probe::status`
     /// applies the same rules to its local panes; keep the two in step.
     pub fn compute_status(&self, now: u64) -> Status {
@@ -182,10 +180,11 @@ impl Session {
         if let Some(s) = reported {
             return s;
         }
-        if self.agent_kind() == "claude"
+        if let Some(cli) = crate::clis::by_kind(self.agent_kind())
             && let Some(mark) = self.title.as_deref().and_then(title_mark)
+            && let Some(s) = cli.title_status(mark.encode_utf8(&mut [0; 4]))
         {
-            return if mark == CLAUDE_IDLE_MARK { Status::Idle } else { Status::Working };
+            return s;
         }
         let recent = |t: u64| now.saturating_sub(t) < BUSY_WINDOW_MS;
         if recent(self.last_output) && !recent(self.last_input) { Status::Working } else { Status::Idle }

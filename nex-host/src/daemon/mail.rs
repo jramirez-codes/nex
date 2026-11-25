@@ -18,7 +18,8 @@ use crate::util::{Locked, first_line, now_ms};
 const DELIVER_TICK: Duration = Duration::from_millis(400);
 /// A program this new may not be reading its input yet: messages wait until it's older.
 const STARTUP_MS: u64 = 2500;
-/// How long Claude Code's screen must have been still before a message is typed in.
+/// How long the screen of a CLI with start-up dialogs (Claude Code) must have been still
+/// before a message is typed in.
 const SETTLE_MS: u64 = 500;
 /// How long an agent may sit idle after working on a task without reporting before it's
 /// reminded to (once per task).
@@ -108,9 +109,10 @@ pub(super) fn post(state: &Arc<State>, d: Draft, force: bool) -> Result<(Vec<Str
 fn can_take(a: &Agent) -> bool {
     let now = now_ms();
     let s = a.session(now);
-    // Claude Code's first screen may be a dialog (see `Agent::session`): wait until it has
-    // drawn one and stopped, so a slow start can't have the message answer it unseen.
-    let settled = s.kind != "claude" || (s.last_output != 0 && now.saturating_sub(s.last_output) >= SETTLE_MS);
+    // A CLI's first screen may be a dialog (Claude Code's, see `Agent::session`): wait until
+    // it has drawn one and stopped, so a slow start can't have the message answer it unseen.
+    let dialogs = nex_host::clis::by_kind(&s.kind).is_some_and(|c| !c.dialog_marks().is_empty());
+    let settled = !dialogs || (s.last_output != 0 && now.saturating_sub(s.last_output) >= SETTLE_MS);
     now.saturating_sub(a.started) >= STARTUP_MS && settled && s.status != Status::NeedsYou
 }
 
@@ -138,7 +140,7 @@ pub(super) fn deliver_loop(state: &Arc<State>) {
         }
         state.pending.locked().splice(0..0, still);
 
-        let agents: Vec<Arc<Agent>> = state.agents.locked().values().filter(|a| matches!(a.kind.as_str(), "claude" | "codex") && !a.exited()).cloned().collect();
+        let agents: Vec<Arc<Agent>> = state.agents.locked().values().filter(|a| nex_host::clis::by_kind(&a.kind).is_some() && !a.exited()).cloned().collect();
         quiet.retain(|id, _| agents.iter().any(|a| a.id == *id));
         for a in agents {
             let Some(task) = state.broker.task(&a.id).filter(|t| !t.reported) else {

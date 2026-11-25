@@ -54,7 +54,7 @@ fn ctrl_shift_a_toggles_an_agents_pane_that_draws_jumps_and_restores() {
     }
     // Hold off the process poll, which would find no agents in these shells.
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
-    let agents = vec![probe(shell, Some(0), AgentKind::Claude, "busy"), probe(other, Some(1), AgentKind::Codex, "waiting")];
+    let agents = vec![probe(shell, Some(0), AgentKind::CLAUDE, "busy"), probe(other, Some(1), AgentKind::CODEX, "waiting")];
     app.agent_tracker.update(agents, Instant::now());
     for width in [1400.0, 900.0, 700.0, 420.0, 260.0] {
         for _ in 0..2 {
@@ -143,7 +143,7 @@ fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
         tab: None,
         reported: Some(Status::Working),
         source: Source::Remote { host: "nex-test.invalid".into(), target: target.clone(), session: "3fa91c0e".into(), pane: None },
-        ..probe(0, None, AgentKind::Claude, "")
+        ..probe(0, None, AgentKind::CLAUDE, "")
     };
     app.agent_tracker.update(vec![detached], Instant::now());
     for width in [1400.0, 420.0] {
@@ -177,7 +177,7 @@ fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
         reported: Some(status),
         source: Source::Remote { host: "nex-test.invalid".into(), target: target.clone(), session: "3fa91c0e".into(), pane: None },
         title: "Fix the tests".into(),
-        ..probe(0, None, AgentKind::Claude, "")
+        ..probe(0, None, AgentKind::CLAUDE, "")
     };
 
     app.agent_tracker.update(vec![remote(Status::Working)], Instant::now());
@@ -245,7 +245,7 @@ fn the_agents_on_screen_are_marked_viewing_both_halves_of_a_split_and_where_a_ca
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     // Pretend the three shells run agents (opening the Agents tab polls, finding none).
     let pretend = |app: &mut crate::app::App| {
-        let agents = vec![probe(left, Some(0), AgentKind::Claude, "busy"), probe(right, Some(0), AgentKind::Codex, "busy"), probe(other, Some(1), AgentKind::Claude, "idle")];
+        let agents = vec![probe(left, Some(0), AgentKind::CLAUDE, "busy"), probe(right, Some(0), AgentKind::CODEX, "busy"), probe(other, Some(1), AgentKind::CLAUDE, "idle")];
         app.agent_tracker.update(agents, Instant::now());
     };
     let seen = |app: &crate::app::App, v: &Viewing, pane| v.of(app.agent_tracker.agents().iter().find(|a| a.pane == pane).unwrap());
@@ -311,7 +311,7 @@ fn from_the_agents_tab_a_pinned_agent_is_not_marked_viewing_either() {
 
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let pretend = |app: &mut crate::app::App| {
-        let agents = vec![probe(left, Some(0), AgentKind::Claude, "busy"), probe(pinned, Some(0), AgentKind::Codex, "busy")];
+        let agents = vec![probe(left, Some(0), AgentKind::CLAUDE, "busy"), probe(pinned, Some(0), AgentKind::CODEX, "busy")];
         app.agent_tracker.update(agents, Instant::now());
     };
     let seen = |app: &crate::app::App, v: &Viewing, pane| v.of(app.agent_tracker.agents().iter().find(|a| a.pane == pane).unwrap());
@@ -362,7 +362,7 @@ fn switching_to_the_agents_tab_clears_every_viewing_mark() {
 
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let pretend = |app: &mut crate::app::App| {
-        let agents = vec![probe(left, Some(0), AgentKind::Claude, "busy"), probe(right, Some(0), AgentKind::Codex, "busy")];
+        let agents = vec![probe(left, Some(0), AgentKind::CLAUDE, "busy"), probe(right, Some(0), AgentKind::CODEX, "busy")];
         app.agent_tracker.update(agents, Instant::now());
     };
     let seen = |app: &crate::app::App, v: &Viewing, pane| v.of(app.agent_tracker.agents().iter().find(|a| a.pane == pane).unwrap());
@@ -404,7 +404,7 @@ fn a_card_jumped_to_from_the_agents_tab_is_not_left_highlighted() {
 
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let pretend = |app: &mut crate::app::App| {
-        let agents = vec![probe(first, Some(0), AgentKind::Claude, "busy"), probe(second, Some(1), AgentKind::Codex, "busy")];
+        let agents = vec![probe(first, Some(0), AgentKind::CLAUDE, "busy"), probe(second, Some(1), AgentKind::CODEX, "busy")];
         app.agent_tracker.update(agents, Instant::now());
     };
 
@@ -477,9 +477,9 @@ fn on_the_agents_tab_a_terminal_opened_there_marks_its_ssh_agent_viewing_and_onl
             tab: None,
             reported: Some(Status::Working),
             source: Source::Remote { host: "nex-test.invalid".into(), target: target.clone(), session: "3fa91c0e".into(), pane: Some(term) },
-            ..probe(0, None, AgentKind::Claude, "")
+            ..probe(0, None, AgentKind::CLAUDE, "")
         };
-        let agents = vec![probe(shell, Some(0), AgentKind::Codex, "busy"), probe(pinned, Some(0), AgentKind::Claude, "busy"), remote];
+        let agents = vec![probe(shell, Some(0), AgentKind::CODEX, "busy"), probe(pinned, Some(0), AgentKind::CLAUDE, "busy"), remote];
         app.agent_tracker.update(agents, Instant::now());
     };
     let seen = |app: &crate::app::App, v: &Viewing, key| v.of(app.agent_tracker.agents().iter().find(|a| a.pane == key).unwrap());
@@ -540,8 +540,8 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
             ..lead.clone()
         }
     };
-    let lead_claude = probe(claude, Some(0), AgentKind::Claude, "busy");
-    let lead_codex = probe(codex, Some(1), AgentKind::Codex, "busy");
+    let lead_claude = probe(claude, Some(0), AgentKind::CLAUDE, "busy");
+    let lead_codex = probe(codex, Some(1), AgentKind::CODEX, "busy");
     // A pipeline stage on an ssh host, attached to in the third tab, running one of its
     // own. Its ssh never gets anywhere (a proxy that just waits): the tab stays open.
     let opts = vec!["-o".to_string(), "ProxyCommand=sleep 5".to_string()];
@@ -559,7 +559,7 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
         source: Source::Remote { host: "devbox".into(), target, session: "build".into(), pane: Some(stage_pane) },
         reported: Some(Status::Working),
         team: Team { parent: Some(pipe.pane), role: Some("build".into()), started: 1, sub: false },
-        ..probe(0, Some(2), AgentKind::Claude, "")
+        ..probe(0, Some(2), AgentKind::CLAUDE, "")
     };
     let pipe_key = pipe.pane;
     let leads = [(lead_claude.clone(), "c1", claude), (lead_codex.clone(), "x1", codex), (stage.clone(), "s1", pipe_key)];

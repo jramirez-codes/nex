@@ -828,7 +828,7 @@ mod tests {
         Arc::new(Agent {
             pane,
             tab: Some(0),
-            kind: AgentKind::Claude,
+            kind: AgentKind::CLAUDE,
             name: "a".into(),
             task: None,
             session: None,

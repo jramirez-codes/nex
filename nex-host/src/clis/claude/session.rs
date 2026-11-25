@@ -1,23 +1,10 @@
-//! Claude Code's session file: `~/.claude/sessions/<pid>.json`, one per running process,
+//! Claude Code's session file: `<home>/sessions/<pid>.json`, one per running process,
 //! with its conversation id, display name, status and folder. It's Claude Code's own state,
 //! not an interface, so anything unexpected in it is ignored.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::proto::Claude;
-
-/// Claude Code's config folder: `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
-pub fn config_dir() -> Option<PathBuf> {
-    match std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).filter(|p| p.is_absolute()) {
-        Some(p) => Some(p),
-        None => Some(PathBuf::from(std::env::var_os("HOME")?).join(".claude")),
-    }
-}
-
-/// What the session file of the Claude Code process `pid` says, if it has one.
-pub fn read(pid: u32) -> Option<Claude> {
-    read_in(&config_dir()?.join("sessions"), pid, proc_start(pid).as_deref())
-}
 
 /// Read `<dir>/<pid>.json` (see [`parse`]).
 pub fn read_in(dir: &Path, pid: u32, start: Option<&str>) -> Option<Claude> {
@@ -57,14 +44,6 @@ pub fn parse(text: &str, pid: u32, start: Option<&str>) -> Option<Claude> {
 /// A conversation id is a UUID; anything else is ignored.
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-}
-
-/// The process's start time as Claude Code records it (`/proc/<pid>/stat` field 22), on
-/// Linux. Elsewhere `None`, and the pid alone has to match.
-pub fn proc_start(pid: u32) -> Option<String> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    // Fields after `(comm)` start at field 3 (state), so field 22 is the 20th of them.
-    stat[stat.rfind(')')? + 1..].split_whitespace().nth(19).map(str::to_string)
 }
 
 #[cfg(test)]
@@ -115,11 +94,5 @@ mod tests {
         let text = r#"{"pid":78,"sessionId":"nope!","name":"nex-2e","status":"busy"}"#;
         let c = parse(text, 78, None).unwrap();
         assert_eq!((c.session_id, c.name.as_deref(), c.status.as_deref()), (None, Some("nex-2e"), Some("busy")));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn reads_own_start_time() {
-        assert!(proc_start(std::process::id()).is_some_and(|s| s.parse::<u64>().is_ok()));
     }
 }

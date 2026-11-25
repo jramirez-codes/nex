@@ -116,9 +116,9 @@ pub(super) struct Hire {
     pub(super) task: String,
 }
 
-/// `spawn`: start an agent, its task its first message. Claude Code and Codex get it on
-/// their command line (they start on it at once); anything else has it typed in once it's
-/// up.
+/// `spawn`: start an agent, its task its first message. An agent CLI gets it on its command
+/// line (it starts on it at once, see `AgentCli::task_on_command_line`); anything else has
+/// it typed in once it's up.
 pub(super) fn spawn(state: &Arc<State>, hire: Hire) -> Result<String, String> {
     let Hire { name, kind, argv, cwd, env, parent, role, task } = hire;
     let name = name.trim();
@@ -128,7 +128,7 @@ pub(super) fn spawn(state: &Arc<State>, hire: Hire) -> Result<String, String> {
     if task.trim().is_empty() {
         return Err("no task".into());
     }
-    let kind = kind.unwrap_or_else(|| agent::detect_kind(&argv).unwrap_or("claude").to_string());
+    let kind = kind.unwrap_or_else(|| agent::detect_kind(&argv).unwrap_or(nex_host::clis::DEFAULT.kind()).to_string());
     let defaulted = argv.is_empty();
     let mut argv = if defaulted { vec![kind.clone()] } else { argv };
     let parent = parent.and_then(|p| state.get(&p)).map(|p| p.id.clone());
@@ -150,14 +150,15 @@ pub(super) fn spawn(state: &Arc<State>, hire: Hire) -> Result<String, String> {
     // What it's for, as a team shows it: the name it was spawned with when no role was given
     // (Claude Code renames its session after its task).
     let role = role.or_else(|| Some(name.clone()));
-    let on_command_line = matches!(kind.as_str(), "claude" | "codex") && agent::detect_kind(&argv) == Some(kind.as_str());
+    let cli = nex_host::clis::by_kind(&kind);
+    let on_command_line = cli.is_some_and(|c| c.task_on_command_line()) && agent::detect_kind(&argv) == Some(kind.as_str());
     if on_command_line {
         argv.push(deliver::render(&message));
         // So reporting back doesn't stop at a permission prompt: nex-host's own commands
         // only (and only when nex-host chose the command line). After the prompt, since
         // the option takes any number of values.
-        if defaulted && kind == "claude" {
-            argv.extend(["--allowedTools".to_string(), "Bash(nex-host:*)".to_string()]);
+        if defaulted && let Some(cli) = cli {
+            argv.extend(cli.report_args().iter().map(|a| a.to_string()));
         }
     }
     let spec = Spec {

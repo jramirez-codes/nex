@@ -257,7 +257,7 @@ mod tests {
         Agent {
             pane,
             tab: None,
-            kind: AgentKind::Claude,
+            kind: AgentKind::CLAUDE,
             name: format!("a{pane}"),
             task: None,
             session: None,

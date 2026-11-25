@@ -1320,7 +1320,7 @@ mod tests {
         Agent {
             pane,
             tab: None,
-            kind: AgentKind::Claude,
+            kind: AgentKind::CLAUDE,
             name: format!("a{pane}"),
             task: None,
             session: None,
@@ -1737,7 +1737,7 @@ mod tests {
         let probe = |pane: PaneId, parent: Option<PaneId>, status: Status| Probe {
             pane,
             tab: Some(0),
-            kind: AgentKind::Claude,
+            kind: AgentKind::CLAUDE,
             title: format!("task {pane}"),
             mark: None,
             cwd: None,
@@ -2110,7 +2110,7 @@ mod tests {
         assert_eq!(text(&a), ("Feature".into(), None, "✗ stopped: no plan · nex · 2 stages".into()));
 
         // Any other agent's title is its task, and already its name.
-        a.kind = AgentKind::Claude;
+        a.kind = AgentKind::CLAUDE;
         a.name = "Fix it — properly".into();
         a.task = Some(a.name.clone());
         assert_eq!(text(&a), ("Fix it — properly".into(), None, "nex · 2 stages".into()));

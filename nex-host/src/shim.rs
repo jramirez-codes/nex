@@ -18,8 +18,10 @@ use std::path::{Path, PathBuf};
 const BEGIN: &str = "# >>> nex-host >>>";
 const END: &str = "# <<< nex-host <<<";
 
-/// The programs the shim starts through `nex-host`.
-const AGENTS: [&str; 2] = ["claude", "codex"];
+/// The programs the shim starts through `nex-host`: every agent CLI's.
+fn agents() -> impl Iterator<Item = &'static str> {
+    nex_host::clis::ALL.iter().map(|c| c.kind())
+}
 
 fn sh_block() -> String {
     let mut s = format!(
@@ -27,7 +29,7 @@ fn sh_block() -> String {
          # `command claude` skips it; `~/.nex/bin/nex-host shim remove` takes it out.\n\
          if [ -z \"$NEX_HOST\" ] && [ \"$LC_TERMINAL\" = nex ] && [ -x \"$HOME/.nex/bin/nex-host\" ]; then\n"
     );
-    for a in AGENTS {
+    for a in agents() {
         // `function` so an alias of the same name can't break the definition.
         s.push_str(&format!("  function {a} {{ \"$HOME/.nex/bin/nex-host\" run -- {a} \"$@\"; }}\n"));
     }
@@ -41,7 +43,7 @@ fn fish_file() -> String {
          # `command claude` skips it; `~/.nex/bin/nex-host shim remove` deletes this file.\n\
          if test -z \"$NEX_HOST\"; and test \"$LC_TERMINAL\" = nex; and test -x \"$HOME/.nex/bin/nex-host\"\n",
     );
-    for a in AGENTS {
+    for a in agents() {
         s.push_str(&format!("    function {a}; \"$HOME/.nex/bin/nex-host\" run -- {a} $argv; end\n"));
     }
     s.push_str("end\n");

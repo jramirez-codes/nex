@@ -892,6 +892,7 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [x] iPhone app (beta)
 - [x] Signed and notarized macOS app
 - [x] Android: send Esc by spinning the joystick in a full circle
+- [x] Clean up the agent code so each agent CLI (Claude Code, Codex, and any added later, such as Gemini CLI) is a self-contained module behind one shared interface
 
 ### Next
 
@@ -902,7 +903,6 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [ ] Color emoji
 - [ ] Better animations when an agent, or several agents, close
 - [ ] Android: download a file from the file explorer of an `ssh` session to the phone
-- [ ] Clean up the agent code so each agent CLI (Claude Code, Codex, and any added later, such as Gemini CLI) is a self-contained module behind one shared interface
 
 ### Later
 

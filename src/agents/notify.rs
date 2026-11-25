@@ -144,7 +144,7 @@ mod tests {
     }
 
     fn claude(pane: PaneId, status: Status) -> Arc<Agent> {
-        agent(pane, AgentKind::Claude, status, Some("Fixing tests"))
+        agent(pane, AgentKind::CLAUDE, status, Some("Fixing tests"))
     }
 
     fn pipeline(pane: PaneId, title: &str) -> Arc<Agent> {

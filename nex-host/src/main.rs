@@ -344,17 +344,17 @@ fn connect() -> std::io::Result<i32> {
 /// until it finishes and then kept on screen; a line saying why when it can't be found.
 #[cfg(unix)]
 fn subagent(id: &str, sub: &str) -> std::io::Result<i32> {
+    use nex_host::clis::{self, Running};
     use nex_host::proto::Request;
-    use nex_host::{subagents, transcript};
+    use nex_host::transcript;
 
     let sessions = client::request(&Request::List, false).map(|r| r.sessions.unwrap_or_default());
     let path = match &sessions {
         Ok(all) => match all.iter().find(|s| s.id == id).or_else(|| all.iter().find(|s| s.name == id)) {
-            Some(s) => match (s.agent_kind(), &s.claude) {
-                ("claude", Some(c)) => nex_host::claude::config_dir().and_then(|config| subagents::claude_transcript(&config, c, sub)),
-                ("codex", _) => subagents::codex_home().and_then(|home| subagents::codex_rollout(&home, sub)),
-                _ => None,
-            },
+            Some(s) => clis::by_kind(s.agent_kind()).and_then(|cli| {
+                let agent = Running { pid: s.pid, cwd: &s.cwd, session: s.claude.as_ref() };
+                cli.subagent_transcript(&cli.home()?, &agent, sub)
+            }),
             None => None,
         },
         Err(_) => None,

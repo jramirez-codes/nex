@@ -33,10 +33,10 @@ fn probe(pane: u64, tab: usize, kind: AgentKind, at: Instant) -> Probe {
 
 #[test]
 fn recognizes_agents() {
-    assert_eq!(AgentKind::detect("claude", &v(&["claude"])), Some(AgentKind::Claude));
-    assert_eq!(AgentKind::detect("node", &v(&["node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"])), Some(AgentKind::Claude));
-    assert_eq!(AgentKind::detect("codex", &v(&["codex", "--full-auto"])), Some(AgentKind::Codex));
-    assert_eq!(AgentKind::detect("node", &v(&["node", "/home/u/.npm/bin/codex"])), Some(AgentKind::Codex));
+    assert_eq!(AgentKind::detect("claude", &v(&["claude"])), Some(AgentKind::CLAUDE));
+    assert_eq!(AgentKind::detect("node", &v(&["node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"])), Some(AgentKind::CLAUDE));
+    assert_eq!(AgentKind::detect("codex", &v(&["codex", "--full-auto"])), Some(AgentKind::CODEX));
+    assert_eq!(AgentKind::detect("node", &v(&["node", "/home/u/.npm/bin/codex"])), Some(AgentKind::CODEX));
     assert_eq!(AgentKind::detect("node", &v(&["node", "server.js"])), None);
     assert_eq!(AgentKind::detect("fish", &[]), None);
     assert_eq!(AgentKind::detect("codex-helper", &v(&["codex-helper"])), None);
@@ -54,7 +54,7 @@ fn reads_claude_codes_own_word() {
 #[test]
 fn status_falls_back_through_bell_title_and_output() {
     let now = Instant::now();
-    let mut p = probe(1, 0, AgentKind::Claude, now);
+    let mut p = probe(1, 0, AgentKind::CLAUDE, now);
     // Claude Code's session file wins over its title.
     p.session_status = Some("busy".into());
     p.mark = Some("✳".into());
@@ -74,7 +74,7 @@ fn status_falls_back_through_bell_title_and_output() {
 
     // Codex has no session file or idle glyph: output on its own means working, but the
     // echo of the user typing doesn't.
-    let mut c = probe(2, 0, AgentKind::Codex, now);
+    let mut c = probe(2, 0, AgentKind::CODEX, now);
     assert_eq!(c.status(now), Status::Idle);
     c.last_output = now - Duration::from_millis(200);
     assert_eq!(c.status(now), Status::Working);
@@ -85,7 +85,7 @@ fn status_falls_back_through_bell_title_and_output() {
 #[test]
 fn names_by_task_then_session_then_folder() {
     let now = Instant::now();
-    let mut p = probe(1, 0, AgentKind::Claude, now);
+    let mut p = probe(1, 0, AgentKind::CLAUDE, now);
     p.session_status = Some("idle".into());
     let mut t = Tracker::default();
     let name = |t: &mut Tracker, p: &Probe| {
@@ -104,7 +104,7 @@ fn names_by_task_then_session_then_folder() {
 #[test]
 fn the_live_title_is_kept_as_the_task_beside_the_name() {
     let now = Instant::now();
-    let mut p = probe(1, 0, AgentKind::Claude, now);
+    let mut p = probe(1, 0, AgentKind::CLAUDE, now);
     p.session_name = Some("build-2".into());
     let mut t = Tracker::default();
     let mut seen = |p: &Probe| {
@@ -130,13 +130,13 @@ fn the_live_title_is_kept_as_the_task_beside_the_name() {
 #[test]
 fn sorts_by_need_then_tab_and_keeps_time_in_state() {
     let start = Instant::now();
-    let mut idle = probe(5, 0, AgentKind::Claude, start);
+    let mut idle = probe(5, 0, AgentKind::CLAUDE, start);
     idle.session_status = Some("idle".into());
-    let mut working = probe(3, 1, AgentKind::Claude, start);
+    let mut working = probe(3, 1, AgentKind::CLAUDE, start);
     working.session_status = Some("busy".into());
-    let mut waiting = probe(9, 2, AgentKind::Codex, start);
+    let mut waiting = probe(9, 2, AgentKind::CODEX, start);
     waiting.attention = true;
-    let mut also_idle = probe(2, 0, AgentKind::Claude, start);
+    let mut also_idle = probe(2, 0, AgentKind::CLAUDE, start);
     also_idle.session_status = Some("idle".into());
 
     let mut t = Tracker::default();
@@ -259,7 +259,7 @@ fn remote(host: &str, session: &str, status: Status, at: Instant) -> Probe {
         tab: None,
         reported: Some(status),
         source: Source::Remote { host: host.into(), target, session: session.into(), pane: None },
-        ..probe(0, 0, AgentKind::Claude, at)
+        ..probe(0, 0, AgentKind::CLAUDE, at)
     }
 }
 
@@ -286,7 +286,7 @@ fn what_nex_host_reports_is_the_status_and_exited_agents_are_not_listed() {
 }
 
 fn claude(pane: u64, status: &str, at: Instant) -> Probe {
-    Probe { session_status: Some(status.into()), ..probe(pane, 0, AgentKind::Claude, at) }
+    Probe { session_status: Some(status.into()), ..probe(pane, 0, AgentKind::CLAUDE, at) }
 }
 
 fn status_of(t: &Tracker, pane: u64) -> Status {
@@ -394,7 +394,7 @@ fn an_agent_over_ssh_lights_the_tab_of_the_pane_showing_it() {
 #[test]
 fn sub_agents_are_not_counted_and_never_ask_for_you() {
     let now = Instant::now();
-    let lead = probe(1, 0, AgentKind::Claude, now);
+    let lead = probe(1, 0, AgentKind::CLAUDE, now);
     let sub = |id: &str, status| Probe {
         pane: sub_key(1, id),
         title: format!("task {id}"),
@@ -420,9 +420,9 @@ fn sub_agents_are_not_counted_and_never_ask_for_you() {
 fn the_list_is_the_same_one_until_an_agent_changes() {
     let now = Instant::now();
     let probes = |output: Instant| {
-        let mut busy = probe(2, 1, AgentKind::Codex, now);
+        let mut busy = probe(2, 1, AgentKind::CODEX, now);
         busy.last_output = output;
-        vec![probe(1, 0, AgentKind::Codex, now), busy]
+        vec![probe(1, 0, AgentKind::CODEX, now), busy]
     };
     let mut t = Tracker::default();
     t.update(probes(now), now);
@@ -457,10 +457,10 @@ fn the_counts_are_worded_when_they_change_not_when_they_are_read() {
     assert_eq!((t.summary(), t.headline()), ("No agents running", "None running"));
 
     let probes = |title: &str, output: Instant| {
-        let mut busy = probe(2, 1, AgentKind::Codex, now);
+        let mut busy = probe(2, 1, AgentKind::CODEX, now);
         busy.last_output = output;
         busy.title = title.into();
-        vec![probe(1, 0, AgentKind::Codex, now), busy]
+        vec![probe(1, 0, AgentKind::CODEX, now), busy]
     };
     t.update(probes("one task", now), now);
     assert_eq!((t.summary(), t.headline()), ("1 working · 1 idle", "1 working"));
@@ -490,14 +490,14 @@ fn viewing_marks_the_agents_in_the_tabs_panes_the_focused_one_first() {
     if let Source::Remote { pane, .. } = &mut attached.source {
         *pane = Some(5);
     }
-    let mut sub = probe(sub_key(1, "x"), 0, AgentKind::Claude, now);
+    let mut sub = probe(sub_key(1, "x"), 0, AgentKind::CLAUDE, now);
     // Its tab is pane 9.
     sub.source = Source::Sub { lead: 1, id: "x".into(), pane: Some(9) };
     sub.team = Team { parent: Some(1), role: None, started: 0, sub: true };
     if let Source::Remote { pane, .. } = &mut detached.source {
         *pane = None;
     }
-    t.update(vec![probe(1, 0, AgentKind::Claude, now), probe(2, 0, AgentKind::Codex, now), probe(3, 1, AgentKind::Claude, now), detached, attached, sub], now);
+    t.update(vec![probe(1, 0, AgentKind::CLAUDE, now), probe(2, 0, AgentKind::CODEX, now), probe(3, 1, AgentKind::CLAUDE, now), detached, attached, sub], now);
     let seen = |v: &Viewing, key: u64| v.of(t.agents().iter().find(|a| a.pane == key).unwrap());
 
     // A split of two: the focused one is the primary, its neighbour shares the tab.
