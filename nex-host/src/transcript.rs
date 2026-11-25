@@ -104,7 +104,8 @@ impl Renderer {
             return;
         }
         out.push(String::new());
-        let mut lines = text.lines();
+        // The text often quotes what it read: its escape sequences must not reach the tab.
+        let mut lines = text.lines().map(clean);
         if let Some(first) = lines.next() {
             out.push(format!("{BOLD}\u{25cf}{RESET} {first}"));
         }
@@ -113,7 +114,7 @@ impl Renderer {
 
     fn call(name: &str, arg: Option<String>, out: &mut Vec<String>) {
         let arg = arg.map(|a| format!("{DIM}({a}){RESET}")).unwrap_or_default();
-        out.push(format!("{GREEN}\u{25cf}{RESET} {BOLD}{name}{RESET}{arg}"));
+        out.push(format!("{GREEN}\u{25cf}{RESET} {BOLD}{}{RESET}{arg}", cut(name, ARG_CHARS)));
     }
 
     fn result(text: &str, error: bool, out: &mut Vec<String>) {
@@ -243,8 +244,16 @@ fn key_arg(input: &serde_json::Value) -> Option<String> {
 /// `s` cut to `n` characters, with an ellipsis when it was longer. Control characters (a
 /// result's own escape sequences) are dropped: they'd restyle the tab.
 fn cut(s: &str, n: usize) -> String {
-    let clean: String = s.chars().map(|c| if c == '\t' { ' ' } else { c }).filter(|c| !c.is_control()).collect();
+    let clean = clean(s);
     if clean.chars().count() <= n { clean } else { clean.chars().take(n.saturating_sub(1)).chain(['\u{2026}']).collect() }
+}
+
+/// `s` with tabs as spaces and every other control character dropped (ESC, BEL, the 8-bit
+/// C1 ones such as CSI): text from the file is printed, never acted on. A sequence a sub-agent
+/// read (`ESC ] 52`, which sets the clipboard; `ESC [ 2J`) loses its ESC and is left as
+/// plain characters.
+fn clean(s: &str) -> String {
+    s.chars().map(|c| if c == '\t' { ' ' } else { c }).filter(|c| !c.is_control()).collect()
 }
 
 /// What the meta file beside a Claude Code transcript says: its description, and whether it
@@ -387,7 +396,8 @@ pub fn follow(path: &Path, title: Option<&str>, out: &mut impl Write, stop: impl
 
 /// Print a one-line explanation for a sub-agent whose transcript can't be found.
 pub fn missing(out: &mut impl Write, why: &str) -> io::Result<()> {
-    write!(out, "\x1b[?25l{DIM}{READ_ONLY}{RESET}\n\n{why}\n")?;
+    // It names the ids it was given.
+    write!(out, "\x1b[?25l{DIM}{READ_ONLY}{RESET}\n\n{}\n", clean(why))?;
     out.flush()
 }
 
@@ -495,6 +505,38 @@ mod tests {
         assert!(r.line(r#"{"type":"attachment","attachment":{}}"#).is_empty());
         // A tool call with no input still reads.
         assert_eq!(strip(&r.line(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Glob"}]}}"#)), ["\u{25cf} Glob"]);
+    }
+
+    #[test]
+    fn escape_sequences_in_the_file_never_reach_the_terminal() {
+        const EVIL: &str = "x\u{1b}]52;c;aGk=\u{7}y\u{1b}[2J\u{9b}31mz\u{1b}]2;pwned\u{7}";
+        // Our own styling is ESC-led too: compare without it.
+        let ours = |lines: &[String]| lines.iter().map(|l| [DIM, BOLD, RED, GREEN, CYAN, RESET].iter().fold(l.clone(), |l, s| l.replace(s, ""))).collect::<Vec<_>>();
+        let mut r = Renderer::new(Format::Claude);
+        let text = serde_json::json!({"type":"assistant","message":{"content":[{"type":"text","text":format!("{EVIL}\nsecond {EVIL}")}]}}).to_string();
+        let call = serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":EVIL,"input":{"command":EVIL}}]}}).to_string();
+        let task = serde_json::json!({"type":"user","message":{"content":format!("do {EVIL}")}}).to_string();
+        let result = serde_json::json!({"type":"user","message":{"content":[{"type":"tool_result","content":EVIL}]}}).to_string();
+        let mut codex = Renderer::new(Format::Codex);
+        let codex_text = serde_json::json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":EVIL}]}}).to_string();
+        let codex_call = serde_json::json!({"type":"response_item","payload":{"type":"custom_tool_call","name":EVIL,"input":EVIL}}).to_string();
+        let mut all = Vec::new();
+        for line in [&task, &text, &call, &result] {
+            all.extend(r.line(line));
+        }
+        all.extend(codex.line(&codex_text));
+        all.extend(codex.line(&codex_call));
+        assert!(all.len() >= 7);
+        for l in ours(&all) {
+            assert!(!l.chars().any(|c| c.is_control()), "a control character got through: {l:?}");
+        }
+        assert!(ours(&all).iter().any(|l| l.contains("x]52;c;aGk=y[2J31mz]2;pwned")), "the rest is kept, as plain text");
+
+        let mut out = Vec::new();
+        missing(&mut out, EVIL).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(!text.contains("\u{7}") && !text.contains("]52;c;aGk=\u{7}") && !text.contains("\u{9b}"));
+        assert_eq!(text.matches('\u{1b}').count(), 3, "only our own: hide the cursor, dim, reset");
     }
 
     #[test]
