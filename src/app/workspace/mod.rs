@@ -317,10 +317,11 @@ impl App {
         tab.header_pane(|id| self.panes.contains_key(&id))
     }
 
-    /// Note each tab's focused terminal, so its header keeps that name while another kind
-    /// of pane has focus. Run once a frame, it catches focus however it moved.
+    /// Note each tab's focused terminal (the Agents tab's too), so its header keeps that name
+    /// while another kind of pane has focus, and its Agents pane knows which terminal is
+    /// beside it. Run once a frame, it catches focus however it moved.
     pub(in crate::app) fn remember_terminal_focus(&mut self) {
-        for tab in &mut self.tabs {
+        for tab in self.tabs.iter_mut().chain(self.home_tab.iter_mut()) {
             if self.panes.contains_key(&tab.focused) {
                 tab.last_terminal = Some(tab.focused);
             }

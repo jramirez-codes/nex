@@ -439,3 +439,71 @@ fn a_card_jumped_to_from_the_agents_tab_is_not_left_highlighted() {
     app.agents.get_mut(&id).unwrap().key(egui::Key::ArrowLeft, egui::Modifiers::NONE);
     assert!(app.agents[&id].highlighted().is_some());
 }
+
+#[test]
+fn on_the_agents_tab_a_terminal_opened_there_marks_its_ssh_agent_viewing_and_only_it() {
+    use crate::agents::model::{Seen, Viewing};
+    use crate::layout::Axis;
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx, Config::default());
+    run(&mut app, &ctx, 1400.0);
+    let shell = app.focused_pane().unwrap();
+    app.pending.push(Action::Split(Axis::Horizontal));
+    run(&mut app, &ctx, 1400.0);
+    let pinned = app.focused_pane().unwrap();
+    app.pending.push(Action::ToggleSticky(pinned));
+    run(&mut app, &ctx, 1400.0);
+
+    // On the Agents tab, open a terminal beside its Agents pane.
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    assert!(app.home_active);
+    let id = app.focused_pane().unwrap();
+    assert!(app.agents.contains_key(&id));
+    app.pending.push(Action::Split(Axis::Horizontal));
+    run(&mut app, &ctx, 1400.0);
+    let term = app.focused_pane().unwrap();
+    assert!(app.panes.contains_key(&term), "a terminal");
+    assert!(app.home_tab.as_ref().unwrap().contains(term));
+
+    // In it, Claude on an ssh host (shown by that pane); agents in the terminal tab's shell and
+    // the pinned pane too.
+    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    let target = crate::remote::SshTarget { opts: vec![], destination: "nex-test.invalid".into() };
+    let key = remote_key("nex-test.invalid", "3fa91c0e");
+    let pretend = |app: &mut crate::app::App| {
+        let remote = Probe {
+            pane: key,
+            tab: None,
+            reported: Some(Status::Working),
+            source: Source::Remote { host: "nex-test.invalid".into(), target: target.clone(), session: "3fa91c0e".into(), pane: Some(term) },
+            ..probe(0, None, AgentKind::Claude, "")
+        };
+        let agents = vec![probe(shell, Some(0), AgentKind::Codex, "busy"), probe(pinned, Some(0), AgentKind::Claude, "busy"), remote];
+        app.agent_tracker.update(agents, Instant::now());
+    };
+    let seen = |app: &crate::app::App, v: &Viewing, key| v.of(app.agent_tracker.agents().iter().find(|a| a.pane == key).unwrap());
+    let marks = |app: &crate::app::App, v: &Viewing| (seen(app, v, key), seen(app, v, shell), seen(app, v, pinned));
+    pretend(&mut app);
+    run(&mut app, &ctx, 1400.0);
+
+    // The terminal has focus: its agent is the one viewed, and the only one.
+    assert_eq!(marks(&app, &app.viewing(id)), (Some(Seen::Primary), None, None));
+
+    // Focus back on the Agents pane: still that terminal's agent, the one beside it.
+    app.home_tab.as_mut().unwrap().focused = id;
+    run(&mut app, &ctx, 1400.0);
+    assert_eq!(marks(&app, &app.viewing(id)), (Some(Seen::Primary), None, None));
+    for width in [1400.0, 420.0] {
+        run(&mut app, &ctx, width);
+    }
+
+    // Back in the terminal tab, its own panes are viewed, and the Agents tab's terminal isn't.
+    app.pending.push(Action::ToggleAgentsTab);
+    run(&mut app, &ctx, 1400.0);
+    assert!(!app.home_active);
+    pretend(&mut app);
+    let v = app.viewing(id);
+    assert_eq!(seen(&app, &v, key), None);
+    assert!(seen(&app, &v, shell).is_some() && seen(&app, &v, pinned).is_some());
+}

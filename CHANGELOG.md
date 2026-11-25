@@ -21,9 +21,12 @@ All notable changes to nex are documented here. The format follows
 - Jumping to an agent from its card (a click, or Enter) no longer leaves that card ringed by
   the keyboard highlight: coming back to the Agents tab, no card has a highlighted border
   until an arrow key moves the highlight again (Enter still goes to the card you last chose).
-- On the Agents tab, no agent card shows the "Viewing" ring any more: the terminal tab you
-  go back to isn't on screen, so none of its agents count as viewed. An Agents pane split
-  beside terminals still marks them as before.
+- On the Agents tab, a terminal opened beside the Agents pane (say, with Claude running over
+  ssh in it) now marks its agent's card "Viewing", and only that card: the pinned pane and
+  the terminal tab you go back to still don't count.
+- On the Agents tab, the agents of the terminal tab you go back to no longer show the
+  "Viewing" ring: that tab isn't on screen. An Agents pane split beside terminals still
+  marks them as before.
 - On the Agents tab, the card of the pinned (sticky) pane's agent no longer shows the
   "Viewing" ring just because that pane is pinned beside the Agents pane.
 - Opening the Agents tab while an Agents pane is pinned shows that pane instead of adding a
