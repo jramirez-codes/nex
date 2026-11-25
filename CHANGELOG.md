@@ -6,6 +6,12 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- A running pipeline's icon in the Agents pane now ping-pongs: its highlight travels out to
+  the last step and back again (about 2.2 seconds there and back), the lit line following it
+  both ways, instead of jumping back to the first step each time round.
+
 ## [0.16.0] - 2026-11-25
 
 ### Added
