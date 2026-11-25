@@ -184,6 +184,123 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>) {
     }
 }
 
+/// The corner radius [`app_tile`] gives a tile `r`.
+fn tile_radius(r: Rect) -> f32 {
+    ((r.width().min(r.height()) * 0.26) as u8) as f32
+}
+
+/// The first `t` (0 to 1) of the polyline through `points`, by length.
+fn polyline_prefix(points: &[Pos2], t: f32) -> Vec<Pos2> {
+    let total: f32 = points.windows(2).map(|w| w[0].distance(w[1])).sum();
+    let mut left = total * t.clamp(0.0, 1.0);
+    let mut out = Vec::with_capacity(points.len());
+    let Some(&first) = points.first() else { return out };
+    out.push(first);
+    for w in points.windows(2) {
+        let d = w[0].distance(w[1]);
+        if left >= d {
+            out.push(w[1]);
+            left -= d;
+        } else {
+            if left > 0.0 {
+                out.push(w[0] + (w[1] - w[0]) * (left / d));
+            }
+            break;
+        }
+    }
+    out
+}
+
+/// The outline of rounded rect `r` (corner radius `rad`), clockwise from the middle of its top
+/// edge and back.
+fn rounded_outline(r: Rect, rad: f32) -> Vec<Pos2> {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    const STEPS: usize = 8;
+    let rad = rad.min(r.width() / 2.0).min(r.height() / 2.0);
+    let corners = [
+        (Pos2::new(r.right() - rad, r.top() + rad), -FRAC_PI_2),
+        (Pos2::new(r.right() - rad, r.bottom() - rad), 0.0),
+        (Pos2::new(r.left() + rad, r.bottom() - rad), FRAC_PI_2),
+        (Pos2::new(r.left() + rad, r.top() + rad), PI),
+    ];
+    let mut pts = vec![Pos2::new(r.center().x, r.top())];
+    for (c, from) in corners {
+        for i in 0..=STEPS {
+            let a = from + FRAC_PI_2 * i as f32 / STEPS as f32;
+            pts.push(c + Vec2::new(a.cos(), a.sin()) * rad);
+        }
+    }
+    pts.push(Pos2::new(r.center().x, r.top()));
+    pts
+}
+
+/// A thin progress ring just outside app tile `tile`, following its rounded corners: a faint
+/// track, and `progress` (0 to 1) of it in `color`, clockwise from the top. `glow` (0 to 1)
+/// lights its leading end softly, for a stage at work.
+pub fn tile_ring(p: &Painter, tile: Rect, progress: f32, color: Color32, glow: f32) {
+    let gap = (tile.width() * 0.09).max(2.5);
+    let outline = rounded_outline(tile.expand(gap), tile_radius(tile) + gap);
+    let width = (tile.width() * 0.05).clamp(1.5, 2.0);
+    p.add(PathShape::line(outline.clone(), Stroke::new(width, Color32::from_white_alpha(16))));
+    let arc = polyline_prefix(&outline, progress);
+    if progress > 0.001 && arc.len() > 1 {
+        p.add(PathShape::line(arc.clone(), Stroke::new(width, color)));
+    }
+    if glow > 0.01 && let Some(&end) = arc.last() {
+        for (r, a) in [(width * 3.2, 0.10), (width * 2.0, 0.22), (width * 1.0, 0.6)] {
+            p.circle_filled(end, r, color.gamma_multiply(a * glow));
+        }
+    }
+}
+
+/// A check mark centred on `at`, `scale` times the 1-point design (about 8 points wide), its
+/// stroke drawn in from the left `drawn` (0 to 1) of the way.
+pub fn check(p: &Painter, at: Pos2, scale: f32, stroke: Stroke, drawn: f32) {
+    let pts = [at + Vec2::new(-3.5, 0.2) * scale, at + Vec2::new(-1.0, 2.8) * scale, at + Vec2::new(3.8, -2.6) * scale];
+    let shown = polyline_prefix(&pts, drawn);
+    if shown.len() > 1 {
+        p.add(Shape::line(shown, stroke));
+    }
+}
+
+/// Where a tile's corner badge sits, and how big it is.
+fn badge_spot(tile: Rect) -> (Pos2, f32) {
+    let r = (tile.width() * 0.2).max(5.5);
+    (Pos2::new(tile.right() - r * 0.25, tile.top() + r * 0.25), r)
+}
+
+/// An iOS-style badge on app tile `tile`'s top-right corner: a disc of `fill` `scale` times its
+/// size, `opacity` (0 to 1) in, with `breath` (0 to 1) swelling a soft halo round it. Returns
+/// its centre and radius, for its glyph.
+fn badge_disc(p: &Painter, tile: Rect, fill: Color32, scale: f32, opacity: f32, breath: f32) -> Option<(Pos2, f32)> {
+    let (at, r) = badge_spot(tile);
+    let r = r * scale * (1.0 + 0.04 * breath);
+    if r <= 0.2 || opacity <= 0.01 {
+        return None;
+    }
+    if breath > 0.0 {
+        p.circle_filled(at, r * (1.25 + 0.25 * breath), fill.gamma_multiply(0.16 * breath * opacity));
+    }
+    p.circle_filled(at + Vec2::new(0.0, 0.5), r + 0.5, Color32::from_black_alpha((90.0 * opacity) as u8));
+    p.circle_filled(at, r, fill.gamma_multiply(opacity));
+    Some((at, r))
+}
+
+/// The amber `!` badge: something needs you. `breath` (0 to 1) is where its slow breath is.
+pub fn badge_alert(p: &Painter, tile: Rect, amber: Color32, scale: f32, opacity: f32, breath: f32) {
+    let Some((at, r)) = badge_disc(p, tile, amber, scale, opacity, breath) else { return };
+    let ink = Color32::from_rgb(0x1c, 0x1c, 0x1e).gamma_multiply(opacity);
+    let w = (r * 0.26).max(1.2);
+    p.line_segment([at + Vec2::new(0.0, -r * 0.5), at + Vec2::new(0.0, r * 0.12)], Stroke::new(w, ink));
+    p.circle_filled(at + Vec2::new(0.0, r * 0.45), w * 0.6, ink);
+}
+
+/// The green tick badge: it's done.
+pub fn badge_done(p: &Painter, tile: Rect, green: Color32, scale: f32, opacity: f32) {
+    let Some((at, r)) = badge_disc(p, tile, green, scale, opacity, 0.0) else { return };
+    check(p, at + Vec2::new(0.0, -r * 0.05), r / 6.5, Stroke::new((r * 0.24).max(1.2), Color32::WHITE.gamma_multiply(opacity)), 1.0);
+}
+
 /// Visible depth of the pane-icon deck; cards further back are hidden.
 pub const STACK_DEPTH: f32 = 3.0;
 /// How far each card behind the top one peeks out (right and up), in the title bar.
@@ -581,6 +698,28 @@ pub fn icon_control(p: &Painter, r: Rect, c: Color32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_polyline_is_cut_by_length() {
+        let pts = [Pos2::new(0.0, 0.0), Pos2::new(10.0, 0.0), Pos2::new(10.0, 30.0)];
+        assert_eq!(polyline_prefix(&pts, 0.0), vec![Pos2::ZERO]);
+        assert_eq!(polyline_prefix(&pts, 0.125), vec![Pos2::ZERO, Pos2::new(5.0, 0.0)]);
+        assert_eq!(polyline_prefix(&pts, 0.5), vec![Pos2::ZERO, Pos2::new(10.0, 0.0), Pos2::new(10.0, 10.0)]);
+        assert_eq!(polyline_prefix(&pts, 1.0), pts.to_vec());
+    }
+
+    /// The ring starts at the top's middle, goes clockwise (right first), and closes.
+    #[test]
+    fn a_tiles_ring_runs_clockwise_from_the_top() {
+        let r = Rect::from_min_size(Pos2::ZERO, Vec2::splat(40.0));
+        let o = rounded_outline(r, 10.0);
+        assert_eq!((o[0], *o.last().unwrap()), (Pos2::new(20.0, 0.0), Pos2::new(20.0, 0.0)));
+        assert!(o[1].x > 20.0 && o[1].y.abs() < 1e-4);
+        // A quarter of the way round is the middle of the right edge.
+        let q = *polyline_prefix(&o, 0.25).last().unwrap();
+        assert!((q.x - 40.0).abs() < 1e-3 && (q.y - 20.0).abs() < 0.2, "{q:?}");
+        assert!(o.iter().all(|p| r.expand(1e-3).contains(*p)));
+    }
 
     /// The L leaves the top of its slot at the left edge and meets the right edge at the
     /// middle; a tee also carries on from the line to the bottom.
