@@ -447,7 +447,7 @@ impl AgentsPane {
                 None
             } else {
                 match &team {
-                    Some(g) => viewing::team_seen(f.viewing, g),
+                    Some(g) => viewing::team_seen(f.viewing, g, self.expanded.contains_key(&id)),
                     None => f.viewing.of(&card.agent),
                 }
             };
