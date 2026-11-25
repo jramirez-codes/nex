@@ -6,8 +6,9 @@
 //! need you first (a helper changing state glides to its new place). There each helper is a
 //! row: its tag (`Build-01`: what it's for and which one) and the task its
 //! terminal's title says it's on, live, over its folder. A sub-agent (Claude Code's or
-//! Codex's) has no pane of its own: clicking its row or capsule (or Enter / Space on it)
-//! jumps to the pane of the agent running it. A pipeline's card says how its run
+//! Codex's) is drawn and works as a pipeline's stage does: clicking its row or capsule (or
+//! Enter / Space on it) opens a terminal tab following its transcript (read-only), and
+//! focuses that tab the next time. A pipeline's card says how its run
 //! stands (`Feature · 2 building · 1 in review`) over the last thing that happened, from the
 //! title `nex-host pipe` gives its terminal. The agents on screen (in the terminal tab you're
 //! on, or go back to) say so: a "Viewing" pill and an accent ring, strongest for the one in
@@ -38,7 +39,7 @@ use crate::layout::PaneId;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// Show this agent's pane: switch to its tab and focus it (for an agent on an ssh host
-    /// that no pane shows, open one on it).
+    /// that no pane shows, open one on it; for a sub-agent, its transcript's tab).
     Focus(PaneId),
     /// `Delete` on this agent: for one on an ssh host, stop it (after asking).
     Dismiss(PaneId),
@@ -88,7 +89,7 @@ impl AgentsPane {
 
     /// Arrow keys (and j / k / h / l) move the highlight, Enter jumps to the agent, Space
     /// opens or closes a team (on a sub-agent's row, or anything else: jumps to it, a
-    /// sub-agent's being its agent's pane), Delete stops one on an ssh host (after asking).
+    /// sub-agent's being its tab), Delete stops one on an ssh host (after asking).
     /// Returns whether the key was used.
     pub fn key(&mut self, key: Key, modifiers: Modifiers) -> bool {
         if modifiers.command || modifiers.alt || modifiers.ctrl {

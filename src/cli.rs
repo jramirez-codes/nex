@@ -48,6 +48,11 @@ pub struct Args {
     pub remote: Option<String>,
     /// Don't bring back the last session (`--no-restore`, hidden: new windows pass it).
     pub no_restore: bool,
+    /// `--follow-subagent=PATH` (hidden): instead of a window, print the sub-agent
+    /// transcript at PATH and follow it, in the terminal it's run in. The Agents pane runs it
+    /// in a sub-agent's tab, for an agent in a local pane (`nex_host::transcript`). An empty
+    /// PATH: none was found, and the tab says so.
+    pub follow_subagent: Option<PathBuf>,
     pub help: bool,
     pub version: bool,
 }
@@ -83,6 +88,7 @@ impl Args {
                 "--select" => out.select = Some(local_path(&value()?)),
                 "--file-manager-service" => out.file_manager_service = true,
                 "--no-restore" => out.no_restore = true,
+                "--follow-subagent" => out.follow_subagent = Some(value()?.into()),
                 "-h" | "--help" => out.help = true,
                 "-V" | "--version" => out.version = true,
                 _ if !arg.starts_with('-') && folder.is_none() => folder = Some(folder_arg(&arg)),
@@ -239,6 +245,14 @@ mod tests {
     fn new_window_keeps_config_and_app_id() {
         let a = parse(&["--config=/c", "--app-id=t", "-e", "top"]).unwrap();
         assert_eq!(a.for_new_window(), vec!["--config=/c".to_string(), "--app-id=t".to_string(), "--no-restore".to_string()]);
+    }
+
+    #[test]
+    fn a_sub_agents_tab_follows_its_transcript() {
+        let a = parse(&["--follow-subagent", "/c/agent-a1.jsonl"]).unwrap();
+        assert_eq!(a.follow_subagent.as_deref(), Some(std::path::Path::new("/c/agent-a1.jsonl")));
+        assert_eq!(parse(&["--follow-subagent="]).unwrap().follow_subagent, Some(PathBuf::new()), "none found");
+        assert!(!USAGE.contains("follow-subagent"), "hidden");
     }
 
     #[test]

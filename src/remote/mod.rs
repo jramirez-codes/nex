@@ -36,7 +36,7 @@ mod target;
 mod upload;
 
 pub use error::RemoteError;
-pub use target::SshTarget;
+pub use target::{SshTarget, subagent_script};
 pub use upload::{remove_saved, save_png, upload};
 #[cfg(target_os = "linux")]
 pub use upload::save_image;

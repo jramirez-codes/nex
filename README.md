@@ -697,9 +697,15 @@ terminal title when there is one.
 
 An agent running sub-agents (Claude Code's Task tool, or threads Codex spawns) gets a team
 card: each sub-agent is a capsule saying what it was asked to do, open the card to list them.
-A sub-agent has no pane of its own: clicking its capsule or its row (or `Enter` / `Space` on
-its row) jumps to the pane of the agent running it, where its work shows. A finished one
-shows a tick for two minutes, then drops off. In a pipeline, a stage's sub-agents sit under that stage (its capsule says how
+Sub-agents look and work like a pipeline's stages: tagged by their type, each hanging off
+its agent in the open card. Clicking a sub-agent's capsule or its row (or `Enter` / `Space` on
+its row) opens it in a terminal tab of its own, and clicking it again focuses that tab. A
+sub-agent runs inside its agent's process and has no terminal, so its tab shows its
+transcript, live and read-only: the task it was given, what it says, each tool call on one
+line and the start of each result, then "Finished" once it's done. While its tab is on
+screen, its row gets the Viewing ring. Closing the tab closes only the view. A finished
+sub-agent shows a tick for two minutes, then drops off the pane; a tab already showing it
+keeps its transcript. In a pipeline, a stage's sub-agents sit under that stage (its capsule says how
 many) rather than among the steps. Claude Code's come from the files it keeps beside each
 conversation (`~/.claude/projects/<folder>/<session>/subagents/`); Codex's from its rollouts
 (`~/.codex/sessions/`).
@@ -707,7 +713,7 @@ conversation (`~/.claude/projects/<folder>/<session>/subagents/`); Codex's from 
 | Action                       | Keys / mouse                                          |
 | ---------------------------- | ----------------------------------------------------- |
 | Pick an agent                | Arrows (or `h` / `j` / `k` / `l`), `Home` / `End`     |
-| Jump to its pane             | `Enter` or `Space`, click                             |
+| Jump to its pane (a sub-agent's tab) | `Enter` or `Space`, click                     |
 | Stop an agent on an ssh host (asks first) | `Delete` |
 
 #### Agents on ssh hosts
@@ -881,7 +887,7 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [x] Agent pipelines, with worktrees and a merge queue
 - [x] Pin a pane to every tab
 - [x] Share your microphone with an ssh session
-- [x] Click a sub-agent in the Agents pane to jump to the pane of the agent running it
+- [x] Click a sub-agent in the Agents pane to open its transcript in a tab of its own
 - [x] Android app
 - [x] iPhone app (beta)
 - [x] Signed and notarized macOS app

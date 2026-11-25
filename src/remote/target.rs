@@ -5,8 +5,21 @@
 use std::process::{Command, ExitStatus, Output};
 
 use crate::remote::error::RemoteError;
-use crate::remote::host::REMOTE_BIN;
+use crate::remote::host::{REMOTE_BIN, REMOTE_BIN_SH};
 use crate::remote::{cd_word, mux, posix_quote, ssh_command};
+
+/// The `sh` script a sub-agent's tab runs on the host: `nex-host subagent`, which follows
+/// sub-agent `sub` of agent `id`. A `nex-host` from before it says why there's nothing to
+/// show, and the tab stays (so the click still opens something).
+pub fn subagent_script(id: &str, sub: &str) -> String {
+    let why = "This host's nex-host can't show sub-agents yet. Reconnect to it from nex to update it, then open this one again.";
+    format!(
+        "{REMOTE_BIN_SH} subagent {} {} || {{ printf '\\n%s\\n' {}; stty -echo 2>/dev/null; exec cat >/dev/null; }}",
+        posix_quote(id),
+        posix_quote(sub),
+        posix_quote(why)
+    )
+}
 
 /// ssh options that take a value (from ssh's `getopt` string).
 const VALUE_OPTS: &str = "BbcDEeFIiJLlmOoPpQRSWw";
@@ -130,6 +143,12 @@ impl SshTarget {
     /// does the pane.
     pub fn attach_command(&self, id: &str) -> Vec<String> {
         self.interactive_argv(format!("{REMOTE_BIN} attach {}", posix_quote(id)))
+    }
+
+    /// The `ssh` command line for a tab following sub-agent `sub` of agent `id` here (see
+    /// [`subagent_script`]).
+    pub fn subagent_command(&self, id: &str, sub: &str) -> Vec<String> {
+        self.interactive_argv(format!("sh -c {}", posix_quote(&subagent_script(id, sub))))
     }
 
     /// The agent a pane running `argv` (an `ssh` command line) attaches to, if it's one of
@@ -319,6 +338,23 @@ mod tests {
         assert_eq!(parse("ssh ssh://me@devbox:2222").unwrap().host(), "devbox");
         assert_eq!(parse("ssh ssh://[::1]:22").unwrap().host(), "::1");
         assert_eq!(parse("ssh fe80::1").unwrap().host(), "fe80::1");
+    }
+
+    #[test]
+    fn a_sub_agents_tab_runs_nex_host_subagent_and_explains_an_old_one() {
+        let t = target(&[], "me@devbox").unwrap();
+        let argv = t.subagent_command("3fa91c0e", "a1b2");
+        let script = subagent_script("3fa91c0e", "a1b2");
+        assert!(script.starts_with("\"$HOME/.nex/bin/nex-host\" subagent 3fa91c0e a1b2 || {"), "{script}");
+        assert!(script.contains("show sub-agents yet") && script.contains("exec cat"));
+        assert_eq!(argv.last().unwrap(), &format!("sh -c {}", posix_quote(&script)));
+        assert_eq!(SshTarget::attach_id(&argv), None, "it isn't attached to the agent");
+        assert_eq!(SshTarget::from_argv(&argv).map(|t| t.normalized()), Some(t));
+        // Run as sh would: the old nex-host fails, and the tab says why.
+        #[cfg(unix)]
+        let out = std::process::Command::new("sh").args(["-c", &script.replace("\"$HOME/.nex/bin/nex-host\"", "false")]).stdin(std::process::Stdio::null()).output().unwrap();
+        #[cfg(unix)]
+        assert!(String::from_utf8_lossy(&out.stdout).contains("can't show sub-agents yet"));
     }
 
     #[test]

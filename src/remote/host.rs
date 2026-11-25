@@ -28,7 +28,7 @@ use crate::remote::{RemoteError, SshTarget, posix_quote};
 /// `install_paths_agree` checks they all name it.
 pub(super) const REMOTE_BIN: &str = "~/.nex/bin/nex-host";
 /// The same, for `sh` scripts.
-const REMOTE_BIN_SH: &str = "\"$HOME/.nex/bin/nex-host\"";
+pub(super) const REMOTE_BIN_SH: &str = "\"$HOME/.nex/bin/nex-host\"";
 /// Wait this long before trying a host again after it failed, doubling up to [`RETRY_MAX`].
 const RETRY_MIN: Duration = Duration::from_secs(3);
 const RETRY_MAX: Duration = Duration::from_secs(60);

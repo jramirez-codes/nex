@@ -150,11 +150,14 @@ pub enum Source {
         /// The pane showing it right now, if one is.
         pane: Option<PaneId>,
     },
-    /// Inside another agent's process: a sub-agent (see [`Team::sub`]).
+    /// Inside another agent's process: a sub-agent (see [`Team::sub`]). It has no terminal
+    /// of its own; its tab follows its transcript (`nex_host::transcript`).
     Sub {
         /// The card of the agent running it.
         lead: PaneId,
-        /// The pane showing that agent, if one is.
+        /// Its id within that agent (`nex_host::proto::SubAgent::id`).
+        id: String,
+        /// The pane showing it (its transcript's tab), if one is.
         pane: Option<PaneId>,
     },
 }

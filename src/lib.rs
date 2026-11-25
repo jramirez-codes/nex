@@ -37,6 +37,12 @@ pub fn main() -> eframe::Result {
         println!("nex {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    if let Some(path) = &args.follow_subagent {
+        let found = (!path.as_os_str().is_empty()).then_some(path.as_path());
+        let why = "No transcript for this sub-agent: it may have finished a while ago, or its agent has ended.";
+        let code = nex_host::transcript::run(found, why).unwrap_or(1);
+        std::process::exit(code);
+    }
     if args.file_manager_service {
         if let Err(e) = platform::file_manager_service(&args.for_new_window()) {
             eprintln!("nex: {e}");

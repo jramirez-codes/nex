@@ -71,7 +71,9 @@ impl Group {
     }
 
     /// Each member's line in the open card's tree: `Some` for one a pipeline started (a
-    /// stage), drawn with an L from the pipeline down to it; `None` for the rest.
+    /// stage), drawn with an L from the pipeline down to it, and in a team's card for a
+    /// sub-agent, the same from the agent running it; `None` for the rest. (A pipeline's own
+    /// card keeps its stages' sub-agents under them as before.)
     pub fn branches(&self) -> Vec<Option<Branch>> {
         let mut out: Vec<Option<Branch>> = Vec::with_capacity(self.members.len());
         for (i, m) in self.members.iter().enumerate() {
@@ -82,8 +84,11 @@ impl Group {
                 Some(Some(j)) => self.members[j].agent.kind == AgentKind::Pipeline,
                 None => false,
             };
-            out.push(is_pipe.then(|| {
-                let last = !self.members[i + 1..].iter().take_while(|n| n.depth >= m.depth).any(|n| n.depth == m.depth);
+            let sub = m.agent.team.sub && !self.is_pipeline() && parent.is_some();
+            out.push((is_pipe || sub).then(|| {
+                // The line ends at the last of its kind under the same parent.
+                let siblings = self.members[i + 1..].iter().take_while(|n| n.depth >= m.depth).filter(|n| n.depth == m.depth);
+                let last = !siblings.clone().any(|n| !sub || n.agent.team.sub);
                 Branch { parent: parent.flatten(), last }
             }));
         }
@@ -469,8 +474,9 @@ mod tests {
         let stem = |last| Some(Branch { parent: None, last });
         assert_eq!(g[0].branches(), [stem(false), None, None, stem(true)]);
 
-        // Started by an agent beside a plain helper: only the pipeline's stages branch, off
-        // the pipeline's row; the pipeline and the helper don't.
+        // Started by an agent beside a plain helper: the pipeline's stages branch off the
+        // pipeline's row, and (in a team's card) the first stage's sub-agents off it; the
+        // pipeline and the helper don't.
         let mut nested = agents.clone();
         nested[0].team.parent = Some(9);
         nested.push(agent(9, Status::Idle, None, 0));
@@ -478,7 +484,19 @@ mod tests {
         let g = groups(&nested);
         assert_eq!(shape(&g)[0].2, [(1, 1), (2, 2), (4, 3), (5, 3), (3, 2), (6, 1)]);
         let stem = |last| Some(Branch { parent: Some(0), last });
-        assert_eq!(g[0].branches(), [None, stem(false), None, None, stem(true), None]);
+        let off_stage = |last| Some(Branch { parent: Some(1), last });
+        assert_eq!(g[0].branches(), [None, stem(false), off_stage(false), off_stage(true), stem(true), None]);
+    }
+
+    #[test]
+    fn a_teams_sub_agents_hang_off_their_agent_as_a_pipelines_stages_do() {
+        // An agent with two sub-agents and a helper between them (by status): each sub-agent
+        // branches off the lead; the last sub-agent ends the line, whatever comes after.
+        let agents = vec![agent(1, Status::Idle, None, 0), sub(2, Status::Done, 1, 10), agent(3, Status::Working, Some(1), 5), sub(4, Status::Working, 1, 20)];
+        let g = groups(&agents);
+        assert_eq!(shape(&g)[0].2, [(2, 1), (3, 1), (4, 1)]);
+        let stem = |last| Some(Branch { parent: None, last });
+        assert_eq!(g[0].branches(), [stem(false), None, stem(true)]);
     }
 
     #[test]

@@ -95,6 +95,11 @@ pub fn session_info(pid: u32) -> Option<Claude> {
     nex_host::claude::read_in(&config_dir()?.join("sessions"), pid, start.as_deref())
 }
 
+/// The transcript of sub-agent `id` of the Claude Code conversation in `info`.
+pub fn subagent_transcript(info: &Claude, id: &str) -> Option<std::path::PathBuf> {
+    nex_host::subagents::claude_transcript(&config_dir()?, info, id)
+}
+
 /// The sub-agents the Claude Code conversation in `info` is running (or just finished).
 pub fn subagents(info: &Claude) -> Vec<nex_host::proto::SubAgent> {
     config_dir().map(|c| nex_host::subagents::claude_in(&c, info, nex_host::subagents::now_ms())).unwrap_or_default()

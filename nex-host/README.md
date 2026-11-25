@@ -56,6 +56,7 @@ nex-host run -- claude            # start an agent and show it here
 nex-host launch --cwd ~/code/app -- codex   # start one in the background; prints its id
 nex-host list                     # what's running
 nex-host attach 3fa91c0e          # show it here; closing the terminal leaves it running
+nex-host subagent 3fa91c0e a1b2   # follow one of its sub-agents (its transcript, read-only)
 nex-host kill 3fa91c0e            # end it
 nex-host forget 3fa91c0e          # drop an exited one from the list
 ```

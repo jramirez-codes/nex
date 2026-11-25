@@ -1,6 +1,8 @@
 //! Agents panes in the workspace: finding every agent (each process poll), in this
 //! machine's panes and on the ssh hosts they connect to, opening and closing Agents panes
-//! and the Agents tab, and jumping to an agent (or opening a pane on one).
+//! and the Agents tab, and jumping to an agent (or opening a pane on one). A sub-agent has
+//! no terminal: its tab runs a follower of its transcript (`nex_host::transcript`), here for
+//! an agent in a local pane, over ssh (`nex-host subagent`) for one on a host.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -37,6 +39,9 @@ impl App {
             return;
         }
         let now = Instant::now();
+        // A sub-agent's tab that was closed shows nothing any more.
+        let panes = &self.panes;
+        self.sub_views.retain(|_, p| panes.contains_key(p));
         let LocalScan { mut probes, hosts, showing } = self.scan_panes();
         self.ssh.remote_hosts.sync(&hosts, self.connect.host.as_ref(), self.cfg.ssh_agents);
         self.offer_shim(&hosts);
@@ -99,7 +104,7 @@ impl App {
                     reported: None,
                     team: Team::default(),
                 };
-                scan.probes.extend(sub_probes(&lead, Some(id), &subagents));
+                scan.probes.extend(self.sub_probes(&lead, &subagents));
                 scan.probes.push(lead);
             }
         }
@@ -139,7 +144,7 @@ impl App {
                     reported: Some(status),
                     team: Team { parent: s.parent.as_deref().map(|p| remote_key(&host, p)), role: s.role.clone(), started: s.started, sub: false },
                 };
-                probes.extend(sub_probes(&lead, shown.map(|(p, _, _)| p), &s.subagents));
+                probes.extend(self.sub_probes(&lead, &s.subagents));
                 probes.push(lead);
             }
         }
@@ -249,16 +254,16 @@ impl App {
     }
 
     /// Show the agent behind card `key`: jump to its pane, or, for an agent on an ssh host
-    /// that no pane shows, open a tab attached to it.
+    /// that no pane shows, open a tab attached to it. A sub-agent's is the tab following its
+    /// transcript: the one already open on it, else a new one.
     pub(in crate::app) fn focus_agent(&mut self, ctx: &egui::Context, key: PaneId) {
         if !is_remote_key(key) && !crate::agents::model::is_sub_key(key) {
             self.focus_pane(key);
             return;
         }
         let Some(agent) = self.agent_tracker.agents().iter().find(|a| a.pane == key) else { return };
-        // A sub-agent is shown in its agent's pane.
-        if let Source::Sub { lead, .. } = agent.source {
-            return self.focus_agent(ctx, lead);
+        if let Source::Sub { lead, id, .. } = agent.source.clone() {
+            return self.open_sub_agent(ctx, key, lead, &id);
         }
         let Source::Remote { target, session, pane, .. } = agent.source.clone() else { return };
         match pane {
@@ -276,6 +281,87 @@ impl App {
                 self.track_agents();
             }
         }
+    }
+
+    /// Show sub-agent `id` (card `key`) of the agent with card `lead`: focus the tab already
+    /// following it, else open one, like a pipeline stage's: a terminal tab, closing which
+    /// only closes the view. Should none open, its agent's pane is shown instead.
+    fn open_sub_agent(&mut self, ctx: &egui::Context, key: PaneId, lead: PaneId, id: &str) {
+        if let Some(&p) = self.sub_views.get(&key)
+            && self.panes.contains_key(&p)
+        {
+            self.focus_pane(p);
+            return;
+        }
+        let Some(lead_agent) = self.agent_tracker.agents().iter().find(|a| a.pane == lead).cloned() else { return };
+        let before = self.focused_pane();
+        let opened_tabs = self.tabs.len();
+        match &lead_agent.source {
+            Source::Remote { session, .. } if self.connect.active => {
+                self.launch_next = Some(vec!["sh".into(), "-c".into(), crate::remote::subagent_script(session, id)]);
+                self.new_tab(ctx, None, None);
+                self.launch_next = None;
+            }
+            Source::Remote { target, session, .. } => {
+                self.new_tab(ctx, None, Some(target.subagent_command(session, id)));
+            }
+            Source::Local => {
+                let Some(command) = self.local_follower(lead, id) else { return self.focus_agent(ctx, lead) };
+                self.new_tab(ctx, lead_agent.cwd.clone(), Some(command));
+            }
+            Source::Sub { .. } => return self.focus_agent(ctx, lead),
+        }
+        let opened = (self.tabs.len() > opened_tabs).then(|| self.focused_pane()).flatten().filter(|p| Some(*p) != before);
+        match opened {
+            Some(p) => {
+                // Titled with its task: the follower sets the terminal's title to it.
+                self.sub_views.insert(key, p);
+                self.track_agents();
+            }
+            // No pane could be started: its agent's, rather than nothing.
+            None => self.focus_agent(ctx, lead),
+        }
+    }
+
+    /// The command for a tab following sub-agent `id` of the agent in local pane `lead`:
+    /// this program's hidden `--follow-subagent`, with the transcript's path (empty when it
+    /// can't be found: the tab says so).
+    fn local_follower(&self, lead: PaneId, id: &str) -> Option<Vec<String>> {
+        let t = self.panes.get(&lead)?;
+        let path = t.foreground_job().and_then(|(pid, argv)| match AgentKind::detect(&t.process, argv)? {
+            AgentKind::Claude => claude::subagent_transcript(&claude::session_info(pid)?, id),
+            AgentKind::Codex => nex_host::subagents::codex_rollout(&codex_home()?, id),
+            AgentKind::Pipeline => None,
+        });
+        follower_command(&path.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
+    }
+
+    /// The cards of the sub-agents `lead` is running (see `nex_host::subagents`), each with
+    /// the tab following it, if one is open.
+    fn sub_probes(&self, lead: &Probe, subs: &[nex_host::proto::SubAgent]) -> Vec<Probe> {
+        subs.iter()
+            .map(|sa| {
+                let key = sub_key(lead.pane, &sa.id);
+                let pane = self.sub_views.get(&key).copied().filter(|p| self.panes.contains_key(p));
+                let tab = pane.and_then(|p| self.tabs.iter().position(|t| t.contains(p)));
+                Probe {
+                    pane: key,
+                    tab,
+                    kind: lead.kind,
+                    title: sa.name.clone(),
+                    mark: None,
+                    cwd: lead.cwd.clone(),
+                    session_name: None,
+                    session_status: None,
+                    attention: false,
+                    last_output: lead.last_output,
+                    last_input: lead.last_input,
+                    source: Source::Sub { lead: lead.pane, id: sa.id.clone(), pane },
+                    reported: Some(if sa.done { Status::Done } else { Status::Working }),
+                    team: Team { parent: Some(lead.pane), role: sa.role.clone(), started: sa.started, sub: true },
+                }
+            })
+            .collect()
     }
 
     /// `Delete` on card `key`, for an agent on an ssh host: ask before stopping it.
@@ -322,41 +408,33 @@ impl App {
     }
 }
 
-/// The cards of the sub-agents `lead` is running (see `nex_host::subagents`), each shown in
-/// `pane`, the pane showing `lead`, if one is.
-fn sub_probes(lead: &Probe, pane: Option<PaneId>, subs: &[nex_host::proto::SubAgent]) -> Vec<Probe> {
-    subs.iter()
-        .map(|sa| Probe {
-            pane: sub_key(lead.pane, &sa.id),
-            tab: lead.tab,
-            kind: lead.kind,
-            title: sa.name.clone(),
-            mark: None,
-            cwd: lead.cwd.clone(),
-            session_name: None,
-            session_status: None,
-            attention: false,
-            last_output: lead.last_output,
-            last_input: lead.last_input,
-            source: Source::Sub { lead: lead.pane, pane },
-            reported: Some(if sa.done { Status::Done } else { Status::Working }),
-            team: Team { parent: Some(lead.pane), role: sa.role.clone(), started: sa.started, sub: true },
-        })
-        .collect()
-}
-
 /// The sub-agents the Codex process `pid` (in `cwd`) spawned, with Codex's home on this
 /// machine: `$CODEX_HOME`, else `~/.codex`.
 fn codex_subagents(pid: u32, cwd: Option<&std::path::Path>) -> Vec<nex_host::proto::SubAgent> {
-    let home = match std::env::var_os("CODEX_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
-        Some(h) => h,
-        None => match crate::platform::home_dir() {
-            Some(h) => h.join(".codex"),
-            None => return Vec::new(),
-        },
-    };
+    let Some(home) = codex_home() else { return Vec::new() };
     let cwd = cwd.map(|c| c.to_string_lossy().into_owned()).unwrap_or_default();
     nex_host::subagents::codex_in(&home, pid, &cwd, nex_host::subagents::now_ms())
+}
+
+/// This program, following the transcript at `path` (see `cli::Args::follow_subagent`).
+#[cfg(not(test))]
+fn follower_command(path: &str) -> Option<Vec<String>> {
+    let exe = std::env::current_exe().ok()?;
+    Some(vec![exe.to_string_lossy().into_owned(), format!("--follow-subagent={path}")])
+}
+
+/// The test binary isn't nex: a stand-in that keeps the tab open as the follower would.
+#[cfg(test)]
+fn follower_command(path: &str) -> Option<Vec<String>> {
+    Some(vec!["sh".into(), "-c".into(), "sleep 5".into(), format!("--follow-subagent={path}")])
+}
+
+/// Codex's home on this machine: `$CODEX_HOME`, else `~/.codex`.
+fn codex_home() -> Option<PathBuf> {
+    match std::env::var_os("CODEX_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        Some(h) => Some(h),
+        None => Some(crate::platform::home_dir()?.join(".codex")),
+    }
 }
 
 /// `dir` on a host whose home is `home`, as `~/…` when it's in there.

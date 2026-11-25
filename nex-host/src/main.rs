@@ -5,6 +5,7 @@
 //! nex-host launch [--kind K] [--name N] [--cwd DIR] [--cols C --rows R] -- CMD …
 //!                                                    start one in the background; prints its id
 //! nex-host attach ID                                 show it here (closing the terminal leaves it running)
+//! nex-host subagent ID SUB                           follow sub-agent SUB of agent ID (its transcript, read-only)
 //! nex-host list [--json]                             what's running
 //! nex-host watch                                     the list as JSON lines, whenever it changes
 //! nex-host kill ID                                   end one
@@ -57,6 +58,8 @@ const HELP: &str = "nex-host keeps coding agents running after the nex pane they
   nex-host launch [--kind K] [--name N] [--cwd DIR] [--cols C --rows R] -- CMD ...
                                                    start one in the background; prints its id
   nex-host attach ID                               show it here (closing the terminal leaves it running)
+  nex-host subagent ID SUB                         follow sub-agent SUB of agent ID (Claude Code's Task tool,
+                                                   a thread Codex spawned): its transcript, live, read-only
   nex-host list [--json]                           what's running
   nex-host watch                                   the list as JSON lines, whenever it changes
   nex-host kill ID                                 end one
@@ -86,7 +89,7 @@ Everything lives in ~/.nex (or $NEX_HOME); remove that folder to remove nex-host
 
 #[cfg(unix)]
 const USAGE: &str =
-    "usage: nex-host run|launch|attach|list|spawn|send|done|recv|read|pipe|worktree|skill|watch|kill|forget|shim|connect|--version (see nex-host help)";
+    "usage: nex-host run|launch|attach|subagent|list|spawn|send|done|recv|read|pipe|worktree|skill|watch|kill|forget|shim|connect|--version (see nex-host help)";
 
 /// A subcommand, with what it was given.
 #[cfg(unix)]
@@ -100,6 +103,8 @@ enum Command<'a> {
     /// `run` (shown here) or `launch` (in the background).
     Launch { opts: Launch, here: bool },
     Attach(&'a str),
+    /// `subagent ID SUB`: follow sub-agent SUB of agent ID.
+    Subagent(&'a str, &'a str),
     List { json: bool },
     Spawn(&'a [String]),
     Send(&'a [String]),
@@ -139,6 +144,10 @@ impl<'a> Command<'a> {
             "daemon" => Command::Daemon,
             c @ ("launch" | "run") => Command::Launch { opts: Launch::parse(rest)?, here: c == "run" },
             "attach" => Command::Attach(one_id(rest)?),
+            "subagent" => match rest {
+                [id, sub] => Command::Subagent(id, sub),
+                _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "usage: nex-host subagent ID SUB")),
+            },
             "list" | "ls" => Command::List { json: rest.iter().any(|a| a == "--json") },
             "spawn" => Command::Spawn(rest),
             "send" => Command::Send(rest),
@@ -198,6 +207,7 @@ fn run(args: &[String]) -> std::io::Result<i32> {
             attach::run(&id)
         }
         Command::Attach(id) => attach::run(id),
+        Command::Subagent(id, sub) => subagent(id, sub),
         Command::List { json } => {
             let sessions = match client::request(&Request::List, false) {
                 Ok(r) => r.sessions.unwrap_or_default(),
@@ -330,6 +340,32 @@ fn connect() -> std::io::Result<i32> {
     }
 }
 
+/// `subagent`: the tab nex opens on a sub-agent of an agent here. Its transcript, followed
+/// until it finishes and then kept on screen; a line saying why when it can't be found.
+#[cfg(unix)]
+fn subagent(id: &str, sub: &str) -> std::io::Result<i32> {
+    use nex_host::proto::Request;
+    use nex_host::{subagents, transcript};
+
+    let sessions = client::request(&Request::List, false).map(|r| r.sessions.unwrap_or_default());
+    let path = match &sessions {
+        Ok(all) => match all.iter().find(|s| s.id == id).or_else(|| all.iter().find(|s| s.name == id)) {
+            Some(s) => match (s.agent_kind(), &s.claude) {
+                ("claude", Some(c)) => nex_host::claude::config_dir().and_then(|config| subagents::claude_transcript(&config, c, sub)),
+                ("codex", _) => subagents::codex_home().and_then(|home| subagents::codex_rollout(&home, sub)),
+                _ => None,
+            },
+            None => None,
+        },
+        Err(_) => None,
+    };
+    let why = match &sessions {
+        Err(e) => format!("Can't reach nex-host's daemon here ({e}), so this sub-agent can't be shown."),
+        Ok(_) => format!("No transcript for sub-agent {sub} of {id} here: it may have finished a while ago, or its agent has ended."),
+    };
+    transcript::run(path.as_deref(), &why)
+}
+
 #[cfg(unix)]
 fn one_id(rest: &[String]) -> std::io::Result<&str> {
     match rest {
@@ -425,6 +461,9 @@ mod tests {
         assert!(Command::parse(&v(&["shim", "bogus"])).is_err());
         let args = v(&["send", "lead", "hi"]);
         assert_eq!(Command::parse(&args).unwrap(), Command::Send(&args[1..]));
+        let args = v(&["subagent", "a1", "s1"]);
+        assert_eq!(Command::parse(&args).unwrap(), Command::Subagent("a1", "s1"));
+        assert!(Command::parse(&v(&["subagent", "a1"])).is_err(), "an agent and a sub-agent");
         let args = v(&["bogus"]);
         assert_eq!(Command::parse(&args).unwrap(), Command::Unknown("bogus"));
     }

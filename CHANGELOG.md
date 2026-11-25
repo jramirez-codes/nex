@@ -9,9 +9,15 @@ All notable changes to nex are documented here. The format follows
 ### Added
 
 - Clicking a sub-agent in the Agents pane (Claude Code's or Codex's, including one under a
-  pipeline stage) jumps to the pane of the agent running it. This works from its capsule on
-  a closed card as well as its row in an open one. `Space` on its row now jumps there too,
-  where before it closed the card.
+  pipeline stage) opens it in a terminal tab of its own, as a pipeline stage does, and
+  clicking it again focuses that tab. This works from its capsule on a closed card, its row
+  in an open one, and `Enter` / `Space` on its row. The tab follows the sub-agent's
+  transcript live and read-only, and says "Finished" when it ends. It works for agents in
+  local panes, on ssh hosts (with the new `nex-host subagent ID SUB`), and in the Android and
+  iPhone apps. A host whose nex-host predates this says so in the tab.
+- A team card's sub-agents now look like a pipeline's stages: each hangs off its agent by the
+  same connector, over its folder, and its row gets the Viewing ring while its tab is on
+  screen.
 
 ### Changed
 

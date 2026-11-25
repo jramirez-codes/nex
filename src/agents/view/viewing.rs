@@ -32,9 +32,9 @@ pub(super) fn team_seen(viewing: &Viewing, g: &Group) -> Option<Seen> {
     viewing.of(&g.lead)
 }
 
-/// How a helper's row is on screen: as the helper is, unless the pane showing it is the one
-/// showing the agent that started it (a sub-agent seen through its parent's terminal), which
-/// is marked instead, so one look never marks two items.
+/// How a helper's row is on screen: as the helper is (a sub-agent by its own tab, as a
+/// stage), unless the pane showing it is the one showing the agent that started it, which is
+/// marked instead, so one look never marks two items.
 pub(super) fn member_seen(viewing: &Viewing, g: &Group, m: &Member) -> Option<Seen> {
     let parent = m.agent.team.parent.and_then(|p| if p == g.lead.pane { Some(&*g.lead) } else { g.members.iter().find(|o| o.agent.pane == p).map(|o| &*o.agent) });
     let shown = m.agent.shown_pane();
@@ -207,15 +207,25 @@ mod tests {
     }
 
     #[test]
-    fn a_sub_agent_seen_through_its_parents_pane_leaves_the_mark_on_the_parent() {
-        let mut sub = agent(5, Some(1));
-        sub.source = Source::Sub { lead: 1, pane: Some(1) };
-        sub.team.sub = true;
-        let teams = groups(&Agents::new(vec![agent(1, None), sub]));
-        let team = teams.iter().find(|g| g.key() == 1).unwrap();
-        let v = Viewing { panes: vec![1], primary: Some(1) };
-        assert_eq!(team_seen(&v, team), Some(Seen::Primary));
-        assert_eq!(member_seen(&v, team, &team.members[0]), None);
+    fn a_sub_agents_tab_marks_its_row_as_a_stages_does_and_its_agents_pane_does_not() {
+        let with_tab = |pane| {
+            let mut sub = agent(5, Some(1));
+            sub.source = Source::Sub { lead: 1, id: "x".into(), pane };
+            sub.team.sub = true;
+            groups(&Agents::new(vec![agent(1, None), sub]))
+        };
+        // No tab on it: its agent's pane in view marks the card, not the row.
+        let teams = with_tab(None);
+        let team = &teams[0];
+        let lead = Viewing { panes: vec![1], primary: Some(1) };
+        assert_eq!((team_seen(&lead, team), member_seen(&lead, team, &team.members[0])), (Some(Seen::Primary), None));
+        // Its tab (pane 9) in view: the row, as a stage's, and a closed card opens for it.
+        let teams = with_tab(Some(9));
+        let team = &teams[0];
+        let tab = Viewing { panes: vec![9], primary: Some(9) };
+        assert_eq!((team_seen(&tab, team), member_seen(&tab, team, &team.members[0])), (None, Some(Seen::Primary)));
+        assert_eq!(member_seen(&lead, team, &team.members[0]), None);
+        assert_eq!(teams_to_open(&tab, &Viewing::default(), &teams, 6), vec![(1, false)]);
     }
 
     #[test]
