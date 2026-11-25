@@ -10,9 +10,17 @@ All notable changes to nex are documented here. The format follows
 
 - In an open team card on the Agents pane, a pipeline's stages hang off it by rounded
   `├` / `└` hairline connectors, and nested rows sit on a wider indent.
+- In an open team card on the Agents pane, the helper or stage you're viewing is shown by a
+  soft rounded accent tint behind its row, in place of the thin accent bar down its left edge.
+- An open team card on the Agents pane no longer gets the "Viewing" ring and pill while only
+  one of its helpers or stages is on screen: that row's tint shows it. A closed card, or one
+  whose lead is on screen, is marked as before.
 
 ### Fixed
 
+- Jumping to an agent from its card (a click, or Enter) no longer leaves that card ringed by
+  the keyboard highlight: coming back to the Agents tab, no card has a highlighted border
+  until an arrow key moves the highlight again (Enter still goes to the card you last chose).
 - On the Agents tab, no agent card shows the "Viewing" ring any more: the terminal tab you
   go back to isn't on screen, so none of its agents count as viewed. An Agents pane split
   beside terminals still marks them as before.
