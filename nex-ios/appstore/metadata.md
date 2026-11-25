@@ -63,6 +63,14 @@ Nex is MIT licensed, with no accounts, ads, analytics or tracking. The same GPU-
 
 You'll need a Linux or Mac server you can log in to over SSH. Nex installs its small helper, nex-host, in your account there; no root needed.
 
+## What's new in 0.16.0
+
+• Tap a sub-agent in the Agents pane to open it in its own tab, following its transcript live
+• The Agents tab shows a badge while an agent needs you or has finished
+• Pipelines show their progress: a ring that fills as stages finish, and a badge when one needs you or is done
+• The agent you're viewing is highlighted in the Agents pane, with smoother animations throughout
+• Fixes for pipeline tiles that stopped animating and for stray Viewing highlights
+
 ## What's new in 0.14.0
 
 First App Store release.

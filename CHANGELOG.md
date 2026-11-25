@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `packaging/macos/publish-dmg.sh TAG` adds the notarized DMG to a release whose macOS build
+  ran without signing secrets: it rebuilds `nex.app` from the release's universal tarball,
+  signs and notarizes it, and uploads the DMG, a signed app zip and an updated
+  `SHA256SUMS.txt`. v0.16.0's DMG was made this way.
+
 ## [0.16.0] - 2026-11-25
 
 ### Added
