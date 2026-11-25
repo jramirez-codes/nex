@@ -6,12 +6,6 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-
-- A running pipeline's icon in the Agents pane now ping-pongs: its highlight travels out to
-  the last step and back again (about 2.2 seconds there and back), the lit line following it
-  both ways, instead of jumping back to the first step each time round.
-
 ## [0.16.0] - 2026-11-25
 
 ### Added
@@ -36,6 +30,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- A running pipeline's icon in the Agents pane now ping-pongs: its highlight travels out to
+  the last step and back again (about 2.2 seconds there and back), the lit line following it
+  both ways, instead of jumping back to the first step each time round.
 - A pipeline tile's badge in the Agents pane (the amber `!` or green tick) now sits on the
   tile's top-left corner, where a tab's attention dot sits, instead of its top-right.
 - In the Agents pane, viewing one of a pipeline's or team's agents now puts the Viewing ring
