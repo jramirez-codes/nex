@@ -6,6 +6,11 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- In an open team card on the Agents pane, the helper or stage you're viewing is shown by a
+  soft rounded accent tint behind its row, in place of the thin accent bar down its left edge.
+
 ### Fixed
 
 - Jumping to an agent from its card (a click, or Enter) no longer leaves that card ringed by
