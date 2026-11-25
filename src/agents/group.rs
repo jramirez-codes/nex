@@ -70,6 +70,26 @@ impl Group {
         self.members[i + 1..].iter().take_while(move |m| m.depth > depth).filter(move |m| m.depth == depth + 1)
     }
 
+    /// Each member's line in the open card's tree: `Some` for one a pipeline started (a
+    /// stage), drawn with an L from the pipeline down to it; `None` for the rest.
+    pub fn branches(&self) -> Vec<Option<Branch>> {
+        let mut out: Vec<Option<Branch>> = Vec::with_capacity(self.members.len());
+        for (i, m) in self.members.iter().enumerate() {
+            // Its parent: the lead at depth 1, else the nearest member above it one level up.
+            let parent = if m.depth <= 1 { Some(None) } else { self.members[..i].iter().rposition(|p| p.depth < m.depth).filter(|&j| self.members[j].depth == m.depth - 1).map(Some) };
+            let is_pipe = match parent {
+                Some(None) => self.is_pipeline(),
+                Some(Some(j)) => self.members[j].agent.kind == AgentKind::Pipeline,
+                None => false,
+            };
+            out.push(is_pipe.then(|| {
+                let last = !self.members[i + 1..].iter().take_while(|n| n.depth >= m.depth).any(|n| n.depth == m.depth);
+                Branch { parent: parent.flatten(), last }
+            }));
+        }
+        out
+    }
+
     /// The closed card's capsule row: the lead's helpers (by status, as in `members`), with
     /// a pipeline among them opened into its stages (its name first). Stages stay in the
     /// pipeline's order whatever their status ([`by_step`]).
@@ -109,6 +129,15 @@ impl Group {
         let parts: Vec<String> = [(helpers, "helper"), (pipes, "pipeline"), (subs, "sub-agent")].into_iter().filter(|(k, _)| *k > 0).map(|(k, w)| n(k, w)).collect();
         if parts.is_empty() { n(0, "helper") } else { parts.join(" · ") }
     }
+}
+
+/// A stage's place under its pipeline in the open card's list ([`Group::branches`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Branch {
+    /// The pipeline's index in `members`, or `None` when it's the card's lead.
+    pub parent: Option<usize>,
+    /// No stage of the same pipeline comes after it: its line ends here (`└`, not `├`).
+    pub last: bool,
 }
 
 /// One thing in a closed team's capsule row.
@@ -421,6 +450,35 @@ mod tests {
         let steps: Vec<String> = g[0].strip().iter().map(|s| s.agent().map_or("heading".into(), |a| a.pane.to_string())).collect();
         assert_eq!(steps, ["heading", "2", "3"]);
         assert_eq!(g[0].subs_of(2), 2);
+    }
+
+    #[test]
+    fn a_pipelines_stages_branch_off_it_and_nothing_else_does() {
+        let mut pipe = agent(1, Status::Working, None, 0);
+        pipe.kind = AgentKind::Pipeline;
+        let stage = |pane, started| {
+            let mut a = agent(pane, Status::Idle, Some(1), started);
+            a.team.role = Some(format!("s{pane}"));
+            a
+        };
+        let agents = vec![pipe, stage(2, 10), stage(3, 20), sub(4, Status::Working, 2, 15), sub(5, Status::Working, 2, 16)];
+        // The pipeline's own card: every stage hangs off it, the last one ends the line; the
+        // first stage's sub-agents are under it, not on the line.
+        let g = groups(&agents);
+        assert_eq!(shape(&g)[0].2, [(2, 1), (4, 2), (5, 2), (3, 1)]);
+        let stem = |last| Some(Branch { parent: None, last });
+        assert_eq!(g[0].branches(), [stem(false), None, None, stem(true)]);
+
+        // Started by an agent beside a plain helper: only the pipeline's stages branch, off
+        // the pipeline's row; the pipeline and the helper don't.
+        let mut nested = agents.clone();
+        nested[0].team.parent = Some(9);
+        nested.push(agent(9, Status::Idle, None, 0));
+        nested.push(agent(6, Status::Idle, Some(9), 30));
+        let g = groups(&nested);
+        assert_eq!(shape(&g)[0].2, [(1, 1), (2, 2), (4, 3), (5, 3), (3, 2), (6, 1)]);
+        let stem = |last| Some(Branch { parent: Some(0), last });
+        assert_eq!(g[0].branches(), [None, stem(false), None, None, stem(true), None]);
     }
 
     #[test]

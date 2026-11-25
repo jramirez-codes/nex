@@ -11,7 +11,8 @@
 //! inset list inside the card, like a grouped table. Opening is the card growing: its rows are
 //! uncovered as it does, and the capsules fade as the list comes in. A helper goes by a tag
 //! ([`member_tag`]: `Build-01`): its word on its capsule, the whole tag in a small capsule
-//! leading its row, before the task its terminal's title says it's on.
+//! leading its row, before the task its terminal's title says it's on. A pipeline's stages
+//! hang off it by a tree connector each (`icons::icon_branch`), a step further in.
 //!
 //! A card whose agent is on screen says so (`viewing`): a "Viewing" pill left of its status
 //! and a soft accent ring, fuller (with a glow) for the agent in the focused pane than for
@@ -66,6 +67,8 @@ const MORE_W: f32 = 44.0;
 const TAG_H: f32 = 18.0;
 /// An open team's list: its rows, the margin around it, and the "Show all" row.
 const ROW_H: f32 = 46.0;
+/// How much further in a helper's own helpers sit in an open team's list.
+const INDENT_STEP: f32 = 22.0;
 const LIST_INSET: f32 = 12.0;
 const MORE_H: f32 = 34.0;
 /// Helpers listed before "Show all".
@@ -565,9 +568,10 @@ impl AgentsPane {
         for (i, m) in rows.iter().enumerate() {
             if i + 1 < rows.len() || g.members.len() > rows.len() {
                 let y = list.top() + (i + 1) as f32 * ROW_H;
-                p.line_segment([Pos2::new(row_text_x(list.left(), m.depth), y), Pos2::new(list.right(), y)], Stroke::new(1.0_f32, white_alpha(10)));
+                p.line_segment([Pos2::new(row_text_x(list.left(), row_depth(g, m)), y), Pos2::new(list.right(), y)], Stroke::new(1.0_f32, white_alpha(10)));
             }
         }
+        branch_lines(p, list, g, rows.len());
 
         // Settled rows first, then the ones making room, then the ones whose helper changed
         // state (the latest on top), each on a backing so it reads as it passes over.
@@ -611,7 +615,7 @@ impl AgentsPane {
             if self.highlighted() == Some(id) && f.focused && !m.leaving {
                 rp.rect_stroke(inner, 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
             }
-            helper_row(f, &rp, row, &m.member, &m.tag, seen);
+            helper_row(f, &rp, row, &m.member, row_depth(g, &m.member), &m.tag, seen);
         }
         if g.members.len() > ROWS_SHOWN {
             let more = Rect::from_min_size(Pos2::new(list.left(), list.top() + rows.len() as f32 * ROW_H), Vec2::new(list.width(), MORE_H));
@@ -1018,19 +1022,80 @@ fn row_text_x(left: f32, depth: usize) -> f32 {
     left + 12.0 + row_indent(depth) + 26.0 + 10.0
 }
 
+/// How far a row at `depth` ([`row_depth`]) has its tile in: a step a level, so a child's
+/// tile starts a little right of its parent's centre, room for the connector's arm.
 fn row_indent(depth: usize) -> f32 {
-    16.0 * (depth.saturating_sub(1).min(3)) as f32
+    INDENT_STEP * (depth.saturating_sub(1).min(3)) as f32
+}
+
+/// How far in member `m` of `g`'s list sits: its depth, one more in a pipeline's card,
+/// whose stages hang off the card's own (unlisted) row by a connector.
+fn row_depth(g: &Group, m: &Member) -> usize {
+    m.depth + g.is_pipeline() as usize
+}
+
+/// Where the connectors to `g`'s stages go in its list `list` (its first `shown` rows): for
+/// each, its [`icons::icon_branch`] slot, from its pipeline's tile centre to just short of the
+/// stage's tile, plus the line's lead-in from a nested pipeline's tile to its first stage and
+/// its run past a stage's own helpers to the next stage (zero-width slots). By slot, so they
+/// stay while rows glide.
+fn branch_slots(list: Rect, g: &Group, shown: usize) -> Vec<(Rect, bool)> {
+    let tile_left = |m: &Member| list.left() + 12.0 + row_indent(row_depth(g, m));
+    let slot_top = |i: usize| list.top() + i as f32 * ROW_H;
+    let mut out = Vec::new();
+    for (i, b) in g.branches().into_iter().enumerate().take(shown) {
+        let Some(b) = b else { continue };
+        let m = &g.members[i];
+        let x = b.parent.map_or(list.left() + 12.0, |j| tile_left(&g.members[j])) + 13.0;
+        let right = tile_left(m) - 3.0;
+        if right <= x {
+            continue; // As deep as rows go: no room for an arm.
+        }
+        let row = Rect::from_min_max(Pos2::new(x, slot_top(i)), Pos2::new(right, slot_top(i + 1)));
+        // A nested pipeline's first stage: down from just under the pipeline's tile. (The
+        // card's own comes down from the list's top: [`branch_lines`] clips it there.)
+        if let Some(j) = b.parent
+            && j + 1 == i
+        {
+            let top = slot_top(i) - (ROW_H / 2.0 - 13.0) + 3.0;
+            out.push((Rect::from_min_max(Pos2::new(x, top), Pos2::new(x, row.top())), false));
+        }
+        out.push((row, b.last));
+        if !b.last {
+            // On past this stage's own helpers to the next stage.
+            let past = g.members[i + 1..].iter().take_while(|n| n.depth > m.depth).count().min(shown.saturating_sub(i + 1));
+            if past > 0 {
+                out.push((Rect::from_min_max(Pos2::new(x, slot_top(i + 1)), Pos2::new(x, slot_top(i + 1 + past))), false));
+            }
+        }
+    }
+    out
+}
+
+/// Paints [`branch_slots`]: the connector icon in each stage's slot, a plain line where it
+/// only runs on (a zero-width slot). A quiet hairline, a step over the separators, starting
+/// a little below the list's top.
+fn branch_lines(p: &Painter, list: Rect, g: &Group, shown: usize) {
+    let c = white_alpha(22);
+    let p = p.with_clip_rect(p.clip_rect().intersect(Rect::from_min_max(list.min + Vec2::new(0.0, 6.0), list.max)));
+    for (r, last) in branch_slots(list, g, shown) {
+        if r.width() <= 0.0 {
+            p.line_segment([r.left_top(), r.left_bottom()], Stroke::new(1.2_f32, c));
+        } else {
+            icons::icon_branch(&p, r, c, last);
+        }
+    }
 }
 
 /// One helper's row in an open team: tile (indented for a helper's own helpers), its `tag`
 /// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
 /// in, and its status with how long it has been in it.
-fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, tag: &str, seen: Option<Seen>) {
+fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: &str, seen: Option<Seen>) {
     let c = f.c;
     let a = &m.agent;
-    let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + row_indent(m.depth) + 13.0, row.center().y), Vec2::splat(26.0));
+    let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + row_indent(depth) + 13.0, row.center().y), Vec2::splat(26.0));
     icons::app_tile(p, tile, a.kind.process(), a.mark.as_deref());
-    let x = row_text_x(row.left(), m.depth);
+    let x = row_text_x(row.left(), depth);
 
     let color = status_color(a.status, c);
     let since = elapsed(f.now.saturating_duration_since(a.since));
@@ -1135,6 +1200,34 @@ mod tests {
             source: Source::Local,
             team: Team { parent, role: None, started: pane, sub: false },
         }
+    }
+
+    /// A pipeline's card: its stages one step in, so each tile starts right of the column
+    /// the connector comes down; one icon slot per stage on the same grid, and a run on past
+    /// the first stage's own helper.
+    #[test]
+    fn a_pipelines_stages_hang_off_it_by_one_connector_each() {
+        let mut pipe = agent(1, None);
+        pipe.kind = AgentKind::Pipeline;
+        let stage = |pane| Agent { team: Team { role: Some(format!("s{pane}")), ..agent(pane, Some(1)).team }, ..agent(pane, Some(1)) };
+        let sub = |pane, parent| Agent { team: Team { sub: true, ..agent(pane, Some(parent)).team }, ..agent(pane, Some(parent)) };
+        let teams = groups(&Agents::new(vec![pipe, stage(2), sub(4, 2), stage(3)]));
+        let g = &teams[0];
+        assert_eq!(g.members.iter().map(|m| (m.agent.pane, row_depth(g, m))).collect::<Vec<_>>(), [(2, 2), (4, 3), (3, 2)]);
+
+        let list = Rect::from_min_size(Pos2::new(100.0, 0.0), Vec2::new(400.0, 3.0 * ROW_H));
+        let column = list.left() + 25.0;
+        let tile_left = list.left() + 12.0 + row_indent(2);
+        assert!(tile_left - column >= 8.0, "room for the arm: {tile_left} vs {column}");
+        let slots = branch_slots(list, g, 3);
+        let slot = |i: usize| Rect::from_min_max(Pos2::new(column, i as f32 * ROW_H), Pos2::new(tile_left - 3.0, (i + 1) as f32 * ROW_H));
+        let run = Rect::from_min_max(Pos2::new(column, ROW_H), Pos2::new(column, 2.0 * ROW_H));
+        assert_eq!(slots, [(slot(0), false), (run, false), (slot(2), true)]);
+        // The separators clear the line: each starts at its row's text, right of the column.
+        assert!(g.members.iter().all(|m| row_text_x(list.left(), row_depth(g, m)) > column));
+
+        // Cut off after the first stage: its line still runs on, out of the list.
+        assert_eq!(branch_slots(list, g, 1), [(slot(0), false)]);
     }
 
     #[test]

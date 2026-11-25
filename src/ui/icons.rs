@@ -490,6 +490,36 @@ pub fn icon_eye(p: &Painter, r: Rect, c: Color32, on: bool) {
     }
 }
 
+/// A tree connector from a parent down to the row in `r` (an outline view's `└` when
+/// `last`, else its `├`): a line down `r`'s left edge from the top, turning with a rounded
+/// elbow into an arm out to `r`'s right edge at its middle; when not `last` the line also
+/// carries on to the bottom, to the next row. `r` spans the row's height, so stacked rows'
+/// connectors join into one line.
+pub fn icon_branch(p: &Painter, r: Rect, c: Color32, last: bool) {
+    let (elbow, on) = branch_lines(r, last);
+    let s = Stroke::new(1.2_f32, c);
+    p.add(Shape::line(elbow, s));
+    if let Some(on) = on {
+        p.line_segment(on, s);
+    }
+}
+
+/// [`icon_branch`]'s strokes: the L (down, round the elbow, out), and the line on down when
+/// it isn't the last.
+fn branch_lines(r: Rect, last: bool) -> (Vec<Pos2>, Option<[Pos2; 2]>) {
+    let (x, y) = (r.left(), r.center().y);
+    let rad = 5.0_f32.min(r.width()).min(r.height() / 2.0);
+    const N: usize = 6;
+    let mut pts = vec![Pos2::new(x, r.top())];
+    // A quarter circle centred `rad` right of the line and `rad` above the arm.
+    pts.extend((0..=N).map(|i| {
+        let a = std::f32::consts::FRAC_PI_2 * i as f32 / N as f32;
+        Pos2::new(x + rad * (1.0 - a.cos()), y - rad * (1.0 - a.sin()))
+    }));
+    pts.push(Pos2::new(r.right(), y));
+    (pts, (!last).then(|| [Pos2::new(x, y - rad), Pos2::new(x, r.bottom())]))
+}
+
 /// A round selection check: an outline when off, a filled disc with a tick when on.
 pub fn icon_check(p: &Painter, r: Rect, c: Color32, on: bool) {
     let ctr = r.center();
@@ -551,6 +581,20 @@ pub fn icon_control(p: &Painter, r: Rect, c: Color32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The L leaves the top of its slot at the left edge and meets the right edge at the
+    /// middle; a tee also carries on from the line to the bottom.
+    #[test]
+    fn a_branch_is_an_l_and_a_tee_runs_on_down() {
+        let r = Rect::from_min_max(Pos2::new(10.0, 0.0), Pos2::new(16.0, 46.0));
+        let (l, on) = branch_lines(r, true);
+        assert_eq!((l[0], *l.last().unwrap()), (Pos2::new(10.0, 0.0), Pos2::new(16.0, 23.0)));
+        assert!(l.windows(2).all(|w| w[1].x >= w[0].x && w[1].y >= w[0].y), "down, round, then out");
+        assert!(on.is_none());
+        let (_, on) = branch_lines(r, false);
+        let [a, b] = on.expect("a tee runs on");
+        assert!(a.x == 10.0 && b.x == 10.0 && a.y < 23.0 && b.y == 46.0);
+    }
 
     /// A context whose icon font is the embedded one, at `ppp` pixels per point.
     fn icons_ctx(ppp: f32) -> egui::Context {

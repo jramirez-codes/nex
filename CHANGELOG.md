@@ -8,6 +8,8 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- In an open team card on the Agents pane, a pipeline's stages hang off it by rounded
+  `├` / `└` hairline connectors, and nested rows sit on a wider indent.
 - In an open team card on the Agents pane, the helper or stage you're viewing is shown by a
   soft rounded accent tint behind its row, in place of the thin accent bar down its left edge.
 - An open team card on the Agents pane no longer gets the "Viewing" ring and pill while only
