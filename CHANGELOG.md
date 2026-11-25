@@ -15,6 +15,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- A running pipeline's three-dot glyph (in the Agents pane, on its tab and pane tiles) now
+  carries its highlight out to the last step and eases it back to the first, instead of
+  fading out and snapping back to the start, so its loop no longer jumps.
 - In the Agents pane, viewing one of a pipeline's or team's agents now puts the Viewing ring
   and glow on that agent's row, the same ring and glow a card gets, instead of on the
   pipeline's card. The card keeps them only while the pipeline or lead itself is on screen.
