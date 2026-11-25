@@ -133,6 +133,9 @@ pub struct Config {
     pub command: Option<String>,
     /// Bring back the last session's tabs, splits and folders at launch (`restore-session`).
     pub restore_session: bool,
+    /// Send a system notification when an agent starts needing you or a pipeline run finishes
+    /// (`system-notifications`, off by default; see `agents::notify` and `platform::notify`).
+    pub system_notifications: bool,
     /// How long the key nex puts on a host it connects to itself (the Android app, `--remote`)
     /// lasts before the password is asked for again (see `remote/ssh/device.rs`).
     pub device_key_days: u32,
@@ -195,6 +198,7 @@ impl Default for Config {
             scrollback_limit: 10_000,
             command: None,
             restore_session: true,
+            system_notifications: false,
             device_key_days: 30,
         }
     }
@@ -358,6 +362,7 @@ impl Config {
                 self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?
             }
             "restore-session" => self.restore_session = boolean(value)?,
+            "system-notifications" => self.system_notifications = boolean(value)?,
             "device-key-days" => {
                 self.device_key_days = value.parse().ok().filter(|&d| (1..=3650).contains(&d)).ok_or_else(|| format!("invalid device-key-days `{value}` (1 to 3650)"))?
             }
@@ -481,5 +486,14 @@ mod tests {
         cfg.apply("restore-session", "false").unwrap();
         assert!(!cfg.restore_session);
         assert!(cfg.apply("restore-session", "no").is_err());
+    }
+
+    #[test]
+    fn system_notifications_default_off() {
+        let mut cfg = Config::default();
+        assert!(!cfg.system_notifications);
+        cfg.apply("system-notifications", "true").unwrap();
+        assert!(cfg.system_notifications);
+        assert!(cfg.apply("system-notifications", "loud").is_err());
     }
 }

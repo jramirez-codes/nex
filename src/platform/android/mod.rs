@@ -128,6 +128,10 @@ pub fn file_manager_service(_window_args: &[String]) -> Result<(), String> {
     Err("--file-manager-service is only available on Linux".into())
 }
 
+/// System notifications aren't sent on Android yet (they need NotificationManager through
+/// JNI, a channel, and the POST_NOTIFICATIONS permission).
+pub fn notify(_title: &str, _body: &str) {}
+
 /// Opening links in the browser needs an Intent (through JNI), which isn't wired up yet.
 pub fn open_uri(uri: &std::ffi::OsStr) {
     eprintln!("nex: opening {} isn't supported on Android yet", uri.to_string_lossy());
