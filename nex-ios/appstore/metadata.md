@@ -1,12 +1,12 @@
-# App Store listing: nex terminal (iPhone)
+# App Store listing: nex (iPhone)
 
 The text to enter in App Store Connect for the iPhone app. Character limits are Apple's; the
 counts are for the text as written here.
 
 | Field | Value |
 |---|---|
-| Name (30) | Nex Terminal: SSH Client |
-| Subtitle (30) | AI coding agents on any server |
+| Name (30) | Nex: AI Coding Agents & SSH |
+| Subtitle (30) | Remote terminal, files & git |
 | Bundle ID | io.github.jramirez-codes.nex |
 | SKU | nex-ios |
 | Primary category | Developer Tools |
@@ -25,15 +25,15 @@ SSH into any server from your iPhone and run Claude Code, Codex or any coding ag
 
 ## Keywords (100)
 
-claude,codex,code,shell,remote,linux,devops,cli,tmux,vps,homelab,bash,console,git,sysadmin,zsh,files
+claude,codex,code,shell,client,server,linux,devops,cli,tmux,vps,homelab,bash,console,sysadmin,zsh
 
 Search only indexes the name, subtitle and keywords, so no word appears in more than one of
-them ("nex", "terminal", "ssh", "client", "ai", "coding", "agents", "server" are covered by the
-name and subtitle). Single words, no spaces: "claude" + "code" also match "claude code".
+them ("nex", "ai", "coding", "agents", "ssh", "remote", "terminal", "files", "git" are covered by
+the name and subtitle). Single words, no spaces: "claude" + "code" also match "claude code".
 
 ## Description (4000)
 
-Your servers and your AI coding agents, in your pocket. Nex Terminal is a fast SSH client for iPhone, built for running Claude Code, Codex and any other coding agent on a remote server, and for checking on them from anywhere.
+Your servers and your AI coding agents, in your pocket. Nex is a fast SSH client for iPhone, built for running Claude Code, Codex and any other coding agent on a remote server, and for checking on them from anywhere.
 
 Every pane runs on an SSH host you choose, like a home server, a VPS or a cloud machine. Close the app, lose signal, switch networks: your shell and your agents keep running, and the screen comes right back when you return.
 
