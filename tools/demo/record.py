@@ -14,7 +14,7 @@ Scenes, in order (each becomes a clip of the same name):
            and Changes (Ctrl+G) on the host
   promo    every built-in in one pass (also cut as `hero`); last, since it doesn't tidy up
 
-Needs Hyprland, grim, ffmpeg, plus the programs the scenes run (git, btop, nvim, tree).
+Needs Hyprland, grim, ffmpeg, the x86_64-unknown-linux-musl Rust target, plus the programs the scenes run (git, btop, nvim, tree).
 agents, ssh and promo also need `ssh localhost` to log in with a key (an sshd on this
 machine): they run on the "server" in a throwaway repo, with nex-host and stub agents.
 Usage: tools/demo/record.py [OUT_DIR]   (default: target/demo)
@@ -46,6 +46,7 @@ PROMO_DIR = Path("/tmp/nex-promo")
 PROMO_RC = PROMO_DIR / "rc"
 PROMO_REPO = PROMO_DIR / "todo"
 NEX_HOST = Path.home() / ".nex" / "bin" / "nex-host"
+HOST_TRIPLE = "x86_64-unknown-linux-musl"  # the "server" is this machine
 
 # Characters that aren't their own key name, as (shift, key).
 CHAR_KEYS = {
@@ -295,6 +296,11 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(["cargo", "build", "--release", "-q", "--manifest-path", str(REPO / "Cargo.toml")],
                    check=True)
+    # The nex-host this nex installs on the "server" when the one there is older: a release
+    # build only looks for it beside itself or in NEX_HOST_DIR, and without it the Agents
+    # pane has nothing to talk to.
+    subprocess.run(["cargo", "build", "--release", "-q", "-p", "nex-host", "--target", HOST_TRIPLE,
+                    "--manifest-path", str(REPO / "Cargo.toml")], check=True)
 
     only = [s for s in os.environ.get("DEMO_SCENES", "").split(",") if s]
     # The scenes that run on the "server" share the promo's demo repo.
@@ -316,7 +322,10 @@ def main() -> None:
         # Its own state folder too: your saved session and remembered ssh hosts (whose
         # agents would show in the Agents pane) are left out of the take, and alone.
         (tmp / "state").mkdir()
-        cmd = f"env XDG_CONFIG_HOME={tmp} XDG_STATE_HOME={tmp}/state {REPO}/target/release/nex"
+        (tmp / "host").mkdir()
+        shutil.copy(REPO / "target" / HOST_TRIPLE / "release" / "nex-host", tmp / "host" / f"nex-host-{HOST_TRIPLE}")
+        cmd = (f"env XDG_CONFIG_HOME={tmp} XDG_STATE_HOME={tmp}/state NEX_HOST_DIR={tmp}/host "
+               f"{REPO}/target/release/nex")
         hypr("dispatch", "exec", f"[{rules}] {cmd}")
         client = None
         for _ in range(50):
