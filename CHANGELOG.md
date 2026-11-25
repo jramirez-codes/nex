@@ -8,6 +8,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Android: spinning the keyboard button's joystick round in a full circle, either way, sends
+  Esc, once a turn. Once a drag has turned past about 200° the joystick stops sending arrows,
+  so a spin sends only the first few. Going back to the center starts the count again.
 - `packaging/macos/publish-dmg.sh TAG` adds the notarized DMG to a release whose macOS build
   ran without signing secrets: it rebuilds `nex.app` from the release's universal tarball,
   signs and notarizes it, and uploads the DMG, a signed app zip and an updated

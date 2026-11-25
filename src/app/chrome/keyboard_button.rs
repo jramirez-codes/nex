@@ -4,7 +4,9 @@
 //! - A tap puts the keyboard away or brings it back (it also goes away the usual Android
 //!   ways, and nex leaves it down until the button brings it back).
 //! - A drag makes it a joystick: the button opens into a track, a knob follows the finger,
-//!   and the arrow key it points to repeats, faster the further it is pushed.
+//!   and the arrow key it points to repeats, faster the further it is pushed. Spinning it
+//!   round in a full circle (either way) sends Esc, once a turn; past [`SPIN_QUIET`] of turning
+//!   the arrows stop, so a spin sends only the first few.
 //! - A double-tap arms Ctrl for the next key (`^C` is double-tap, then `c`); a second double
 //!   tap disarms it.
 //! - Holding it still (in a terminal) talks to Claude Code's voice mode, which records while
@@ -16,7 +18,8 @@
 //!   again during that tail goes on talking.
 //!
 //! Telling a tap from a double-tap means a tap acts a moment after it lifts. The timing rules
-//! are plain functions ([`lift`], [`hold_turns_to_talk`], [`Talk::tick`]), tested below.
+//! are plain functions ([`lift`], [`hold_turns_to_talk`], [`Talk::tick`]), and so is telling a
+//! spin ([`Spin::turn`]), tested below.
 
 use std::f32::consts::{PI, TAU};
 
@@ -62,6 +65,9 @@ const SPACE_REPEAT: f64 = 0.03;
 /// Spaces go on this long after letting go: the share sends audio 0.2 s late
 /// (`remote::mic`'s `LEAD`), and recording stops when the spaces do.
 const TALK_TAIL: f64 = 0.35;
+/// Turned this far round in one go, the joystick is being spun (for Esc), not pointed: its
+/// arrows stop. More than a half turn, so swinging from one side to the other still moves.
+const SPIN_QUIET: f32 = 200.0 * PI / 180.0;
 
 /// Where the button goes in `area` (the content area).
 pub(in crate::app) fn button_rect(area: Rect) -> Rect {
@@ -193,6 +199,46 @@ struct Stick {
     dir: Option<Key>,
     /// When the arrow repeats next.
     next: f64,
+    /// How far the finger has gone round the center.
+    spin: Spin,
+}
+
+/// How far a joystick drag has gone round the center, to send Esc for each full circle.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Spin {
+    /// The finger's angle last time, `None` inside the dead zone.
+    last: Option<f32>,
+    /// The turning since the last full circle (or since leaving the dead zone), signed:
+    /// turning back undoes it.
+    turned: f32,
+    /// It turned past [`SPIN_QUIET`] (or a full circle): no arrows until it comes back to
+    /// the center.
+    spinning: bool,
+}
+
+impl Spin {
+    /// The finger moved to `offset` from the center: whether that finished a full circle.
+    /// Inside the dead zone, the spin starts over.
+    fn turn(&mut self, offset: Vec2) -> bool {
+        if offset.length() <= DEAD_ZONE {
+            *self = Self::default();
+            return false;
+        }
+        let angle = offset.y.atan2(offset.x);
+        if let Some(last) = self.last.replace(angle) {
+            // The short way round from last time.
+            self.turned += (angle - last + PI).rem_euclid(TAU) - PI;
+        }
+        if self.turned.abs() >= SPIN_QUIET {
+            self.spinning = true;
+        }
+        // A hair under a full turn counts: the steps of an exact one can add up just short.
+        if self.turned.abs() >= TAU - 1e-3 {
+            self.turned -= TAU.copysign(self.turned);
+            return true;
+        }
+        false
+    }
 }
 
 /// The arrow `offset` points to, along its longer axis.
@@ -417,20 +463,33 @@ impl App {
         press.offset = pos - press.origin;
         let distance = press.offset.length();
         let dir = (distance > DEAD_ZONE).then(|| direction(press.offset));
+        let mut circle = false;
         let changed = match &mut press.stick {
             None if dir.is_some() => {
-                press.stick = Some(Stick { dir, next: now + FIRST_REPEAT });
+                let mut spin = Spin::default();
+                spin.turn(press.offset);
+                press.stick = Some(Stick { dir, next: now + FIRST_REPEAT, spin });
                 true
             }
-            Some(stick) if stick.dir != dir => {
-                stick.dir = dir;
-                stick.next = now + FIRST_REPEAT;
-                dir.is_some()
+            Some(stick) => {
+                circle = stick.spin.turn(press.offset);
+                let changed = stick.dir != dir;
+                if changed {
+                    stick.dir = dir;
+                    stick.next = now + FIRST_REPEAT;
+                }
+                // Spinning: the arrows it points through on the way round don't go.
+                changed && dir.is_some() && !stick.spin.spinning
             }
             _ => false,
         };
         if changed && let Some(dir) = dir {
             self.send_arrow(dir, now, target);
+        }
+        if circle {
+            self.key_to_pane(Key::Escape, Modifiers::NONE);
+            self.keyboard_button.tick_at = now;
+            platform::haptic(Haptic::Confirm);
         }
     }
 
@@ -439,7 +498,7 @@ impl App {
         let Some(press) = self.keyboard_button.press.as_mut() else { return };
         let distance = press.offset.length();
         let Some(stick) = press.stick.as_mut() else { return };
-        let Some(dir) = stick.dir else { return };
+        let Some(dir) = stick.dir.filter(|_| !stick.spin.spinning) else { return };
         if now >= stick.next {
             stick.next = now + repeat_interval(distance);
             self.send_arrow(dir, now, target);
@@ -639,6 +698,57 @@ fn chevron(p: &Painter, at: Pos2, dir: Vec2, k: f32, c: Color32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spin `turns` times round the center (negative: the other way) in `steps` moves a
+    /// turn, from pointing right; how many full circles it counted.
+    fn spin(s: &mut Spin, turns: f32, steps: usize) -> usize {
+        let n = (turns.abs() * steps as f32).round() as usize;
+        (0..=n).filter(|&i| s.turn(Vec2::angled(TAU * turns.signum() * i as f32 / steps as f32) * 30.0)).count()
+    }
+
+    #[test]
+    fn a_full_circle_either_way_is_one_esc() {
+        for way in [1.0, -1.0] {
+            let mut s = Spin::default();
+            assert_eq!(spin(&mut s, 0.95 * way, 36), 0, "not quite round");
+            assert!(s.spinning, "most of the way round: the arrows stop");
+            let mut s = Spin::default();
+            assert_eq!(spin(&mut s, way, 36), 1);
+            let mut s = Spin::default();
+            assert_eq!(spin(&mut s, 2.5 * way, 36), 2, "once a turn");
+            // Coarse moves (a slow frame) still count, the short way round each time.
+            let mut s = Spin::default();
+            assert_eq!(spin(&mut s, way, 5), 1);
+        }
+    }
+
+    #[test]
+    fn pointing_and_swinging_isnt_spinning() {
+        let mut s = Spin::default();
+        // Right, then swung round to the left and back: half a turn each way.
+        assert_eq!(spin(&mut s, 0.5, 36), 0);
+        assert!(!s.spinning, "a half-turn swing still sends its arrows");
+        for i in (0..=18).rev() {
+            assert!(!s.turn(Vec2::angled(PI * i as f32 / 18.0) * 30.0));
+        }
+        assert!(s.turned.abs() < 1e-3, "turning back undoes it: {}", s.turned);
+        // Wobbling back and forth never adds up to a circle.
+        for i in 0..200 {
+            let a = if i % 2 == 0 { 0.6 } else { -0.6 };
+            assert!(!s.turn(Vec2::angled(a) * 30.0));
+        }
+        assert!(!s.spinning);
+    }
+
+    #[test]
+    fn back_to_the_center_starts_the_spin_over() {
+        let mut s = Spin::default();
+        assert_eq!(spin(&mut s, 0.75, 36), 0);
+        assert!(s.spinning);
+        assert!(!s.turn(Vec2::new(3.0, 2.0)), "in the dead zone");
+        assert_eq!(s, Spin::default(), "and the arrows come back");
+        assert_eq!(spin(&mut s, 0.75, 36), 0, "three quarters again isn't a circle");
+    }
 
     #[test]
     fn a_still_press_talks_only_after_the_hold() {

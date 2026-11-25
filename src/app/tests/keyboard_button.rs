@@ -165,6 +165,43 @@ fn dragging_the_button_sends_arrows_that_repeat_while_held() {
 }
 
 #[test]
+fn spinning_the_joystick_round_sends_esc_once_a_turn() {
+    let ctx = egui::Context::default();
+    let mut app = phone(&ctx);
+    let mut t = 0.0;
+    wait(&mut app, &ctx, &mut t, 0.1);
+    sent(&mut app);
+    let c = app.keyboard_button.rect.unwrap().center();
+    let at = |turn: f32| c + Vec2::angled(std::f32::consts::TAU * turn) * 30.0;
+
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c), press(c, true)]);
+    // Round once, from pointing right through down (clockwise on screen).
+    for i in 0..=36 {
+        frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(at(i as f32 / 36.0))]);
+    }
+    let once = sent(&mut app);
+    let arrows = count(&once, b"\x1b[");
+    assert_eq!(count(&once, b"\x1b") - arrows, 1, "one Esc: {once:?}");
+    assert!(arrows <= 3, "only the first few arrows, before it's clearly a spin: {once:?}");
+    assert!(once.ends_with(b"\x1b"), "nothing after the Esc: {once:?}");
+
+    // Held there after the spin: no arrows repeat.
+    wait(&mut app, &ctx, &mut t, 1.0);
+    assert!(sent(&mut app).is_empty());
+
+    // Round again the other way.
+    for i in (0..36).rev() {
+        frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(at(i as f32 / 36.0))]);
+    }
+    assert_eq!(sent(&mut app), b"\x1b", "one Esc, no arrows");
+
+    let end = at(0.0);
+    frame(&mut app, &ctx, &mut t, vec![press(end, false), Event::PointerGone]);
+    assert!(wait(&mut app, &ctx, &mut t, 0.5), "not a tap: the keyboard stays up");
+    assert!(sent(&mut app).is_empty());
+}
+
+#[test]
 fn a_double_tap_arms_ctrl_for_the_next_key() {
     let ctx = egui::Context::default();
     let mut app = phone(&ctx);
