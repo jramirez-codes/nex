@@ -900,6 +900,8 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [ ] Command palette
 - [ ] Color emoji
 - [ ] Better animations when an agent, or several agents, close
+- [ ] Android: download a file from the file explorer of an `ssh` session to the phone
+- [ ] Android: send Esc by spinning the joystick in a full circle
 
 ### Later
 
