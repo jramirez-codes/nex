@@ -893,6 +893,9 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [ ] Command palette
 - [ ] Color emoji
 - [ ] Signed and notarized macOS app
+- [ ] Open a sub-agent that Claude Code starts by clicking it in the Agents pane (they can't be clicked yet)
+- [ ] Pipeline agents that keep their stage and task when their session is cleared (`/clear`), so their report still reaches the pipeline
+- [ ] Better animations when an agent, or several agents, close
 
 ### Later
 
