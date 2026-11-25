@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Clicking a sub-agent in the Agents pane (Claude Code's or Codex's, including one under a
+  pipeline stage) jumps to the pane of the agent running it. This works from its capsule on
+  a closed card as well as its row in an open one. `Space` on its row now jumps there too,
+  where before it closed the card.
+
 ### Changed
 
 - In the Agents pane, viewing one of a pipeline's or team's agents now puts the Viewing ring

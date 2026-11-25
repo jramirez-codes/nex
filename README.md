@@ -696,9 +696,10 @@ Claude Code's status and session name come from its own session file
 terminal title when there is one.
 
 An agent running sub-agents (Claude Code's Task tool, or threads Codex spawns) gets a team
-card: each sub-agent is a capsule saying what it was asked to do, open the card to list them,
-and click one to jump to its agent's pane. A finished one shows a tick for two minutes, then
-drops off. In a pipeline, a stage's sub-agents sit under that stage (its capsule says how
+card: each sub-agent is a capsule saying what it was asked to do, open the card to list them.
+A sub-agent has no pane of its own: clicking its capsule or its row (or `Enter` / `Space` on
+its row) jumps to the pane of the agent running it, where its work shows. A finished one
+shows a tick for two minutes, then drops off. In a pipeline, a stage's sub-agents sit under that stage (its capsule says how
 many) rather than among the steps. Claude Code's come from the files it keeps beside each
 conversation (`~/.claude/projects/<folder>/<session>/subagents/`); Codex's from its rollouts
 (`~/.codex/sessions/`).
@@ -880,6 +881,7 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [x] Agent pipelines, with worktrees and a merge queue
 - [x] Pin a pane to every tab
 - [x] Share your microphone with an ssh session
+- [x] Click a sub-agent in the Agents pane to jump to the pane of the agent running it
 - [x] Android app
 - [x] iPhone app (beta)
 - [x] Signed and notarized macOS app
@@ -891,7 +893,6 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [ ] Themes collection
 - [ ] Command palette
 - [ ] Color emoji
-- [ ] Open a sub-agent that Claude Code starts by clicking it in the Agents pane (they can't be clicked yet)
 - [ ] Better animations when an agent, or several agents, close
 
 ### Later

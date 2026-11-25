@@ -232,6 +232,26 @@ fn space_opens_and_closes_a_team_and_keys_go_through_its_helpers() {
     assert_eq!(a.requests, vec![super::Request::Focus(9)]);
 }
 
+#[test]
+fn space_on_a_sub_agents_row_jumps_to_it_rather_than_closing_its_team() {
+    let mut a = AgentsPane::new();
+    // An open team: an agent (1), a helper (2), and a sub-agent it runs.
+    let s = sub_key(1, "a1b2");
+    a.team_of = std::collections::HashMap::from([(1, 1), (2, 1), (s, 1)]);
+    a.expanded.insert(1, false);
+    a.targets = vec![(1, at(0.0, 0.0, 620.0, 74.0)), (2, at(12.0, 76.0, 596.0, 46.0)), (s, at(12.0, 122.0, 596.0, 46.0))];
+    a.selected = Some(s);
+    assert!(a.key(Key::Space, Modifiers::NONE));
+    assert_eq!(a.requests, vec![super::Request::Focus(s)], "the app shows it in its agent's pane");
+    assert_eq!(a.expanded.get(&1), Some(&false), "still open");
+    assert!(a.key(Key::Enter, Modifiers::NONE));
+    assert_eq!(a.requests, vec![super::Request::Focus(s), super::Request::Focus(s)]);
+    // Space on another helper still closes the team.
+    a.selected = Some(2);
+    assert!(a.key(Key::Space, Modifiers::NONE));
+    assert!(a.expanded.is_empty());
+}
+
 fn remote(host: &str, session: &str, status: Status, at: Instant) -> Probe {
     let target = crate::remote::SshTarget { opts: vec![], destination: host.into() };
     Probe {
