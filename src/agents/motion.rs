@@ -2,7 +2,7 @@
 //! in what colors, and eases toward where the layout wants it now. A card whose agent changes
 //! state glides out of one section into another while the cards around it slide over to
 //! make room; cards and headers fade in when they appear and out when they go; borders and
-//! status tints cross-fade.
+//! status tints cross-fade, and the "Viewing" highlight eases in and out ([`SeenFade`]).
 //!
 //! Inside a team's card the same goes for its helpers ([`TeamMotion`], by the team's lead):
 //! when one changes state and the order changes, its row in the open list and its capsule
@@ -19,7 +19,7 @@ use crate::layout::PaneId;
 use crate::ui::glide::{Lerp, ease_in_out, ease_out};
 
 use super::group::Member;
-use super::model::{Agent, Status};
+use super::model::{Agent, Seen, Status};
 
 /// A card or header moving to its new place.
 pub const MOVE: f64 = 0.45;
@@ -27,6 +27,8 @@ pub const MOVE: f64 = 0.45;
 pub const FADE: f64 = 0.25;
 /// A border or tint changing color.
 pub const COLOR: f64 = 0.3;
+/// The "Viewing" highlight coming on or going off.
+pub const VIEW: f64 = 0.2;
 
 /// A value easing from where it was toward its latest target over `duration` seconds.
 pub struct Tween<T: Lerp> {
@@ -83,6 +85,48 @@ impl<T: Lerp> Tween<T> {
     }
 }
 
+/// How far a card's (or a helper row's) "Viewing" highlight is in: `shown`, 0 (not on
+/// screen) to 1, and `primary`, 0 (a neighbour's look) to 1 (the focused pane's). Each eases
+/// over [`VIEW`] and lands exactly on 0 or 1. Going off, it keeps the look it had, so it
+/// fades out as it was; coming on from nothing, it takes its look at once and only fades in.
+pub struct SeenFade {
+    shown: Tween<f32>,
+    primary: Tween<f32>,
+}
+
+impl Default for SeenFade {
+    fn default() -> Self {
+        SeenFade { shown: Tween::new(0.0, VIEW, ease_in_out), primary: Tween::new(0.0, VIEW, ease_in_out) }
+    }
+}
+
+impl SeenFade {
+    /// Head for how it's on screen now; `animate` false jumps there.
+    pub fn set(&mut self, now: f64, seen: Option<Seen>, animate: bool) {
+        if let Some(seen) = seen {
+            let primary = f32::from(u8::from(seen == Seen::Primary));
+            let off = self.shown.get(now) == 0.0;
+            self.primary.set(now, primary, animate && !off);
+        }
+        self.shown.set(now, f32::from(u8::from(seen.is_some())), animate);
+    }
+
+    /// How far in it is, 0 to 1.
+    pub fn shown(&self, now: f64) -> f32 {
+        self.shown.get(now)
+    }
+
+    /// How far from a neighbour's look to the focused pane's it is, 0 to 1.
+    pub fn primary(&self, now: f64) -> f32 {
+        self.primary.get(now)
+    }
+
+    /// Still fading.
+    pub fn busy(&self, now: f64) -> bool {
+        self.shown.moving(now) || self.primary.moving(now)
+    }
+}
+
 /// A card's place and colors, plus the agent it showed last (to draw it while it fades out
 /// after its pane is gone): the tracker's own, shared, not a copy.
 pub struct CardMotion {
@@ -93,6 +137,10 @@ pub struct CardMotion {
     pub border_width: Tween<f32>,
     pub tint: Tween<Color32>,
     pub opacity: Tween<f32>,
+    /// Its "Viewing" pill and glow.
+    pub seen: SeenFade,
+    /// Its "Viewing" ring: as `seen`, but off while the card has the keyboard's ring.
+    pub ring: SeenFade,
     pub leaving: bool,
     /// Just created: its border and tint start out in their colors instead of fading in.
     pub new_colors: bool,
@@ -112,6 +160,8 @@ impl CardMotion {
             border_width: Tween::new(1.0, COLOR, ease_out),
             tint: Tween::new(Color32::TRANSPARENT, COLOR, ease_out),
             opacity: Tween::new(0.0, FADE, ease_out),
+            seen: SeenFade::default(),
+            ring: SeenFade::default(),
             leaving: false,
             new_colors: true,
             section_change: false,
@@ -119,9 +169,13 @@ impl CardMotion {
         }
     }
 
-    /// Head for these colors; a new card takes them at once.
-    pub fn set_colors(&mut self, now: f64, border: Color32, border_width: f32, tint: Color32, animate: bool) {
+    /// Head for these colors and this "Viewing" highlight (`seen` for its pill and glow,
+    /// `ring` for its ring); a new card takes them at once.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_colors(&mut self, now: f64, border: Color32, border_width: f32, tint: Color32, seen: Option<Seen>, ring: Option<Seen>, animate: bool) {
         let animate = animate && !std::mem::take(&mut self.new_colors);
+        self.seen.set(now, seen, animate);
+        self.ring.set(now, ring, animate);
         self.border.set(now, border, animate);
         self.border_width.set(now, border_width, animate);
         self.tint.set(now, tint, animate);
@@ -152,7 +206,7 @@ impl CardMotion {
 
     /// Whether anything about it is still changing.
     pub fn busy(&self, now: f64) -> bool {
-        self.pulse_t(now).is_some() || self.rect.moving(now) || self.border.moving(now) || self.border_width.moving(now) || self.tint.moving(now) || self.opacity.moving(now)
+        self.pulse_t(now).is_some() || self.rect.moving(now) || self.border.moving(now) || self.border_width.moving(now) || self.tint.moving(now) || self.opacity.moving(now) || self.seen.busy(now) || self.ring.busy(now)
     }
 }
 
@@ -182,6 +236,8 @@ pub struct RowMotion {
     /// Its top, from the top of the list.
     pub y: Tween<f32>,
     pub opacity: Tween<f32>,
+    /// Its "Viewing" rule and eye.
+    pub seen: SeenFade,
     pub leaving: bool,
     /// Its current move is its own helper changing state (not just making room for one
     /// that did): only such a row is drawn over the others on its way.
@@ -197,6 +253,7 @@ impl RowMotion {
             tag: tag.to_string(),
             y: Tween::new(y, MOVE, ease_in_out),
             opacity: Tween::new(0.0, FADE, ease_out),
+            seen: SeenFade::default(),
             leaving: false,
             status_change: false,
             changed: f64::NEG_INFINITY,
@@ -209,7 +266,7 @@ impl RowMotion {
     }
 
     pub fn busy(&self, now: f64) -> bool {
-        self.y.moving(now) || self.opacity.moving(now)
+        self.y.moving(now) || self.opacity.moving(now) || self.seen.busy(now)
     }
 }
 
@@ -435,6 +492,59 @@ mod tests {
         t.set(12.0, 7.0, false);
         assert_eq!(t.get(12.0), 7.0);
         assert!(!t.moving(12.0));
+    }
+
+    #[test]
+    fn the_viewing_highlight_eases_in_and_out_and_lands_exactly() {
+        let mut v = SeenFade::default();
+        assert_eq!((v.shown(0.0), v.busy(0.0)), (0.0, false), "off, and nothing to redraw");
+        // Viewed in the focused pane: it eases in over VIEW, its look taken at once.
+        v.set(1.0, Some(Seen::Primary), true);
+        assert_eq!((v.shown(1.0), v.primary(1.0)), (0.0, 1.0));
+        let quarter = v.shown(1.0 + VIEW / 4.0);
+        let half = v.shown(1.0 + VIEW / 2.0);
+        assert!(0.0 < quarter && quarter < 0.25, "slow out of the start: {quarter}");
+        assert!((half - 0.5).abs() < 1e-6 && v.busy(1.0 + VIEW / 2.0));
+        assert_eq!(v.shown(1.0 + VIEW), 1.0, "all the way in, exactly");
+        assert!(!v.busy(1.0 + VIEW), "settled: no more redraws");
+
+        // Out of view: it fades out as it was (still the focused pane's look) to exactly none.
+        let t = 2.0;
+        v.set(t, None, true);
+        assert!(v.busy(t + VIEW / 2.0) && (v.shown(t + VIEW / 2.0) - 0.5).abs() < 1e-6);
+        assert_eq!(v.primary(t + VIEW / 2.0), 1.0);
+        assert_eq!((v.shown(t + VIEW), v.busy(t + VIEW)), (0.0, false));
+
+        // Interrupted halfway in, it heads back from where it is, not from either end.
+        let t = 3.0;
+        v.set(t, Some(Seen::Shared), true);
+        assert_eq!(v.primary(t), 0.0, "coming on from nothing, it takes its look at once");
+        v.set(t + VIEW / 2.0, None, true);
+        assert!((v.shown(t + VIEW / 2.0) - 0.5).abs() < 1e-6);
+        assert!(v.shown(t + VIEW * 0.75) < 0.5);
+        assert_eq!(v.shown(t + VIEW * 1.5), 0.0);
+
+        // From a neighbour to the focused pane while shown: the look cross-fades.
+        let t = 4.0;
+        v.set(t, Some(Seen::Shared), true);
+        v.set(t + VIEW, Some(Seen::Primary), true);
+        assert!((v.primary(t + VIEW * 1.5) - 0.5).abs() < 1e-6 && v.shown(t + VIEW * 1.5) == 1.0);
+        assert_eq!(v.primary(t + VIEW * 2.0), 1.0);
+
+        // With animations off it jumps.
+        v.set(9.0, None, false);
+        assert_eq!((v.shown(9.0), v.busy(9.0)), (0.0, false));
+    }
+
+    #[test]
+    fn a_card_is_busy_while_its_viewing_highlight_fades_and_a_new_one_starts_lit() {
+        let mut card = CardMotion::new(agent(1, Status::Working), Rect::from_min_size(Pos2::ZERO, Vec2::splat(10.0)));
+        card.set_colors(0.0, Color32::WHITE, 1.0, Color32::WHITE, Some(Seen::Primary), Some(Seen::Primary), true);
+        assert_eq!((card.seen.shown(0.0), card.ring.shown(0.0)), (1.0, 1.0), "a new card appears as it is");
+        assert!(!card.seen.busy(0.0));
+        card.set_colors(1.0, Color32::WHITE, 1.0, Color32::WHITE, None, None, true);
+        assert!(card.busy(1.0 + VIEW / 2.0));
+        assert!(!card.busy(1.0 + VIEW.max(COLOR)) && card.seen.shown(1.0 + VIEW) == 0.0);
     }
 
     fn agent(pane: PaneId, status: Status) -> Arc<Agent> {
