@@ -23,7 +23,7 @@ All notable changes to nex are documented here. The format follows
 ### Fixed
 
 - In the Agents pane, a running pipeline's tile no longer freezes when one of its stages
-  finishes: its dots keep moving until every stage is done, and the pane keeps redrawing
+  finishes: its dots keep moving while any stage works, and the pane keeps redrawing
   while any stage works or needs you.
 
 ## [0.15.0] - 2026-11-24
