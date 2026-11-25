@@ -429,7 +429,7 @@ your home server, and nothing else runs on the device.
   switching apps or networks loses nothing: the pane reconnects and the screen comes back.
 - **A keyboard button made for terminals.** The round button in the bottom-right corner
   hides or shows the keyboard. Drag it as a joystick for the arrow keys (they repeat faster
-  the further you push), double-tap it to arm Ctrl for the next key (double-tap, then `c`, is
+  the further you push), spin it round in a full circle for Esc, double-tap it to arm Ctrl for the next key (double-tap, then `c`, is
   `^C`), and feel a light haptic tick on taps, arrows and Ctrl.
 - **Talk to Claude Code.** Hold the keyboard button to use Claude Code's voice mode: the
   phone's microphone is shared with the host while Space is held for you (see
@@ -891,6 +891,7 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [x] Android app
 - [x] iPhone app (beta)
 - [x] Signed and notarized macOS app
+- [x] Android: send Esc by spinning the joystick in a full circle
 
 ### Next
 
@@ -901,7 +902,6 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [ ] Color emoji
 - [ ] Better animations when an agent, or several agents, close
 - [ ] Android: download a file from the file explorer of an `ssh` session to the phone
-- [ ] Android: send Esc by spinning the joystick in a full circle
 - [ ] Clean up the agent code so each agent CLI (Claude Code, Codex, and any added later, such as Gemini CLI) is a self-contained module behind one shared interface
 
 ### Later
