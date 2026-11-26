@@ -530,6 +530,7 @@ mod tests {
     use super::*;
     use crate::remote::ssh::Exec;
     use crate::remote::transport::Process;
+    #[cfg(unix)]
     use std::process::Stdio;
 
     #[test]

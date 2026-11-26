@@ -700,7 +700,9 @@ impl Worker {
 mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
-    use std::process::{Child, Command, Stdio};
+    use std::process::Command;
+    #[cfg(target_os = "linux")]
+    use std::process::{Child, Stdio};
 
     fn home(name: &str) -> PathBuf {
         let h = std::env::temp_dir().join(format!("nex-mic-test-{name}-{}", std::process::id()));
