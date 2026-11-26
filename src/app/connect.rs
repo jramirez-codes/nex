@@ -257,14 +257,14 @@ impl Connect {
             });
         });
         match action {
-            Some(Action::Connect) => self.start(ctx, key_days),
-            Some(Action::Trust(fingerprint)) => {
+            Some(ConnectAction::Connect) => self.start(ctx, key_days),
+            Some(ConnectAction::Trust(fingerprint)) => {
                 self.trusted = Some(fingerprint);
                 self.step = Step::Form;
                 self.start(ctx, key_days);
             }
-            Some(Action::Cancel) => self.step = Step::Form,
-            Some(Action::Paste(field)) => {
+            Some(ConnectAction::Cancel) => self.step = Step::Form,
+            Some(ConnectAction::Paste(field)) => {
                 self.paste_menu = None;
                 if let Some(text) = crate::platform::clipboard_text() {
                     let id = field_id(field);
@@ -287,7 +287,7 @@ impl Connect {
 
     /// The card's body: a line on what connecting means, the fields, the Connect button and a
     /// note.
-    fn form_view(&mut self, ui: &mut Ui, theme: &Theme, busy: bool, scale: f32) -> Option<Action> {
+    fn form_view(&mut self, ui: &mut Ui, theme: &Theme, busy: bool, scale: f32) -> Option<ConnectAction> {
         note(ui, "Every tab is a shell on your server. Nothing runs on this device.", theme.text_bright.gamma_multiply(0.62), Align::Min);
         ui.add_space(8.0);
         let mut fields = vec![
@@ -332,7 +332,7 @@ impl Connect {
         };
         note(ui, footer, theme.text_bright.gamma_multiply(0.42), Align::Center);
         if submit && !busy {
-            action = action.or(Some(Action::Connect));
+            action = action.or(Some(ConnectAction::Connect));
         }
         action
     }
@@ -340,7 +340,7 @@ impl Connect {
     /// One row of the group: its label, and a borderless field filling the rest. A long
     /// press (or right click) offers Paste above it, where egui has no clipboard of its own.
     #[allow(clippy::too_many_arguments)]
-    fn field_row(&mut self, ui: &mut Ui, theme: &Theme, row: Rect, field: Field, label: &str, hint: &str, busy: bool) -> (Option<Action>, bool) {
+    fn field_row(&mut self, ui: &mut Ui, theme: &Theme, row: Rect, field: Field, label: &str, hint: &str, busy: bool) -> (Option<ConnectAction>, bool) {
         let id = field_id(field);
         ui.painter().text(Pos2::new(row.left() + INSET, row.center().y), Align2::LEFT_CENTER, label, FontId::proportional(FONT), theme.text_bright);
         let edit_rect = Rect::from_min_max(Pos2::new(row.left() + INSET + LABEL_WIDTH, row.top()), Pos2::new(row.right() - INSET, row.bottom()));
@@ -373,7 +373,7 @@ impl Connect {
         let mut action = None;
         if self.paste_menu == Some(field) {
             match paste_pill(ui, row) {
-                Pill::Tapped => action = Some(Action::Paste(field)),
+                Pill::Tapped => action = Some(ConnectAction::Paste(field)),
                 Pill::Dismissed => self.paste_menu = None,
                 Pill::Open => {}
             }
@@ -383,7 +383,7 @@ impl Connect {
 
     /// The card's body for a host seen for the first time: its fingerprint, to compare before
     /// trusting it, and how to see it on the host.
-    fn trust_view(&mut self, ui: &mut Ui, theme: &Theme, fingerprint: &str, scale: f32) -> Option<Action> {
+    fn trust_view(&mut self, ui: &mut Ui, theme: &Theme, fingerprint: &str, scale: f32) -> Option<ConnectAction> {
         let host = self.host_field.trim();
         let subtitle = format!("This is the first connection to {host}. Check that this key is your server's before you trust it.");
         note(ui, &subtitle, theme.text_bright.gamma_multiply(0.62), Align::Min);
@@ -407,17 +407,17 @@ impl Connect {
         let trust = Rect::from_min_size(Pos2::new(row.right() - w, row.top()), Vec2::new(w, row.height()));
         let mut action = None;
         if alert::button(ui, cancel, "Cancel", false, scale, theme) {
-            action = Some(Action::Cancel);
+            action = Some(ConnectAction::Cancel);
         }
         if alert::button(ui, trust, "Trust and Connect", true, scale, theme) {
-            action = Some(Action::Trust(fingerprint.to_string()));
+            action = Some(ConnectAction::Trust(fingerprint.to_string()));
         }
         action
     }
 }
 
 /// What a tap on the screen asks for.
-enum Action {
+enum ConnectAction {
     Connect,
     Trust(String),
     Cancel,

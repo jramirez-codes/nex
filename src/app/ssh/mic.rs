@@ -106,18 +106,18 @@ impl App {
             return;
         }
         let Some(target) = self.mic_target_now(id) else {
-            self.toast = Some(Toast::new(ctx, "The microphone can be shared with a pane running ssh".into()));
+            self.chrome.toast = Some(Toast::new(ctx, "The microphone can be shared with a pane running ssh".into()));
             return;
         };
         let host = target.host().to_string();
         if self.ssh.mics.shares.remove(&target).is_some() {
             self.ssh.mics.skip.insert(target);
-            self.toast = Some(Toast::new(ctx, format!("Stopped sharing the microphone with {host}")));
+            self.chrome.toast = Some(Toast::new(ctx, format!("Stopped sharing the microphone with {host}")));
             return;
         }
         self.ssh.mics.skip.remove(&target);
         if self.start_mic(ctx, target, true) {
-            self.toast = Some(Toast::new(ctx, format!("Sharing the microphone with {host}…")));
+            self.chrome.toast = Some(Toast::new(ctx, format!("Sharing the microphone with {host}…")));
         }
     }
 
@@ -130,7 +130,7 @@ impl App {
             return false;
         }
         let Some(target) = self.focused_pane().and_then(|id| self.mic_target_now(id)) else {
-            self.toast = Some(Toast::new(ctx, "Hold to talk works in a pane on an ssh host".into()));
+            self.chrome.toast = Some(Toast::new(ctx, "Hold to talk works in a pane on an ssh host".into()));
             return false;
         };
         if self.ssh.mics.shares.contains_key(&target) {
@@ -155,7 +155,7 @@ impl App {
             // Shared automatically: ask when the user asks for it, not out of the blue.
             if asked {
                 platform::ask_mic();
-                self.toast = Some(Toast::long(ctx, "Allow nex to use the microphone, then try again.".into()));
+                self.chrome.toast = Some(Toast::long(ctx, "Allow nex to use the microphone, then try again.".into()));
             }
             return false;
         }
@@ -194,7 +194,7 @@ impl App {
             }
         }
         if let Some(t) = toasts.pop() {
-            self.toast = Some(Toast::new(ctx, t));
+            self.chrome.toast = Some(Toast::new(ctx, t));
         }
         for (target, e) in failed {
             if let Some(s) = self.ssh.mics.shares.remove(&target) {
@@ -263,6 +263,6 @@ impl App {
             },
             e => format!("Couldn't share the microphone with {host}: {e}"),
         };
-        self.toast = Some(Toast::long(ctx, msg));
+        self.chrome.toast = Some(Toast::long(ctx, msg));
     }
 }

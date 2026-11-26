@@ -101,7 +101,7 @@ impl App {
     /// Whether Escape would close something now rather than reach a pane: a pane being
     /// dragged, the search field, a dialog, a menu, or a pane's own editing or selection.
     pub(in crate::app) fn escape_closes(&mut self, ctx: &egui::Context) -> bool {
-        if self.pane_drag.is_some() || self.search.is_some() || self.ssh_modal_open() || egui::Popup::is_any_open(ctx) {
+        if self.input.pane_drag.is_some() || self.input.search.is_some() || self.ssh_modal_open() || egui::Popup::is_any_open(ctx) {
             return true;
         }
         if self.panes.explorers().any(|b| b.modal_open()) {

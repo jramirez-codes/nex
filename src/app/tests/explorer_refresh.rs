@@ -14,7 +14,7 @@ fn names(app: &crate::app::App) -> Vec<String> {
 
 /// A background poll, as if the interval had passed.
 fn poll(app: &mut crate::app::App) {
-    app.last_proc_poll = Instant::now() - Duration::from_secs(60);
+    app.timers.last_proc_poll = Instant::now() - Duration::from_secs(60);
     app.poll_background();
 }
 

@@ -13,12 +13,12 @@ impl App {
     /// read every frame and need nothing here; `command` only affects shells started later.
     pub(super) fn reload_config(&mut self, ctx: &egui::Context) {
         let old = std::mem::replace(&mut self.cfg, Config::load());
-        self.config_mtime = config::modified();
+        self.timers.config_mtime = config::modified();
         let cfg = &self.cfg;
 
         if cfg.font_family != old.font_family {
             fonts::install(ctx, cfg);
-            self.trim_heap_at = Some(std::time::Instant::now() + crate::app::TRIM_HEAP_DELAY);
+            self.timers.trim_heap_at = Some(std::time::Instant::now() + crate::app::TRIM_HEAP_DELAY);
         }
         // Per-pane zoom is kept unless the default size itself changed.
         if cfg.font_size != old.font_size {

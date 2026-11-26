@@ -6,7 +6,7 @@ use egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
 use crate::layout::PaneKind;
 use crate::app::App;
-use crate::app::chrome::keyboard_button::DOUBLE_TAP;
+use crate::app::input::press::DOUBLE_TAP;
 use crate::app::input::keymap;
 use crate::platform::ShortcutStyle;
 
@@ -77,7 +77,7 @@ fn phone(ctx: &egui::Context) -> App {
         ready
     };
     let mut app = super::new_app(ctx, cfg);
-    app.soft_keyboard = true;
+    app.chrome.soft_keyboard = true;
     app.bindings = keymap::bindings_for(ShortcutStyle::Ctrl);
     // The first frame opens the terminal. These run before the tests' clock starts at 0, so
     // time only goes forward.
@@ -114,21 +114,21 @@ fn a_tap_toggles_the_keyboard() {
     let mut t = 0.0;
     frame(&mut app, &ctx, &mut t, vec![]);
     assert!(frame(&mut app, &ctx, &mut t, vec![]), "a focused terminal asks for the keyboard");
-    let rect = app.keyboard_button.rect.expect("the button is there with the keyboard up");
+    let rect = app.chrome.keyboard_button.rect.expect("the button is there with the keyboard up");
     assert!(app.content_area.contains_rect(rect));
 
     // A tap waits a moment (it could be the first of a double-tap), then puts it away.
     tap(&mut app, &ctx, &mut t, rect.center());
     assert!(frame(&mut app, &ctx, &mut t, vec![]), "not yet");
     assert!(!wait(&mut app, &ctx, &mut t, DOUBLE_TAP), "put away");
-    assert!(app.keyboard_button.hidden);
-    assert!(app.keyboard_button.rect.is_some(), "the button stays to bring it back");
+    assert!(app.chrome.keyboard_button.hidden);
+    assert!(app.chrome.keyboard_button.rect.is_some(), "the button stays to bring it back");
 
     // A tap on the terminal itself doesn't bring it back.
     let term = app.term_rects[0].1;
     assert!(!tap_and_settle(&mut app, &ctx, &mut t, term.center()));
 
-    let rect = app.keyboard_button.rect.unwrap();
+    let rect = app.chrome.keyboard_button.rect.unwrap();
     assert!(tap_and_settle(&mut app, &ctx, &mut t, rect.center()), "the button brings it back up");
     assert!(sent(&mut app).is_empty(), "no taps reached the shell");
 }
@@ -140,7 +140,7 @@ fn dragging_the_button_sends_arrows_that_repeat_while_held() {
     let mut t = 0.0;
     wait(&mut app, &ctx, &mut t, 0.1);
     sent(&mut app);
-    let c = app.keyboard_button.rect.unwrap().center();
+    let c = app.chrome.keyboard_button.rect.unwrap().center();
 
     frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c), press(c, true)]);
     frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c + Vec2::new(5.0, 0.0))]);
@@ -162,7 +162,7 @@ fn dragging_the_button_sends_arrows_that_repeat_while_held() {
     frame(&mut app, &ctx, &mut t, vec![press(up, false), Event::PointerGone]);
     assert!(wait(&mut app, &ctx, &mut t, 0.5), "still up");
     assert!(sent(&mut app).is_empty());
-    assert!(!app.keyboard_button.hidden);
+    assert!(!app.chrome.keyboard_button.hidden);
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn spinning_the_joystick_round_sends_esc_once_a_turn() {
     let mut t = 0.0;
     wait(&mut app, &ctx, &mut t, 0.1);
     sent(&mut app);
-    let c = app.keyboard_button.rect.unwrap().center();
+    let c = app.chrome.keyboard_button.rect.unwrap().center();
     let at = |turn: f32| c + Vec2::angled(std::f32::consts::TAU * turn) * 30.0;
 
     frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c), press(c, true)]);
@@ -208,11 +208,11 @@ fn a_double_tap_arms_ctrl_for_the_next_key() {
     let mut app = phone(&ctx);
     let mut t = 0.0;
     wait(&mut app, &ctx, &mut t, 0.1);
-    let c = app.keyboard_button.rect.unwrap().center();
+    let c = app.chrome.keyboard_button.rect.unwrap().center();
 
     tap(&mut app, &ctx, &mut t, c);
     tap(&mut app, &ctx, &mut t, c);
-    assert!(app.keyboard_button.ctrl_armed);
+    assert!(app.chrome.keyboard_button.ctrl_armed);
     assert!(wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05), "the keyboard stays up");
     sent(&mut app);
 
@@ -220,7 +220,7 @@ fn a_double_tap_arms_ctrl_for_the_next_key() {
     let key = Event::Key { key: Key::C, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
     frame(&mut app, &ctx, &mut t, vec![key, Event::Text("c".into())]);
     assert_eq!(sent(&mut app), [0x03]);
-    assert!(!app.keyboard_button.ctrl_armed, "used up");
+    assert!(!app.chrome.keyboard_button.ctrl_armed, "used up");
 
     // A keyboard that only sends text: the first character takes Ctrl, the rest are typed.
     tap(&mut app, &ctx, &mut t, c);
@@ -231,11 +231,11 @@ fn a_double_tap_arms_ctrl_for_the_next_key() {
     // A second double-tap disarms it.
     tap(&mut app, &ctx, &mut t, c);
     tap(&mut app, &ctx, &mut t, c);
-    assert!(app.keyboard_button.ctrl_armed);
+    assert!(app.chrome.keyboard_button.ctrl_armed);
     wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05);
     tap(&mut app, &ctx, &mut t, c);
     tap(&mut app, &ctx, &mut t, c);
-    assert!(!app.keyboard_button.ctrl_armed);
+    assert!(!app.chrome.keyboard_button.ctrl_armed);
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn armed_ctrl_runs_ctrl_shortcuts_like_a_held_ctrl() {
     let mut app = phone(&ctx);
     let mut t = 0.0;
     wait(&mut app, &ctx, &mut t, 0.1);
-    let c = app.keyboard_button.rect.unwrap().center();
+    let c = app.chrome.keyboard_button.rect.unwrap().center();
     let shell = app.focused_pane().unwrap();
     sent(&mut app);
 
@@ -254,7 +254,7 @@ fn armed_ctrl_runs_ctrl_shortcuts_like_a_held_ctrl() {
     let key = Event::Key { key: Key::E, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
     frame(&mut app, &ctx, &mut t, vec![key, Event::Text("e".into())]);
     wait(&mut app, &ctx, &mut t, 0.1);
-    assert!(!app.keyboard_button.ctrl_armed, "used up");
+    assert!(!app.chrome.keyboard_button.ctrl_armed, "used up");
     assert_eq!(app.panes.ids(PaneKind::Explorer).count(), 1, "Ctrl+E opened the file explorer");
     assert!(app.panes.terminal(shell).unwrap().written.lock().unwrap().is_empty(), "no ^E or e reached the shell");
 
@@ -267,7 +267,7 @@ fn armed_ctrl_runs_ctrl_shortcuts_like_a_held_ctrl() {
     tap(&mut app, &ctx, &mut t, c);
     frame(&mut app, &ctx, &mut t, vec![Event::Text("g".into())]);
     wait(&mut app, &ctx, &mut t, 0.1);
-    assert!(!app.keyboard_button.ctrl_armed, "used up");
+    assert!(!app.chrome.keyboard_button.ctrl_armed, "used up");
     assert_eq!(app.panes.ids(PaneKind::Diff).count(), 1, "Ctrl+G opened the Changes pane");
     assert!(app.panes.terminal(shell).unwrap().written.lock().unwrap().is_empty(), "no ^G or g reached the shell");
 }
@@ -276,13 +276,13 @@ fn armed_ctrl_runs_ctrl_shortcuts_like_a_held_ctrl() {
 fn a_double_tap_with_the_keyboard_down_brings_it_up() {
     let ctx = egui::Context::default();
     let mut app = phone(&ctx);
-    app.keyboard_button.hidden = true;
+    app.chrome.keyboard_button.hidden = true;
     let mut t = 0.0;
     assert!(!wait(&mut app, &ctx, &mut t, 0.1));
-    let c = app.keyboard_button.rect.unwrap().center();
+    let c = app.chrome.keyboard_button.rect.unwrap().center();
     tap(&mut app, &ctx, &mut t, c);
     tap(&mut app, &ctx, &mut t, c);
-    assert!(app.keyboard_button.ctrl_armed);
+    assert!(app.chrome.keyboard_button.ctrl_armed);
     assert!(wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05), "Ctrl needs a key to go with it");
 }
 
@@ -294,7 +294,7 @@ fn the_agents_tab_has_the_button_too() {
     wait(&mut app, &ctx, &mut t, 0.1);
     app.toggle_agents_tab();
     assert!(!wait(&mut app, &ctx, &mut t, 0.1), "the keyboard starts down on the Agents tab");
-    let rect = app.keyboard_button.rect.expect("the button is there");
+    let rect = app.chrome.keyboard_button.rect.expect("the button is there");
     assert!(tap_and_settle(&mut app, &ctx, &mut t, rect.center()), "a tap brings it up");
 
     // Back on the terminal, the keyboard is as it was there.
@@ -306,11 +306,11 @@ fn the_agents_tab_has_the_button_too() {
 fn no_button_without_an_on_screen_keyboard() {
     let ctx = egui::Context::default();
     let mut app = super::new_app(&ctx, crate::config::Config::default());
-    app.keyboard_button.hidden = true;
+    app.chrome.keyboard_button.hidden = true;
     let mut t = 0.0;
     frame(&mut app, &ctx, &mut t, vec![]);
     frame(&mut app, &ctx, &mut t, vec![]);
-    assert!(app.keyboard_button.rect.is_none());
+    assert!(app.chrome.keyboard_button.rect.is_none());
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn armed_ctrl_turns_the_close_button_into_a_pin() {
     let mut app = phone(&ctx);
     let mut t = 0.0;
     wait(&mut app, &ctx, &mut t, 0.1);
-    let c = app.keyboard_button.rect.unwrap().center();
+    let c = app.chrome.keyboard_button.rect.unwrap().center();
     let id = app.focused_pane().unwrap();
     let card = app.card_rects.iter().find(|(p, _)| *p == id).unwrap().1;
     // The header's first button (the ×), right to left.
@@ -327,14 +327,14 @@ fn armed_ctrl_turns_the_close_button_into_a_pin() {
 
     tap(&mut app, &ctx, &mut t, c);
     tap(&mut app, &ctx, &mut t, c);
-    assert!(app.keyboard_button.ctrl_armed);
+    assert!(app.chrome.keyboard_button.ctrl_armed);
     wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05);
 
     tap(&mut app, &ctx, &mut t, close);
     wait(&mut app, &ctx, &mut t, 0.1);
     assert!(app.is_sticky(id), "pinned, not closed");
     assert!(app.panes.is_terminal(id));
-    assert!(!app.keyboard_button.ctrl_armed, "used up");
+    assert!(!app.chrome.keyboard_button.ctrl_armed, "used up");
 
     // Without Ctrl, the pinned pane's button is the pin: a tap unpins it.
     tap(&mut app, &ctx, &mut t, close);

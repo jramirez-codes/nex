@@ -46,10 +46,10 @@ impl App {
         let (events, touching, pinching, now, velocity) =
             ctx.input(|i| (i.events.clone(), i.any_touches(), i.multi_touch().is_some(), i.time, i.pointer.velocity()));
         let busy = pinching
-            || self.pane_drag.is_some()
+            || self.input.pane_drag.is_some()
             || egui::DragAndDrop::has_any_payload(ctx)
             || ctx.memory(|m| m.top_modal_layer()).is_some();
-        if let Some(s) = self.tab_swipe.as_mut() {
+        if let Some(s) = self.input.tab_swipe.as_mut() {
             if busy || (s.phase == Phase::Pending && now - s.at >= LONG_PRESS) {
                 s.phase = Phase::Dead;
             }
@@ -57,11 +57,11 @@ impl App {
         for event in events {
             match event {
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, .. } => {
-                    self.tab_swipe = (touching && !busy && self.swipe_starts_at(ctx, pos))
+                    self.input.tab_swipe = (touching && !busy && self.swipe_starts_at(ctx, pos))
                         .then_some(TabSwipe { origin: pos, at: now, velocity: Vec2::ZERO, phase: Phase::Pending });
                 }
                 Event::PointerMoved(pos) => {
-                    let Some(s) = self.tab_swipe.as_mut() else { continue };
+                    let Some(s) = self.input.tab_swipe.as_mut() else { continue };
                     s.velocity = velocity;
                     let d = pos - s.origin;
                     if s.phase == Phase::Pending && d.length() > TOUCH_SLOP {
@@ -70,7 +70,7 @@ impl App {
                     }
                 }
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, .. } => {
-                    let Some(s) = self.tab_swipe.take() else { continue };
+                    let Some(s) = self.input.tab_swipe.take() else { continue };
                     if s.phase != Phase::Sideways {
                         continue;
                     }
@@ -90,7 +90,7 @@ impl App {
     /// A swipe may start at `pos`: on the body of a pane (not its header, which drags the
     /// pane), with nothing drawn over it.
     fn swipe_starts_at(&self, ctx: &egui::Context, pos: Pos2) -> bool {
-        if self.keyboard_button.rect.is_some_and(|r| r.contains(pos)) || egui::Popup::is_any_open(ctx) {
+        if self.chrome.keyboard_button.rect.is_some_and(|r| r.contains(pos)) || egui::Popup::is_any_open(ctx) {
             return false;
         }
         let header = if self.cfg.pane_headers { self.header_height() } else { 0.0 };

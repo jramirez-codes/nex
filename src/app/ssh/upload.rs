@@ -53,7 +53,7 @@ impl App {
             ClipboardFiles::Paths(paths) => self.start_upload(ctx, id, target, paths.clone(), paths, None),
             ClipboardFiles::Png(png) => match remote::save_png(&png) {
                 Ok(path) => self.start_upload(ctx, id, target, vec![path.clone()], Vec::new(), Some(path)),
-                Err(e) => self.toast = Some(Toast::long(ctx, format!("Couldn't save the image: {e}"))),
+                Err(e) => self.chrome.toast = Some(Toast::long(ctx, format!("Couldn't save the image: {e}"))),
             },
         }
     }
@@ -65,7 +65,7 @@ impl App {
             (false, 1) => "1 file".to_string(),
             (false, n) => format!("{n} files"),
         };
-        self.toast = Some(Toast::new(ctx, format!("Uploading {what} to {host}…")));
+        self.chrome.toast = Some(Toast::new(ctx, format!("Uploading {what} to {host}…")));
         let up = Upload { pane, host, fallback, temp };
         self.ssh.uploads.push("nex-upload", ctx.clone(), up, move || remote::upload(&target, &paths));
     }
@@ -85,7 +85,7 @@ impl App {
                     if let Some(t) = self.panes.terminal_mut(up.pane) {
                         t.paste(&format!("{} ", remote_paths.join(" ")));
                     }
-                    self.toast = Some(Toast::new(ctx, format!("Uploaded to {}", up.host)));
+                    self.chrome.toast = Some(Toast::new(ctx, format!("Uploaded to {}", up.host)));
                 }
                 Err(e) => {
                     self.upload_failed(ctx, &up.host, e);
@@ -111,7 +111,7 @@ impl App {
                 LoginHelp::None => format!("Couldn't upload: {host} needs a password, and the upload can't type one."),
             },
         };
-        self.toast = Some(Toast::long(ctx, msg));
+        self.chrome.toast = Some(Toast::long(ctx, msg));
     }
 
 }

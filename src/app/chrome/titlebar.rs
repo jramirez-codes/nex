@@ -20,6 +20,7 @@ use crate::ui::{dog, glide, icons, paint};
 use crate::app::App;
 use crate::app::actions::Action;
 use crate::app::workspace::pane_drag::{DropTarget, SPRING_DELAY};
+use crate::app::input::press::LONG_PRESS;
 use crate::app::animation::tab_close::{GLYPH, TabDrawn, TabGhost};
 
 const TAB_HEIGHT: f32 = 30.0;
@@ -32,9 +33,6 @@ const LABEL_WIDTH: f32 = 96.0;
 /// Tabs across the track when they keep one width and swipe ([`TabScroll`]): the half tab
 /// peeking out at the edge shows there are more.
 const SCROLL_TABS_ACROSS: f32 = 2.5;
-/// Holding a tab this long (seconds) before moving makes the drag reorder it instead of
-/// swiping the strip.
-const LONG_PRESS: f64 = 0.35;
 const TAB_HOVER: Color32 = white_alpha(10);
 const TAB_SEPARATOR: Color32 = white_alpha(24);
 
@@ -142,7 +140,7 @@ impl TabSlots {
 }
 
 /// The tab strip (title bar or sidebar) between frames: where each tab was drawn, the
-/// active-tab pill and closing tabs animating, and the Files tab's dog. Kept by `App` as `strip`.
+/// active-tab pill and closing tabs animating, and the Files tab's dog. Kept by `App` as `chrome.strip`.
 pub(in crate::app) struct TabStrip {
     /// Animated position of the active-tab highlight, in tab slots.
     pub(in crate::app) pill_glide: Glide,
@@ -262,7 +260,7 @@ impl App {
     /// tests), starting with the background drag area.
     pub(in crate::app) fn titlebar(&mut self, ui: &mut Ui, rect: Rect, theme: &Theme) {
         let ctx = ui.ctx().clone();
-        self.strip.strip_rect = Some(rect);
+        self.chrome.strip.strip_rect = Some(rect);
         let drag = ui.interact(rect, Id::new("titlebar"), Sense::click_and_drag());
         if drag.drag_started_by(PointerButton::Primary) {
             ctx.send_viewport_cmd(ViewportCommand::StartDrag);
@@ -287,7 +285,7 @@ impl App {
         // between them. While the active tab closes it folds into that tab's × and grows
         // back out onto the tab now showing.
         let target = slots.pill_rect(label_r);
-        let pill = match self.strip.tab_ghosts.iter().rev().find(|g| g.drawn.active) {
+        let pill = match self.chrome.strip.tab_ghosts.iter().rev().find(|g| g.drawn.active) {
             Some(g) => g.pill(now, target),
             None => target.map(|r| (r, 8.0)),
         };
@@ -318,14 +316,14 @@ impl App {
     /// Start closed tabs' animations on their first frame and drop finished ones.
     fn advance_tab_ghosts(&mut self, ctx: &egui::Context, now: f64) {
         if !glide::animations(ctx) {
-            self.strip.tab_ghosts.clear();
+            self.chrome.strip.tab_ghosts.clear();
             return;
         }
-        for g in &mut self.strip.tab_ghosts {
+        for g in &mut self.chrome.strip.tab_ghosts {
             g.start.get_or_insert(now);
         }
-        self.strip.tab_ghosts.retain(|g| !g.done(now));
-        if !self.strip.tab_ghosts.is_empty() {
+        self.chrome.strip.tab_ghosts.retain(|g| !g.done(now));
+        if !self.chrome.strip.tab_ghosts.is_empty() {
             ctx.request_repaint();
         }
     }
@@ -335,7 +333,7 @@ impl App {
     /// icon fade under the folding pill (painted already). The × itself goes last.
     fn paint_tab_ghosts(&self, ui: &Ui, now: f64, theme: &Theme) {
         let painter = ui.painter();
-        for g in &self.strip.tab_ghosts {
+        for g in &self.chrome.strip.tab_ghosts {
             let (f, d) = (g.frame(now), &g.drawn);
             if f.scale > 0.0 && (f.content > 0.0 || f.tint > 0.0) {
                 let start = painter.add(Shape::Noop);
@@ -349,7 +347,7 @@ impl App {
                     p.multiply_opacity(f.content);
                     icons::app_tile(&p, d.icon, &g.process, g.mark.as_deref(), None);
                     let color = if d.active { theme.text_bright } else { theme.text_dim };
-                    let right = if self.strip.scroll.on { d.rect.right() - 10.0 } else { d.close.left() - 2.0 };
+                    let right = if self.chrome.strip.scroll.on { d.rect.right() - 10.0 } else { d.close.left() - 2.0 };
                     let width = right - d.text_left;
                     paint::faded_text(&p, Pos2::new(d.text_left, d.rect.center().y), &g.title, FontId::proportional(13.5), color, width, 26.0);
                 }
@@ -372,7 +370,7 @@ impl App {
     /// directory name and hostname. Clicking it toggles the tab, and the glass pill glides
     /// onto it while the tab is showing.
     fn workspace_label(&mut self, ui: &Ui, label_r: Rect, theme: &Theme) {
-        self.strip.files_rect = Some(label_r);
+        self.chrome.strip.files_rect = Some(label_r);
         let painter = ui.painter();
         let (x, cy) = (label_r.left() + 7.0, label_r.center().y);
         let label = ui.interact(label_r, Id::new("workspace-label"), Sense::click());
@@ -435,12 +433,12 @@ impl App {
     pub(in crate::app) fn agents_badge(&mut self, ctx: &egui::Context, painter: &egui::Painter, center: Pos2, count: bool, theme: &Theme) {
         let shown = notify::badge(self.agent_tracker.counts(), self.home_active);
         if shown.is_some() {
-            self.strip.badge = shown;
+            self.chrome.strip.badge = shown;
         }
         let animate = glide::animations(ctx);
         let id = Id::new("agents-tab-badge");
         let t = if animate { ctx.animate_bool_with_time_and_easing(id, shown.is_some(), BADGE_FADE, glide::ease_out) } else { f32::from(u8::from(shown.is_some())) };
-        let Some(badge) = self.strip.badge.filter(|_| t > 0.0) else { return };
+        let Some(badge) = self.chrome.strip.badge.filter(|_| t > 0.0) else { return };
         // Needs you ↔ done cross-fades too: color and size.
         let urgent = matches!(badge, notify::Badge::NeedsYou(_));
         let u = if animate { ctx.animate_bool_with_time(id.with("urgent"), urgent, BADGE_FADE) } else { f32::from(u8::from(urgent)) };
@@ -471,26 +469,26 @@ impl App {
     pub(in crate::app) fn files_dog(&mut self, ctx: &egui::Context, painter: &egui::Painter, r: Rect, theme: &Theme) {
         let now = ctx.input(|i| i.time);
         let active = self.home_active;
-        self.strip.dog_rect = Some(r);
+        self.chrome.strip.dog_rect = Some(r);
         // The connect handoff's dog is on its way here: it paints the dog until it ends, and
         // the tile carries on from the same point of the blep.
         if let Some(h) = self.handoff.as_ref().filter(|h| h.elapsed(now) < crate::app::animation::handoff::END) {
-            self.strip.dog_wake = Some(h.dog_wake());
-            self.strip.dog_was_active = active;
+            self.chrome.strip.dog_wake = Some(h.dog_wake());
+            self.chrome.strip.dog_was_active = active;
             ctx.request_repaint();
             return;
         }
-        match self.strip.dog_wake {
-            None => self.strip.dog_wake = Some(now),
+        match self.chrome.strip.dog_wake {
+            None => self.chrome.strip.dog_wake = Some(now),
             // Switching to Files plays just the blep, unless the launch intro hasn't reached
             // it yet (it's on its way).
-            Some(start) if active && !self.strip.dog_was_active && now - start >= dog::BLEP_START as f64 => {
-                self.strip.dog_wake = Some(now - dog::BLEP_START as f64);
+            Some(start) if active && !self.chrome.strip.dog_was_active && now - start >= dog::BLEP_START as f64 => {
+                self.chrome.strip.dog_wake = Some(now - dog::BLEP_START as f64);
             }
             Some(_) => {}
         }
-        self.strip.dog_was_active = active;
-        let t = if glide::animations(ctx) { (now - self.strip.dog_wake.unwrap_or(now)) as f32 } else { dog::INTRO };
+        self.chrome.strip.dog_was_active = active;
+        let t = if glide::animations(ctx) { (now - self.chrome.strip.dog_wake.unwrap_or(now)) as f32 } else { dog::INTRO };
         if t < dog::INTRO {
             ctx.request_repaint();
         }
@@ -504,11 +502,11 @@ impl App {
     /// widen and the track narrows smoothly.
     fn horizontal_tab_slots(&mut self, ui: &Ui, x: f32, right: f32, cy: f32, now: f64) -> TabSlots {
         let gaps: Vec<(usize, f32)> =
-            self.strip.tab_ghosts.iter().map(|g| (g.index, g.frame(now).gap)).filter(|&(_, f)| f > 0.0).collect();
+            self.chrome.strip.tab_ghosts.iter().map(|g| (g.index, g.frame(now).gap)).filter(|&(_, f)| f > 0.0).collect();
         let held: f32 = gaps.iter().map(|&(_, f)| f).sum();
         let n = self.tabs.len();
         let avail = (right - x - 2.0 * TRACK_PAD).max(MIN_TAB_WIDTH);
-        if self.strip.scroll.on {
+        if self.chrome.strip.scroll.on {
             return self.scrolling_tab_slots(ui, x, cy, avail, held, gaps);
         }
         let width = (avail / (n as f32 + held).max(1.0)).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH);
@@ -530,7 +528,7 @@ impl App {
         let width = avail / SCROLL_TABS_ACROSS;
         let max = (width * (n as f32 + held) - avail).max(0.0);
         let active = (!self.home_active && self.active < n).then(|| (self.active, self.tabs[self.active].uid));
-        let offset = self.strip.scroll.advance(ui.ctx(), width, avail, max, n, active);
+        let offset = self.chrome.strip.scroll.advance(ui.ctx(), width, avail, max, n, active);
         let across = (n as f32 + held).clamp(1.0, SCROLL_TABS_ACROSS);
         let track = Rect::from_min_size(
             Pos2::new(x, cy - TAB_HEIGHT / 2.0 - TRACK_PAD),
@@ -552,13 +550,13 @@ impl App {
         let target = if self.home_active { Some(-1.0) } else { (self.active < shown).then_some(self.active as f32) };
         // While the active tab closes, the pill's path is the close animation's: be at the
         // new tab already when it hands back.
-        let folding = self.strip.tab_ghosts.iter().any(|g| g.drawn.active);
+        let folding = self.chrome.strip.tab_ghosts.iter().any(|g| g.drawn.active);
         let pill = target.map(|t| {
             if folding {
-                self.strip.pill_glide.snap(&ctx, t);
+                self.chrome.strip.pill_glide.snap(&ctx, t);
                 t
             } else {
-                self.strip.pill_glide.value(&ctx, t)
+                self.chrome.strip.pill_glide.value(&ctx, t)
             }
         });
         let origin = track.min + Vec2::splat(TRACK_PAD);
@@ -567,8 +565,8 @@ impl App {
 
     /// The terminal tabs, drawn into `slots` over the track and pill.
     pub(in crate::app) fn tab_strip(&mut self, ui: &Ui, slots: &TabSlots, theme: &Theme) {
-        self.strip.tab_rects.clear();
-        self.strip.tab_hits.clear();
+        self.chrome.strip.tab_rects.clear();
+        self.chrome.strip.tab_hits.clear();
         for i in 0..slots.shown {
             if self.tab_item(ui, slots, i, theme) {
                 break;
@@ -576,9 +574,9 @@ impl App {
         }
         // A pane dragged onto the strip's empty space: a dashed slot for its new tab, just
         // past the last one (or, with no room, around the whole track).
-        if self.pane_drag.as_ref().is_some_and(|d| d.over == Some(DropTarget::NewTab)) && slots.shown > 0 {
+        if self.input.pane_drag.as_ref().is_some_and(|d| d.over == Some(DropTarget::NewTab)) && slots.shown > 0 {
             let next = slots.rect(slots.shown as f32).shrink(1.0);
-            let r = match self.strip.strip_rect {
+            let r = match self.chrome.strip.strip_rect {
                 Some(strip) if strip.contains_rect(next) => next,
                 _ => slots.rect(0.0).union(slots.rect(slots.shown as f32 - 1.0)),
             };
@@ -588,7 +586,7 @@ impl App {
 
     /// Marks a tab a pane is dragged over: tinted, with a bar filling up until it opens.
     fn paint_tab_drop_hint(&self, ui: &Ui, uid: u64, r: Rect, theme: &Theme) {
-        let Some(d) = self.pane_drag.as_ref().filter(|d| d.over == Some(DropTarget::Tab(uid))) else { return };
+        let Some(d) = self.input.pane_drag.as_ref().filter(|d| d.over == Some(DropTarget::Tab(uid))) else { return };
         let painter = ui.painter();
         painter.rect_filled(r.shrink(1.0), 8, HOVER_STRONG);
         if let Some((_, since)) = d.hover.filter(|(u, _)| *u == uid) {
@@ -615,10 +613,10 @@ impl App {
         if scroll && resp.drag_started_by(PointerButton::Primary) {
             let now = ctx.input(|i| i.time);
             let held = ctx.input(|i| i.pointer.press_start_time()).is_some_and(|t| now - t >= LONG_PRESS);
-            self.strip.scroll.reordering = held;
-            self.strip.scroll.swiping = !held;
+            self.chrome.strip.scroll.reordering = held;
+            self.chrome.strip.scroll.swiping = !held;
         }
-        let reorders = !scroll || self.strip.scroll.reordering;
+        let reorders = !scroll || self.chrome.strip.scroll.reordering;
         if reorders
             && resp.dragged_by(PointerButton::Primary)
             && let Some(pos) = resp.interact_pointer_pos() {
@@ -634,7 +632,7 @@ impl App {
         if reorders && resp.drag_started_by(PointerButton::Primary) {
             self.show_tab(i);
         }
-        self.strip.tab_hits.push((uid, slots.clip.map_or(r, |c| r.intersect(c))));
+        self.chrome.strip.tab_hits.push((uid, slots.clip.map_or(r, |c| r.intersect(c))));
         let active = i == self.active && !self.home_active;
         let hovered = resp.hovered();
         if !active && hovered {
@@ -688,11 +686,11 @@ impl App {
         let close_r = Rect::from_center_size(Pos2::new(r.right() - 15.0, r.center().y), Vec2::splat(18.0));
         // Phones have no hover (a tap counts as one), so no ×: tabs close from the pane
         // header's × instead, and the title gets the whole tab.
-        let closable = !self.strip.scroll.on;
+        let closable = !self.chrome.strip.scroll.on;
         let text_right = if closable && hovered { close_r.left() - 2.0 } else { r.right() - 10.0 };
         let title_color = if active { theme.text_bright } else { theme.text_dim };
         paint::faded_text(painter, Pos2::new(text_left, r.center().y), title, FontId::proportional(13.5), title_color, text_right - text_left, 26.0);
-        self.strip.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
+        self.chrome.strip.tab_rects.insert(uid, TabDrawn { rect: r, close: close_r, icon, text_left, active });
 
         if self.tab_needs_attention(i) {
             paint_attention(&ctx, painter, icon.left_top() + Vec2::splat(1.0), self.cfg.attention_color(), theme, self.cfg.animations);

@@ -267,9 +267,9 @@ impl App {
             None if self.connect.active => {
                 // On the host the window is connected to: a pane attached to the session,
                 // which closing only detaches.
-                self.attach_next = Some(session);
+                self.launch.attach_next = Some(session);
                 self.new_tab(ctx, None, None);
-                self.attach_next = None;
+                self.launch.attach_next = None;
                 self.track_agents();
             }
             None => {
@@ -294,9 +294,9 @@ impl App {
         let opened_tabs = self.tabs.len();
         match &lead_agent.source {
             Source::Remote { session, .. } if self.connect.active => {
-                self.launch_next = Some(vec!["sh".into(), "-c".into(), crate::remote::subagent_script(session, id)]);
+                self.launch.launch_next = Some(vec!["sh".into(), "-c".into(), crate::remote::subagent_script(session, id)]);
                 self.new_tab(ctx, None, None);
-                self.launch_next = None;
+                self.launch.launch_next = None;
             }
             Source::Remote { target, session, .. } => {
                 self.new_tab(ctx, None, Some(target.subagent_command(session, id)));

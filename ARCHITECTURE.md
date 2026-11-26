@@ -22,12 +22,16 @@ src/
 │                     dropped) and `Jobs` (many at once), each repainting when done
 ├── session/          the saved window layout (session.json): its format, saving and loading,
 │                     the single-writer lock
-├── app/              the application: state and frame loop (mod.rs), plus
+├── app/              the application: state and frame loop (mod.rs; `App` keeps its state
+│                     in groups, each in the module that owns it: `InputState` in input/,
+│                     `Chrome` in chrome/, `LaunchState` in launch.rs), plus
 │   ├── actions.rs        the actions and carrying them out
 │   ├── reload.rs         live config reload
 │   ├── restore.rs        saving the window into a session and restoring one at launch
 │   ├── connect.rs        the connect screen, where panes can't run local shells (Android)
-│   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
+│   ├── launch.rs         one-shot state from the command line for the first panes
+│   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom, and the
+│   │                     press/hold timings the touch controls share (press.rs)
 │   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
 │   ├── workspace/        tabs, splits, opening and closing panes, the pane store (panes.rs),
 │   │                     drawing panes, pane drag, the sticky pane, keeping Agents panes up

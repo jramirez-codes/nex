@@ -232,7 +232,7 @@ impl App {
     /// A pane dragged here from another tab, held at `card`. Its terminal keeps the size of
     /// its slot back home, and it takes no part in this tab's hit-testing.
     fn visiting_pane(&mut self, ui: &mut Ui, id: PaneId, card: Rect, mini: bool, theme: &Theme, blink_on: bool) {
-        let Some(slot) = self.pane_drag.as_ref().map(|d| d.slot) else { return };
+        let Some(slot) = self.input.pane_drag.as_ref().map(|d| d.slot) else { return };
         let pane = PaneView {
             id,
             card,
@@ -254,7 +254,7 @@ impl App {
     /// Where tab `uid` is in the strip (its tab, or the Files label), brought onto the
     /// nearest edge of the pane area: where the ink drops when it is shown.
     fn drop_origin(&self, uid: u64, area: Rect) -> Pos2 {
-        let at = if self.home_active { self.strip.files_rect } else { self.strip.tab_rects.get(&uid).map(|d| d.rect) };
+        let at = if self.home_active { self.chrome.strip.files_rect } else { self.chrome.strip.tab_rects.get(&uid).map(|d| d.rect) };
         at.map_or(area.center_top(), |r| area.clamp(r.center()))
     }
 
@@ -348,7 +348,7 @@ impl App {
         let (search, offset, selection, blinking) = {
             let mut term = t.term.lock();
             // Keep search results in sync with the terminal contents.
-            let search = self.search.as_mut().filter(|s| s.pane == id).map(|s| {
+            let search = self.input.search.as_mut().filter(|s| s.pane == id).map(|s| {
                 if let Some(p) = s.refresh(&term, t.generation) {
                     term.scroll_to_point(p);
                 }
@@ -358,7 +358,7 @@ impl App {
             let selection = term.selection.as_ref().and_then(|s| s.to_range(&term));
             (search, term.grid().display_offset(), selection, term.cursor_style().blinking)
         };
-        let link = self.hover_link.as_ref().filter(|(pid, _)| *pid == id).map(|(_, l)| &l.range);
+        let link = self.input.hover_link.as_ref().filter(|(pid, _)| *pid == id).map(|(_, l)| &l.range);
         let window_focused = ctx.input(|i| i.focused);
         // What blinks: the focused pane's cursor, if its style says so, and the search field's
         // caret, both only in a focused window. Whatever doesn't blink is shown steadily, as
@@ -520,7 +520,7 @@ impl App {
         // the pinned pane that slot is the pin (click to unpin, back to the ×), and Shift
         // brings the × back to close it. On Android, Ctrl armed with the keyboard button (no
         // Shift to hold there) does the same for the focused pane, and the tap uses it up.
-        let armed = pane.focused && self.keyboard_button.ctrl_armed;
+        let armed = pane.focused && self.chrome.keyboard_button.ctrl_armed;
         let shift = ui.input(|i| i.modifiers.shift) || armed;
         // The pinned pane's pin shows even when its other buttons are hidden.
         let shown = if show_buttons { 4 } else if pinned { 1 } else { 0 };
@@ -555,7 +555,7 @@ impl App {
                     .show(ui, painter, draw)
                 {
                     if i == 0 && armed {
-                        self.keyboard_button.ctrl_armed = false;
+                        self.chrome.keyboard_button.ctrl_armed = false;
                     }
                     self.pending.push(action);
                 }

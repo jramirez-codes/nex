@@ -93,7 +93,7 @@ impl App {
 
     /// Use up a Ctrl armed with the keyboard button, if one is. Returns whether one was.
     fn take_armed_ctrl(&mut self) -> bool {
-        if !std::mem::take(&mut self.keyboard_button.ctrl_armed) {
+        if !std::mem::take(&mut self.chrome.keyboard_button.ctrl_armed) {
             return false;
         }
         platform::haptic(platform::Haptic::Release);
@@ -106,7 +106,7 @@ impl App {
     /// returned to type as usual (`None` when nothing is left). Without an armed Ctrl, `text`
     /// is returned as it is.
     fn armed_ctrl_text(&mut self, text: &str) -> Option<String> {
-        if !self.keyboard_button.ctrl_armed {
+        if !self.chrome.keyboard_button.ctrl_armed {
             return (!text.is_empty()).then(|| text.to_owned());
         }
         let mut chars = text.chars();
@@ -139,7 +139,7 @@ impl App {
     /// plain Ctrl+V still reaches the program as `^V` (Claude Code reads the image itself).
     fn on_textless_paste(&mut self, ctx: &egui::Context, shift: bool) {
         let Some(id) = self.focused_pane().filter(|&id| self.panes.is_terminal(id)) else { return };
-        if self.search.is_some() {
+        if self.input.search.is_some() {
             return;
         }
         if self.upload_pasted_files(ctx, id) {
@@ -181,7 +181,7 @@ impl App {
     /// A key press goes to the first taker: a shortcut, a file explorer, the search field, or
     /// the shell. Returns whether it ran a shortcut.
     fn on_key(&mut self, key: Key, modifiers: Modifiers) -> bool {
-        if key == Key::Escape && self.pane_drag.is_some() {
+        if key == Key::Escape && self.input.pane_drag.is_some() {
             self.pending.push(Action::CancelPaneDrag);
             return true;
         }
@@ -196,7 +196,7 @@ impl App {
     /// A key for the focused pane (no shortcut lookup): its own keys for an Agents, Changes or
     /// file explorer pane, the search field while it's open, else the shell.
     pub(in crate::app) fn key_to_pane(&mut self, key: Key, modifiers: Modifiers) {
-        let searching = self.search.is_some();
+        let searching = self.input.search.is_some();
         match self.focused_pane().and_then(|id| self.panes.get_mut(id)) {
             Some(Pane::Agents(a)) => {
                 a.key(key, modifiers);
@@ -221,9 +221,9 @@ impl App {
     /// Keys while the search field is open.
     fn search_key(&mut self, key: Key, modifiers: Modifiers) {
         match key {
-            Key::Escape => self.search = None,
+            Key::Escape => self.input.search = None,
             Key::Backspace => {
-                if let Some(s) = self.search.as_mut() {
+                if let Some(s) = self.input.search.as_mut() {
                     s.query.pop();
                 }
             }
@@ -236,7 +236,7 @@ impl App {
 
     /// Move to the next search match (older if `up`) and scroll it into view.
     fn search_step(&mut self, up: bool) {
-        let Some(s) = self.search.as_mut() else { return };
+        let Some(s) = self.input.search.as_mut() else { return };
         if let Some(p) = s.step(up)
             && let Some(t) = self.panes.terminal(s.pane) {
                 t.term.lock().scroll_to_point(p);
@@ -254,7 +254,7 @@ impl App {
             b.text(text);
             return;
         }
-        if let Some(s) = self.search.as_mut() {
+        if let Some(s) = self.input.search.as_mut() {
             s.query.push_str(text);
             return;
         }
@@ -305,7 +305,7 @@ impl App {
             }
             return;
         }
-        if let (Event::Paste(text), Some(s)) = (&event, self.search.as_mut()) {
+        if let (Event::Paste(text), Some(s)) = (&event, self.input.search.as_mut()) {
             s.query.push_str(text.lines().next().unwrap_or_default());
             return;
         }

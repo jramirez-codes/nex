@@ -258,7 +258,7 @@ impl App {
                         w.set_shim(true);
                     }
                     let msg = format!("claude and codex on {} now keep running after their pane closes", target.host());
-                    self.toast = Some(Toast::long(ctx, msg));
+                    self.chrome.toast = Some(Toast::long(ctx, msg));
                 }
                 Done::Shim(target, Err(e)) => {
                     let title = format!("Couldn't set it up on {}", target.host());

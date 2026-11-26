@@ -40,7 +40,7 @@ impl App {
 
     /// The size pane `id` is drawn at: its own size, scaled up while it is zoomed.
     pub(in crate::app) fn render_font(&self, id: PaneId) -> f32 {
-        match self.zoom_font {
+        match self.input.zoom_font {
             Some((z, size)) if z == id => size,
             _ => self.pane_font(id),
         }
@@ -49,8 +49,8 @@ impl App {
     /// Set the zoomed pane's font: its own size scaled by `scale` (in half points, so resizing
     /// the window doesn't build a glyph atlas per frame), or `None` when nothing is zoomed.
     pub(in crate::app) fn set_zoom_font(&mut self, ctx: &egui::Context, zoom: Option<(PaneId, f32)>) {
-        self.zoom_font = zoom.map(|(id, scale)| (id, ((self.pane_font(id) * scale * 2.0).round() / 2.0).clamp(FONT_MIN, FONT_MAX)));
-        if let Some((_, size)) = self.zoom_font
+        self.input.zoom_font = zoom.map(|(id, scale)| (id, ((self.pane_font(id) * scale * 2.0).round() / 2.0).clamp(FONT_MIN, FONT_MAX)));
+        if let Some((_, size)) = self.input.zoom_font
             && !self.metrics.contains_key(&size.to_bits())
         {
             let m = self.compute_metrics(ctx, size);
@@ -102,7 +102,7 @@ impl App {
     pub(in crate::app) fn update_metrics(&mut self, ctx: &egui::Context) {
         let mut sizes: Vec<f32> = self.pane_fonts.values().copied().collect();
         sizes.push(self.cfg.font_size);
-        sizes.extend(self.zoom_font.map(|(_, s)| s));
+        sizes.extend(self.input.zoom_font.map(|(_, s)| s));
         self.metrics.clear();
         for s in sizes {
             if !self.metrics.contains_key(&s.to_bits()) {
