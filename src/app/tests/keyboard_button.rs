@@ -298,18 +298,73 @@ fn armed_ctrl_runs_ctrl_shortcuts_like_a_held_ctrl() {
     assert!(app.panes.terminal(shell).unwrap().written.lock().unwrap().is_empty(), "no ^G or g reached the shell");
 }
 
+/// A double-tap at `pos`, frame by frame; whether any of its frames asked for the keyboard,
+/// and whether all of them did.
+fn double_tap(app: &mut App, ctx: &egui::Context, t: &mut f64, pos: Pos2) -> (bool, bool) {
+    let frames = [
+        frame(app, ctx, t, vec![Event::PointerMoved(pos), press(pos, true)]),
+        frame(app, ctx, t, vec![press(pos, false), Event::PointerGone]),
+        frame(app, ctx, t, vec![]),
+        frame(app, ctx, t, vec![Event::PointerMoved(pos), press(pos, true)]),
+        frame(app, ctx, t, vec![press(pos, false), Event::PointerGone]),
+    ];
+    (frames.contains(&true), !frames.contains(&false))
+}
+
 #[test]
-fn a_double_tap_with_the_keyboard_down_brings_it_up() {
+fn a_double_tap_with_the_keyboard_down_leaves_it_down() {
     let ctx = egui::Context::default();
     let mut app = phone(&ctx);
     app.chrome.keyboard_button.hidden = true;
     let mut t = 0.0;
     assert!(!wait(&mut app, &ctx, &mut t, 0.1));
     let c = app.chrome.keyboard_button.rect.unwrap().center();
-    tap(&mut app, &ctx, &mut t, c);
-    tap(&mut app, &ctx, &mut t, c);
+    let (any, _) = double_tap(&mut app, &ctx, &mut t, c);
+    assert!(!any, "no frame of the double-tap brings the keyboard up");
     assert!(app.chrome.keyboard_button.ctrl_armed);
-    assert!(wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05), "Ctrl needs a key to go with it");
+    assert!(!wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05), "nor after it: the first tap didn't act");
+    assert!(app.chrome.keyboard_button.hidden);
+
+    // Armed with the keyboard down, Ctrl goes with the joystick's arrow.
+    sent(&mut app);
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c), press(c, true)]);
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c + Vec2::new(-40.0, 0.0))]);
+    wait(&mut app, &ctx, &mut t, SETTLE + 0.05);
+    frame(&mut app, &ctx, &mut t, vec![press(c, false), Event::PointerGone]);
+    assert_eq!(sent(&mut app), b"\x1b[1;5D", "Ctrl+Left");
+    assert!(!app.chrome.keyboard_button.ctrl_armed, "used up");
+    assert!(!wait(&mut app, &ctx, &mut t, 0.3), "the keyboard is still down");
+
+    // Disarming with a second double-tap doesn't bring it up either.
+    double_tap(&mut app, &ctx, &mut t, c);
+    assert!(app.chrome.keyboard_button.ctrl_armed);
+    wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05);
+    let (any, _) = double_tap(&mut app, &ctx, &mut t, c);
+    assert!(!any && !app.chrome.keyboard_button.ctrl_armed);
+    assert!(!wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05));
+
+    // A single tap still brings it up, and Ctrl armed before stays armed for the key.
+    double_tap(&mut app, &ctx, &mut t, c);
+    wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05);
+    assert!(tap_and_settle(&mut app, &ctx, &mut t, c), "a tap brings it up");
+    assert!(app.chrome.keyboard_button.ctrl_armed);
+    sent(&mut app);
+    frame(&mut app, &ctx, &mut t, vec![Event::Text("c".into())]);
+    assert_eq!(sent(&mut app), [0x03]);
+}
+
+#[test]
+fn a_double_tap_with_the_keyboard_up_leaves_it_up() {
+    let ctx = egui::Context::default();
+    let mut app = phone(&ctx);
+    let mut t = 0.0;
+    assert!(wait(&mut app, &ctx, &mut t, 0.1));
+    let c = app.chrome.keyboard_button.rect.unwrap().center();
+    let (_, all) = double_tap(&mut app, &ctx, &mut t, c);
+    assert!(all, "no frame of the double-tap puts the keyboard away");
+    assert!(app.chrome.keyboard_button.ctrl_armed);
+    assert!(wait(&mut app, &ctx, &mut t, DOUBLE_TAP + 0.05), "nor after it");
+    assert!(!app.chrome.keyboard_button.hidden);
 }
 
 #[test]

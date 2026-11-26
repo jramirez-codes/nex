@@ -52,6 +52,9 @@ All notable changes to nex are documented here. The format follows
 
 ### Fixed
 
+- Android and iPhone: double-tapping the keyboard button to arm Ctrl no longer brings the
+  on-screen keyboard up (or puts it away): it only arms or disarms Ctrl. A single tap still
+  opens and closes the keyboard.
 - Android and iPhone: tapping the keyboard button on the Agents tab no longer also opens the
   agent whose card is under it. Its taps, drags and holds are the button's alone; the card
   still opens when tapped anywhere else.
