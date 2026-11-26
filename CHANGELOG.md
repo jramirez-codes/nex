@@ -6,6 +6,8 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-26
+
 ### Added
 
 - Pin several panes at once. Pinning a pane (`Ctrl+Shift+P`, or Shift + the header's ×) no
@@ -13,7 +15,6 @@ All notable changes to nex are documented here. The format follows
   with its own place and size there, and glides to it on a tab switch. Unpinning or closing
   one leaves the others pinned, and all of them come back after a restart. Sessions saved
   with one pinned pane open as before.
-
 - Agents pane: press and hold a card or an open team's helper row to read a task or folder
   that's cut off. While the finger stays down, each line too long for its card scrolls along
   to its end and back; lifting it snaps the line back, without opening the agent or
@@ -951,7 +952,8 @@ The first public release of nex, the nex-gen terminal.
 - Ghostty-style config file at `~/.config/nex/config`, with live reload.
 - Release builds for x86_64 and aarch64 Linux, as a tarball and a `.deb`.
 
-[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/jramirez-codes/nex/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/jramirez-codes/nex/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/jramirez-codes/nex/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/jramirez-codes/nex/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/jramirez-codes/nex/compare/v0.14.0...v0.14.1
