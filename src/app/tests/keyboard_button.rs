@@ -1,7 +1,7 @@
 //! The floating keyboard button (mobile: Android and iOS): a tap toggles the keyboard, a drag
 //! is a joystick for the arrow keys (each sent once the finger settles on it, or as a quick
 //! flick lifts), spinning it round is Esc with no arrows, a double-tap arms Ctrl for the next
-//! key; none of it reaches the terminal underneath.
+//! key; none of it reaches the terminal underneath, or an Agents card under it.
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
@@ -367,4 +367,62 @@ fn armed_ctrl_turns_the_close_button_into_a_pin() {
     wait(&mut app, &ctx, &mut t, 0.1);
     assert!(!app.is_sticky(id));
     assert!(app.panes.is_terminal(id));
+}
+
+#[test]
+fn a_tap_on_the_button_over_an_agents_card_is_the_buttons_not_the_cards() {
+    use std::time::{Duration, Instant};
+
+    use crate::agents::model::{AgentKind, Probe, Source};
+
+    let ctx = egui::Context::default();
+    let mut app = phone(&ctx);
+    let mut t = 0.0;
+    wait(&mut app, &ctx, &mut t, 0.1);
+    app.toggle_agents_tab();
+    // Enough agents that the cards run down past the button.
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    let now = Instant::now();
+    let probes = (0..16)
+        .map(|i| Probe {
+            pane: 1000 + i,
+            tab: None,
+            kind: AgentKind::CLAUDE,
+            title: format!("Agent {i}"),
+            mark: None,
+            cwd: None,
+            session_name: None,
+            session_status: Some("busy".into()),
+            attention: false,
+            last_output: now - Duration::from_secs(30),
+            last_input: now - Duration::from_secs(30),
+            source: Source::Local,
+            reported: None,
+            team: Default::default(),
+        })
+        .collect();
+    app.agent_tracker.update(probes, now);
+    wait(&mut app, &ctx, &mut t, 0.5);
+    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.panes.agents(*p).is_some()).unwrap();
+    let rect = app.chrome.keyboard_button.rect.expect("the button is there");
+    let before = app.panes.agents(id).unwrap().selected;
+    assert!(app.panes.agents(id).unwrap().highlighted().is_some());
+
+    // The button's tap brings the keyboard up; the card under it isn't opened.
+    assert!(tap_and_settle(&mut app, &ctx, &mut t, rect.center()), "a tap brings the keyboard up");
+    let agents = app.panes.agents(id).unwrap();
+    assert_eq!(agents.selected, before, "no card was jumped to");
+    assert!(agents.highlighted().is_some(), "no card was jumped to");
+    // Nor is it by a drag (the joystick) or a hold.
+    let c = rect.center();
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c), press(c, true)]);
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c + Vec2::new(-30.0, 0.0))]);
+    wait(&mut app, &ctx, &mut t, 0.3);
+    frame(&mut app, &ctx, &mut t, vec![press(c + Vec2::new(-30.0, 0.0), false), Event::PointerGone]);
+    wait(&mut app, &ctx, &mut t, 0.1);
+    assert!(app.panes.agents(id).unwrap().highlighted().is_some(), "no card was jumped to");
+
+    // The same card, tapped away from the button, opens.
+    tap_and_settle(&mut app, &ctx, &mut t, Pos2::new(60.0, c.y));
+    assert!(app.panes.agents(id).unwrap().highlighted().is_none(), "the card was jumped to");
 }
