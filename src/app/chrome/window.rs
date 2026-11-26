@@ -86,7 +86,7 @@ impl App {
             dnd.focus_window();
         }
         self.pending.push(Action::FocusPane(id));
-        if let Some(b) = self.explorers.get_mut(&id) {
+        if let Some(b) = self.panes.explorer_mut(id) {
             // A move, as within the window, unless the source only allows a copy or Ctrl is held.
             let moves = self.dnd.as_ref().is_some_and(|d| d.drop_moves()) && !ctx.input(|i| crate::platform::SHORTCUTS.copy_drag(&i.modifiers));
             let op = if moves { file_explorer::Op::Move } else { file_explorer::Op::Copy };
@@ -100,12 +100,12 @@ impl App {
 
     /// The terminal pane whose card is under `pos`, with the card's rect.
     fn terminal_card_at(&self, pos: egui::Pos2) -> Option<(PaneId, Rect)> {
-        self.card_rects.iter().find(|(id, r)| r.contains(pos) && self.panes.contains_key(id)).copied()
+        self.card_rects.iter().find(|(id, r)| r.contains(pos) && self.panes.is_terminal(*id)).copied()
     }
 
     /// Type shell-quoted paths into a terminal, as if pasted.
     pub(in crate::app) fn insert_paths(&mut self, id: PaneId, paths: &[PathBuf]) {
-        if let Some(t) = self.panes.get_mut(&id) {
+        if let Some(t) = self.panes.terminal_mut(id) {
             let text = paths.iter().map(|p| crate::platform::shell_quote(p)).collect::<Vec<_>>().join(" ");
             t.paste(&format!("{text} "));
         }

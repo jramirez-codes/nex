@@ -143,7 +143,7 @@ impl App {
         self.mouse.touch = None;
         self.mouse.fling = None;
         let Some((id, _)) = self.mouse.capture.take() else { return };
-        let Some(t) = self.panes.get_mut(&id) else { return };
+        let Some(t) = self.panes.terminal_mut(id) else { return };
         if let Some(btn) = self.mouse.reporting.take() {
             let mode = *t.term.lock().mode();
             let (col, line) = self.mouse.last_cell;
@@ -184,7 +184,7 @@ impl App {
                 }
         self.pending.push(Action::FocusPane(id));
         let m = self.pane_metrics(id);
-        let Some(t) = self.panes.get_mut(&id) else { return };
+        let Some(t) = self.panes.terminal_mut(id) else { return };
         let mode = *t.term.lock().mode();
         let (point, side, col, line) = render::point_at(pos, rect, m, t);
         self.mouse.capture = Some((id, rect));
@@ -241,7 +241,7 @@ impl App {
         // Plain motion reporting (no button held), e.g. for hover effects in TUIs.
         let Some((id, rect)) = self.terminal_at(pos) else { return };
         let m = self.pane_metrics(id);
-        let Some(t) = self.panes.get_mut(&id) else { return };
+        let Some(t) = self.panes.terminal_mut(id) else { return };
         let mode = *t.term.lock().mode();
         if !mode.contains(TermMode::MOUSE_MOTION) {
             return;
@@ -259,7 +259,7 @@ impl App {
     /// Motion with a button held in pane `id`.
     fn on_drag(&mut self, ctx: &egui::Context, id: PaneId, rect: Rect, pos: Pos2) {
         let m = self.pane_metrics(id);
-        let Some(t) = self.panes.get_mut(&id) else { return };
+        let Some(t) = self.panes.terminal_mut(id) else { return };
         let (point, side, col, line) = render::point_at(pos, rect, m, t);
         let cell_changed = (col, line) != self.mouse.last_cell;
         self.mouse.last_cell = (col, line);
@@ -298,7 +298,7 @@ impl App {
             }
         let Some((id, rect)) = self.mouse.capture.take() else { return };
         let m = self.pane_metrics(id);
-        let Some(t) = self.panes.get_mut(&id) else { return };
+        let Some(t) = self.panes.terminal_mut(id) else { return };
         if let Some(btn) = self.mouse.reporting.take() {
             let mode = *t.term.lock().mode();
             let (_, _, col, line) = render::point_at(pos, rect, m, t);
@@ -322,7 +322,7 @@ impl App {
     fn on_wheel(&mut self, pos: Pos2, unit: MouseWheelUnit, delta: Vec2, modifiers: Modifiers) {
         let Some((id, rect)) = self.terminal_at(pos) else { return };
         let m = self.pane_metrics(id);
-        let Some(t) = self.panes.get(&id) else { return };
+        let Some(t) = self.panes.terminal(id) else { return };
         let lines_f = match unit {
             MouseWheelUnit::Point => delta.y / m.height,
             MouseWheelUnit::Line => delta.y * 3.0,
@@ -337,7 +337,7 @@ impl App {
     /// was already at its end (or the pane is gone).
     fn scroll_pane(&mut self, id: PaneId, rect: Rect, pos: Pos2, lines_f: f32, modifiers: Modifiers) -> bool {
         let m = self.pane_metrics(id);
-        let Some(t) = self.panes.get_mut(&id) else { return false };
+        let Some(t) = self.panes.terminal_mut(id) else { return false };
         // Keep the fractional part so slow trackpad scrolls still add up to lines.
         t.scroll_accum += lines_f;
         let lines = t.scroll_accum.trunc() as i32;
@@ -402,7 +402,7 @@ impl App {
     /// a mouse drag does.
     fn start_touch_selection(&mut self, id: PaneId, rect: Rect, pos: Pos2) {
         let m = self.pane_metrics(id);
-        let Some(t) = self.panes.get_mut(&id) else { return };
+        let Some(t) = self.panes.terminal_mut(id) else { return };
         let (point, side, col, line) = render::point_at(pos, rect, m, t);
         t.term.lock().selection = Some(Selection::new(SelectionType::Semantic, point, side));
         self.mouse.capture = Some((id, rect));
@@ -440,7 +440,7 @@ impl App {
         match press.gesture {
             TouchGesture::Pending => {
                 let m = self.pane_metrics(press.id);
-                let Some(t) = self.panes.get_mut(&press.id) else { return };
+                let Some(t) = self.panes.terminal_mut(press.id) else { return };
                 let mode = *t.term.lock().mode();
                 if mode.intersects(TermMode::MOUSE_MODE) {
                     let (_, _, col, line) = render::point_at(press.origin, press.rect, m, t);
@@ -473,7 +473,7 @@ impl App {
         if let (true, Some(pos), None) = (ctrl, hover, self.mouse.capture)
             && let Some((id, rect)) = self.terminal_at(pos) {
                 let m = self.pane_metrics(id);
-                if let Some(t) = self.panes.get(&id) {
+                if let Some(t) = self.panes.terminal(id) {
                     let (point, ..) = render::point_at(pos, rect, m, t);
                     let term = t.term.lock();
                     self.hover_link = self.links.link_at(&term, point).map(|l| (id, l));
@@ -493,7 +493,7 @@ impl App {
             return;
         }
         let Some((id, _)) = hover.and_then(|pos| self.terminal_at(pos)) else { return };
-        let mouse_mode = self.panes.get(&id).is_some_and(|t| t.term.lock().mode().intersects(TermMode::MOUSE_MODE));
+        let mouse_mode = self.panes.terminal(id).is_some_and(|t| t.term.lock().mode().intersects(TermMode::MOUSE_MODE));
         if !mouse_mode {
             ctx.set_cursor_icon(CursorIcon::Text);
         }

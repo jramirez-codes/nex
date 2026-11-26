@@ -35,14 +35,14 @@ fn ctrl_g_toggles_a_changes_pane_that_draws_and_restores() {
     run(&mut app, &ctx, 1400.0);
     let shell = app.focused_pane().unwrap();
     app.split_diff(&ctx, shell, crate::layout::Axis::Horizontal);
-    let id = *app.diffs.keys().next().unwrap();
+    let id = app.panes.ids(PaneKind::Diff).next().unwrap();
     assert_eq!(app.focused_pane(), Some(id));
     // Point it at the repository (the shell's own cwd is wherever the tests run).
-    app.diffs.get_mut(&id).unwrap().follow(None, dir.clone());
+    app.panes.diff_mut(id).unwrap().follow(None, dir.clone());
 
     // Draw until git has answered, wide (list beside diff) and narrow (one at a time).
     let deadline = Instant::now() + Duration::from_secs(10);
-    while app.diffs[&id].loading() && Instant::now() < deadline {
+    while app.panes.diff(id).unwrap().loading() && Instant::now() < deadline {
         run(&mut app, &ctx, 1400.0);
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -52,7 +52,7 @@ fn ctrl_g_toggles_a_changes_pane_that_draws_and_restores() {
         }
     }
     assert!(app.pane_label(id).0.ends_with("Changes"), "{}", app.pane_label(id).0);
-    let d = app.diffs.get_mut(&id).unwrap();
+    let d = app.panes.diff_mut(id).unwrap();
     assert_eq!(d.copy_text().as_deref(), Some("lib.rs"), "the staged file comes first");
     assert!(d.key(egui::Key::ArrowDown, egui::Modifiers::NONE));
     for _ in 0..3 {
@@ -66,12 +66,12 @@ fn ctrl_g_toggles_a_changes_pane_that_draws_and_restores() {
     // Ctrl+G again closes it, and focus goes back to the shell.
     app.pending.push(Action::ToggleGitDiff);
     run(&mut app, &ctx, 1400.0);
-    assert!(app.diffs.is_empty());
+    assert!(!app.panes.has(PaneKind::Diff));
     assert_eq!(app.focused_pane(), Some(shell));
     // And once more opens it.
     app.pending.push(Action::ToggleGitDiff);
     run(&mut app, &ctx, 1400.0);
-    assert_eq!(app.diffs.len(), 1);
+    assert_eq!(app.panes.ids(PaneKind::Diff).count(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -86,7 +86,7 @@ fn a_changes_pane_zooms_within_the_font_limits() {
     let shell = app.focused_pane().unwrap();
     app.split_diff(&ctx, shell, crate::layout::Axis::Horizontal);
     let id = app.focused_pane().unwrap();
-    assert!(app.diffs.contains_key(&id));
+    assert!(app.panes.diff(id).is_some());
     let base = app.cfg.font_size;
 
     app.apply(&ctx, Action::FontBigger);

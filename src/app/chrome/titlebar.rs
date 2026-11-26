@@ -1,5 +1,6 @@
 //! The title bar: window buttons, the workspace (Files) label and the tab strip.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -18,7 +19,6 @@ use crate::ui::{dog, glide, icons, paint};
 
 use crate::app::App;
 use crate::app::actions::Action;
-use crate::app::workspace::PaneRef;
 use crate::app::workspace::pane_drag::{DropTarget, SPRING_DELAY};
 use crate::app::animation::tab_close::{GLYPH, TabDrawn, TabGhost};
 
@@ -716,14 +716,14 @@ impl App {
     /// The app tile pane `id` shows in its tab's icon deck: its process, title mark and
     /// animation phase (see [`Self::pane_tile`]).
     fn deck_card(&self, ctx: &egui::Context, id: PaneId) -> Tile<'_> {
-        let label = match self.pane(id) {
-            Some(PaneRef::Terminal(t)) => (&*t.process, icons::title_mark(&t.process, t.title()).0),
-            Some(PaneRef::Explorer(_)) => (icons::EXPLORER_PROCESS, None),
-            Some(PaneRef::Diff(_)) => (icons::DIFF_PROCESS, None),
-            Some(PaneRef::Agents(_)) => (icons::AGENTS_PROCESS, None),
-            None => Default::default(),
+        let (title, process) = self.pane_label(id);
+        // Only a terminal's title is borrowed, and only a terminal's carries a mark (the
+        // other kinds' processes never do, see `icons::title_mark`).
+        let mark = match title {
+            Cow::Borrowed(title) => icons::title_mark(process, title).0,
+            Cow::Owned(_) => None,
         };
-        self.pane_tile(ctx, id, label)
+        self.pane_tile(ctx, id, (process, mark))
     }
 
     /// The tile for pane `id`, whose own label is `label` (process and title mark): a pane
@@ -776,7 +776,7 @@ impl App {
             .root
             .iter()
             .filter(|&id| !self.is_sticky(id))
-            .any(|id| self.panes.get(&id).is_some_and(|t| t.attention) || self.agent_tracker.wants_you(id))
+            .any(|id| self.panes.terminal(id).is_some_and(|t| t.attention) || self.agent_tracker.wants_you(id))
     }
 
     fn new_tab_button(&mut self, ui: &Ui, rect: Rect, cy: f32, theme: &Theme) {

@@ -53,7 +53,7 @@ impl App {
     pub(in crate::app) fn open_pending(&mut self, ctx: &egui::Context) {
         let Some(p) = self.ssh.pending_pane.take() else { return };
         let place = match p.place {
-            Place::Split(target, _) if !self.panes.contains_key(&target) => Place::Tab,
+            Place::Split(target, _) if !self.panes.is_terminal(target) => Place::Tab,
             place => place,
         };
         self.open_terminal(ctx, place, p.cwd, Some(p.command));
@@ -72,7 +72,7 @@ impl App {
     pub(in crate::app) fn open_terminal_in(&mut self, ctx: &egui::Context, pane: PaneId, dir: PathBuf) {
         use crate::remote::exec::Transport;
         let place = Place::Split(pane, Axis::Horizontal);
-        let Some(t) = self.explorers.get(&pane).and_then(|b| b.transport().cloned()) else {
+        let Some(t) = self.panes.explorer(pane).and_then(|b| b.transport().cloned()) else {
             self.open_terminal(ctx, place, Some(dir), None);
             return;
         };
@@ -105,7 +105,7 @@ impl App {
         if !self.cfg.ssh_follow || !cfg!(unix) {
             return None;
         }
-        let target = self.panes.get_mut(&id)?.ssh_target()?;
+        let target = self.panes.terminal_mut(id)?.ssh_target()?;
         let dir = self.pane_remote_cwd(id);
         Some((target.session_command(dir.as_deref()), target))
     }

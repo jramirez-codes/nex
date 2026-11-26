@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use crate::layout::{Node, PaneId, PaneKind};
 use crate::session::{self, PaneNode, PaneState, Session, TabState};
 
+use crate::app::workspace::Location;
+use crate::app::workspace::panes::Pane;
 use crate::app::workspace::tab::Tab;
 use crate::app::{App, PANE_GAP};
 
@@ -118,7 +120,7 @@ impl App {
                 kind: self.pane_kind(*id).unwrap_or(PaneKind::Terminal),
                 cwd: self.pane_cwd(*id),
                 font_size: self.pane_fonts.get(id).copied(),
-                command: self.panes.get(id).and_then(|t| t.running_command()),
+                command: self.panes.terminal(*id).and_then(|t| t.running_command()),
                 sticky: self.sticky == Some(*id),
             }),
             Node::Split { axis, ratio, a, b } => PaneNode::Split {
@@ -196,32 +198,14 @@ impl App {
         match p.kind {
             PaneKind::Terminal => {
                 let id = self.spawn_pane(ctx, Some(dir), None, card, p.font_size)?;
-                if let (Some(cmd), Some(t)) = (&p.command, self.panes.get_mut(&id)) {
+                if let (Some(cmd), Some(t)) = (&p.command, self.panes.terminal_mut(id)) {
                     t.queue_command(cmd);
                 }
                 Some(id)
             }
-            PaneKind::Explorer => {
-                let id = self.alloc_pane_id();
-                self.explorers.insert(id, self.new_explorer(dir));
-                if let Some(fs) = p.font_size {
-                    self.pane_fonts.insert(id, fs);
-                }
-                Some(id)
-            }
-            PaneKind::Diff => {
-                let id = self.alloc_pane_id();
-                self.diffs.insert(id, crate::git_diff::GitDiff::new(ctx, dir));
-                if let Some(fs) = p.font_size {
-                    self.pane_fonts.insert(id, fs);
-                }
-                Some(id)
-            }
-            PaneKind::Agents => {
-                let id = self.alloc_pane_id();
-                self.agents.insert(id, crate::agents::AgentsPane::new());
-                Some(id)
-            }
+            PaneKind::Explorer => Some(self.add_pane(Pane::Explorer(self.explorer_at(ctx, Location::Local(dir))), p.font_size)),
+            PaneKind::Diff => Some(self.add_pane(Pane::Diff(crate::git_diff::GitDiff::new(ctx, dir)), p.font_size)),
+            PaneKind::Agents => Some(self.add_pane(Pane::Agents(crate::agents::AgentsPane::new()), None)),
         }
     }
 
@@ -243,7 +227,7 @@ impl App {
     /// the window) in the last few seconds, as with `exit` or Ctrl+D.
     pub(in crate::app) fn exit_by_user(&self, id: PaneId) -> bool {
         let recent = |at: Instant| at.elapsed() < USER_EXIT_WINDOW;
-        self.session.last_user_input.is_some_and(recent) && self.panes.get(&id).is_some_and(|t| recent(t.last_input))
+        self.session.last_user_input.is_some_and(recent) && self.panes.terminal(id).is_some_and(|t| recent(t.last_input))
     }
 
     /// The user closed a pane or tab (a close action or button): the session follows again.
@@ -276,7 +260,7 @@ impl App {
             return;
         }
         // Catch a program started since the last poll.
-        for t in self.panes.values_mut() {
+        for (_, t) in self.panes.terminals_mut() {
             t.refresh_process_info();
         }
         if let Some(s) = self.snapshot_session()

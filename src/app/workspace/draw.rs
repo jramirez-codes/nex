@@ -24,6 +24,7 @@ use crate::app::workspace::metrics::cell_px;
 use crate::app::ssh::mic::MicState;
 use crate::app::animation::pane_motion::Ghost;
 use crate::app::workspace::pane_drag::DragFrame;
+use crate::app::workspace::panes::PaneRequest;
 use crate::app::animation::handoff::{FocusedCard, HeaderLabel};
 use crate::app::animation::tab_switch::Shown;
 use crate::app::{App, PANE_GAP};
@@ -162,8 +163,8 @@ impl App {
             paint_ghost(ui.painter(), g, now, theme, headers);
         }
         self.pending.extend(dropped);
-        for (id, t) in &self.panes {
-            t.set_visible(rects.iter().any(|(r, _)| r == id) || visitor.is_some_and(|(v, _)| v == *id));
+        for (id, t) in self.panes.terminals() {
+            t.set_visible(rects.iter().any(|(r, _)| *r == id) || visitor.is_some_and(|(v, _)| v == id));
         }
         self.drag_dividers(ui, tab_uid, dividers);
 
@@ -327,7 +328,7 @@ impl App {
         let ctx = ui.ctx().clone();
         let painter = &pane_painter(ui, pane);
         let id = pane.id;
-        let bell = self.panes.get(&id).is_some_and(|t| t.bell_at.is_some_and(|at| at.elapsed() < BELL_FLASH));
+        let bell = self.panes.terminal(id).is_some_and(|t| t.bell_at.is_some_and(|at| at.elapsed() < BELL_FLASH));
         let accent = bell.then_some(self.cfg.palette[3]);
         let content_top = self.pane_frame(ui, pane, theme, accent);
 
@@ -339,7 +340,7 @@ impl App {
         let cell_px = cell_px(&ctx, m);
         let cols = ((term_rect.width() / m.width).floor() as usize).max(2);
         let lines = ((term_rect.height() / m.height).floor() as usize).max(1);
-        let Some(t) = self.panes.get_mut(&id) else { return false };
+        let Some(t) = self.panes.terminal_mut(id) else { return false };
         t.resize(GridSize { cols, lines }, cell_px);
         let typing = t.last_input.elapsed() < BLINK_INTERVAL;
 
@@ -448,9 +449,9 @@ impl App {
     fn explorer_pane(&mut self, ui: &Ui, pane: &PaneView, theme: &Theme) {
         let id = pane.id;
         self.pane_body(ui, pane, theme, false, |app, painter, content| {
-            if let Some(b) = app.explorers.get_mut(&id) {
+            if let Some(b) = app.panes.explorer_mut(id) {
                 b.paint(ui, painter, content, id, theme);
-                app.explorer_requests.extend(b.requests.drain(..).map(|r| (id, r)));
+                app.pane_requests.extend(b.requests.drain(..).map(|r| (id, PaneRequest::Explorer(r))));
             }
         });
     }
@@ -461,9 +462,9 @@ impl App {
         let (id, focused) = (pane.id, pane.focused);
         let size = self.render_font(id);
         self.pane_body(ui, pane, theme, true, |app, painter, content| {
-            if let Some(d) = app.diffs.get_mut(&id) {
+            if let Some(d) = app.panes.diff_mut(id) {
                 d.paint(ui, painter, content, id, focused, PANE_RADIUS - 1, theme, size);
-                app.diff_requests.extend(d.requests.drain(..).map(|r| (id, r)));
+                app.pane_requests.extend(d.requests.drain(..).map(|r| (id, PaneRequest::Diff(r))));
             }
         });
     }
@@ -474,11 +475,11 @@ impl App {
         let (id, focused) = (pane.id, pane.focused);
         self.pane_body(ui, pane, theme, true, |app, painter, content| {
             let viewing = app.viewing(id);
-            if let Some(a) = app.agents.get_mut(&id) {
+            if let Some(a) = app.panes.agents_mut(id) {
                 let shown_tab = (!app.home_active).then_some(app.active);
                 let args = crate::agents::PaintArgs { pane: id, focused, c: theme, agents: app.agent_tracker.agents(), notes: &app.ssh.agent_notes, shown_tab, viewing: &viewing };
                 a.paint(ui, painter, content, args);
-                app.agent_requests.extend(a.requests.drain(..).map(|r| (id, r)));
+                app.pane_requests.extend(a.requests.drain(..).map(|r| (id, PaneRequest::Agents(r))));
             }
         });
     }

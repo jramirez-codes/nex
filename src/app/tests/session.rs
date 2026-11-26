@@ -125,7 +125,7 @@ fn frame_with(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) {
 /// Pane `id`'s shell ends, `typed` whether the user had just typed into it (`exit`).
 fn shell_exits(ctx: &egui::Context, app: &mut App, id: crate::layout::PaneId, typed: bool) {
     let long_ago = std::time::Instant::now() - std::time::Duration::from_secs(60);
-    let t = app.panes.get_mut(&id).unwrap();
+    let t = app.panes.terminal_mut(id).unwrap();
     t.last_input = if typed { std::time::Instant::now() } else { long_ago };
     app.session.last_user_input = Some(if typed { std::time::Instant::now() } else { long_ago });
     t.exited = true;
@@ -143,7 +143,7 @@ fn file_policy(app: &mut App) -> (bool, bool) {
 }
 
 fn terminals(app: &App) -> Vec<crate::layout::PaneId> {
-    app.tabs.iter().flat_map(|t| t.root.panes()).filter(|id| app.panes.contains_key(id)).collect()
+    app.tabs.iter().flat_map(|t| t.root.panes()).filter(|id| app.panes.is_terminal(*id)).collect()
 }
 
 #[test]
@@ -232,7 +232,7 @@ fn a_running_command_is_saved_and_run_again() {
 
     // What the shell is running now is what the next session saves.
     frames_until(&ctx, &mut app, "sleep in the foreground", |app| {
-        let t = app.panes.get_mut(&id).unwrap();
+        let t = app.panes.terminal_mut(id).unwrap();
         t.refresh_process_info();
         t.running_command().is_some_and(|c| c == argv(&["sleep", "30"]))
     });
@@ -240,9 +240,9 @@ fn a_running_command_is_saved_and_run_again() {
     assert_eq!(snap.tabs[0].root.leaves()[0].command, Some(argv(&["sleep", "30"])));
 
     // Interrupted, the pane is back at its prompt and saves no command.
-    app.panes[&id].write(&b"\x03"[..]);
+    app.panes.terminal(id).unwrap().write(&b"\x03"[..]);
     frames_until(&ctx, &mut app, "the prompt", |app| {
-        let t = app.panes.get_mut(&id).unwrap();
+        let t = app.panes.terminal_mut(id).unwrap();
         t.refresh_process_info();
         t.running_command().is_none()
     });

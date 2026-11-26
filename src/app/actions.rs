@@ -8,7 +8,7 @@ use crate::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
 use crate::app::App;
-use crate::app::workspace::PaneMut;
+use crate::app::workspace::panes::Pane;
 use crate::app::ssh::follow::Place;
 use crate::app::input::zoom::EXPLORER_ZOOM_STEP;
 
@@ -140,7 +140,7 @@ impl App {
             Action::GotoTab(i) => self.goto_tab(i),
             Action::GoBack => self.go_back(),
             Action::Copy => {
-                if let Some(text) = focused.and_then(|id| self.panes.get(&id)).and_then(|t| t.selection_text()) {
+                if let Some(text) = focused.and_then(|id| self.panes.terminal(id)).and_then(|t| t.selection_text()) {
                     self.clipboard_toast(ctx, "Copied", &text);
                     ctx.copy_text(text);
                 }
@@ -179,7 +179,7 @@ impl App {
             Action::ToggleSearch => self.toggle_search(),
             Action::ClearScreen => {
                 // Ask the shell to redraw on a clean screen: clear + form feed (Ctrl+L).
-                if let Some(t) = focused.and_then(|id| self.panes.get_mut(&id)) {
+                if let Some(t) = focused.and_then(|id| self.panes.terminal_mut(id)) {
                     t.input(b"\x0c".to_vec());
                 }
             }
@@ -226,7 +226,7 @@ impl App {
                 .filter(|&id| id != focused)
                 .map(|id| {
                     let (title, process) = self.pane_label_owned(id);
-                    let shapes = self.panes.get(&id).map(|t| t.shapes()).unwrap_or_default();
+                    let shapes = self.panes.terminal(id).map(|t| t.shapes()).unwrap_or_default();
                     (id, title, process, shapes)
                 })
                 .collect()
@@ -268,16 +268,16 @@ impl App {
     /// zooms its whole listing instead.
     fn change_font(&mut self, ctx: &egui::Context, action: Action) {
         let Some(id) = self.focused_pane() else { return };
-        match self.pane_mut(id) {
-            Some(PaneMut::Explorer(explorer)) => {
+        match self.panes.get_mut(id) {
+            Some(Pane::Explorer(explorer)) => {
                 match action {
                     Action::FontBigger => explorer.zoom_by(EXPLORER_ZOOM_STEP, None),
                     Action::FontSmaller => explorer.zoom_by(1.0 / EXPLORER_ZOOM_STEP, None),
                     _ => explorer.reset_zoom(),
                 }
             }
-            Some(PaneMut::Agents(_)) => {}
-            Some(PaneMut::Terminal(_) | PaneMut::Diff(_)) | None => {
+            Some(Pane::Agents(_)) => {}
+            Some(Pane::Terminal(_) | Pane::Diff(_)) | None => {
                 let size = self.pane_font(id);
                 let size = match action {
                     Action::FontBigger => Some(size + 1.0),
@@ -290,7 +290,7 @@ impl App {
     }
 
     fn scroll_focused(&mut self, action: Action) {
-        let Some(t) = self.focused_pane().and_then(|id| self.panes.get_mut(&id)) else { return };
+        let Some(t) = self.focused_pane().and_then(|id| self.panes.terminal_mut(id)) else { return };
         t.scroll_to(match action {
             Action::ScrollPageUp => Scroll::PageUp,
             Action::ScrollPageDown => Scroll::PageDown,
@@ -303,7 +303,7 @@ impl App {
     /// in another pane, moves it there.
     fn toggle_search(&mut self) {
         // Nothing to search in a file explorer.
-        let focused = self.focused_pane().filter(|id| self.panes.contains_key(id));
+        let focused = self.focused_pane().filter(|&id| self.panes.is_terminal(id));
         self.search = match (self.search.take(), focused) {
             (Some(s), Some(id)) if s.pane != id => Some(Search::new(id)),
             (Some(_), _) => None,

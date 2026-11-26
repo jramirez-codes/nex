@@ -80,7 +80,7 @@ impl App {
         if self.cfg.ssh_mic == SshMic::Off {
             return None;
         }
-        let target = self.mic_target(self.panes.get(&id)?)?;
+        let target = self.mic_target(self.panes.terminal(id)?)?;
         Some(match self.ssh.mics.shares.get(&target) {
             None => MicState::Off,
             Some(s) if s.live => MicState::Live,
@@ -90,13 +90,13 @@ impl App {
 
     /// The host pane `id` is ssh'd into, for the mic button's tooltip.
     pub(in crate::app) fn mic_host(&self, id: PaneId) -> Option<String> {
-        Some(self.mic_target(self.panes.get(&id)?)?.host().to_string())
+        Some(self.mic_target(self.panes.terminal(id)?)?.host().to_string())
     }
 
     /// Like [`mic_target`](Self::mic_target), asking the OS about a pane's `ssh` afresh.
     fn mic_target_now(&mut self, id: PaneId) -> Option<SshTarget> {
         let direct = self.direct_mic_target();
-        let t = self.panes.get_mut(&id)?;
+        let t = self.panes.terminal_mut(id)?;
         if t.is_remote() { direct } else { t.ssh_target() }
     }
 
@@ -143,7 +143,7 @@ impl App {
     /// Whether the focused pane's host can record from the mic yet: `Some(true)` once its share
     /// has said `Waiting` or `Live`, `None` when it has no share (it failed, or was stopped).
     pub(in crate::app) fn mic_ready_for_talk(&self) -> Option<bool> {
-        let target = self.mic_target(self.panes.get(&self.focused_pane()?)?)?;
+        let target = self.mic_target(self.panes.terminal(self.focused_pane()?)?)?;
         self.ssh.mics.shares.get(&target).map(|s| s.ready)
     }
 
@@ -211,7 +211,7 @@ impl App {
             self.ssh.mics.shares.clear();
             return;
         }
-        let present: HashSet<SshTarget> = self.panes.values().filter_map(|t| self.mic_target(t)).collect();
+        let present: HashSet<SshTarget> = self.panes.terminals().filter_map(|(_, t)| self.mic_target(t)).collect();
         let direct = self.direct_mic_target();
         // No pane on the host any more: dropping the share stops it.
         self.ssh.mics.shares.retain(|t, _| present.contains(t));

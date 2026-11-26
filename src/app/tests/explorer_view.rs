@@ -1,6 +1,6 @@
 //! `explorer-view` picks the layout of every new file explorer, with the sidebar tab bar too.
 
-use crate::layout::Axis;
+use crate::layout::{Axis, PaneKind};
 use crate::config::{Config, TabBar};
 use crate::file_explorer::View;
 
@@ -13,11 +13,11 @@ fn explorer_views(tab_bar: TabBar, view: View) -> Vec<View> {
     let mut app = new_app(&ctx, cfg);
     run(&mut app, &ctx, 400.0);
     app.toggle_explorer(&ctx);
-    let first = *app.explorers.keys().next().unwrap();
+    let first = app.panes.ids(PaneKind::Explorer).next().unwrap();
     app.split_explorer(&ctx, first, Axis::Vertical);
     run(&mut app, &ctx, 400.0);
-    assert_eq!(app.explorers.len(), 2);
-    app.explorers.values().map(|b| b.view).collect()
+    assert_eq!(app.panes.ids(PaneKind::Explorer).count(), 2);
+    app.panes.explorers().map(|b| b.view).collect()
 }
 
 #[test]

@@ -117,7 +117,7 @@ impl App {
     /// Close the sticky pane `id`: it leaves every tab (collapsing out of the shown one).
     pub(in crate::app) fn close_sticky(&mut self, ctx: &egui::Context, id: PaneId) {
         let (title, process) = self.pane_label_owned(id);
-        let shapes = self.panes.get_mut(&id).map(|t| t.take_shapes()).unwrap_or_default();
+        let shapes = self.panes.terminal_mut(id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
         self.sticky = None;
         let shown = self.cur_tab().map(|t| t.uid);

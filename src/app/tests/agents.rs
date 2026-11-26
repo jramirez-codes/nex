@@ -45,7 +45,7 @@ fn ctrl_shift_a_toggles_an_agents_pane_that_draws_jumps_and_restores() {
 
     app.pending.push(Action::ToggleAgents);
     run(&mut app, &ctx, 1400.0);
-    let id = *app.agents.keys().next().unwrap();
+    let id = app.panes.ids(PaneKind::Agents).next().unwrap();
     assert_eq!(app.focused_pane(), Some(id));
     assert_eq!(app.pane_label(id).0, "Agents");
     // Empty, then with agents (pretend both shells run one), wide to narrow.
@@ -62,9 +62,9 @@ fn ctrl_shift_a_toggles_an_agents_pane_that_draws_jumps_and_restores() {
         }
     }
     // The one that needs you comes first; Enter jumps to it, in this tab.
-    assert_eq!(app.agents[&id].selected, Some(other));
-    app.agents.get_mut(&id).unwrap().key(egui::Key::ArrowDown, egui::Modifiers::NONE);
-    app.agents.get_mut(&id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    assert_eq!(app.panes.agents(id).unwrap().selected, Some(other));
+    app.panes.agents_mut(id).unwrap().key(egui::Key::ArrowDown, egui::Modifiers::NONE);
+    app.panes.agents_mut(id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
     run(&mut app, &ctx, 1400.0);
     run(&mut app, &ctx, 1400.0);
     assert_eq!(app.focused_pane(), Some(shell), "jumped to the first tab's agent");
@@ -82,7 +82,7 @@ fn ctrl_shift_a_toggles_an_agents_pane_that_draws_jumps_and_restores() {
     }
     app.pending.push(Action::ToggleAgents);
     run(&mut app, &ctx, 1400.0);
-    assert!(app.agents.is_empty());
+    assert!(!app.panes.has(PaneKind::Agents));
     assert_eq!(app.focused_pane(), Some(other));
 }
 
@@ -96,8 +96,8 @@ fn the_title_bar_label_opens_the_agents_tab() {
     run(&mut app, &ctx, 1200.0);
     assert!(app.home_active);
     let id = app.focused_pane().unwrap();
-    assert!(app.agents.contains_key(&id), "the Agents tab holds an Agents pane");
-    assert!(app.explorers.is_empty());
+    assert!(app.panes.agents(id).is_some(), "the Agents tab holds an Agents pane");
+    assert!(!app.panes.has(PaneKind::Explorer));
     for width in [1200.0, 600.0] {
         run(&mut app, &ctx, width);
     }
@@ -105,7 +105,7 @@ fn the_title_bar_label_opens_the_agents_tab() {
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1200.0);
     assert!(!app.home_active);
-    assert!(app.panes.contains_key(&app.focused_pane().unwrap()));
+    assert!(app.panes.is_terminal(app.focused_pane().unwrap()));
     // An Agents tab on its own doesn't keep the window open.
     assert!(!app.home_keeps_window());
 }
@@ -118,7 +118,7 @@ fn explorer_mode_still_opens_files() {
     app.toggle_explorer(&ctx);
     run(&mut app, &ctx, 1200.0);
     let id = app.focused_pane().unwrap();
-    assert!(app.explorers.contains_key(&id));
+    assert!(app.panes.explorer(id).is_some());
     assert!(app.home_is_files() && !app.shows_agents_label());
     assert!(app.home_keeps_window());
 }
@@ -130,7 +130,7 @@ fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
     run(&mut app, &ctx, 1400.0);
     app.pending.push(Action::ToggleAgents);
     run(&mut app, &ctx, 1400.0);
-    let id = *app.agents.keys().next().unwrap();
+    let id = app.panes.ids(PaneKind::Agents).next().unwrap();
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
 
     // A detached agent on a host no pane is connected to. Its ssh never gets anywhere (a
@@ -149,10 +149,10 @@ fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
     for width in [1400.0, 420.0] {
         run(&mut app, &ctx, width);
     }
-    assert_eq!(app.agents[&id].selected, Some(key));
+    assert_eq!(app.panes.agents(id).unwrap().selected, Some(key));
 
     let tabs = app.tabs.len();
-    app.agents.get_mut(&id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    app.panes.agents_mut(id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
     run(&mut app, &ctx, 1400.0);
     run(&mut app, &ctx, 1400.0);
     assert_eq!(app.tabs.len(), tabs + 1, "opened a tab on it");
@@ -207,7 +207,7 @@ fn a_tab_keeps_its_terminals_name_while_its_agents_pane_has_focus() {
 
     app.pending.push(Action::ToggleAgents);
     run(&mut app, &ctx, 1400.0);
-    let id = *app.agents.keys().next().unwrap();
+    let id = app.panes.ids(PaneKind::Agents).next().unwrap();
     assert_eq!(app.focused_pane(), Some(id));
     assert_eq!(app.tab_header_pane(&app.tabs[0]), shell, "the header still names the shell");
 
@@ -255,7 +255,7 @@ fn the_agents_on_screen_are_marked_viewing_both_halves_of_a_split_and_where_a_ca
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1400.0);
     let id = app.focused_pane().unwrap();
-    assert!(app.agents.contains_key(&id));
+    assert!(app.panes.agents(id).is_some());
     pretend(&mut app);
     run(&mut app, &ctx, 1400.0);
     let v = app.viewing(id);
@@ -275,8 +275,8 @@ fn the_agents_on_screen_are_marked_viewing_both_halves_of_a_split_and_where_a_ca
     // Agents tab, nothing is.
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1400.0);
-    app.agents.get_mut(&id).unwrap().selected = Some(other);
-    app.agents.get_mut(&id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    app.panes.agents_mut(id).unwrap().selected = Some(other);
+    app.panes.agents_mut(id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
     run(&mut app, &ctx, 1400.0);
     run(&mut app, &ctx, 1400.0);
     assert_eq!(app.focused_pane(), Some(other));
@@ -319,7 +319,7 @@ fn from_the_agents_tab_a_pinned_agent_is_not_marked_viewing_either() {
     // In the terminal tab, the pinned pane is one of its panes like any other.
     app.pending.push(Action::ToggleAgents);
     run(&mut app, &ctx, 1400.0);
-    let split = *app.agents.keys().next().unwrap();
+    let split = app.panes.ids(PaneKind::Agents).next().unwrap();
     pretend(&mut app);
     let v = app.viewing(split);
     assert_eq!(seen(&app, &v, pinned), Some(Seen::Primary));
@@ -333,7 +333,7 @@ fn from_the_agents_tab_a_pinned_agent_is_not_marked_viewing_either() {
     run(&mut app, &ctx, 1400.0);
     assert!(app.home_active);
     assert!(app.home_tab.as_ref().unwrap().contains(pinned));
-    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.agents.contains_key(p)).unwrap();
+    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.panes.agents(*p).is_some()).unwrap();
     pretend(&mut app);
     let v = app.viewing(id);
     assert_eq!(seen(&app, &v, pinned), None);
@@ -370,7 +370,7 @@ fn switching_to_the_agents_tab_clears_every_viewing_mark() {
     // An Agents pane split beside the terminals marks both of them.
     app.pending.push(Action::ToggleAgents);
     run(&mut app, &ctx, 1400.0);
-    let split = *app.agents.keys().next().unwrap();
+    let split = app.panes.ids(PaneKind::Agents).next().unwrap();
     pretend(&mut app);
     let v = app.viewing(split);
     assert_eq!(seen(&app, &v, right), Some(Seen::Primary));
@@ -382,7 +382,7 @@ fn switching_to_the_agents_tab_clears_every_viewing_mark() {
     assert!(app.home_active);
     pretend(&mut app);
     run(&mut app, &ctx, 1400.0);
-    for id in app.agents.keys().copied().collect::<Vec<_>>() {
+    for id in app.panes.ids(PaneKind::Agents).collect::<Vec<_>>() {
         let v = app.viewing(id);
         assert_eq!(v, Viewing::default());
         assert_eq!((seen(&app, &v, left), seen(&app, &v, right)), (None, None));
@@ -411,19 +411,19 @@ fn a_card_jumped_to_from_the_agents_tab_is_not_left_highlighted() {
     // On the Agents tab, the keyboard's highlight is on a card.
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1400.0);
-    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.agents.contains_key(p)).unwrap();
+    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.panes.agents(*p).is_some()).unwrap();
     pretend(&mut app);
     run(&mut app, &ctx, 1400.0);
-    assert!(app.agents[&id].highlighted().is_some());
+    assert!(app.panes.agents(id).unwrap().highlighted().is_some());
 
     // Enter on the second tab's card swaps to that tab.
-    app.agents.get_mut(&id).unwrap().selected = Some(second);
-    app.agents.get_mut(&id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    app.panes.agents_mut(id).unwrap().selected = Some(second);
+    app.panes.agents_mut(id).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
     run(&mut app, &ctx, 1400.0);
     run(&mut app, &ctx, 1400.0);
     assert!(!app.home_active);
     assert_eq!(app.focused_pane(), Some(second));
-    assert_eq!(app.agents[&id].highlighted(), None, "the card it jumped from isn't left ringed");
+    assert_eq!(app.panes.agents(id).unwrap().highlighted(), None, "the card it jumped from isn't left ringed");
 
     // Back on the Agents tab, no card is ringed, neither as viewed nor as the highlight.
     app.pending.push(Action::ToggleAgentsTab);
@@ -432,12 +432,12 @@ fn a_card_jumped_to_from_the_agents_tab_is_not_left_highlighted() {
     pretend(&mut app);
     run(&mut app, &ctx, 1400.0);
     assert_eq!(app.viewing(id), Viewing::default());
-    assert_eq!(app.agents[&id].highlighted(), None);
-    assert_eq!(app.agents[&id].selected, Some(second), "Enter still goes where it went");
+    assert_eq!(app.panes.agents(id).unwrap().highlighted(), None);
+    assert_eq!(app.panes.agents(id).unwrap().selected, Some(second), "Enter still goes where it went");
 
     // A key brings the highlight back.
-    app.agents.get_mut(&id).unwrap().key(egui::Key::ArrowLeft, egui::Modifiers::NONE);
-    assert!(app.agents[&id].highlighted().is_some());
+    app.panes.agents_mut(id).unwrap().key(egui::Key::ArrowLeft, egui::Modifiers::NONE);
+    assert!(app.panes.agents(id).unwrap().highlighted().is_some());
 }
 
 #[test]
@@ -459,11 +459,11 @@ fn on_the_agents_tab_a_terminal_opened_there_marks_its_ssh_agent_viewing_and_onl
     run(&mut app, &ctx, 1400.0);
     assert!(app.home_active);
     let id = app.focused_pane().unwrap();
-    assert!(app.agents.contains_key(&id));
+    assert!(app.panes.agents(id).is_some());
     app.pending.push(Action::Split(Axis::Horizontal));
     run(&mut app, &ctx, 1400.0);
     let term = app.focused_pane().unwrap();
-    assert!(app.panes.contains_key(&term), "a terminal");
+    assert!(app.panes.is_terminal(term), "a terminal");
     assert!(app.home_tab.as_ref().unwrap().contains(term));
 
     // In it, Claude on an ssh host (shown by that pane); agents in the terminal tab's shell and
@@ -523,7 +523,7 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
     let stage_pane = app.focused_pane().unwrap();
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1400.0);
-    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.agents.contains_key(p)).unwrap();
+    let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.panes.agents(*p).is_some()).unwrap();
     app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
 
     // A sub-agent of `lead` (the card it's under), as the poll makes them: shown in the
@@ -571,7 +571,7 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
     poll(&mut app);
     run(&mut app, &ctx, 1400.0);
 
-    let key = |app: &mut crate::app::App, k| app.agents.get_mut(&id).unwrap().key(k, egui::Modifiers::NONE);
+    let key = |app: &mut crate::app::App, k| app.panes.agents_mut(id).unwrap().key(k, egui::Modifiers::NONE);
     let to_agents = |app: &mut crate::app::App| {
         if !app.home_active {
             app.pending.push(Action::ToggleAgentsTab);
@@ -584,15 +584,15 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
         to_agents(&mut app);
         // Space opens its card, the arrows go down its rows to it, then Enter (the first
         // time) or Space (the second).
-        app.agents.get_mut(&id).unwrap().selected = Some(*card);
+        app.panes.agents_mut(id).unwrap().selected = Some(*card);
         key(&mut app, egui::Key::Space);
         run(&mut app, &ctx, 1400.0);
         for _ in 0..3 {
-            if app.agents[&id].selected != Some(sub_card) {
+            if app.panes.agents(id).unwrap().selected != Some(sub_card) {
                 key(&mut app, egui::Key::ArrowDown);
             }
         }
-        assert_eq!(app.agents[&id].selected, Some(sub_card));
+        assert_eq!(app.panes.agents(id).unwrap().selected, Some(sub_card));
         let tabs = app.tabs.len();
         key(&mut app, egui::Key::Enter);
         run(&mut app, &ctx, 1400.0);
@@ -609,7 +609,7 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
         // Again, from another tab: that tab is focused, none opened.
         app.show_tab(0);
         to_agents(&mut app);
-        app.agents.get_mut(&id).unwrap().selected = Some(sub_card);
+        app.panes.agents_mut(id).unwrap().selected = Some(sub_card);
         key(&mut app, egui::Key::Space);
         run(&mut app, &ctx, 1400.0);
         run(&mut app, &ctx, 1400.0);
@@ -621,17 +621,17 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
     run(&mut app, &ctx, 1400.0);
     app.split_agents(&ctx, claude, crate::layout::Axis::Horizontal);
     run(&mut app, &ctx, 1400.0);
-    let side = app.tabs[0].root.iter().find(|p| app.agents.contains_key(p)).unwrap();
+    let side = app.tabs[0].root.iter().find(|p| app.panes.agents(*p).is_some()).unwrap();
     // (Tracking for real finds no agents in these shells: the poll stands in for it.)
     poll(&mut app);
     run(&mut app, &ctx, 1400.0);
     let c1 = sub_key(claude, "c1");
     let tabs = app.tabs.len();
-    app.agents.get_mut(&side).unwrap().selected = Some(claude);
-    app.agents.get_mut(&side).unwrap().key(egui::Key::Space, egui::Modifiers::NONE);
+    app.panes.agents_mut(side).unwrap().selected = Some(claude);
+    app.panes.agents_mut(side).unwrap().key(egui::Key::Space, egui::Modifiers::NONE);
     run(&mut app, &ctx, 1400.0);
-    app.agents.get_mut(&side).unwrap().selected = Some(c1);
-    app.agents.get_mut(&side).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
+    app.panes.agents_mut(side).unwrap().selected = Some(c1);
+    app.panes.agents_mut(side).unwrap().key(egui::Key::Enter, egui::Modifiers::NONE);
     run(&mut app, &ctx, 1400.0);
     run(&mut app, &ctx, 1400.0);
     assert_eq!(app.tabs.len(), tabs);
@@ -643,7 +643,7 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
     run(&mut app, &ctx, 1400.0);
     app.track_agents();
     assert!(!app.sub_views.contains_key(&c1));
-    assert!(app.panes.contains_key(&claude), "its agent's pane is untouched");
+    assert!(app.panes.is_terminal(claude), "its agent's pane is untouched");
     poll(&mut app);
     let tabs = app.tabs.len();
     app.focus_agent(&ctx, c1);

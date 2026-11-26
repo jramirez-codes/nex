@@ -3,12 +3,13 @@
 use std::time::{Duration, Instant};
 
 use crate::config::Config;
+use crate::layout::PaneKind;
 
 use super::{new_app, run};
 
 /// The names the Files tab's explorer lists.
 fn names(app: &crate::app::App) -> Vec<String> {
-    app.explorers.values().next().unwrap().entries.iter().map(|e| e.name.clone()).collect()
+    app.panes.explorers().next().unwrap().entries.iter().map(|e| e.name.clone()).collect()
 }
 
 /// A background poll, as if the interval had passed.
@@ -28,7 +29,8 @@ fn only_explorers_on_screen_are_reread() {
     let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 400.0);
     app.toggle_explorer(&ctx);
-    app.explorers.values_mut().next().unwrap().navigate(dir.clone());
+    let id = app.panes.ids(PaneKind::Explorer).next().unwrap();
+    app.panes.explorer_mut(id).unwrap().navigate(dir.clone());
     assert_eq!(names(&app), ["one.txt"]);
 
     // Back on the terminal tab: files changing don't make the hidden explorer read its folder.

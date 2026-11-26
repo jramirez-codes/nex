@@ -5,7 +5,7 @@ use egui::{Pos2, RawInput, Rect, Vec2};
 
 use crate::app::App;
 use crate::app::actions::Action;
-use crate::layout::{Axis, Node, PaneId};
+use crate::layout::{Axis, Node, PaneId, PaneKind};
 
 struct Sim {
     ctx: egui::Context,
@@ -87,7 +87,7 @@ fn pinned_pane_joins_every_tab_on_its_side_with_its_own_size_in_each() {
     assert!((r(&s, 0) - 0.5).abs() < 0.02 && r(&s, 1) == 0.8);
 
     // There's one terminal for it, sized for the tab shown.
-    assert_eq!(s.app.panes.keys().filter(|&&id| id == sticky).count(), 1);
+    assert_eq!(s.app.panes.ids(PaneKind::Terminal).filter(|&id| id == sticky).count(), 1);
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn a_tab_down_to_the_sticky_pane_closes_and_the_pane_lives_on() {
     let other = s.app.tabs[1].root.panes().into_iter().find(|&id| id != sticky).unwrap();
     s.act(Action::ClosePane(other));
     assert_eq!(s.app.tabs.len(), 1);
-    assert!(s.app.panes.contains_key(&sticky));
+    assert!(s.app.panes.is_terminal(sticky));
     assert_eq!(s.app.sticky, Some(sticky));
 }
 
@@ -109,7 +109,7 @@ fn closing_the_sticky_pane_takes_it_out_of_every_tab() {
     assert_eq!(s.app.sticky, None);
     assert_eq!(s.app.tabs.len(), 2);
     assert!(s.app.tabs.iter().all(|t| !t.contains(sticky)));
-    assert!(!s.app.panes.contains_key(&sticky));
+    assert!(!s.app.panes.is_terminal(sticky));
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn it_survives_a_restart_as_one_pane() {
     assert_eq!(r.app.tabs.len(), 2);
     assert!(r.everywhere(pinned));
     // Two tabs of two panes each, three panes in all.
-    assert_eq!(r.app.panes.len(), 3);
+    assert_eq!(r.app.panes.ids(PaneKind::Terminal).count(), 3);
     let _ = sticky;
 }
 
@@ -215,7 +215,7 @@ fn the_shortcut_pins_and_unpins_the_focused_pane() {
 /// The Agents panes in the Agents tab.
 fn agents_in_home(s: &Sim) -> Vec<PaneId> {
     let home = s.app.home_tab.as_ref().expect("the Agents tab is open");
-    home.root.panes().into_iter().filter(|id| s.app.agents.contains_key(id)).collect()
+    home.root.panes().into_iter().filter(|id| s.app.panes.agents(*id).is_some()).collect()
 }
 
 #[test]
@@ -223,20 +223,20 @@ fn the_agents_tab_opens_on_a_pinned_agents_pane_without_adding_another() {
     let mut s = Sim::new();
     s.act(Action::ToggleAgents);
     let pinned = s.focused();
-    assert!(s.app.agents.contains_key(&pinned));
+    assert!(s.app.panes.agents(pinned).is_some());
     s.act(Action::ToggleSticky(pinned));
     assert_eq!(s.app.sticky, Some(pinned));
 
     s.act(Action::ToggleAgentsTab);
     assert!(s.app.home_active);
     assert_eq!(agents_in_home(&s), vec![pinned]);
-    assert_eq!(s.app.agents.len(), 1, "no second Agents pane was made");
+    assert_eq!(s.app.panes.ids(PaneKind::Agents).count(), 1, "no second Agents pane was made");
 }
 
 #[test]
 fn the_agents_tab_opens_on_a_new_agents_pane_when_none_is_pinned() {
     let (mut s, _, sticky) = Sim::pinned();
-    assert!(!s.app.agents.contains_key(&sticky), "a terminal is pinned");
+    assert!(s.app.panes.agents(sticky).is_none(), "a terminal is pinned");
     s.act(Action::ToggleAgentsTab);
     assert!(s.app.home_active);
     let made = agents_in_home(&s);
