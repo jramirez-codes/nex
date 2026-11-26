@@ -1,10 +1,12 @@
-//! The floating keyboard button (Android): a tap toggles the keyboard, a drag is a joystick
-//! for the arrow keys, a double-tap arms Ctrl for the next key; none of it reaches the
-//! terminal underneath.
+//! The floating keyboard button (mobile: Android and iOS): a tap toggles the keyboard, a drag
+//! is a joystick for the arrow keys (each sent once the finger settles on it, or as a quick
+//! flick lifts), spinning it round is Esc with no arrows, a double-tap arms Ctrl for the next
+//! key; none of it reaches the terminal underneath.
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
 use crate::app::App;
+use crate::app::chrome::keyboard_button::SETTLE;
 use crate::app::input::keymap;
 use crate::app::input::press::DOUBLE_TAP;
 use crate::layout::PaneKind;
@@ -142,15 +144,19 @@ fn dragging_the_button_sends_arrows_that_repeat_while_held() {
     frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c + Vec2::new(5.0, 0.0))]);
     assert!(sent(&mut app).is_empty(), "inside the dead zone: nothing yet");
     frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c + Vec2::new(30.0, 4.0))]);
-    assert_eq!(sent(&mut app), b"\x1b[C", "right, at once");
+    assert!(sent(&mut app).is_empty(), "held back until the finger settles");
+    wait(&mut app, &ctx, &mut t, SETTLE);
+    assert_eq!(sent(&mut app), b"\x1b[C", "right, once settled");
 
     // Held there: it repeats.
     wait(&mut app, &ctx, &mut t, 1.0);
     let held = sent(&mut app);
     assert!(count(&held, b"\x1b[C") >= 4, "repeats while held: {held:?}");
 
-    // Swung round to up: up at once.
+    // Swung round to up: up, once it settles there (and right stops).
     frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c + Vec2::new(0.0, -40.0))]);
+    assert!(sent(&mut app).is_empty());
+    wait(&mut app, &ctx, &mut t, SETTLE);
     assert_eq!(sent(&mut app), b"\x1b[A");
 
     // Let go: no more arrows, and it wasn't a tap (the keyboard stays up).
@@ -177,10 +183,7 @@ fn spinning_the_joystick_round_sends_esc_once_a_turn() {
         frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(at(i as f32 / 36.0))]);
     }
     let once = sent(&mut app);
-    let arrows = count(&once, b"\x1b[");
-    assert_eq!(count(&once, b"\x1b") - arrows, 1, "one Esc: {once:?}");
-    assert!(arrows <= 3, "only the first few arrows, before it's clearly a spin: {once:?}");
-    assert!(once.ends_with(b"\x1b"), "nothing after the Esc: {once:?}");
+    assert_eq!(once, b"\x1b", "one Esc and no arrows at all: {once:?}");
 
     // Held there after the spin: no arrows repeat.
     wait(&mut app, &ctx, &mut t, 1.0);
@@ -196,6 +199,33 @@ fn spinning_the_joystick_round_sends_esc_once_a_turn() {
     frame(&mut app, &ctx, &mut t, vec![press(end, false), Event::PointerGone]);
     assert!(wait(&mut app, &ctx, &mut t, 0.5), "not a tap: the keyboard stays up");
     assert!(sent(&mut app).is_empty());
+}
+
+#[test]
+fn a_quick_flick_sends_one_arrow() {
+    let ctx = egui::Context::default();
+    let mut app = phone(&ctx);
+    let mut t = 0.0;
+    wait(&mut app, &ctx, &mut t, 0.1);
+    sent(&mut app);
+    let c = app.chrome.keyboard_button.rect.unwrap().center();
+
+    // Out to the left and up again before it settles: one arrow, as it lifts.
+    let left = c + Vec2::new(-30.0, 2.0);
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c), press(c, true)]);
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(left)]);
+    assert!(sent(&mut app).is_empty());
+    frame(&mut app, &ctx, &mut t, vec![press(left, false), Event::PointerGone]);
+    assert_eq!(sent(&mut app), b"\x1b[D");
+    assert!(wait(&mut app, &ctx, &mut t, 0.5), "not a tap: the keyboard stays up");
+    assert!(sent(&mut app).is_empty(), "and no more");
+
+    // Held until it settled: its arrow went then, and lifting adds none.
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(c), press(c, true)]);
+    frame(&mut app, &ctx, &mut t, vec![Event::PointerMoved(left)]);
+    wait(&mut app, &ctx, &mut t, SETTLE);
+    frame(&mut app, &ctx, &mut t, vec![press(left, false), Event::PointerGone]);
+    assert_eq!(sent(&mut app), b"\x1b[D");
 }
 
 #[test]
