@@ -1,5 +1,6 @@
 //! A finger on a terminal: swipes scroll (and fling on), sideways swipes switch tabs, a long
-//! press selects and a tap only focuses. Replayed through egui as egui-winit sends touches.
+//! press selects, a tap focuses, and with Ctrl
+//! armed on the keyboard button a tap on a link opens it. Replayed through egui as egui-winit sends touches.
 
 use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 use egui::{Event, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, TouchPhase, Vec2};
@@ -70,6 +71,12 @@ impl Sim {
         }
         self.touch(0, TouchPhase::End, to);
     }
+    /// A finger down and straight up at `p`.
+    fn tap(&mut self, p: Pos2) {
+        self.touch(0, TouchPhase::Start, p);
+        self.touch(0, TouchPhase::End, p);
+        self.frame(vec![]);
+    }
     /// The shown terminal and its content rect.
     pub(super) fn terminal(&self) -> (PaneId, Rect) {
         *self.app.term_rects.first().expect("no terminal shown")
@@ -88,6 +95,25 @@ impl Sim {
     fn selected(&self, id: PaneId) -> bool {
         self.app.panes.terminal(id).unwrap().term.lock().selection.is_some()
     }
+    /// Clear terminal `id` and write `text` from its top left.
+    fn show(&mut self, id: PaneId, text: &str) {
+        let t = &self.app.panes.terminal(id).unwrap();
+        let mut term = t.term.lock();
+        let mut parser: Processor<StdSyncHandler> = Processor::new();
+        parser.advance(&mut *term, format!("\x1b[2J\x1b[H{text}").as_bytes());
+    }
+    /// Record the links nex opens instead of starting the browser.
+    fn record_links(&mut self) {
+        OPENED.with(|o| o.borrow_mut().clear());
+        self.app.input.open_link = |uri| OPENED.with(|o| o.borrow_mut().push(uri.to_string_lossy().into_owned()));
+    }
+    fn opened(&self) -> Vec<String> {
+        OPENED.with(|o| o.borrow().clone())
+    }
+}
+
+thread_local! {
+    static OPENED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 #[test]
@@ -148,6 +174,46 @@ fn tap_focuses_and_selects_nothing() {
     assert!(!s.selected(id));
     assert_eq!(s.offset(id), 0);
     assert_eq!(s.app.focused_pane(), Some(id));
+}
+
+#[test]
+fn tap_on_a_link_with_ctrl_armed_opens_it() {
+    let mut s = Sim::new(1);
+    s.record_links();
+    let (id, r) = s.terminal();
+    // The same link on every line, so a shell prompt landing on one doesn't matter.
+    let lines: String = (0..12).map(|_| "https://example.com/some/long/path/to/open\r\n").collect();
+    s.show(id, &lines);
+    let p = Pos2::new(r.left() + 40.0, r.top() + r.height() * 0.2);
+
+    // Without Ctrl a tap only focuses, as a click does on desktop.
+    s.tap(p);
+    assert!(s.opened().is_empty(), "opened {:?} without Ctrl", s.opened());
+
+    // Ctrl armed (the keyboard button's double-tap): the tap opens the link and uses it up.
+    s.app.chrome.keyboard_button.ctrl_armed = true;
+    s.tap(p);
+    assert_eq!(s.opened(), ["https://example.com/some/long/path/to/open"]);
+    assert!(!s.app.chrome.keyboard_button.ctrl_armed, "opening a link should use up Ctrl");
+    assert_eq!(s.app.focused_pane(), Some(id));
+}
+
+#[test]
+fn ctrl_tap_beside_a_link_or_swipe_over_one_opens_nothing() {
+    let mut s = Sim::new(1);
+    s.record_links();
+    let (id, r) = s.terminal();
+    let lines: String = (0..12).map(|_| "https://example.com/x\r\n").collect();
+    s.show(id, &lines);
+    s.app.chrome.keyboard_button.ctrl_armed = true;
+    // Far right of the line, past the link's end: Ctrl stays armed for a key.
+    s.tap(Pos2::new(r.right() - 20.0, r.top() + r.height() * 0.2));
+    assert!(s.app.chrome.keyboard_button.ctrl_armed);
+    // A scroll that starts on the link.
+    let on = Pos2::new(r.left() + 30.0, r.top() + r.height() * 0.2);
+    s.swipe(on, on + Vec2::new(0.0, 200.0), 10);
+    s.frame(vec![]);
+    assert!(s.opened().is_empty(), "opened {:?}", s.opened());
 }
 
 #[test]

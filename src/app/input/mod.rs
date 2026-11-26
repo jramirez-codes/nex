@@ -35,6 +35,9 @@ pub(in crate::app) struct InputState {
     /// Link under the pointer while Ctrl is held.
     pub(in crate::app) hover_link: Option<(PaneId, Link)>,
     pub(in crate::app) links: LinkFinder,
+    /// Opens a Ctrl+clicked or tapped link: the platform's browser (`platform::open_uri`),
+    /// swapped for a recorder in tests.
+    pub(in crate::app) open_link: fn(&std::ffi::OsStr),
     pub(in crate::app) search: Option<Search>,
 }
 
@@ -49,6 +52,7 @@ impl Default for InputState {
             pane_drag: None,
             hover_link: None,
             links: LinkFinder::new(),
+            open_link: crate::platform::open_uri,
             search: None,
         }
     }

@@ -1,8 +1,10 @@
 //! Android backend: nex as a thin client. Nothing runs on the phone except the window; every
 //! pane works on an ssh host (`LOCAL_SHELLS` is false). Android also sets up none of a unix
 //! process's usual surroundings, so [`android_setup`] gives nex a `HOME` and a `TMPDIR` in the
-//! app's private storage, and sends stdout and stderr to logcat (see `log.rs`).
+//! app's private storage, and sends stdout and stderr to logcat (see `log.rs`). Links open in
+//! the phone's browser through an intent (`browser.rs`).
 
+mod browser;
 mod clipboard;
 mod downloads;
 mod keyboard;
@@ -18,6 +20,7 @@ pub use super::unix::{
     FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options, pty_pid, shell_quote,
     symlink,
 };
+pub use browser::open_uri;
 pub use clipboard::{clipboard_text, mirror_copies};
 pub use downloads::downloads_dir;
 pub use keyboard::{ask_mic, haptic, mic_allowed, soft_keyboard_visible, sync_soft_keyboard, typed_text};
@@ -132,11 +135,6 @@ pub fn file_manager_service(_window_args: &[String]) -> Result<(), String> {
 /// System notifications aren't sent on Android yet (they need NotificationManager through
 /// JNI, a channel, and the POST_NOTIFICATIONS permission).
 pub fn notify(_title: &str, _body: &str) {}
-
-/// Opening links in the browser needs an Intent (through JNI), which isn't wired up yet.
-pub fn open_uri(uri: &std::ffi::OsStr) {
-    eprintln!("nex: opening {} isn't supported on Android yet", uri.to_string_lossy());
-}
 
 /// Files live on the ssh host, so there are no local apps to open them with.
 pub fn apps_for(_path: &Path) -> Vec<super::AppChoice> {

@@ -5,8 +5,10 @@
 //! The on-screen keyboard types into a hidden text view of nex's own (`keyboard.rs`), which
 //! iOS treats as a real text field (holding delete repeats); its typing reaches nex through
 //! [`typed_text`], as on Android. `screen.rs` makes the window cover the whole screen and
-//! reports the part the notch, home indicator and keyboard leave free, as on Android.
+//! reports the part the notch, home indicator and keyboard leave free, as on Android. Links
+//! open in Safari (`browser.rs`).
 
+mod browser;
 mod clipboard;
 mod haptics;
 mod keyboard;
@@ -22,6 +24,7 @@ pub use super::unix::{
     FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options, pty_pid, shell_quote,
     symlink,
 };
+pub use browser::open_uri;
 pub use clipboard::{clipboard_text, mirror_copies};
 pub use haptics::haptic;
 pub use keyboard::{sync_soft_keyboard, typed_text};
@@ -123,11 +126,6 @@ pub fn file_manager_service(_window_args: &[String]) -> Result<(), String> {
 /// System notifications aren't sent on iOS yet (they need UNUserNotificationCenter and the
 /// user's permission).
 pub fn notify(_title: &str, _body: &str) {}
-
-/// Opening links in Safari needs `UIApplication.openURL`, which isn't wired up yet.
-pub fn open_uri(uri: &std::ffi::OsStr) {
-    eprintln!("nex: opening {} isn't supported on iOS yet", uri.to_string_lossy());
-}
 
 /// Files live on the ssh host, so there are no local apps to open them with.
 pub fn apps_for(_path: &Path) -> Vec<super::AppChoice> {

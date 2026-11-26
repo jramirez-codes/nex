@@ -11,8 +11,9 @@
 //! - Spinning it round in a full circle (either way) is a silent circle: Esc, once a turn, and
 //!   no arrows, since a finger going round never settles. Past [`SPIN_QUIET`] of turning no
 //!   arrows go at all until it comes back to the center, and a lift after a spin sends nothing.
-//! - A double-tap arms Ctrl for the next key (`^C` is double-tap, then `c`); a second double
-//!   tap disarms it.
+//! - A double-tap arms Ctrl for the next key (`^C` is double-tap, then `c`) or for a tap on a
+//!   link (which opens it, as Ctrl+click does: see `input/mouse.rs`); a second double tap
+//!   disarms it.
 //! - Holding it still (in a terminal) talks to Claude Code's voice mode, which records while
 //!   Space is held: a terminal sees that as fast repeated spaces, and the on-screen keyboard
 //!   can't send them (holding its Space moves its cursor). After [`HOLD_TO_TALK`] the button
