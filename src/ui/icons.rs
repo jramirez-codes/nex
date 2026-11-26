@@ -659,30 +659,87 @@ pub fn icon_eye(p: &Painter, r: Rect, c: Color32, on: bool) {
 /// `last`, else its `├`): a line down `r`'s left edge from the top, turning with a rounded
 /// elbow into an arm out to `r`'s right edge at its middle; when not `last` the line also
 /// carries on to the bottom, to the next row. `r` spans the row's height, so stacked rows'
-/// connectors join into one line.
+/// connectors join into one line. Drawn on the device's pixel grid ([`branch_geometry`]).
 pub fn icon_branch(p: &Painter, r: Rect, c: Color32, last: bool) {
-    let (elbow, on) = branch_lines(r, last);
-    let s = Stroke::new(1.2_f32, c);
-    p.add(Shape::line(elbow, s));
-    if let Some(on) = on {
-        p.line_segment(on, s);
-    }
+    let b = branch_geometry(r, last, p.pixels_per_point());
+    p.rect_filled(b.stem, 0, c);
+    let clip = p.clip_rect().intersect(b.elbow_clip);
+    p.with_clip_rect(clip).add(Shape::line(b.elbow, Stroke::new(b.width, c)));
 }
 
-/// [`icon_branch`]'s strokes: the L (down, round the elbow, out), and the line on down when
-/// it isn't the last.
-fn branch_lines(r: Rect, last: bool) -> (Vec<Pos2>, Option<[Pos2; 2]>) {
-    let (x, y) = (r.left(), r.center().y);
-    let rad = 5.0_f32.min(r.width()).min(r.height() / 2.0);
+/// A connector's line running on down `x` from `top` to `bottom`, past rows it doesn't
+/// branch to: the same column, on the same pixels, as [`icon_branch`]'s at that `x`.
+pub fn icon_branch_run(p: &Painter, x: f32, top: f32, bottom: f32, c: Color32) {
+    p.rect_filled(branch_stem(x, top, bottom, p.pixels_per_point()), 0, c);
+}
+
+/// How thick a connector's line is: about 1.2 points, in whole device pixels.
+pub fn branch_width(ppp: f32) -> f32 {
+    (1.2 * ppp).round().max(1.0) / ppp
+}
+
+/// A connector's vertical line at `x` from `top` to `bottom`, as a rect whose every edge
+/// is on a pixel boundary: the same `x` always lands on the same pixel column, and a row's
+/// bottom and the next one's top (the same number) on the same boundary, so stacked pieces
+/// meet with no gap, overlap or sideways step.
+pub fn branch_stem(x: f32, top: f32, bottom: f32, ppp: f32) -> Rect {
+    let w = branch_width(ppp);
+    let left = snap(x - w / 2.0, ppp);
+    Rect::from_min_max(Pos2::new(left, snap(top, ppp)), Pos2::new(left + w, snap(bottom, ppp)))
+}
+
+/// `v` on the nearest pixel boundary.
+fn snap(v: f32, ppp: f32) -> f32 {
+    (v * ppp).round() / ppp
+}
+
+/// [`icon_branch`]'s shapes, on the pixel grid at `ppp` pixels per point.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchGeometry {
+    /// The vertical line: down to where the elbow starts, or (a tee) on to the bottom.
+    pub stem: Rect,
+    /// The elbow and the arm out to the right, a stroke `width` thick.
+    pub elbow: Vec<Pos2>,
+    /// Where the elbow is drawn: off the stem's pixels, so the two never paint a pixel
+    /// twice (the line is translucent, and a doubled pixel shows as a bright spot).
+    pub elbow_clip: Rect,
+    pub width: f32,
+}
+
+/// Works out [`icon_branch`] for `r`. The line's edges sit on pixel boundaries (its
+/// centre snapped by its whole-pixel width, as [`branch_stem`]), the arm's too, and the
+/// elbow's radius is whole pixels, so the curve leaves the line and meets the arm exactly.
+/// (egui rounds a lone axis-aligned segment to pixels, but not a polyline, so the two
+/// halves of a tee drawn that way stepped sideways by up to half a pixel.)
+pub fn branch_geometry(r: Rect, last: bool, ppp: f32) -> BranchGeometry {
+    let w = branch_width(ppp);
+    let line = branch_stem(r.left(), r.top(), r.bottom(), ppp);
+    let x = line.center().x;
+    // The arm's centre: its edges on boundaries, as the line's are.
+    let y = snap(r.center().y - w / 2.0, ppp) + w / 2.0;
+    let rad = snap(5.0_f32.min(r.width()).min(r.height() / 2.0), ppp).max(1.0 / ppp);
     const N: usize = 6;
-    let mut pts = vec![Pos2::new(x, r.top())];
     // A quarter circle centred `rad` right of the line and `rad` above the arm.
-    pts.extend((0..=N).map(|i| {
+    let arc = (0..=N).map(|i| {
         let a = std::f32::consts::FRAC_PI_2 * i as f32 / N as f32;
         Pos2::new(x + rad * (1.0 - a.cos()), y - rad * (1.0 - a.sin()))
-    }));
-    pts.push(Pos2::new(r.right(), y));
-    (pts, (!last).then(|| [Pos2::new(x, y - rad), Pos2::new(x, r.bottom())]))
+    });
+    let wide = r.expand(w);
+    if last {
+        // The line stops on the boundary at (or just above) where the curve starts, and the
+        // curve picks up from there, cut off above it.
+        let end = snap(y - rad - w / 2.0, ppp) + ((w * ppp).round() / 2.0).floor() / ppp;
+        let stem = Rect::from_min_max(line.min, Pos2::new(line.right(), end.max(line.top())));
+        let mut elbow = vec![Pos2::new(x, stem.bottom())];
+        elbow.extend(arc.skip_while(|p| p.y <= stem.bottom() + 1e-3));
+        elbow.push(Pos2::new(r.right(), y));
+        BranchGeometry { stem, elbow, elbow_clip: Rect::from_min_max(Pos2::new(wide.left(), stem.bottom()), wide.max), width: w }
+    } else {
+        // The line runs the whole height; the curve is cut off where it overlaps it.
+        let mut elbow: Vec<Pos2> = arc.collect();
+        elbow.push(Pos2::new(r.right(), y));
+        BranchGeometry { stem: line, elbow, elbow_clip: Rect::from_min_max(Pos2::new(line.right(), wide.top()), wide.max), width: w }
+    }
 }
 
 /// A round selection check: an outline when off, a filled disc with a tick when on.
@@ -780,18 +837,60 @@ mod tests {
         assert!(o.iter().all(|p| r.expand(1e-3).contains(*p)));
     }
 
-    /// The L leaves the top of its slot at the left edge and meets the right edge at the
-    /// middle; a tee also carries on from the line to the bottom.
+    /// The L leaves its line at the left edge and meets the right edge at the middle; a tee's
+    /// line also runs on to the bottom.
     #[test]
     fn a_branch_is_an_l_and_a_tee_runs_on_down() {
         let r = Rect::from_min_max(Pos2::new(10.0, 0.0), Pos2::new(16.0, 46.0));
-        let (l, on) = branch_lines(r, true);
-        assert_eq!((l[0], *l.last().unwrap()), (Pos2::new(10.0, 0.0), Pos2::new(16.0, 23.0)));
-        assert!(l.windows(2).all(|w| w[1].x >= w[0].x && w[1].y >= w[0].y), "down, round, then out");
-        assert!(on.is_none());
-        let (_, on) = branch_lines(r, false);
-        let [a, b] = on.expect("a tee runs on");
-        assert!(a.x == 10.0 && b.x == 10.0 && a.y < 23.0 && b.y == 46.0);
+        let l = branch_geometry(r, true, 1.0);
+        assert_eq!(l.stem, Rect::from_min_max(Pos2::new(10.0, 0.0), Pos2::new(11.0, 18.0)));
+        assert_eq!((l.elbow[0], *l.elbow.last().unwrap()), (Pos2::new(10.5, 18.0), Pos2::new(16.0, 23.5)));
+        assert!(l.elbow.windows(2).all(|w| w[1].x >= w[0].x && w[1].y >= w[0].y), "down, round, then out");
+        let t = branch_geometry(r, false, 1.0);
+        assert_eq!(t.stem, Rect::from_min_max(Pos2::new(10.0, 0.0), Pos2::new(11.0, 46.0)), "a tee runs on");
+        assert_eq!(t.elbow_clip.left(), t.stem.right(), "its curve is cut off the line");
+    }
+
+    /// At any scale and any fractional place, a connector's edges are on pixel boundaries
+    /// and its line whole pixels wide; stacked rows' lines (├ over ├ over └, with runs
+    /// between) share one column and meet with no gap or overlap; the arm is at the row's
+    /// middle to within half a pixel and the elbow lands on it exactly.
+    #[test]
+    fn connectors_sit_on_whole_pixels_and_stack_into_one_line() {
+        let on_grid = |v: f32, ppp: f32| ((v * ppp) - (v * ppp).round()).abs() < 1e-3;
+        for ppp in [1.0, 1.25, 1.5, 1.75, 2.0, 2.625, 2.75, 3.0, 3.5] {
+            for (x0, y0) in [(10.0, 0.0), (37.3, 12.7), (121.45, 3.333), (0.19, 0.61)] {
+                let rows = [(0.0, false), (1.0, false), (3.0, true)];
+                let slot = |i: f32| Rect::from_min_max(Pos2::new(x0, y0 + i * 46.0), Pos2::new(x0 + 9.0, y0 + (i + 1.0) * 46.0));
+                let b: Vec<BranchGeometry> = rows.iter().map(|&(i, last)| branch_geometry(slot(i), last, ppp)).collect();
+                let run = branch_stem(x0, y0 + 2.0 * 46.0, y0 + 3.0 * 46.0, ppp);
+                let w = b[0].width;
+                assert!(on_grid(w, ppp) && w * ppp >= 1.0, "ppp {ppp}: width {w}");
+                for g in &b {
+                    let s = g.stem;
+                    assert!([s.left(), s.right(), s.top(), s.bottom()].iter().all(|&v| on_grid(v, ppp)), "ppp {ppp} at {x0},{y0}: {s:?}");
+                    assert!((s.width() - w).abs() < 1e-4);
+                    assert_eq!((s.left(), s.right()), (b[0].stem.left(), b[0].stem.right()), "one column");
+                    let arm = *g.elbow.last().unwrap();
+                    assert!(on_grid(arm.y - w / 2.0, ppp) && on_grid(arm.y + w / 2.0, ppp), "arm edges on pixels: {arm:?}");
+                    assert!((g.elbow[g.elbow.len() - 2].y - arm.y).abs() < 1e-4, "the curve ends on the arm");
+                    assert!(g.elbow.windows(2).all(|w| w[1].x >= w[0].x - 1e-4 && w[1].y >= w[0].y - 1e-4));
+                    assert!((g.elbow[0].x - s.center().x).abs() < 1e-4, "the curve leaves the line's centre");
+                }
+                assert_eq!((run.left(), run.right()), (b[0].stem.left(), b[0].stem.right()), "a run is the same column");
+                // ├ meets ├, ├ meets the run, the run meets └: edge to edge.
+                assert_eq!(b[0].stem.bottom(), b[1].stem.top());
+                assert_eq!(b[1].stem.bottom(), run.top());
+                assert_eq!(run.bottom(), b[2].stem.top());
+                // └'s line stops where its curve starts, which is drawn from there on only.
+                let l = &b[2];
+                assert_eq!((l.elbow[0].y, l.elbow_clip.top()), (l.stem.bottom(), l.stem.bottom()));
+                for (g, &(i, _)) in b.iter().zip(&rows) {
+                    let mid = slot(i).center().y;
+                    assert!((g.elbow.last().unwrap().y - mid).abs() <= 0.5 / ppp + 1e-4, "arm at the middle");
+                }
+            }
+        }
     }
 
     /// A context whose icon font is the embedded one, at `ppp` pixels per point.

@@ -58,6 +58,40 @@ fn a_pipelines_stages_hang_off_it_by_one_connector_each() {
     assert_eq!(branch_slots(list, g, &g.branches(), 1), [(slot(0), false)]);
 }
 
+/// A pipeline nested in a pipeline, its list at a fractional place and any scale: every
+/// piece of one connector line (├, └ and the runs between) lands on the same pixel column,
+/// at each depth, and each piece starts on the pixel boundary the one above it ends on.
+#[test]
+fn a_connector_lines_pieces_stack_into_one_pixel_column_at_every_depth() {
+    let stage = |pane, parent| Agent { team: Team { role: Some(format!("s{pane}")), ..agent(pane, Some(parent)).team }, ..agent(pane, Some(parent)) };
+    let inner = Agent { kind: AgentKind::Pipeline, ..stage(2, 1) };
+    let teams = groups(&Agents::new(vec![pipeline(1, Status::Idle), inner, stage(4, 2), stage(5, 2), stage(3, 1)]));
+    let g = &teams[0];
+    for ppp in [1.0, 1.25, 1.5, 2.0, 2.625, 3.0] {
+        for origin in [Pos2::new(100.0, 0.0), Pos2::new(57.37, 211.61), Pos2::new(18.5, 0.25)] {
+            let list = Rect::from_min_size(origin, Vec2::new(400.0, 4.0 * ROW_H));
+            // Each slot's vertical piece, by the column its slot is at.
+            let mut columns: Vec<(f32, Vec<Rect>)> = Vec::new();
+            for (r, last) in branch_slots(list, g, &g.branches(), 4) {
+                let stem =
+                    if r.width() > 0.0 { icons::branch_geometry(r, last, ppp).stem } else { icons::branch_stem(r.left(), r.top(), r.bottom(), ppp) };
+                match columns.iter_mut().find(|(x, _)| *x == r.left()) {
+                    Some((_, pieces)) => pieces.push(stem),
+                    None => columns.push((r.left(), vec![stem])),
+                }
+            }
+            assert_eq!(columns.len(), 2, "the card's own line and the nested pipeline's");
+            for (_, pieces) in &columns {
+                assert!(pieces.len() >= 2, "{pieces:?}");
+                for w in pieces.windows(2) {
+                    assert_eq!((w[0].left(), w[0].right()), (w[1].left(), w[1].right()), "one column at {ppp}x: {pieces:?}");
+                    assert_eq!(w[0].bottom(), w[1].top(), "no gap or overlap at {ppp}x: {pieces:?}");
+                }
+            }
+        }
+    }
+}
+
 /// A team's sub-agents are drawn as a pipeline's stages are: as far in, off the same
 /// column by the same connector, with the same tag and line under it.
 #[test]

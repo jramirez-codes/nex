@@ -256,14 +256,15 @@ pub(super) fn chevron(p: &Painter, at: Pos2, open: f32, color: Color32) {
 }
 
 /// Paints [`branch_slots`]: the connector icon in each stage's slot, a plain line where it
-/// only runs on (a zero-width slot). A quiet hairline, a step over the separators, starting
-/// a little below the list's top.
+/// only runs on (a zero-width slot), both on the pixel grid so the pieces of one line stack
+/// into a single column. A quiet hairline, a step over the separators, starting a little
+/// below the list's top.
 pub(super) fn branch_lines(p: &Painter, list: Rect, g: &Group, branches: &[Option<Branch>], shown: usize) {
     let c = white_alpha(22);
     let p = p.with_clip_rect(p.clip_rect().intersect(Rect::from_min_max(list.min + Vec2::new(0.0, 6.0), list.max)));
     for (r, last) in branch_slots(list, g, branches, shown) {
         if r.width() <= 0.0 {
-            p.line_segment([r.left_top(), r.left_bottom()], Stroke::new(1.2_f32, c));
+            icons::icon_branch_run(&p, r.left(), r.top(), r.bottom(), c);
         } else {
             icons::icon_branch(&p, r, c, last);
         }
