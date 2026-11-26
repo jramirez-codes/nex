@@ -398,27 +398,18 @@ struct Launch {
 impl Launch {
     fn parse(args: &[String]) -> std::io::Result<Launch> {
         let bad = |m: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, m);
-        let mut o = Launch::default();
-        let mut it = args.iter();
-        while let Some(a) = it.next() {
-            let mut value = |name: &str| it.next().cloned().ok_or_else(|| bad(format!("{name} needs a value")));
-            match a.as_str() {
-                "--" => {
-                    o.argv = it.cloned().collect();
-                    break;
-                }
-                "--kind" => o.kind = Some(value("--kind")?),
-                "--name" => o.name = Some(value("--name")?),
-                "--cwd" => o.cwd = Some(value("--cwd")?),
-                "--cols" => o.cols = Some(value("--cols")?.parse().map_err(|_| bad("--cols takes a number".into()))?),
-                "--rows" => o.rows = Some(value("--rows")?.parse().map_err(|_| bad("--rows takes a number".into()))?),
-                s if s.starts_with("--") => return Err(bad(format!("unknown option {s}"))),
-                _ => {
-                    o.argv = std::iter::once(a).chain(it).cloned().collect();
-                    break;
-                }
-            }
-        }
+        let number = |a: &agentcli::Args, name: &str| {
+            a.value(name).map(|n| n.parse().map_err(|_| bad(format!("{name} takes a number")))).transpose()
+        };
+        let a = agentcli::Args::parse_up_to_command(args, &["--kind", "--name", "--cwd", "--cols", "--rows"], &[])?;
+        let o = Launch {
+            kind: a.value("--kind").map(str::to_string),
+            name: a.value("--name").map(str::to_string),
+            cwd: a.value("--cwd").map(str::to_string),
+            cols: number(&a, "--cols")?,
+            rows: number(&a, "--rows")?,
+            argv: a.rest,
+        };
         if o.argv.is_empty() {
             return Err(bad("nothing to run (e.g. nex-host run -- claude)".into()));
         }
@@ -444,6 +435,21 @@ mod tests {
         assert_eq!(o.argv, v(&["codex", "--full-auto"]), "options after the command are its own");
         assert!(Launch::parse(&v(&["--name", "x"])).is_err());
         assert!(Launch::parse(&v(&["--bogus", "claude"])).is_err());
+    }
+
+    #[test]
+    fn launch_sizes_and_errors() {
+        let o = Launch::parse(&v(&["--kind", "codex", "--cols", "120", "--rows", "40", "codex", "--", "x"])).unwrap();
+        assert_eq!((o.kind.as_deref(), o.cols, o.rows), (Some("codex"), Some(120), Some(40)));
+        assert_eq!(o.argv, v(&["codex", "--", "x"]), "a `--` after the command is the command's");
+        assert_eq!(Launch::parse(&v(&["--name", "a", "--name", "b", "x"])).unwrap().name.as_deref(), Some("b"), "the last one wins");
+        let err = |s: &[&str]| Launch::parse(&v(s)).unwrap_err().to_string();
+        assert_eq!(err(&["--name", "x"]), "nothing to run (e.g. nex-host run -- claude)");
+        assert_eq!(err(&[]), "nothing to run (e.g. nex-host run -- claude)");
+        assert_eq!(err(&["--bogus", "claude"]), "unknown option --bogus");
+        assert_eq!(err(&["--cwd"]), "--cwd needs a value");
+        assert_eq!(err(&["--cols", "wide", "claude"]), "--cols takes a number");
+        assert_eq!(err(&["--rows", "-1", "claude"]), "--rows takes a number");
     }
 
     #[test]

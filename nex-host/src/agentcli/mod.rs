@@ -37,7 +37,7 @@ mod pipe;
 mod tree;
 mod worktree;
 
-use args::Args;
+pub(crate) use args::Args;
 pub use mail::{done, read, recv, send};
 pub use pipe::{pipe, pipe_run};
 pub use tree::tree;
