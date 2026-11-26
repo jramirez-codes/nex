@@ -348,11 +348,12 @@ impl Node {
 
 /// Which edge of `area` the pane at `rect` sits along, and how much of the area it takes
 /// across that edge: a pane spanning the full height on the right is `(Right, width share)`.
-/// A pane touching no full edge goes on the side it is nearest. `(Right, 0.4)` if `area`
-/// is empty.
-pub fn edge_placement(rect: Rect, area: Rect) -> (Direction, f32) {
+/// A pane touching no full edge goes on the side it is nearest; on a tie, left/right, or
+/// top/bottom with `stack`. `None` when there's nothing to go on: `area` is empty, or the
+/// pane fills it.
+pub fn edge_placement(rect: Rect, area: Rect, stack: bool) -> Option<(Direction, f32)> {
     if !area.is_positive() || !rect.is_positive() {
-        return (Direction::Right, 0.4);
+        return None;
     }
     const SLACK: f32 = 2.0;
     let full_h = rect.top() <= area.top() + SLACK && rect.bottom() >= area.bottom() - SLACK;
@@ -363,18 +364,16 @@ pub fn edge_placement(rect: Rect, area: Rect) -> (Direction, f32) {
     let (du, dd) = (rect.top() - area.top(), area.bottom() - rect.bottom());
     let side = |left: bool| if left { Direction::Left } else { Direction::Right };
     let vside = |up: bool| if up { Direction::Up } else { Direction::Down };
-    if full_h && !full_w {
-        return (side(dl < dr), wfrac);
+    match (full_w, full_h) {
+        (true, true) => None,
+        (false, true) => Some((side(dl < dr), wfrac)),
+        (true, false) => Some((vside(du < dd), hfrac)),
+        (false, false) => {
+            let (dh, dv) = (dl.min(dr), du.min(dd));
+            let beside = if stack { dh < dv } else { dh <= dv };
+            Some(if beside { (side(dl < dr), wfrac) } else { (vside(du < dd), hfrac) })
+        }
     }
-    if full_w && !full_h {
-        return (vside(du < dd), hfrac);
-    }
-    if full_w && full_h {
-        return (Direction::Right, 0.4);
-    }
-    // Nearest edge, preferring left/right on ties (columns read best beside other panes).
-    let (dh, dv) = (dl.min(dr), du.min(dd));
-    if dh <= dv { (side(dl < dr), wfrac) } else { (vside(du < dd), hfrac) }
 }
 
 /// Pick the pane whose rect lies in `dir` from `from`, preferring the nearest one that
@@ -528,12 +527,17 @@ mod tests {
     fn edge_placement_finds_the_side_and_share() {
         let area = Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 50.0));
         let right = Rect::from_min_max(Pos2::new(60.0, 0.0), Pos2::new(100.0, 50.0));
-        assert_eq!(edge_placement(right, area), (Direction::Right, 0.4));
         let bottom = Rect::from_min_max(Pos2::new(0.0, 25.0), Pos2::new(100.0, 50.0));
-        assert_eq!(edge_placement(bottom, area), (Direction::Down, 0.5));
         let corner = Rect::from_min_max(Pos2::ZERO, Pos2::new(30.0, 40.0));
-        assert_eq!(edge_placement(corner, area), (Direction::Left, 0.3));
-        assert_eq!(edge_placement(area, area), (Direction::Right, 0.4));
+        // A pane's own edge wins either way; only a tie leans on `stack`.
+        for stack in [false, true] {
+            assert_eq!(edge_placement(right, area, stack), Some((Direction::Right, 0.4)));
+            assert_eq!(edge_placement(bottom, area, stack), Some((Direction::Down, 0.5)));
+            assert_eq!(edge_placement(area, area, stack), None);
+            assert_eq!(edge_placement(right, Rect::NOTHING, stack), None);
+        }
+        assert_eq!(edge_placement(corner, area, false), Some((Direction::Left, 0.3)));
+        assert_eq!(edge_placement(corner, area, true), Some((Direction::Up, 0.8)));
     }
 
     #[test]

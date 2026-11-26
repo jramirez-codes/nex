@@ -9,8 +9,12 @@ use crate::layout::{self, Direction, Node, PaneId};
 use crate::app::workspace::tab::Tab;
 use crate::app::{App, PANE_GAP};
 
-/// Where a newly sticky pane goes in a tab when there's nothing better to go on.
+/// Where a newly sticky pane goes in a tab when there's nothing better to go on (it filled
+/// its tab): a column on the right, beside the tab's panes.
 const DEFAULT_PLACE: (Direction, f32) = (Direction::Right, 0.4);
+/// The same on mobile (Android, iOS, or `tab-bar = sidebar`): a band along the bottom,
+/// under the tab's panes, since a phone's screen is too narrow for two columns.
+const MOBILE_PLACE: (Direction, f32) = (Direction::Down, 0.4);
 
 impl App {
     pub(in crate::app) fn is_sticky(&self, id: PaneId) -> bool {
@@ -41,17 +45,32 @@ impl App {
         ctx.request_repaint();
     }
 
+    /// Mobile stacks the sticky pane under the others rather than beside them, unless where
+    /// it already sits says otherwise.
+    fn sticky_stacks(&self) -> bool {
+        crate::platform::SOFT_KEYBOARD || self.cfg.sidebar()
+    }
+
+    /// Where the sticky pane goes when nothing says where.
+    fn default_place(&self) -> (Direction, f32) {
+        if self.sticky_stacks() { MOBILE_PLACE } else { DEFAULT_PLACE }
+    }
+
     /// Where pane `id` sits in `tab`: the edge of the pane area it runs along and its share.
     fn place_in(&self, tab: &Tab, id: PaneId) -> (Direction, f32) {
         let mut rects = Vec::new();
         tab.root.layout(self.content_area, PANE_GAP, &mut rects, &mut Vec::new());
-        rects.iter().find(|(p, _)| *p == id).map_or(DEFAULT_PLACE, |&(_, r)| layout::edge_placement(r, self.content_area))
+        rects
+            .iter()
+            .find(|(p, _)| *p == id)
+            .and_then(|&(_, r)| layout::edge_placement(r, self.content_area, self.sticky_stacks()))
+            .unwrap_or_else(|| self.default_place())
     }
 
     /// `tab` (just made) with the sticky pane in it, placed as it is in the shown tab.
     pub(in crate::app) fn with_sticky(&self, mut tab: Tab) -> Tab {
         let Some(id) = self.sticky.filter(|&id| !tab.contains(id)) else { return tab };
-        let place = self.cur_tab().filter(|t| t.contains(id)).map_or(DEFAULT_PLACE, |t| self.place_in(t, id));
+        let place = self.cur_tab().filter(|t| t.contains(id)).map_or_else(|| self.default_place(), |t| self.place_in(t, id));
         tab.root.wrap_edge(id, place.0, place.1);
         tab
     }

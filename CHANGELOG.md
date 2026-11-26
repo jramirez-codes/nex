@@ -53,6 +53,10 @@ All notable changes to nex are documented here. The format follows
   missed in a row as a lost connection. An agent on an ssh host changing status, title or
   folder shows in the frame its update arrives, not at the next poll up to a second later.
   This changes nex-host's protocol to 4, so hosts get the new nex-host on the next connect.
+- Mobile (Android, iPhone, or `tab-bar = sidebar`): a pinned pane that has no clear side
+  (it filled its tab, or sat in a corner) now joins the other tabs as a band along the
+  bottom, under their panes, instead of a column on the right beside them. A pane pinned
+  from a side-by-side split stays beside them. Desktops don't change.
 - The file explorer's action bar is icons now (Select all, Copy, Cut, Rename, Delete, Paste /
   Move here, Cancel, Done, each named in its tooltip), and a little shorter. In a narrow pane
   the buttons shrink to fit instead of dropping off the left, and the status line makes way.

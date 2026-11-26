@@ -15,10 +15,14 @@ struct Sim {
 
 impl Sim {
     fn new() -> Self {
+        Self::with(crate::config::Config::default())
+    }
+
+    fn with(cfg: crate::config::Config) -> Self {
         let ctx = egui::Context::default();
         let cc = eframe::CreationContext::_new_kittest(ctx.clone());
         let args = crate::cli::Args { no_restore: true, ..Default::default() };
-        let app = App::new(&cc, crate::config::Config::default(), args, None, None, None);
+        let app = App::new(&cc, cfg, args, None, None, None);
         let mut s = Sim { ctx, app, t: 0.0 };
         s.frames(3);
         s
@@ -85,6 +89,40 @@ fn pinned_pane_joins_every_tab_on_its_side_with_its_own_size_in_each() {
 
     // There's one terminal for it, sized for the tab shown.
     assert_eq!(s.app.panes.ids(PaneKind::Terminal).filter(|&id| id == sticky).count(), 1);
+}
+
+/// The split a pane pinned in `cfg` makes in another tab: pinning a tab's only pane (nothing
+/// says where it goes), or with `split`, the second pane of a tab split that way.
+fn pinned_split(cfg: crate::config::Config, split: Option<Axis>) -> (Axis, f32) {
+    let mut s = Sim::with(cfg);
+    s.act(Action::NewTab);
+    s.act(Action::GotoTab(0));
+    if let Some(axis) = split {
+        s.act(Action::Split(axis));
+    }
+    let sticky = s.focused();
+    s.act(Action::ToggleSticky(sticky));
+    assert_eq!(s.app.sticky, Some(sticky));
+    let Node::Split { axis, ratio, b, .. } = &s.app.tabs[1].root else { panic!("not split") };
+    assert!(matches!(**b, Node::Leaf(id) if id == sticky), "pinned on the right or bottom");
+    (*axis, *ratio)
+}
+
+/// With nothing to go on, a pinned pane joins other tabs as a column on the right on desktop,
+/// and as a band along the bottom on mobile. Where it already sits beats either default.
+#[test]
+fn a_pinned_pane_defaults_beside_on_desktop_and_below_on_mobile() {
+    use crate::config::{Config, TabBar};
+    let mobile = || Config { tab_bar: TabBar::Sidebar, ..Config::default() };
+    let (axis, ratio) = pinned_split(Config::default(), None);
+    assert_eq!(axis, Axis::Horizontal, "desktop: side by side");
+    assert!((ratio - 0.6).abs() < 0.01, "ratio {ratio}");
+    let (axis, ratio) = pinned_split(mobile(), None);
+    assert_eq!(axis, Axis::Vertical, "mobile: stacked");
+    assert!((ratio - 0.6).abs() < 0.01, "ratio {ratio}");
+    // The user split the tab themselves: the pin keeps that layout, on mobile too.
+    assert_eq!(pinned_split(mobile(), Some(Axis::Horizontal)).0, Axis::Horizontal);
+    assert_eq!(pinned_split(Config::default(), Some(Axis::Vertical)).0, Axis::Vertical);
 }
 
 #[test]
