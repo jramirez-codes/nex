@@ -1,7 +1,7 @@
 //! Reading a pane header's title that's too long to fit: while a finger is held on the
 //! header (or the secondary mouse button, on desktop), the title scrolls sideways,
 //! marquee-style (the timing the Agents pane's held cards use, `ui::glide::marquee`): a
-//! short pause, along to its end, a pause there, and back, for as long as the hold lasts.
+//! blink's pause, along to its end, a pause there, and back, for as long as the hold lasts.
 //! Letting go snaps it back to the usual faded-out start. A title that fits doesn't move;
 //! with animations off a held title shows its end.
 //!
@@ -70,6 +70,8 @@ mod tests {
         let mut s = TitleScroll::default();
         assert_eq!(s.offset(a, 0.0, 50.0, true), None);
         s.hold(a, 0.0);
+        // Under way a moment after the hold takes.
+        assert!(s.offset(a, 0.15, 50.0, true).unwrap() > 0.0);
         // Holding on doesn't restart it.
         s.hold(a, 1.5);
         let x = s.offset(a, 1.0, 50.0, true).unwrap();

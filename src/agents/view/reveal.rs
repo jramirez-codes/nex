@@ -1,6 +1,6 @@
 //! Press and hold a card or a helper row to read what's cut off: while the finger stays
 //! down, each of its lines too long for its room scrolls along, marquee-style, to its end and
-//! back again (pausing at each end), and lifting the finger snaps it back to the faded,
+//! back again (pausing at each end), from a third of a second into the hold (`ui::hold`), and lifting the finger snaps it back to the faded,
 //! cut-off line. The hold never opens the agent, and the list doesn't scroll under it. A
 //! right click does the same on a desktop, until the next press or the pointer leaves.
 //! Lines that fit don't move. With animations off a held line shows its end, still.

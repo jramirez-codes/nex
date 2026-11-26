@@ -25,7 +25,7 @@ fn split_with_title(title: &str) -> (Sim, PaneId, Pos2) {
     (s, id, at)
 }
 
-/// Hold a finger at `at` for `frames` frames (long enough to be a long press past ~50).
+/// Hold a finger at `at` for `frames` frames (16 ms each: a hold from about 22).
 fn hold(s: &mut Sim, at: Pos2, frames: usize) {
     s.touch(0, TouchPhase::Start, at);
     for _ in 0..frames {
@@ -49,6 +49,45 @@ fn holding_a_long_title_scrolls_it_and_letting_go_snaps_it_back() {
     s.frame(vec![]);
     assert_eq!(s.app.title_scroll.shown(), None, "letting go didn't snap the title back");
     assert!(s.app.input.pane_drag.is_none());
+}
+
+/// The wait from the first touch to the title moving is short: it's under way by half a
+/// second, yet a tap's worth of holding doesn't take.
+#[test]
+fn a_held_title_is_moving_within_half_a_second() {
+    let (mut s, id, at) = split_with_title(LONG);
+    s.touch(0, TouchPhase::Start, at);
+    let start = s.t;
+    while s.t - start < 0.2 {
+        s.frame(vec![]);
+    }
+    assert_eq!(s.app.title_scroll.shown(), None, "a tap's length took as a hold");
+    while s.t - start < 0.5 {
+        s.frame(vec![]);
+    }
+    let (held, offset) = s.app.title_scroll.shown().expect("not held half a second in");
+    assert_eq!(held, id);
+    assert!(offset > 0.5, "not moving half a second in: {offset}");
+    s.touch(0, TouchPhase::End, at);
+    s.frame(vec![]);
+    assert_eq!(s.app.title_scroll.shown(), None);
+}
+
+/// Held long enough to scroll but let go before egui's own long press (0.8 s): sliding the
+/// finger meanwhile still doesn't pick the pane up.
+#[test]
+fn a_short_hold_then_a_slide_doesnt_drag_the_pane() {
+    let (mut s, id, at) = split_with_title(LONG);
+    hold(&mut s, at, 28);
+    assert!(s.app.title_scroll.shown().is_some(), "the hold didn't take");
+    for k in 1..=10 {
+        s.touch(0, TouchPhase::Move, at + Vec2::new(30.0 * k as f32, 0.0));
+        assert!(s.app.input.pane_drag.is_none(), "the hold started a pane drag");
+    }
+    s.touch(0, TouchPhase::End, at + Vec2::new(300.0, 0.0));
+    s.settle();
+    assert!(s.app.input.pane_drag.is_none());
+    assert_eq!(s.app.card_rects.first().map(|r| r.0), Some(id), "the pane moved");
 }
 
 #[test]

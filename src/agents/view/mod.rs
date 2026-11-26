@@ -563,10 +563,17 @@ impl AgentsPane {
     /// A press and hold (or right click) on `hit`, what's `held`, starts its reveal. Returns
     /// how long it has been held at `now`, while it is.
     fn hold(&mut self, hit: Option<&egui::Response>, held: Held, now: f64) -> Option<f64> {
-        if let Some(h) = hit
-            && (h.long_touched() || h.secondary_clicked())
-        {
-            self.view.reveal = Some(Reveal::new(held, now, h.long_touched()));
+        if let Some(h) = hit {
+            // A finger's hold starts once: `held_still` lasts many frames, and egui's own long
+            // press (which it also counts as a right click) comes later. A right click starts
+            // over.
+            if crate::ui::hold::held_still(h) || h.long_touched() {
+                if self.view.reveal.is_none_or(|r| r.held != held || !r.touch) {
+                    self.view.reveal = Some(Reveal::new(held, now, true));
+                }
+            } else if h.secondary_clicked() {
+                self.view.reveal = Some(Reveal::new(held, now, false));
+            }
         }
         let r = self.view.reveal.as_mut().filter(|r| r.held == held)?;
         // A finger holds it wherever it goes; a right click's lasts while the pointer's on it.

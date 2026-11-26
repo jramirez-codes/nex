@@ -6,6 +6,7 @@ pub mod alert;
 pub mod dog;
 pub mod file_icons;
 pub mod glide;
+pub mod hold;
 pub mod icons;
 pub mod ink;
 pub mod notice;

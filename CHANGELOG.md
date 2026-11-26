@@ -6,6 +6,13 @@ All notable changes to nex are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Holding a long pane title or an Agents pane card to read it starts scrolling sooner: the
+  hold takes after a third of a second (it waited out egui's 0.8 s long press before), and
+  the line sets off at once instead of pausing and creeping first. It still pauses at the
+  end so the end can be read.
+
 ## [0.17.0] - 2026-11-26
 
 ### Added
