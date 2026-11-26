@@ -247,6 +247,13 @@ impl App {
         tracker.agents().iter().filter(|a| a.kind == AgentKind::Pipeline && a.shown_pane() == Some(id)).find_map(|a| tracker.pipeline_status(a.pane))
     }
 
+    /// Whether terminal pane `id` runs an agent: an agent CLI in the foreground, or `ssh`
+    /// showing one `nex-host` keeps. Read every frame, from what the last process poll found.
+    pub(in crate::app) fn is_agent_pane(&self, id: PaneId) -> bool {
+        let Some(t) = self.panes.terminal(id) else { return false };
+        t.foreground_job().is_some_and(|(_, argv)| AgentKind::detect(&t.process, argv).is_some()) || t.remote_agent().is_some()
+    }
+
     /// Show the agent behind card `key`: jump to its pane, or, for an agent on an ssh host
     /// that no pane shows, open a tab attached to it. A sub-agent's is the tab following its
     /// transcript: the one already open on it, else a new one.

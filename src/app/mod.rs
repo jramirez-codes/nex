@@ -118,6 +118,8 @@ pub struct App {
     sticky: Option<PaneId>,
     /// Its card gliding from where the last tab had it to where this one does.
     sticky_glide: animation::sticky_glide::StickyGlide,
+    /// Agent panes' header titles rolling over when they change (`animation/title_roll.rs`).
+    title_rolls: animation::title_roll::TitleRolls,
     /// Drag and drop with other windows, where the platform needs nex to do it (Wayland).
     dnd: Option<crate::platform::Dnd>,
     /// Uploads, the shared mic, watched agents and their dialogs (see `ssh/`).
@@ -206,6 +208,7 @@ impl App {
             system_back: crate::platform::SYSTEM_BACK,
             sticky: None,
             sticky_glide: Default::default(),
+            title_rolls: Default::default(),
             dnd: crate::platform::Dnd::new(cc),
             ssh: ssh::SshState {
                 uploads: Default::default(),

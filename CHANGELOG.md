@@ -13,6 +13,10 @@ All notable changes to nex are documented here. The format follows
   phone's Downloads (Android 11 or newer) under its own name, or "name (2).ext" when that's
   taken, so nothing there is replaced. The action bar shows its progress, with Cancel, then
   where it went or why it failed. Desktops don't change.
+- An agent pane's header title rolls over when it changes: the old words rise a few pixels
+  and fade out as the new ones rise in from below, over a quarter of a second. Words both
+  titles start with stay put, and the agent's spinner mark doesn't move. With `animations`
+  off the new title is simply there.
 - Android and iPhone: spinning the keyboard button's joystick round in a full circle, either
   way, sends Esc, once a turn, and no arrows: the joystick's arrow now waits until the finger
   has settled on it (about 0.12 s pointing one way, hardly turning), which a finger going
