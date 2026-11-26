@@ -1,12 +1,16 @@
-//! The floating keyboard button (Android): a round glass button in the bottom-right corner of
-//! a terminal or the Agents tab, above the on-screen keyboard when it's up.
+//! The floating keyboard button (mobile: Android and iOS): a round glass button in the
+//! bottom-right corner of a terminal or the Agents tab, above the on-screen keyboard when it's
+//! up.
 //!
-//! - A tap puts the keyboard away or brings it back (it also goes away the usual Android
+//! - A tap puts the keyboard away or brings it back (it also goes away the usual system
 //!   ways, and nex leaves it down until the button brings it back).
 //! - A drag makes it a joystick: the button opens into a track, a knob follows the finger,
-//!   and the arrow key it points to repeats, faster the further it is pushed. Spinning it
-//!   round in a full circle (either way) sends Esc, once a turn; past [`SPIN_QUIET`] of turning
-//!   the arrows stop, so a spin sends only the first few.
+//!   and the arrow key it points to repeats, faster the further it is pushed. An arrow waits
+//!   until the finger has settled on it (pointing one way, hardly turning, for [`SETTLE`]), so
+//!   a quick flick out and back up is a nudge: one arrow, sent as it lifts.
+//! - Spinning it round in a full circle (either way) is a silent circle: Esc, once a turn, and
+//!   no arrows, since a finger going round never settles. Past [`SPIN_QUIET`] of turning no
+//!   arrows go at all until it comes back to the center, and a lift after a spin sends nothing.
 //! - A double-tap arms Ctrl for the next key (`^C` is double-tap, then `c`); a second double
 //!   tap disarms it.
 //! - Holding it still (in a terminal) talks to Claude Code's voice mode, which records while
@@ -18,8 +22,8 @@
 //!   again during that tail goes on talking.
 //!
 //! Telling a tap from a double-tap means a tap acts a moment after it lifts. The timing rules
-//! are plain functions ([`lift`], [`hold_turns_to_talk`], [`Talk::tick`]), and so is telling a
-//! spin ([`Spin::turn`]), tested below.
+//! are plain functions ([`lift`], [`hold_turns_to_talk`], [`Talk::tick`]), and so are telling
+//! a spin ([`Spin::turn`]), a settled finger ([`Settle`]) and a nudge ([`nudge`]), tested below.
 
 use std::f32::consts::{PI, TAU};
 
@@ -64,6 +68,10 @@ const TALK_TAIL: f64 = 0.35;
 /// Turned this far round in one go, the joystick is being spun (for Esc), not pointed: its
 /// arrows stop. More than a half turn, so swinging from one side to the other still moves.
 const SPIN_QUIET: f32 = 200.0 * PI / 180.0;
+/// A direction's first arrow waits until the finger has pointed that way this long, turning
+/// less than [`SETTLE_TURN`]: a finger going round never does, so a spin sends no arrows.
+pub(in crate::app) const SETTLE: f64 = 0.12;
+const SETTLE_TURN: f32 = 25.0 * PI / 180.0;
 
 /// Where the button goes in `area` (the content area).
 pub(in crate::app) fn button_rect(area: Rect) -> Rect {
@@ -191,12 +199,59 @@ fn lift(stick: bool, talking: bool, pending_tap: Option<f64>, now: f64) -> Lift 
 }
 
 struct Stick {
-    /// The arrow being sent, `None` while the finger is back inside the dead zone.
+    /// The arrow being pointed to, `None` while the finger is back inside the dead zone.
     dir: Option<Key>,
-    /// When the arrow repeats next.
+    /// When the arrow repeats next (once it has settled).
     next: f64,
     /// How far the finger has gone round the center.
     spin: Spin,
+    /// Whether the finger has settled on `dir` yet (`None` inside the dead zone).
+    settle: Option<Settle>,
+    /// The drag has sent a key (an arrow or Esc): lifting it isn't a nudge.
+    sent: bool,
+}
+
+/// Whether the joystick's finger has settled on a direction, for its first arrow.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Settle {
+    dir: Key,
+    /// The finger's angle when it started settling.
+    angle: f32,
+    /// When it started settling.
+    since: f64,
+    /// It settled and the first arrow went: it repeats from here, however the finger turns
+    /// while it points the same way.
+    held: bool,
+}
+
+impl Settle {
+    /// The finger is at `offset` (past the dead zone) at `now`, starting to settle.
+    fn new(offset: Vec2, now: f64) -> Self {
+        Self { dir: direction(offset), angle: offset.y.atan2(offset.x), since: now, held: false }
+    }
+
+    /// The finger moved to `offset` at `now`: pointing somewhere new, or (before it settled)
+    /// turning past [`SETTLE_TURN`], starts it over.
+    fn moved(&mut self, offset: Vec2, now: f64) {
+        let turned = ((offset.y.atan2(offset.x) - self.angle + PI).rem_euclid(TAU) - PI).abs();
+        if direction(offset) != self.dir || (!self.held && turned > SETTLE_TURN) {
+            *self = Self::new(offset, now);
+        }
+    }
+
+    /// Whether the first arrow goes at `now` (once: it's held after).
+    fn due(&mut self, now: f64) -> bool {
+        let due = !self.held && now - self.since >= SETTLE;
+        self.held |= due;
+        due
+    }
+}
+
+/// Lifting a joystick drag that `sent` keys or not, having turned at most `turned` round the
+/// center, pointing to `dir`: the arrow it sends. A quick flick that never settled and
+/// didn't turn is a nudge, one arrow; anything else sent what it meant already.
+fn nudge(sent: bool, turned: f32, dir: Option<Key>) -> Option<Key> {
+    dir.filter(|_| !sent && turned <= SETTLE_TURN)
 }
 
 /// How far a joystick drag has gone round the center, to send Esc for each full circle.
@@ -210,6 +265,8 @@ struct Spin {
     /// It turned past [`SPIN_QUIET`] (or a full circle): no arrows until it comes back to
     /// the center.
     spinning: bool,
+    /// The most it has turned either way (a full circle counts in full), for telling a nudge.
+    most: f32,
 }
 
 impl Spin {
@@ -225,6 +282,7 @@ impl Spin {
             // The short way round from last time.
             self.turned += (angle - last + PI).rem_euclid(TAU) - PI;
         }
+        self.most = self.most.max(self.turned.abs());
         if self.turned.abs() >= SPIN_QUIET {
             self.spinning = true;
         }
@@ -393,7 +451,7 @@ impl App {
                         kb.spring = None;
                     }
                 }
-                egui::Event::PointerMoved(pos) => self.joystick_move(pos, now, target),
+                egui::Event::PointerMoved(pos) => self.joystick_move(pos, now),
                 egui::Event::PointerButton { button: egui::PointerButton::Primary, pressed: false, .. } => self.release(now, target),
                 // A touch that ends without a release (the system took it): no tap.
                 egui::Event::PointerGone => self.cancel_button_press(now),
@@ -453,39 +511,39 @@ impl App {
         }
     }
 
-    /// The finger moved: past the dead zone the press is the joystick, sending the arrow it
-    /// points to as soon as it points somewhere new. Not while talking.
-    fn joystick_move(&mut self, pos: Pos2, now: f64, target: Target) {
+    /// The finger moved: past the dead zone the press is the joystick, pointing to an arrow
+    /// (sent once it settles, in `repeat_arrow`) and sending Esc for each full circle. Not
+    /// while talking.
+    fn joystick_move(&mut self, pos: Pos2, now: f64) {
         let Some(press) = self.chrome.keyboard_button.press.as_mut() else { return };
         if press.talking {
             return;
         }
         press.offset = pos - press.origin;
         let distance = press.offset.length();
-        let dir = (distance > DEAD_ZONE).then(|| direction(press.offset));
-        let mut circle = false;
-        let changed = match &mut press.stick {
-            None if dir.is_some() => {
+        let out = distance > DEAD_ZONE;
+        let dir = out.then(|| direction(press.offset));
+        let circle = match &mut press.stick {
+            None if out => {
                 let mut spin = Spin::default();
                 spin.turn(press.offset);
-                press.stick = Some(Stick { dir, next: now + FIRST_REPEAT, spin });
-                true
+                let settle = Some(Settle::new(press.offset, now));
+                press.stick = Some(Stick { dir, next: now, spin, settle, sent: false });
+                false
             }
             Some(stick) => {
-                circle = stick.spin.turn(press.offset);
-                let changed = stick.dir != dir;
-                if changed {
-                    stick.dir = dir;
-                    stick.next = now + FIRST_REPEAT;
+                stick.dir = dir;
+                match (&mut stick.settle, out) {
+                    (Some(settle), true) => settle.moved(press.offset, now),
+                    (settle, true) => *settle = Some(Settle::new(press.offset, now)),
+                    (settle, false) => *settle = None,
                 }
-                // Spinning: the arrows it points through on the way round don't go.
-                changed && dir.is_some() && !stick.spin.spinning
+                let circle = stick.spin.turn(press.offset);
+                stick.sent |= circle;
+                circle
             }
-            _ => false,
+            None => false,
         };
-        if changed && let Some(dir) = dir {
-            self.send_arrow(dir, now, target);
-        }
         if circle {
             self.key_to_pane(Key::Escape, Modifiers::NONE);
             self.chrome.keyboard_button.tick_at = now;
@@ -493,18 +551,32 @@ impl App {
         }
     }
 
-    /// Repeat the joystick's arrow while it's held there.
+    /// Send the joystick's arrow once the finger has settled on it, then repeat it while it's
+    /// held there. Never while spinning.
     fn repeat_arrow(&mut self, ctx: &egui::Context, now: f64, target: Target) {
         let Some(press) = self.chrome.keyboard_button.press.as_mut() else { return };
         let distance = press.offset.length();
         let Some(stick) = press.stick.as_mut() else { return };
-        let Some(dir) = stick.dir.filter(|_| !stick.spin.spinning) else { return };
-        if now >= stick.next {
+        if stick.spin.spinning {
+            return;
+        }
+        let Some(settle) = stick.settle.as_mut() else { return };
+        let dir = settle.dir;
+        let send = if settle.due(now) {
+            stick.next = now + FIRST_REPEAT;
+            true
+        } else if settle.held && now >= stick.next {
             stick.next = now + repeat_interval(distance);
+            true
+        } else {
+            false
+        };
+        let wake = if settle.held { stick.next } else { settle.since + SETTLE };
+        if send {
+            stick.sent = true;
             self.send_arrow(dir, now, target);
         }
-        let next = self.chrome.keyboard_button.press.as_ref().and_then(|p| p.stick.as_ref()).map_or(now, |s| s.next);
-        ctx.request_repaint_after(std::time::Duration::from_secs_f64((next - now).max(0.0)));
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64((wake - now).max(0.0)));
     }
 
     /// One arrow from the joystick, with Ctrl if it's armed (in a terminal).
@@ -523,8 +595,12 @@ impl App {
     fn release(&mut self, now: f64, target: Target) {
         let kb = &mut self.chrome.keyboard_button;
         let Some(press) = kb.press.take() else { return };
+        let mut arrow = None;
         match lift(press.stick.is_some(), press.talking, kb.pending_tap, now) {
-            Lift::Stick => kb.spring = Some((knob_travel(press.offset), now)),
+            Lift::Stick => {
+                kb.spring = Some((knob_travel(press.offset), now));
+                arrow = press.stick.as_ref().and_then(|s| nudge(s.sent, s.spin.most, s.dir));
+            }
             Lift::Talk => {
                 if let Some(talk) = kb.talk.as_mut() {
                     talk.release(now);
@@ -546,6 +622,10 @@ impl App {
                 kb.pending_tap = Some(now);
                 platform::haptic(Haptic::Tap);
             }
+        }
+        // A quick flick that never settled: one arrow, as it lifts.
+        if let Some(dir) = arrow {
+            self.send_arrow(dir, now, target);
         }
     }
 
@@ -748,6 +828,51 @@ mod tests {
         assert!(!s.turn(Vec2::new(3.0, 2.0)), "in the dead zone");
         assert_eq!(s, Spin::default(), "and the arrows come back");
         assert_eq!(spin(&mut s, 0.75, 36), 0, "three quarters again isn't a circle");
+    }
+
+    #[test]
+    fn the_first_arrow_waits_for_the_finger_to_settle() {
+        let right = Vec2::new(30.0, 0.0);
+        let mut s = Settle::new(right, 1.0);
+        assert!(!s.due(1.0 + SETTLE / 2.0), "not yet");
+        // Wavering a little, still pointing right: it goes on settling.
+        s.moved(Vec2::angled(SETTLE_TURN * 0.8) * 30.0, 1.0 + SETTLE / 2.0);
+        assert!(s.due(1.0 + SETTLE), "settled: the first arrow");
+        assert!(!s.due(1.0 + SETTLE * 3.0), "once: repeats take over");
+        // Held, turning within right doesn't stop it.
+        s.moved(Vec2::angled(-0.6) * 30.0, 2.0);
+        assert!(s.held);
+
+        // Turning past the threshold starts it over, even still pointing right.
+        let mut s = Settle::new(right, 0.0);
+        s.moved(Vec2::angled(SETTLE_TURN * 1.2) * 30.0, 0.1);
+        assert!(!s.due(SETTLE), "started over at 0.1");
+        assert!(s.due(0.1 + SETTLE));
+        // Pointing somewhere new starts it over, and that arrow waits too.
+        s.moved(Vec2::new(0.0, 30.0), 0.5);
+        assert_eq!(s.dir, Key::ArrowDown);
+        assert!(!s.held && !s.due(0.5 + SETTLE / 2.0));
+        assert!(s.due(0.5 + SETTLE));
+
+        // Going round, the finger never settles: 10° a frame.
+        let mut s = Settle::new(right, 0.0);
+        for i in 1..=72 {
+            let now = i as f64 * 0.016;
+            s.moved(Vec2::angled(TAU * i as f32 / 36.0) * 30.0, now);
+            assert!(!s.due(now), "frame {i}");
+        }
+    }
+
+    #[test]
+    fn a_flick_that_never_settled_is_a_nudge() {
+        assert_eq!(nudge(false, 0.1, Some(Key::ArrowLeft)), Some(Key::ArrowLeft));
+        assert_eq!(nudge(true, 0.1, Some(Key::ArrowLeft)), None, "it sent its arrows already");
+        assert_eq!(nudge(false, 0.1, None), None, "back in the center");
+        assert_eq!(nudge(false, PI, Some(Key::ArrowLeft)), None, "it turned: a spin, not a flick");
+        // A spin that ended in the center and went out again still turned.
+        let mut s = Spin::default();
+        spin(&mut s, 1.0, 36);
+        assert!(s.most >= TAU - 1e-3);
     }
 
     #[test]
