@@ -13,7 +13,9 @@
 //!   arrows go at all until it comes back to the center, and a lift after a spin sends nothing.
 //! - A double-tap arms Ctrl for the next key (`^C` is double-tap, then `c`) or for a tap on a
 //!   link (which opens it, as Ctrl+click does: see `input/mouse.rs`); a second double tap
-//!   disarms it.
+//!   disarms it. It leaves the keyboard as it was: neither half is a tap, and arming Ctrl
+//!   doesn't bring the keyboard up (the next key can be an arrow from the joystick, a link or
+//!   a pane's button, or a tap on this button first to bring the keyboard up).
 //! - Holding it still (in a terminal) talks to Claude Code's voice mode, which records while
 //!   Space is held: a terminal sees that as fast repeated spaces, and the on-screen keyboard
 //!   can't send them (holding its Space moves its cursor). After [`HOLD_TO_TALK`] the button
@@ -207,6 +209,11 @@ fn lift(stick: bool, talking: bool, pending_tap: Option<f64>, now: f64) -> Lift 
     } else {
         Lift::Tap
     }
+}
+
+/// Whether the tap waiting since `pending_tap` acts at `now`: no second tap came in time.
+fn tap_due(pending_tap: Option<f64>, now: f64) -> bool {
+    pending_tap.is_some_and(|at| now - at >= DOUBLE_TAP)
 }
 
 struct Stick {
@@ -479,7 +486,7 @@ impl App {
         self.repeat_arrow(ctx, now, target);
         // A tap with no second one after it: it was a tap.
         if let Some(at) = self.chrome.keyboard_button.pending_tap {
-            if now - at >= DOUBLE_TAP {
+            if tap_due(Some(at), now) {
                 self.chrome.keyboard_button.pending_tap = None;
                 let down = self.chrome.keyboard_button.down(target);
                 self.chrome.keyboard_button.set_down(target, !down);
@@ -621,10 +628,9 @@ impl App {
             Lift::DoubleTap => {
                 kb.pending_tap = None;
                 kb.ctrl_armed = !kb.ctrl_armed;
+                // The keyboard stays as it was: only a tap moves it.
                 if kb.ctrl_armed {
                     kb.armed_at = now;
-                    // Ctrl needs a key to go with it.
-                    kb.set_down(target, false);
                     platform::haptic(Haptic::Confirm);
                 } else {
                     platform::haptic(Haptic::Release);
@@ -906,6 +912,48 @@ mod tests {
         // A release while talking is never a tap, even right after one.
         assert_eq!(lift(false, true, Some(1.0), 1.1), Lift::Talk);
         assert_eq!(lift(false, true, None, 9.0), Lift::Talk);
+    }
+
+    #[test]
+    fn a_tap_waits_out_the_double_tap_window() {
+        assert!(!tap_due(None, 9.0), "nothing waiting");
+        assert!(!tap_due(Some(1.0), 1.0));
+        assert!(!tap_due(Some(1.0), 1.0 + DOUBLE_TAP - 0.01), "a second tap could still come");
+        assert!(tap_due(Some(1.0), 1.0 + DOUBLE_TAP));
+    }
+
+    /// Lifts of plain taps at `times`, as `release` and the frame after it see them: what each
+    /// was, and how many single taps acted (the keyboard moved) by `end`.
+    fn taps(times: &[f64], end: f64) -> (Vec<Lift>, usize) {
+        let (mut pending, mut acted, mut lifts) = (None, 0, vec![]);
+        for &now in times {
+            if tap_due(pending, now) {
+                pending = None;
+                acted += 1;
+            }
+            let l = lift(false, false, pending, now);
+            pending = if l == Lift::Tap { Some(now) } else { None };
+            lifts.push(l);
+        }
+        if tap_due(pending, end) {
+            acted += 1;
+        }
+        (lifts, acted)
+    }
+
+    #[test]
+    fn a_double_tap_is_never_a_tap() {
+        // Both halves of a double-tap: Ctrl, and the keyboard doesn't move.
+        assert_eq!(taps(&[1.0, 1.1], 5.0), (vec![Lift::Tap, Lift::DoubleTap], 0));
+        // A lone tap acts once the window has gone by.
+        assert_eq!(taps(&[1.0], 1.0 + DOUBLE_TAP / 2.0).1, 0, "not yet");
+        assert_eq!(taps(&[1.0], 5.0).1, 1);
+        // Two taps too far apart are two taps.
+        assert_eq!(taps(&[1.0, 1.0 + DOUBLE_TAP + 0.01], 5.0), (vec![Lift::Tap, Lift::Tap], 2));
+        // A third quick tap after a double-tap starts over: it's a tap of its own.
+        assert_eq!(taps(&[1.0, 1.1, 1.2], 5.0), (vec![Lift::Tap, Lift::DoubleTap, Lift::Tap], 1));
+        // Two double-taps (arm, then disarm) never move the keyboard.
+        assert_eq!(taps(&[1.0, 1.1, 2.0, 2.1], 5.0).1, 0);
     }
 
     /// Run `talk` frame by frame (`frame` apart) from `from` to `to`; the times spaces went.
