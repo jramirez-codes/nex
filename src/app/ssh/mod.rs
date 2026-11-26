@@ -11,7 +11,7 @@ pub(super) mod upload;
 /// agents, and the connection-sharing and agent dialogs. Kept by `App` as `ssh`.
 pub(in crate::app) struct SshState {
     /// Files on their way to an `ssh` pane's remote host.
-    pub(in crate::app) uploads: Vec<upload::Upload>,
+    pub(in crate::app) uploads: upload::Uploads,
     /// The connection-sharing dialog, after an upload couldn't log in.
     pub(in crate::app) sharing_prompt: Option<sharing::SharingPrompt>,
     /// Not Now was picked in that offer: don't ask again this run.

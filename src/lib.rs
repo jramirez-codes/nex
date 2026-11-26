@@ -11,6 +11,7 @@ mod cli;
 mod config;
 mod file_explorer;
 mod git_diff;
+mod jobs;
 mod layout;
 mod platform;
 mod remote;

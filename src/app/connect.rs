@@ -19,7 +19,6 @@
 //! dog hand over to the panes (`animation/handoff.rs`).
 
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver};
 
 use egui::epaint::{ClippedShape, Shadow};
 use egui::layers::ShapeIdx;
@@ -27,6 +26,7 @@ use egui::{Align, Align2, Color32, FontId, Id, Layout, Painter, Pos2, Rangef, Re
 
 use crate::app::header_height;
 use crate::app::workspace::draw::{PANE_RADIUS, header_glyph_rect, header_title};
+use crate::jobs::Job;
 use crate::remote::ssh::Server;
 use crate::remote::ssh::device;
 use crate::remote::ssh::host::{self, LoginError, RemoteHost};
@@ -86,7 +86,7 @@ pub(in crate::app) struct Connect {
     message: Option<(String, bool)>,
     /// The field whose Paste callout is open (see `field_row`).
     paste_menu: Option<Field>,
-    job: Option<Receiver<Result<Connected, LoginError>>>,
+    job: Job<Result<Connected, LoginError>>,
     /// Connect on the first frame, without waiting for the button (the form came filled in).
     auto: bool,
     /// The host the panes are on, once connected.
@@ -124,7 +124,7 @@ impl Connect {
             step: Step::Form,
             message: None,
             paste_menu: None,
-            job: None,
+            job: Job::new(),
             auto: false,
             host: None,
             shown_at: None,
@@ -169,18 +169,13 @@ impl Connect {
         // Kept until the login is done with it: a new host asks to be trusted first.
         let password = (!self.password.is_empty()).then(|| self.password.clone());
         let trust = self.trusted.clone();
-        let (tx, rx) = mpsc::channel();
-        let repaint = ctx.clone();
-        let spawned = std::thread::Builder::new().name("ssh login".into()).spawn(move || {
-            let result = host::login(&server, password.as_deref(), trust.as_deref(), key_days).map(|host| {
+        let spawned = self.job.start("ssh login", ctx.clone(), move || {
+            host::login(&server, password.as_deref(), trust.as_deref(), key_days).map(|host| {
                 let shells = host.idle_shells();
                 Connected { host, shells }
-            });
-            let _ = tx.send(result);
-            repaint.request_repaint();
+            })
         });
-        if spawned.is_ok() {
-            self.job = Some(rx);
+        if spawned {
             self.step = Step::Connecting;
             self.message = None;
         }
@@ -193,8 +188,7 @@ impl Connect {
 
     /// Pick up the login's result. Returns the shells to open tabs for when it just worked.
     pub(in crate::app) fn poll(&mut self) -> Option<Vec<String>> {
-        let result = self.job.as_ref()?.try_recv().ok()?;
-        self.job = None;
+        let result = self.job.poll()?;
         self.step = Step::Form;
         match result {
             Ok(Connected { host, shells }) => {

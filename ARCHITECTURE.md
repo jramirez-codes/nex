@@ -18,6 +18,8 @@ src/
 ├── cli.rs            command-line flags
 ├── config.rs         config parsing and reloading
 ├── layout.rs         binary split tree + directional focus (PaneId, Axis)
+├── jobs.rs           background jobs: `Job` (one at a time; a superseded one's result is
+│                     dropped) and `Jobs` (many at once), each repainting when done
 ├── session/          the saved window layout (session.json): its format, saving and loading,
 │                     the single-writer lock
 ├── app/              the application: state and frame loop (mod.rs), plus
@@ -124,7 +126,9 @@ Outside the Rust code:
   easing curves, `smoothstep`, `Lerp` and `Tween` in `ui/glide.rs`; font size limits in
   `config.rs`.
 - **Background work never blocks a frame.** Git, file copies, ssh jobs and process polls run on
-  threads and hand results back; the frame loop picks them up (`App::poll_background`).
+  threads and hand results back; the frame loop picks them up (`App::poll_background`). New
+  background work goes through `jobs.rs`: `Job` for one at a time (starting another drops
+  the old one's answer), `Jobs` for many at once; both wake the UI when a result is in.
 
 ## Where to start for common changes
 

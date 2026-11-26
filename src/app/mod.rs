@@ -268,7 +268,7 @@ impl App {
             keyboard_button: Default::default(),
             notice: None,
             ssh: ssh::SshState {
-                uploads: Vec::new(),
+                uploads: Default::default(),
                 sharing_prompt: None,
                 sharing_declined: false,
                 pending_pane: None,
