@@ -29,9 +29,9 @@ src/
 │   ├── connect.rs        the connect screen, where panes can't run local shells (Android)
 │   ├── input/            keyboard, keymap (shortcut tables per OS), mouse, zoom
 │   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
-│   ├── workspace/        tabs, splits, opening and closing panes, drawing panes, pane drag,
-│   │                     the sticky pane, keeping Agents panes up to date, and Back to the
-│   │                     previous tab (history.rs)
+│   ├── workspace/        tabs, splits, opening and closing panes, the pane store (panes.rs),
+│   │                     drawing panes, pane drag, the sticky pane, keeping Agents panes up
+│   │                     to date, and Back to the previous tab (history.rs)
 │   ├── animation/        pane motion, tab close, tab-switch transitions, sticky glide
 │   ├── ssh/              following ssh sessions (follow), uploads, the mic button, the hosts
 │   │                     whose agents the Agents pane shows (hosts), connection sharing (sharing)
@@ -119,9 +119,11 @@ Outside the Rust code:
 - **Nothing outside `platform/` checks the OS.** Porting nex to another OS means adding a folder
   there that provides the same items (`platform/mod.rs` lists them).
 - **Panes live in the split tree** (`layout.rs`), keyed by `PaneId`. A pane is a terminal, a file
-  explorer, a Changes pane or an Agents pane (`layout::PaneKind`); `App` keeps each kind's state
-  in its own map. Code that treats kinds differently matches on `App::pane_kind(id)` rather
-  than probing the maps, so the compiler finds every place a new kind needs handling.
+  explorer, a Changes pane or an Agents pane (`layout::PaneKind`); `App::panes` keeps them all
+  in one store, each as a `Pane` (`app/workspace/panes.rs`). Code that treats kinds differently
+  matches on `Pane` (or `App::pane_kind(id)`) rather than testing one kind after another, so
+  the compiler finds every place a new kind needs handling; code that wants one kind uses the
+  store's typed lookups (`panes.terminal(id)`, `panes.explorer_mut(id)`, …).
 - **`ui/` is stateless and shared.** Colors shared across the chrome belong in `ui/theme.rs`;
   easing curves, `smoothstep`, `Lerp` and `Tween` in `ui/glide.rs`; font size limits in
   `config.rs`.
@@ -133,12 +135,14 @@ Outside the Rust code:
 ## Where to start for common changes
 
 - **A new action or shortcut:** `app/actions.rs` (the action), `app/input/keymap.rs` (the key).
-- **A new pane kind:** add it to `layout::PaneKind` and give it a map on `App` (`app/mod.rs`),
-  then add it to `PaneRef` and `PaneMut` and follow the compiler through every `match` on
-  `App::pane`, `App::pane_mut` and `App::pane_kind` (drawing, labels, keys, zoom, the
-  title-bar deck). Beyond those: `pane`, `pane_mut` and `forget_pane`
-  (`app/workspace/mod.rs`), opening it (`app/workspace/`), and reading it back from a session
-  (`session/mod.rs`, `app/restore.rs`). The Changes pane (`git_diff/`) is a compact example.
+- **A new pane kind:** add it to `layout::PaneKind` and as a variant of `Pane`
+  (`app/workspace/panes.rs`), with a typed lookup on `Panes` if code needs that kind alone and
+  a `PaneRequest` variant if it asks for things while painting (handled in
+  `App::drain_pending`). Then follow the compiler through every `match` on `Pane` and
+  `PaneKind` (drawing, labels, keys, zoom, background refresh, Escape, the session).
+  Open it with `App::add_pane` (`app/workspace/`), the one way a pane comes in, and read
+  it back from a session in `App::restore_pane` (`session/mod.rs`, `app/restore.rs`).
+  The Changes pane (`git_diff/`) is a compact example.
 - **Something on an ssh host:** the work goes in `remote/` (no UI), the buttons, dialogs and
   toasts in `app/ssh/`. nex reinstalls `nex-host` when its version differs (`remote/host.rs`);
   the daemon already running hands over to the new one only once none of its agents is

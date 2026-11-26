@@ -12,6 +12,7 @@ use egui::{Event, Key, RawInput};
 
 use crate::app::App;
 use crate::app::actions::Action;
+use crate::app::workspace::panes::Pane;
 
 /// The most places kept; older ones are forgotten.
 const MAX_PLACES: usize = 64;
@@ -103,11 +104,15 @@ impl App {
         if self.pane_drag.is_some() || self.search.is_some() || self.ssh_modal_open() || egui::Popup::is_any_open(ctx) {
             return true;
         }
-        if self.explorers.values().any(|b| b.modal_open()) {
+        if self.panes.explorers().any(|b| b.modal_open()) {
             return true;
         }
         let Some(id) = self.focused_pane() else { return false };
-        self.explorers.get(&id).is_some_and(|b| b.escape_closes()) || self.diffs.get(&id).is_some_and(|d| d.escape_closes())
+        match self.panes.get(id) {
+            Some(Pane::Explorer(b)) => b.escape_closes(),
+            Some(Pane::Diff(d)) => d.escape_closes(),
+            Some(Pane::Terminal(_) | Pane::Agents(_)) | None => false,
+        }
     }
 
     /// The system Back key (`Key::BrowserBack`, where `system_back` is on): while something

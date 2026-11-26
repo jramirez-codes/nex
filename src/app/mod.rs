@@ -22,9 +22,9 @@ use std::time::{Duration, Instant, SystemTime};
 use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, Vec2, ViewportCommand};
 
 use crate::config::{self, Config};
-use crate::file_explorer::{self, FileExplorer};
-use crate::agents::{self, AgentsPane};
-use crate::git_diff::{self, GitDiff};
+use crate::file_explorer;
+use crate::agents;
+use crate::git_diff;
 use crate::render::fonts;
 use crate::render::glyphs::GlyphCache;
 use crate::layout::PaneId;
@@ -39,6 +39,7 @@ use crate::ui::widgets::is_maximized;
 use actions::Action;
 use input::keymap::{Binding, keybindings};
 use input::mouse::MouseState;
+use workspace::panes::{Pane, PaneRequest, Panes};
 use workspace::tab::Tab;
 use animation::tab_switch::TabSwitch;
 
@@ -60,7 +61,11 @@ pub struct App {
     cfg: Config,
     /// Modification time of the config file when it was last read; a change triggers a reload.
     config_mtime: Option<SystemTime>,
-    panes: HashMap<PaneId, Terminal>,
+    /// Every pane (terminal, file explorer, Changes, Agents), in one id space and split tree
+    /// (see `workspace/panes.rs`).
+    panes: Panes,
+    /// What panes asked for while painting, applied with the pending actions.
+    pane_requests: Vec<(PaneId, PaneRequest)>,
     tabs: Vec<Tab>,
     active: usize,
     next_id: PaneId,
@@ -107,20 +112,6 @@ pub struct App {
     pane_drag: Option<workspace::pane_drag::PaneDrag>,
     /// The tab-switch transition (`tab-animation`): the old tab's panes giving way to the new.
     switch: TabSwitch,
-    /// File-explorer panes (the Files tab). They share the pane id space and split tree with
-    /// terminals.
-    explorers: HashMap<PaneId, FileExplorer>,
-    /// What explorers asked for while painting (a terminal in some folder), applied with
-    /// the pending actions.
-    explorer_requests: Vec<(PaneId, file_explorer::Request)>,
-    /// Changes (git diff) panes, in the same pane id space and split tree.
-    diffs: HashMap<PaneId, GitDiff>,
-    /// What Changes panes asked for while painting (show a file in Files).
-    diff_requests: Vec<(PaneId, git_diff::Request)>,
-    /// Agents panes, in the same pane id space and split tree.
-    agents: HashMap<PaneId, AgentsPane>,
-    /// What Agents panes asked for while painting (jump to an agent's pane).
-    agent_requests: Vec<(PaneId, agents::Request)>,
     /// Every agent running in a pane and what it's doing, as of the last process poll; what
     /// Agents panes and the title bar's Agents label show.
     agent_tracker: agents::model::Tracker,
@@ -212,7 +203,8 @@ impl App {
         Self {
             cfg,
             config_mtime: config::modified(),
-            panes: HashMap::new(),
+            panes: Panes::default(),
+            pane_requests: Vec::new(),
             tabs: Vec::new(),
             active: 0,
             next_id: 1,
@@ -241,12 +233,6 @@ impl App {
             hover_link: None,
             pane_drag: None,
             switch: TabSwitch::default(),
-            explorers: HashMap::new(),
-            explorer_requests: Vec::new(),
-            diffs: HashMap::new(),
-            diff_requests: Vec::new(),
-            agents: HashMap::new(),
-            agent_requests: Vec::new(),
             agent_tracker: agents::model::Tracker::default(),
             agent_notifier: agents::notify::Notifier::default(),
             home_tab: None,
@@ -541,12 +527,12 @@ impl App {
     fn poll_ptys(&mut self, ctx: &egui::Context) {
         let mut exited = Vec::new();
         let mut alerted = false;
-        for (id, t) in &mut self.panes {
+        for (id, t) in self.panes.terminals_mut() {
             let had = t.attention;
             t.process_events(ctx, &self.cfg);
             alerted |= t.attention && !had;
             if t.exited {
-                exited.push(*id);
+                exited.push(id);
             }
             if t.has_pending_command() {
                 // Hidden panes may not repaint on output: keep checking until it's typed.
@@ -576,7 +562,7 @@ impl App {
     fn clear_seen_attention(&mut self, ctx: &egui::Context) {
         let window_focused = ctx.input(|i| i.focused);
         let seen = window_focused.then(|| self.cur_tab().map(|t| t.focused)).flatten();
-        if let Some(t) = seen.and_then(|id| self.panes.get_mut(&id)) {
+        if let Some(t) = seen.and_then(|id| self.panes.terminal_mut(id)) {
             t.attention = false;
         }
         self.agent_tracker.mark_seen(seen, std::time::Instant::now());
@@ -639,17 +625,16 @@ impl App {
         if config::modified() != self.config_mtime {
             self.pending.push(Action::ReloadConfig);
         }
-        for t in self.panes.values_mut() {
+        for (_, t) in self.panes.terminals_mut() {
             t.refresh_process_info();
         }
         // Only Files and Changes panes on screen keep asking.
         let shown = self.cur_tab().map(|t| t.root.panes()).unwrap_or_default();
         for id in shown {
-            if let Some(b) = self.explorers.get_mut(&id) {
-                b.refresh_if_stale();
-            }
-            if let Some(d) = self.diffs.get_mut(&id) {
-                d.refresh_if_stale();
+            match self.panes.get_mut(id) {
+                Some(Pane::Explorer(b)) => b.refresh_if_stale(),
+                Some(Pane::Diff(d)) => d.refresh_if_stale(),
+                Some(Pane::Terminal(_) | Pane::Agents(_)) | None => {}
             }
         }
         self.track_agents();
@@ -660,22 +645,15 @@ impl App {
         for action in std::mem::take(&mut self.pending) {
             self.apply(ctx, action);
         }
-        for (pane, request) in std::mem::take(&mut self.explorer_requests) {
+        for (pane, request) in std::mem::take(&mut self.pane_requests) {
             match request {
-                file_explorer::Request::OpenTerminal(dir) => self.open_terminal_in(ctx, pane, dir),
-                file_explorer::Request::NeedsLogin(host) => self.remote_pane_login_failed(ctx, &host),
-            }
-        }
-        for (pane, request) in std::mem::take(&mut self.diff_requests) {
-            match request {
-                git_diff::Request::Reveal(path) => self.reveal_from_diff(ctx, pane, &path),
-                git_diff::Request::NeedsLogin(host) => self.remote_pane_login_failed(ctx, &host),
-            }
-        }
-        for (_, request) in std::mem::take(&mut self.agent_requests) {
-            match request {
-                agents::Request::Focus(target) => self.focus_agent(ctx, target),
-                agents::Request::Dismiss(target) => self.dismiss_agent(target),
+                PaneRequest::Explorer(file_explorer::Request::OpenTerminal(dir)) => self.open_terminal_in(ctx, pane, dir),
+                PaneRequest::Diff(git_diff::Request::Reveal(path)) => self.reveal_from_diff(ctx, pane, &path),
+                PaneRequest::Explorer(file_explorer::Request::NeedsLogin(host)) | PaneRequest::Diff(git_diff::Request::NeedsLogin(host)) => {
+                    self.remote_pane_login_failed(ctx, &host)
+                }
+                PaneRequest::Agents(agents::Request::Focus(target)) => self.focus_agent(ctx, target),
+                PaneRequest::Agents(agents::Request::Dismiss(target)) => self.dismiss_agent(target),
             }
         }
     }

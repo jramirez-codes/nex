@@ -4,6 +4,7 @@
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
+use crate::layout::PaneKind;
 use crate::app::App;
 use crate::app::chrome::keyboard_button::DOUBLE_TAP;
 use crate::app::input::keymap;
@@ -99,7 +100,7 @@ fn phone(ctx: &egui::Context) -> App {
 /// What the focused terminal has been sent (and forget it).
 fn sent(app: &mut App) -> Vec<u8> {
     let id = app.focused_pane().unwrap();
-    std::mem::take(&mut *app.panes[&id].written.lock().unwrap())
+    std::mem::take(&mut *app.panes.terminal(id).unwrap().written.lock().unwrap())
 }
 
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
@@ -254,8 +255,8 @@ fn armed_ctrl_runs_ctrl_shortcuts_like_a_held_ctrl() {
     frame(&mut app, &ctx, &mut t, vec![key, Event::Text("e".into())]);
     wait(&mut app, &ctx, &mut t, 0.1);
     assert!(!app.keyboard_button.ctrl_armed, "used up");
-    assert_eq!(app.explorers.len(), 1, "Ctrl+E opened the file explorer");
-    assert!(app.panes[&shell].written.lock().unwrap().is_empty(), "no ^E or e reached the shell");
+    assert_eq!(app.panes.ids(PaneKind::Explorer).count(), 1, "Ctrl+E opened the file explorer");
+    assert!(app.panes.terminal(shell).unwrap().written.lock().unwrap().is_empty(), "no ^E or e reached the shell");
 
     // A keyboard that only sends text: armed Ctrl, then "g", is Ctrl+G: the Changes pane.
     let mut app = phone(&ctx);
@@ -267,8 +268,8 @@ fn armed_ctrl_runs_ctrl_shortcuts_like_a_held_ctrl() {
     frame(&mut app, &ctx, &mut t, vec![Event::Text("g".into())]);
     wait(&mut app, &ctx, &mut t, 0.1);
     assert!(!app.keyboard_button.ctrl_armed, "used up");
-    assert_eq!(app.diffs.len(), 1, "Ctrl+G opened the Changes pane");
-    assert!(app.panes[&shell].written.lock().unwrap().is_empty(), "no ^G or g reached the shell");
+    assert_eq!(app.panes.ids(PaneKind::Diff).count(), 1, "Ctrl+G opened the Changes pane");
+    assert!(app.panes.terminal(shell).unwrap().written.lock().unwrap().is_empty(), "no ^G or g reached the shell");
 }
 
 #[test]
@@ -332,12 +333,12 @@ fn armed_ctrl_turns_the_close_button_into_a_pin() {
     tap(&mut app, &ctx, &mut t, close);
     wait(&mut app, &ctx, &mut t, 0.1);
     assert!(app.is_sticky(id), "pinned, not closed");
-    assert!(app.panes.contains_key(&id));
+    assert!(app.panes.is_terminal(id));
     assert!(!app.keyboard_button.ctrl_armed, "used up");
 
     // Without Ctrl, the pinned pane's button is the pin: a tap unpins it.
     tap(&mut app, &ctx, &mut t, close);
     wait(&mut app, &ctx, &mut t, 0.1);
     assert!(!app.is_sticky(id));
-    assert!(app.panes.contains_key(&id));
+    assert!(app.panes.is_terminal(id));
 }

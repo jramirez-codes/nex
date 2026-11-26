@@ -28,7 +28,7 @@ impl App {
             ctx.send_viewport_cmd(ViewportCommand::Decorations(cfg.window_decorations));
         }
         glide::set_animations(ctx, cfg.animations);
-        for t in self.panes.values_mut() {
+        for (_, t) in self.panes.terminals_mut() {
             t.apply_config(cfg);
         }
         self.update_metrics(ctx);

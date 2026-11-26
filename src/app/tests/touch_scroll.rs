@@ -5,7 +5,7 @@ use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 use egui::{Event, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, TouchPhase, Vec2};
 
 use crate::app::App;
-use crate::layout::PaneId;
+use crate::layout::{PaneId, PaneKind};
 
 struct Sim {
     ctx: egui::Context,
@@ -77,16 +77,16 @@ impl Sim {
     /// Fill terminal `id` with numbered lines, leaving plenty of scrollback.
     fn fill(&mut self, id: PaneId) {
         let text: String = (0..400).map(|n| format!("line {n}\r\n")).collect();
-        let t = &self.app.panes[&id];
+        let t = &self.app.panes.terminal(id).unwrap();
         let mut term = t.term.lock();
         let mut parser: Processor<StdSyncHandler> = Processor::new();
         parser.advance(&mut *term, text.as_bytes());
     }
     fn offset(&self, id: PaneId) -> usize {
-        self.app.panes[&id].term.lock().grid().display_offset()
+        self.app.panes.terminal(id).unwrap().term.lock().grid().display_offset()
     }
     fn selected(&self, id: PaneId) -> bool {
-        self.app.panes[&id].term.lock().selection.is_some()
+        self.app.panes.terminal(id).unwrap().term.lock().selection.is_some()
     }
 }
 
@@ -178,13 +178,13 @@ fn swiping_right_on_the_first_tab_opens_agents_before_it_was_ever_opened() {
     let mut s = Sim::new(2);
     s.app.show_tab(0);
     s.settle();
-    assert!(s.app.home_tab.is_none() && s.app.agents.is_empty());
+    assert!(s.app.home_tab.is_none() && !s.app.panes.has(PaneKind::Agents));
     let c = s.terminal().1.center();
     s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
     s.settle();
     assert!(s.app.home_active, "a right swipe on the first tab didn't open the Agents tab");
     assert!(s.app.shows_agents_label());
-    assert_eq!(s.app.agents.len(), 1, "no Agents pane");
+    assert_eq!(s.app.panes.ids(PaneKind::Agents).count(), 1, "no Agents pane");
     let a = s.other_pane_body().center();
     s.swipe(a, a - Vec2::new(200.0, 0.0), 10);
     s.settle();
@@ -194,7 +194,7 @@ fn swiping_right_on_the_first_tab_opens_agents_before_it_was_ever_opened() {
     s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
     s.settle();
     assert!(s.app.home_active);
-    assert_eq!(s.app.agents.len(), 1, "a second swipe opened another Agents pane");
+    assert_eq!(s.app.panes.ids(PaneKind::Agents).count(), 1, "a second swipe opened another Agents pane");
 }
 
 #[test]
@@ -258,8 +258,8 @@ impl Sim {
             std::fs::write(dir.join(f), "x").unwrap();
         }
         self.app.toggle_explorer(&self.ctx);
-        for ex in self.app.explorers.values_mut() {
-            ex.navigate(dir.clone());
+        for id in self.app.panes.ids(PaneKind::Explorer).collect::<Vec<_>>() {
+            self.app.panes.explorer_mut(id).unwrap().navigate(dir.clone());
         }
         self.settle();
         assert!(self.app.home_active, "the Files tab didn't open");
@@ -268,7 +268,7 @@ impl Sim {
 
     /// The body of the first pane shown that isn't a terminal.
     fn other_pane_body(&self) -> Rect {
-        let r = self.app.card_rects.iter().find(|(id, _)| !self.app.panes.contains_key(id)).expect("no other pane shown").1;
+        let r = self.app.card_rects.iter().find(|(id, _)| !self.app.panes.is_terminal(*id)).expect("no other pane shown").1;
         Rect::from_min_max(Pos2::new(r.left(), r.top() + 60.0), r.max)
     }
 }
@@ -288,7 +288,7 @@ fn sideways_swipes_on_files_reach_the_home_tab_and_back() {
     s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
     s.settle();
     assert!(s.app.home_active, "a right swipe on the first tab didn't go to Files");
-    assert!(s.app.home_is_files() && s.app.agents.is_empty(), "a right swipe opened Agents over Files");
+    assert!(s.app.home_is_files() && !s.app.panes.has(PaneKind::Agents), "a right swipe opened Agents over Files");
     let c = s.other_pane_body().center();
     s.swipe(c, c + Vec2::new(200.0, 0.0), 10);
     s.settle();

@@ -35,7 +35,7 @@ impl App {
         if !self.cfg.ssh_upload {
             return None;
         }
-        self.panes.get_mut(&id)?.ssh_target()
+        self.panes.terminal_mut(id)?.ssh_target()
     }
 
     /// Files dropped on a terminal: their paths typed, or, in an `ssh` session, copied to the
@@ -82,7 +82,7 @@ impl App {
             }
             match result {
                 Ok(remote_paths) => {
-                    if let Some(t) = self.panes.get_mut(&up.pane) {
+                    if let Some(t) = self.panes.terminal_mut(up.pane) {
                         t.paste(&format!("{} ", remote_paths.join(" ")));
                     }
                     self.toast = Some(Toast::new(ctx, format!("Uploaded to {}", up.host)));

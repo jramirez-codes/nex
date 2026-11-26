@@ -91,14 +91,14 @@ impl Sim {
         self.app.card_rects.iter().find(|(p, _)| *p == id).expect("pane not shown").1
     }
     fn terminals(&self) -> Vec<PaneId> {
-        self.app.card_rects.iter().map(|(id, _)| *id).filter(|id| self.app.panes.contains_key(id)).collect()
+        self.app.card_rects.iter().map(|(id, _)| *id).filter(|id| self.app.panes.is_terminal(*id)).collect()
     }
     fn explorer(&self) -> PaneId {
-        *self.app.card_rects.iter().map(|(id, _)| id).find(|id| self.app.explorers.contains_key(id)).unwrap()
+        *self.app.card_rects.iter().map(|(id, _)| id).find(|id| self.app.panes.explorer(**id).is_some()).unwrap()
     }
     /// Long-press a file in explorer `ex`, drag it onto `target` and lift; was it dropped there?
     fn touch_drop(&mut self, ex: PaneId, target: PaneId, dir: &Path) -> bool {
-        self.app.explorers.get_mut(&ex).unwrap().navigate(dir.to_path_buf());
+        self.app.panes.explorer_mut(ex).unwrap().navigate(dir.to_path_buf());
         self.settle();
         let r = self.card(ex);
         let mut start = None;
@@ -107,7 +107,7 @@ impl Sim {
                 let p = Pos2::new(r.left() + x, y as f32);
                 self.touch(TouchPhase::Start, p);
                 self.settle();
-                if !self.app.explorers[&ex].marked.is_empty() {
+                if !self.app.panes.explorer(ex).unwrap().marked.is_empty() {
                     start = Some(p);
                     break 'find;
                 }
@@ -195,7 +195,7 @@ fn drop_outside_every_pane_does_nothing() {
     s.app.toggle_explorer(&s.ctx);
     s.settle();
     let ex = s.explorer();
-    s.app.explorers.get_mut(&ex).unwrap().navigate(dir.to_path_buf());
+    s.app.panes.explorer_mut(ex).unwrap().navigate(dir.to_path_buf());
     s.settle();
     assert_eq!(s.app.focused_pane(), Some(ex));
     let elsewhere = std::env::temp_dir().join(format!("nex-drop-src-{}", std::process::id()));
@@ -428,7 +428,7 @@ fn moving_a_tabs_last_pane_away_closes_the_tab_but_keeps_the_pane() {
     assert_eq!(s.app.tabs.len(), 1);
     assert!(s.app.tabs.iter().all(|t| t.uid != second));
     assert_eq!(s.panes_of(first), vec![left, right, lone]);
-    assert!(s.app.panes.contains_key(&lone), "the terminal was closed");
+    assert!(s.app.panes.is_terminal(lone), "the terminal was closed");
 }
 
 #[test]

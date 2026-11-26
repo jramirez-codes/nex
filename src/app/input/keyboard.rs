@@ -11,14 +11,14 @@ use crate::terminal::Terminal;
 use crate::app::App;
 use crate::app::actions::Action;
 use crate::app::input::keymap::{self, ClipboardKey};
-use crate::app::workspace::PaneMut;
+use crate::app::workspace::panes::Pane;
 
 impl App {
     pub(in crate::app) fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let paste_key = platform::take_paste_key();
         // Explorer dialogs (delete confirmation, Properties) read the keyboard themselves; no
         // key may reach a shell or run a shortcut behind them.
-        if self.explorers.values().any(|b| b.modal_open()) || self.ssh_modal_open() {
+        if self.panes.explorers().any(|b| b.modal_open()) || self.ssh_modal_open() {
             return;
         }
         let (events, mods) = ctx.input(|i| (i.events.clone(), i.modifiers));
@@ -138,7 +138,7 @@ impl App {
     /// In an `ssh` session the image or files are uploaded to the remote host; otherwise a
     /// plain Ctrl+V still reaches the program as `^V` (Claude Code reads the image itself).
     fn on_textless_paste(&mut self, ctx: &egui::Context, shift: bool) {
-        let Some(id) = self.focused_pane().filter(|id| self.panes.contains_key(id)) else { return };
+        let Some(id) = self.focused_pane().filter(|&id| self.panes.is_terminal(id)) else { return };
         if self.search.is_some() {
             return;
         }
@@ -167,15 +167,15 @@ impl App {
     /// `upload_pasted_files`): asked when a paste key goes down, by the `Dnd` that reads the
     /// clipboard off the UI thread, to know what to read for when the paste lands.
     pub(in crate::app) fn paste_uploads_files(&mut self) -> bool {
-        self.focused_pane().filter(|id| self.panes.contains_key(id)).is_some_and(|id| self.ssh_target(id).is_some())
+        self.focused_pane().filter(|&id| self.panes.is_terminal(id)).is_some_and(|id| self.ssh_target(id).is_some())
     }
 
     pub(in crate::app) fn focused_terminal(&mut self) -> Option<&mut Terminal> {
-        self.focused_pane().and_then(|id| self.panes.get_mut(&id))
+        self.focused_pane().and_then(|id| self.panes.terminal_mut(id))
     }
 
     fn focused_explorer(&mut self) -> Option<&mut FileExplorer> {
-        self.focused_pane().and_then(|id| self.explorers.get_mut(&id))
+        self.focused_pane().and_then(|id| self.panes.explorer_mut(id))
     }
 
     /// A key press goes to the first taker: a shortcut, a file explorer, the search field, or
@@ -197,18 +197,18 @@ impl App {
     /// file explorer pane, the search field while it's open, else the shell.
     pub(in crate::app) fn key_to_pane(&mut self, key: Key, modifiers: Modifiers) {
         let searching = self.search.is_some();
-        match self.focused_pane().and_then(|id| self.pane_mut(id)) {
-            Some(PaneMut::Agents(a)) => {
+        match self.focused_pane().and_then(|id| self.panes.get_mut(id)) {
+            Some(Pane::Agents(a)) => {
                 a.key(key, modifiers);
             }
-            Some(PaneMut::Diff(d)) => {
+            Some(Pane::Diff(d)) => {
                 d.key(key, modifiers);
             }
-            Some(PaneMut::Explorer(b)) => {
+            Some(Pane::Explorer(b)) => {
                 b.key(key, modifiers);
             }
-            Some(PaneMut::Terminal(_)) | None if searching => self.search_key(key, modifiers),
-            Some(PaneMut::Terminal(t)) => {
+            Some(Pane::Terminal(_)) | None if searching => self.search_key(key, modifiers),
+            Some(Pane::Terminal(t)) => {
                 let mode = *t.term.lock().mode();
                 if let Some(bytes) = input::encode_key(key, modifiers, mode) {
                     t.input(bytes);
@@ -238,7 +238,7 @@ impl App {
     fn search_step(&mut self, up: bool) {
         let Some(s) = self.search.as_mut() else { return };
         if let Some(p) = s.step(up)
-            && let Some(t) = self.panes.get(&s.pane) {
+            && let Some(t) = self.panes.terminal(s.pane) {
                 t.term.lock().scroll_to_point(p);
             }
     }
@@ -292,11 +292,11 @@ impl App {
             return;
         }
         // Nothing to copy or paste in an Agents pane.
-        if self.focused_pane().is_some_and(|id| self.agents.contains_key(&id)) {
+        if self.focused_pane().is_some_and(|id| self.panes.agents(id).is_some()) {
             return;
         }
         // In a Changes pane, Copy copies the selected file's path; nothing pastes there.
-        if let Some(d) = self.focused_pane().and_then(|id| self.diffs.get(&id)) {
+        if let Some(d) = self.focused_pane().and_then(|id| self.panes.diff(id)) {
             if event == Event::Copy
                 && let Some(text) = d.copy_text()
             {
@@ -312,7 +312,7 @@ impl App {
         // Ctrl+V or Ctrl+Shift+V in an `ssh` session, with files or an image copied: upload
         // them rather than paste text the remote side can't use.
         if let Event::Paste(_) = event
-            && let Some(id) = self.focused_pane().filter(|id| self.panes.contains_key(id))
+            && let Some(id) = self.focused_pane().filter(|&id| self.panes.is_terminal(id))
             && self.upload_pasted_files(ctx, id)
         {
             return;

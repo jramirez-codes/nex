@@ -10,11 +10,12 @@ use std::time::Instant;
 
 use crate::agents::{AgentsPane, local};
 use crate::agents::model::{AgentKind, Probe, Source, Status, Team, Viewing, is_remote_key, remote_key, sub_key};
-use crate::layout::{Axis, PaneId};
+use crate::layout::{Axis, PaneId, PaneKind};
 use crate::remote::SshTarget;
 use crate::ui::icons;
 
 use crate::app::App;
+use crate::app::workspace::panes::Pane;
 use crate::app::workspace::tab::Tab;
 
 /// What [`App::scan_panes`] found in this machine's panes.
@@ -34,13 +35,13 @@ impl App {
     /// poll, and only while something shows it (an Agents pane, or the title bar's label) or
     /// `system-notifications` wants to hear about it.
     pub(in crate::app) fn track_agents(&mut self) {
-        if self.agents.is_empty() && !self.shows_agents_label() && !self.cfg.system_notifications {
+        if !self.panes.has(PaneKind::Agents) && !self.shows_agents_label() && !self.cfg.system_notifications {
             return;
         }
         let now = Instant::now();
         // A sub-agent's tab that was closed shows nothing any more.
         let panes = &self.panes;
-        self.sub_views.retain(|_, p| panes.contains_key(p));
+        self.sub_views.retain(|_, p| panes.is_terminal(*p));
         let LocalScan { mut probes, hosts, showing } = self.scan_panes();
         self.ssh.remote_hosts.sync(&hosts, self.connect.host.as_ref(), self.cfg.ssh_agents);
         self.offer_shim(&hosts);
@@ -62,7 +63,7 @@ impl App {
                 if !seen.insert(id) {
                     continue;
                 }
-                let Some(t) = self.panes.get(&id) else { continue };
+                let Some(t) = self.panes.terminal(id) else { continue };
                 // A pane on the host the window is connected to itself: the session it shows.
                 if let Some(remote) = &t.remote {
                     if let Some(session) = remote.session.lock().unwrap_or_else(|e| e.into_inner()).clone() {
@@ -156,7 +157,8 @@ impl App {
 
     /// Whether the special tab holds a file explorer rather than an Agents pane.
     pub(in crate::app) fn home_is_files(&self) -> bool {
-        self.home_tab.as_ref().is_some_and(|t| t.root.iter().any(|id| self.explorers.contains_key(&id)) && !t.root.iter().any(|id| self.agents.contains_key(&id)))
+        let has = |t: &Tab, kind| t.root.iter().any(|id| self.pane_kind(id) == Some(kind));
+        self.home_tab.as_ref().is_some_and(|t| has(t, PaneKind::Explorer) && !has(t, PaneKind::Agents))
     }
 
     /// Whether the special tab is worth keeping the window open for once the terminal tabs
@@ -165,7 +167,7 @@ impl App {
     pub(in crate::app) fn home_keeps_window(&self) -> bool {
         self.home_tab
             .as_ref()
-            .is_some_and(|t| t.root.iter().any(|id| self.panes.contains_key(&id) || self.explorers.contains_key(&id)))
+            .is_some_and(|t| t.root.iter().any(|id| matches!(self.pane_kind(id), Some(PaneKind::Terminal | PaneKind::Explorer))))
     }
 
     /// What the Agents pane `id` marks "Viewing": the terminals of the tab on screen (only
@@ -177,11 +179,11 @@ impl App {
     /// it's pinned beside the Agents pane.
     pub(in crate::app) fn viewing(&self, id: PaneId) -> Viewing {
         let Some(tab) = self.cur_tab() else { return Viewing::default() };
-        let marked = |p: &PaneId| self.panes.contains_key(p) && !(self.home_active && self.is_sticky(*p));
+        let marked = |p: &PaneId| self.panes.is_terminal(*p) && !(self.home_active && self.is_sticky(*p));
         let mut panes = if tab.zoomed { vec![tab.focused] } else { tab.root.panes() };
         panes.retain(marked);
         let primary = if tab.focused == id {
-            self.agents.get(&id).and_then(|a| a.origin).filter(|o| tab.contains(*o)).or(tab.last_terminal)
+            self.panes.agents(id).and_then(|a| a.origin).filter(|o| tab.contains(*o)).or(tab.last_terminal)
         } else {
             Some(tab.focused)
         };
@@ -192,8 +194,7 @@ impl App {
     /// pane it was opened from), else split one off the focused pane.
     pub(in crate::app) fn toggle_agents(&mut self, ctx: &egui::Context) {
         let Some(tab) = self.cur_tab() else { return };
-        if let Some(id) = tab.root.iter().find(|id| self.agents.contains_key(id)) {
-            let origin = self.agents.get(&id).and_then(|a| a.origin);
+        if let Some((id, origin)) = tab.root.iter().find_map(|id| Some((id, self.panes.agents(id)?.origin))) {
             self.close_pane(ctx, id);
             if let Some(origin) = origin
                 && let Some(tab) = self.tab_with(origin)
@@ -208,10 +209,9 @@ impl App {
 
     /// Split an Agents pane off `target`.
     pub(in crate::app) fn split_agents(&mut self, ctx: &egui::Context, target: PaneId, axis: Axis) {
-        let new = self.alloc_pane_id();
         let mut a = AgentsPane::new();
         a.origin = Some(target);
-        self.agents.insert(new, a);
+        let new = self.add_pane(Pane::Agents(a), None);
         self.track_agents();
         self.attach_split(ctx, target, axis, new);
     }
@@ -227,12 +227,11 @@ impl App {
             return;
         }
         if self.home_tab.is_none() {
-            let tab = match self.sticky.filter(|id| self.agents.contains_key(id)) {
+            let tab = match self.sticky.filter(|&id| self.panes.agents(id).is_some()) {
                 // The pinned Agents pane already shows every agent: a second one would repeat it.
                 Some(pinned) => Tab::new(pinned, pinned),
                 None => {
-                    let id = self.alloc_pane_id();
-                    self.agents.insert(id, AgentsPane::new());
+                    let id = self.add_pane(Pane::Agents(AgentsPane::new()), None);
                     self.with_sticky(Tab::new(id, id))
                 }
             };
@@ -285,7 +284,7 @@ impl App {
     /// only closes the view. Should none open, its agent's pane is shown instead.
     fn open_sub_agent(&mut self, ctx: &egui::Context, key: PaneId, lead: PaneId, id: &str) {
         if let Some(&p) = self.sub_views.get(&key)
-            && self.panes.contains_key(&p)
+            && self.panes.is_terminal(p)
         {
             self.focus_pane(p);
             return;
@@ -324,7 +323,7 @@ impl App {
     /// this program's hidden `--follow-subagent`, with the transcript's path (empty when it
     /// can't be found: the tab says so).
     fn local_follower(&self, lead: PaneId, id: &str) -> Option<Vec<String>> {
-        let t = self.panes.get(&lead)?;
+        let t = self.panes.terminal(lead)?;
         let path = t.foreground_job().and_then(|(pid, argv)| local::subagent_transcript(AgentKind::detect(&t.process, argv)?.cli()?, pid, t.cwd.as_deref(), id));
         follower_command(&path.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
     }
@@ -335,7 +334,7 @@ impl App {
         subs.iter()
             .map(|sa| {
                 let key = sub_key(lead.pane, &sa.id);
-                let pane = self.sub_views.get(&key).copied().filter(|p| self.panes.contains_key(p));
+                let pane = self.sub_views.get(&key).copied().filter(|p| self.panes.is_terminal(*p));
                 let tab = pane.and_then(|p| self.tabs.iter().position(|t| t.contains(p)));
                 Probe {
                     pane: key,
@@ -368,7 +367,7 @@ impl App {
     /// What the toast says when pane `id` closes while it shows an agent on an ssh host: it
     /// keeps running there.
     pub(in crate::app) fn detach_notice(&self, id: PaneId) -> Option<String> {
-        let t = self.panes.get(&id)?;
+        let t = self.panes.terminal(id)?;
         let (host, session) = match &t.remote {
             Some(remote) if remote.keep => {
                 let session = remote.session.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
