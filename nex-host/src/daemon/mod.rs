@@ -6,7 +6,9 @@
 //!
 //! ```text
 //! daemon/
-//!   mod.rs         this file: the daemon's state, and running it
+//!   mod.rs         this file: running the daemon
+//!   state.rs       what it holds (agents, post office, messages waiting), behind methods
+//!   testing.rs     what the tests share: an in-memory state, plain programs as agents
 //!   serve.rs       one connection: its request and the answer
 //!   lifecycle.rs   agents starting (`spawn`), ending, and expiring
 //!   mail.rs        messages: sending, typing them in, reminders
@@ -18,22 +20,18 @@
 //!   deliver.rs     how a message is written out and typed into an agent
 //! ```
 
-use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nex_host::paths;
-use nex_host::proto;
 
-use crate::daemon::agent::Agent;
-use crate::daemon::broker::{Broker, Peer};
-use crate::util::{Locked, now_ms};
+use crate::daemon::state::State;
+use crate::util::now_ms;
 
 mod agent;
 mod broker;
@@ -44,48 +42,15 @@ mod pty;
 pub(crate) mod redraw;
 mod retire;
 mod serve;
+mod state;
+#[cfg(test)]
+mod testing;
 
 /// How often the daemon looks for agents to expire and whether it's time to leave.
 const IDLE_TICK: Duration = Duration::from_secs(2);
 /// How long a new daemon waits for the lock while the one before it, no longer listening,
 /// finishes retiring.
 const LOCK_WAIT: Duration = Duration::from_secs(3);
-
-struct State {
-    agents: Mutex<HashMap<String, Arc<Agent>>>,
-    clients: AtomicUsize,
-    next_token: AtomicU64,
-    broker: Broker,
-    /// Messages to type in once their recipient can take them: started up, and not asking
-    /// the user something.
-    pending: Mutex<Vec<(String, String)>>,
-    /// A newer nex-host is installed and this one is on its way out (see `retire.rs`): set
-    /// under the `agents` lock, after which nothing is started.
-    retiring: AtomicBool,
-}
-
-impl State {
-    fn peers(&self) -> Vec<Peer> {
-        self.agents.locked().values().map(|a| Peer { id: a.id.clone(), name: a.name.clone(), parent: a.parent.clone(), exited: a.exited() }).collect()
-    }
-
-    /// Drop a session, and its mail with it.
-    fn remove(&self, id: &str) {
-        self.agents.locked().remove(id);
-        self.broker.forget(id);
-    }
-
-    fn sessions(&self) -> Vec<proto::Session> {
-        let now = now_ms();
-        let mut list: Vec<_> = self.agents.locked().values().map(|a| a.session(now)).collect();
-        list.sort_by_key(|s| s.started);
-        list
-    }
-
-    fn get(&self, id: &str) -> Option<Arc<Agent>> {
-        self.agents.locked().get(id).cloned()
-    }
-}
 
 /// Run the daemon. Returns when it's idle (or another daemon already runs).
 pub fn run() -> io::Result<()> {
@@ -116,14 +81,7 @@ pub fn run() -> io::Result<()> {
     let listener = UnixListener::bind(&sock)?;
     std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))?;
 
-    let state = Arc::new(State {
-        agents: Mutex::new(HashMap::new()),
-        clients: AtomicUsize::new(0),
-        next_token: AtomicU64::new(1),
-        broker: Broker::new(),
-        pending: Mutex::new(Vec::new()),
-        retiring: AtomicBool::new(false),
-    });
+    let state = Arc::new(State::new());
 
     let postman = state.clone();
     std::thread::spawn(move || mail::deliver_loop(&postman));
@@ -137,7 +95,7 @@ pub fn run() -> io::Result<()> {
             std::thread::sleep(IDLE_TICK);
             lifecycle::expire(&idle);
             retire::check(&idle);
-            let busy = !idle.agents.locked().is_empty() || idle.clients.load(Ordering::Relaxed) > 0;
+            let busy = idle.has_agents() || idle.clients() > 0;
             if busy {
                 idle_since = None;
             } else if idle_since.get_or_insert_with(Instant::now).elapsed() >= lifecycle::idle_exit() {
@@ -165,14 +123,14 @@ struct Connected(Arc<State>);
 
 impl Connected {
     fn new(state: Arc<State>) -> Self {
-        state.clients.fetch_add(1, Ordering::Relaxed);
+        state.connected();
         Self(state)
     }
 }
 
 impl Drop for Connected {
     fn drop(&mut self) {
-        self.0.clients.fetch_sub(1, Ordering::Relaxed);
+        self.0.disconnected();
     }
 }
 
@@ -191,11 +149,11 @@ fn new_id(state: &State) -> String {
     loop {
         let mut bytes = [0u8; 4];
         if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut bytes)).is_err() {
-            let n = now_ms() ^ (u64::from(std::process::id()) << 20) ^ state.next_token.fetch_add(1, Ordering::Relaxed);
+            let n = now_ms() ^ (u64::from(std::process::id()) << 20) ^ state.next_token();
             bytes = (n as u32).to_be_bytes();
         }
         let id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        if !state.agents.locked().contains_key(&id) {
+        if !state.contains(&id) {
             return id;
         }
     }
@@ -215,17 +173,13 @@ pub fn log(msg: &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+    use crate::util::Locked;
 
     fn state() -> Arc<State> {
-        Arc::new(State {
-            agents: Mutex::new(HashMap::new()),
-            clients: AtomicUsize::new(0),
-            next_token: AtomicU64::new(1),
-            broker: Broker::default(),
-            pending: Mutex::new(Vec::new()),
-            retiring: AtomicBool::new(false),
-        })
+        Arc::new(State::in_memory())
     }
 
     #[test]
@@ -233,15 +187,15 @@ mod tests {
         let state = state();
         let client = Connected::new(state.clone());
         let also = Connected::new(state.clone());
-        assert_eq!(state.clients.load(Ordering::Relaxed), 2);
+        assert_eq!(state.clients(), 2);
         let served = std::thread::spawn(move || {
             let _client = client;
             panic!("serving went wrong");
         });
         assert!(served.join().is_err());
-        assert_eq!(state.clients.load(Ordering::Relaxed), 1, "the one that panicked is gone");
+        assert_eq!(state.clients(), 1, "the one that panicked is gone");
         drop(also);
-        assert_eq!(state.clients.load(Ordering::Relaxed), 0);
+        assert_eq!(state.clients(), 0);
     }
 
     #[test]
