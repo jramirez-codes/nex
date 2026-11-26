@@ -32,21 +32,9 @@ pub fn encode_key(key: Key, m: Modifiers, mode: TermMode) -> Option<Vec<u8>> {
         }
     };
     // Tilde sequences: ESC [ n ~ or ESC [ n ; m ~.
-    let tilde = |n: u8| -> Vec<u8> {
-        if modified {
-            format!("\x1b[{n};{}~", mod_param(m)).into_bytes()
-        } else {
-            format!("\x1b[{n}~").into_bytes()
-        }
-    };
+    let tilde = |n: u8| -> Vec<u8> { if modified { format!("\x1b[{n};{}~", mod_param(m)).into_bytes() } else { format!("\x1b[{n}~").into_bytes() } };
     // F1-F4 use SS3: ESC O P, or ESC [ 1 ; m P when modified.
-    let ss3 = |c: u8| -> Vec<u8> {
-        if modified {
-            format!("\x1b[1;{}{}", mod_param(m), c as char).into_bytes()
-        } else {
-            vec![0x1b, b'O', c]
-        }
-    };
+    let ss3 = |c: u8| -> Vec<u8> { if modified { format!("\x1b[1;{}{}", mod_param(m), c as char).into_bytes() } else { vec![0x1b, b'O', c] } };
 
     let bytes = match key {
         Key::ArrowUp => cursor(b'A'),
@@ -146,14 +134,7 @@ pub enum MouseAction {
 }
 
 /// Encode a mouse report for programs that enabled mouse tracking (vim, htop, lazygit...).
-pub fn encode_mouse(
-    action: MouseAction,
-    button: MouseButton,
-    col: usize,
-    line: usize,
-    m: Modifiers,
-    mode: TermMode,
-) -> Option<Vec<u8>> {
+pub fn encode_mouse(action: MouseAction, button: MouseButton, col: usize, line: usize, m: Modifiers, mode: TermMode) -> Option<Vec<u8>> {
     let mut code = match action {
         MouseAction::Motion(Some(b)) => b as u8 + 32,
         MouseAction::Motion(None) => 3 + 32,

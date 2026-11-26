@@ -7,8 +7,8 @@ use crate::git_diff::git::diff::{FileDiff, diff_args, parse_diff};
 use crate::git_diff::git::status::{Change, FileChange, Status, attach_counts, parse_numstat, parse_status};
 use crate::git_diff::git::{GIT_ENV, MAX_COUNT_BYTES, NUMSTAT_ARGS, NUMSTAT_STAGED_ARGS, STATUS_ARGS, TOPLEVEL_ARGS};
 use crate::remote::exec::{ExecError, Transport};
-use crate::remote::{RemoteError, cd_word};
 use crate::remote::posix_quote;
+use crate::remote::{RemoteError, cd_word};
 
 /// Exit status of a remote script whose `cd` into the folder failed.
 const NO_FOLDER: i32 = 3;
@@ -33,7 +33,8 @@ fn remote_failure(e: ExecError) -> Status {
 /// counts, and one more for untracked files' line counts.
 pub fn load_status_remote(t: &Transport, dir: &Path) -> Status {
     let dir = dir.to_string_lossy();
-    let commands: Vec<String> = [&TOPLEVEL_ARGS[..], &STATUS_ARGS, &NUMSTAT_STAGED_ARGS, &NUMSTAT_ARGS].iter().map(|args| remote_git(&dir, args)).collect();
+    let commands: Vec<String> =
+        [&TOPLEVEL_ARGS[..], &STATUS_ARGS, &NUMSTAT_STAGED_ARGS, &NUMSTAT_ARGS].iter().map(|args| remote_git(&dir, args)).collect();
     let outs = match t.run_many(&commands) {
         Ok(outs) => outs,
         Err(e) => return remote_failure(e),
@@ -52,7 +53,8 @@ pub fn load_status_remote(t: &Transport, dir: &Path) -> Status {
     let mut snap = parse_status(&status.text());
     snap.root = root.clone();
     let numstat = |o: &crate::remote::exec::Output| if o.ok() { parse_numstat(&o.text()) } else { Vec::new() };
-    let untracked: Vec<String> = snap.unstaged.iter().filter(|f| f.change == Change::Untracked).map(|f| f.path.clone()).take(MAX_REMOTE_COUNTS).collect();
+    let untracked: Vec<String> =
+        snap.unstaged.iter().filter(|f| f.change == Change::Untracked).map(|f| f.path.clone()).take(MAX_REMOTE_COUNTS).collect();
     let counts = count_lines_remote(t, &root, &untracked);
     let lines: HashMap<&str, u32> = untracked.iter().zip(counts).filter_map(|(path, n)| Some((path.as_str(), n?))).collect();
     attach_counts(&mut snap, numstat(staged), numstat(unstaged), |path| lines.get(path).copied());

@@ -64,8 +64,6 @@ impl App {
         if !files {
             return Cow::Borrowed("Agents");
         }
-        self.focused_cwd()
-            .and_then(|p| p.file_name().map(|n| Cow::Owned(n.to_string_lossy().into_owned())))
-            .unwrap_or(Cow::Borrowed("~"))
+        self.focused_cwd().and_then(|p| p.file_name().map(|n| Cow::Owned(n.to_string_lossy().into_owned()))).unwrap_or(Cow::Borrowed("~"))
     }
 }

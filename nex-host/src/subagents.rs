@@ -34,7 +34,12 @@ pub fn now_ms() -> u64 {
 }
 
 /// Read `path` through `map` unless it hasn't changed since last time.
-pub(crate) fn cached<T: Clone>(map: &mut HashMap<PathBuf, Cached<T>>, path: &Path, mtime: SystemTime, read: impl FnOnce(&Path) -> Option<T>) -> Option<T> {
+pub(crate) fn cached<T: Clone>(
+    map: &mut HashMap<PathBuf, Cached<T>>,
+    path: &Path,
+    mtime: SystemTime,
+    read: impl FnOnce(&Path) -> Option<T>,
+) -> Option<T> {
     if let Some(c) = map.get(path)
         && c.mtime == mtime
     {

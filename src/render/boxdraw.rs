@@ -180,10 +180,7 @@ pub fn draw(c: char, cell: Rect, color: Color32, ppp: f32, out: &mut Vec<Shape>)
             let size = snap((cell.width() / 4.0).min(cell.height() / 8.0) * 1.15).max(px);
             for (i, (col, row)) in DOTS.iter().enumerate() {
                 if bits & (1 << i) != 0 {
-                    let center = Pos2::new(
-                        cell.left() + cell.width() * (0.25 + 0.5 * col),
-                        cell.top() + cell.height() * (0.125 + 0.25 * row),
-                    );
+                    let center = Pos2::new(cell.left() + cell.width() * (0.25 + 0.5 * col), cell.top() + cell.height() * (0.125 + 0.25 * row));
                     let min = Pos2::new(snap(center.x - size / 2.0), snap(center.y - size / 2.0));
                     fill(out, Rect::from_min_size(min, Vec2::splat(size)), color);
                 }

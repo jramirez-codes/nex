@@ -9,8 +9,8 @@
 
 use std::ffi::CStr;
 use std::ptr::NonNull;
-use std::sync::OnceLock;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use block2::RcBlock;
 use objc2::rc::Retained;

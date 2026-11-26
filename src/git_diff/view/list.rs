@@ -136,7 +136,14 @@ impl GitDiff {
         if reveal {
             self.reveal_selected();
         }
-        if let Some(to) = overlay_scrollbar(ui, p, area, f.id("list-bar"), ScrollSpan { offset: self.list_scroll, content: content_h, view: area.height() }, &mut self.view.list_active) {
+        if let Some(to) = overlay_scrollbar(
+            ui,
+            p,
+            area,
+            f.id("list-bar"),
+            ScrollSpan { offset: self.list_scroll, content: content_h, view: area.height() },
+            &mut self.view.list_active,
+        ) {
             self.list_scroll = to;
         }
     }

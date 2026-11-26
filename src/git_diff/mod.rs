@@ -11,9 +11,9 @@
 
 pub mod git;
 pub mod syntax;
-mod view;
 #[cfg(test)]
 mod tests;
+mod view;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -38,7 +38,12 @@ type DiffResult = (Sel, DiffMsg);
 enum DiffMsg {
     Diff(Result<FileDiff, String>),
     /// Colors for lines `start..` of hunk `hunk`; `done` when that was the hunk's last line.
-    Colors { hunk: usize, start: usize, lines: Vec<syntax::Tokens>, done: bool },
+    Colors {
+        hunk: usize,
+        start: usize,
+        lines: Vec<syntax::Tokens>,
+        done: bool,
+    },
 }
 
 /// Lines colored between two messages (a few tens of milliseconds of work).

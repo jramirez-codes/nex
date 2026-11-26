@@ -11,8 +11,8 @@ use crate::file_explorer::Entry;
 use crate::file_explorer::fs::ops::{invalid_name, sort_entries};
 use crate::file_explorer::fs::transfer::{Op, Progress};
 use crate::remote::exec::{ExecError, Output, Transport, quote};
-use crate::remote::{RemoteError, cd_word};
 use crate::remote::posix_quote;
+use crate::remote::{RemoteError, cd_word};
 
 /// A folder as read on the host.
 #[derive(Clone, Debug, PartialEq)]

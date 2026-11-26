@@ -289,9 +289,7 @@ impl Config {
                 self.palette[idx] = color(col.trim())?;
             }
             "background-opacity" => self.background_opacity = float(value)?.clamp(0.0, 1.0),
-            "unfocused-split-opacity" => {
-                self.unfocused_split_opacity = float(value)?.clamp(0.15, 1.0)
-            }
+            "unfocused-split-opacity" => self.unfocused_split_opacity = float(value)?.clamp(0.15, 1.0),
             "window-padding" | "window-padding-x" => self.window_padding = float(value)?.max(0.0),
             "window-decorations" => self.window_decorations = boolean(value)?,
             "window-controls" => self.window_controls = boolean(value)?,
@@ -358,13 +356,12 @@ impl Config {
                     _ => return Err(format!("invalid ssh-mic `{value}` (off, manual or auto)")),
                 }
             }
-            "scrollback-limit" => {
-                self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?
-            }
+            "scrollback-limit" => self.scrollback_limit = value.parse().map_err(|_| "invalid scrollback-limit")?,
             "restore-session" => self.restore_session = boolean(value)?,
             "system-notifications" => self.system_notifications = boolean(value)?,
             "device-key-days" => {
-                self.device_key_days = value.parse().ok().filter(|&d| (1..=3650).contains(&d)).ok_or_else(|| format!("invalid device-key-days `{value}` (1 to 3650)"))?
+                self.device_key_days =
+                    value.parse().ok().filter(|&d| (1..=3650).contains(&d)).ok_or_else(|| format!("invalid device-key-days `{value}` (1 to 3650)"))?
             }
             "command" => self.command = Some(value.to_string()).filter(|s| !s.is_empty()),
             _ => return Err(format!("unknown key `{key}`")),

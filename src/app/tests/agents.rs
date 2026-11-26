@@ -245,7 +245,11 @@ fn the_agents_on_screen_are_marked_viewing_both_halves_of_a_split_and_where_a_ca
     app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     // Pretend the three shells run agents (opening the Agents tab polls, finding none).
     let pretend = |app: &mut crate::app::App| {
-        let agents = vec![probe(left, Some(0), AgentKind::CLAUDE, "busy"), probe(right, Some(0), AgentKind::CODEX, "busy"), probe(other, Some(1), AgentKind::CLAUDE, "idle")];
+        let agents = vec![
+            probe(left, Some(0), AgentKind::CLAUDE, "busy"),
+            probe(right, Some(0), AgentKind::CODEX, "busy"),
+            probe(other, Some(1), AgentKind::CLAUDE, "idle"),
+        ];
         app.agent_tracker.update(agents, Instant::now());
     };
     let seen = |app: &crate::app::App, v: &Viewing, pane| v.of(app.agent_tracker.agents().iter().find(|a| a.pane == pane).unwrap());

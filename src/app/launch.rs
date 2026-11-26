@@ -36,11 +36,7 @@ impl LaunchState {
             open_explorer: args.explorer,
             select_at_start: args.select.clone(),
             // An early terminal already runs the `-e` command.
-            first_command: if early_terminal.is_some() {
-                None
-            } else {
-                args.command
-            },
+            first_command: if early_terminal.is_some() { None } else { args.command },
             early_terminal,
             adopt: Vec::new(),
             attach_next: None,

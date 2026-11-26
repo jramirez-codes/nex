@@ -83,10 +83,12 @@ type EventLoopBuilder = winit::event_loop::EventLoopBuilder<eframe::UserEvent>;
 /// (on Android it is handed the activity).
 fn run(args: cli::Args, event_loop: impl FnOnce(&mut EventLoopBuilder) -> &mut EventLoopBuilder) -> eframe::Result {
     // Opened from Finder or the Dock (in `/`): the first shell starts at home, as in Terminal.
-    if args.working_directory.is_none() && platform::opened_from_desktop()
-        && let Some(home) = platform::home_dir() {
-            let _ = std::env::set_current_dir(home);
-        }
+    if args.working_directory.is_none()
+        && platform::opened_from_desktop()
+        && let Some(home) = platform::home_dir()
+    {
+        let _ = std::env::set_current_dir(home);
+    }
     if let Some(dir) = &args.working_directory {
         // The first shell starts in nex's own working directory.
         if let Err(e) = std::env::set_current_dir(dir) {
@@ -140,6 +142,11 @@ fn run(args: cli::Args, event_loop: impl FnOnce(&mut EventLoopBuilder) -> &mut E
     platform::Dnd::prepare(&event_loop);
     let vsync = platform::vsync(&event_loop);
     let options = eframe::NativeOptions { viewport, vsync, ..Default::default() };
-    let eframe_app = eframe::create_native("nex", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args, early, session, session_lock)))), &event_loop);
+    let eframe_app = eframe::create_native(
+        "nex",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, cfg, args, early, session, session_lock)))),
+        &event_loop,
+    );
     platform::WinitApp::new(eframe_app, !vsync).run(event_loop)
 }

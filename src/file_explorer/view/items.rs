@@ -2,14 +2,14 @@
 
 use egui::{Align2, Color32, DragAndDrop, FontId, Id, LayerId, Order, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
+use crate::ui::file_icons::{self, LINK_MARK};
 use crate::ui::theme::ACCENT;
 use crate::ui::theme::Theme;
-use crate::ui::file_icons::{self, LINK_MARK};
 use crate::ui::{icons, paint};
 
-use crate::file_explorer::{Entry, View};
 use crate::file_explorer::fs::ops::human_size;
 use crate::file_explorer::input::{ExplorerDrag, Ghost};
+use crate::file_explorer::{Entry, View};
 
 /// Sizes of the explorer's parts; touch screens get larger hit targets.
 pub(in crate::file_explorer) struct Sizes {
@@ -240,7 +240,15 @@ pub(in crate::file_explorer) fn paint_row(p: &Painter, row: Rect, e: &Entry, st:
     if st.hide_name {
         return;
     }
-    paint::faded_text(p, Pos2::new(name_left, row.center().y), &e.name, FontId::proportional(s.font), name_color.gamma_multiply(fade), size_x - 12.0 * k - name_left, 20.0 * k);
+    paint::faded_text(
+        p,
+        Pos2::new(name_left, row.center().y),
+        &e.name,
+        FontId::proportional(s.font),
+        name_color.gamma_multiply(fade),
+        size_x - 12.0 * k - name_left,
+        20.0 * k,
+    );
     p.galley(Pos2::new(size_x, row.center().y - size_galley.size().y / 2.0), size_galley, c.text_dim);
 }
 

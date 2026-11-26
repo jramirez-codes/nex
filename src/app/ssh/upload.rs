@@ -58,7 +58,15 @@ impl App {
         }
     }
 
-    fn start_upload(&mut self, ctx: &egui::Context, pane: PaneId, target: SshTarget, paths: Vec<PathBuf>, fallback: Vec<PathBuf>, temp: Option<PathBuf>) {
+    fn start_upload(
+        &mut self,
+        ctx: &egui::Context,
+        pane: PaneId,
+        target: SshTarget,
+        paths: Vec<PathBuf>,
+        fallback: Vec<PathBuf>,
+        temp: Option<PathBuf>,
+    ) {
         let host = target.host().to_string();
         let what = match (temp.is_some(), paths.len()) {
             (true, _) => "image".to_string(),
@@ -113,5 +121,4 @@ impl App {
         };
         self.chrome.toast = Some(Toast::long(ctx, msg));
     }
-
 }

@@ -74,7 +74,16 @@ impl Drop for Old {
 }
 
 fn launch_raw(h: &Host, argv: &[&str]) -> String {
-    let req = Request::Launch { argv: argv.iter().map(|s| s.to_string()).collect(), kind: None, name: None, cwd: None, cols: Some(40), rows: Some(10), env: None, parent: None };
+    let req = Request::Launch {
+        argv: argv.iter().map(|s| s.to_string()).collect(),
+        kind: None,
+        name: None,
+        cwd: None,
+        cols: Some(40),
+        rows: Some(10),
+        env: None,
+        parent: None,
+    };
     let r = ask(h, &req).unwrap();
     assert!(r.ok, "{:?}", r.error);
     r.id.unwrap()

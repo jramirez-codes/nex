@@ -8,8 +8,7 @@ use crate::platform::{Family, FontFace, Weight};
 /// Names must match fontconfig's family name exactly (`fc-list : family`). DejaVu Sans Mono
 /// comes first since its symbols are drawn to the cell width; the Noto symbol fonts cover
 /// Dingbats (✢ ✻ ✘), Misc Technical (⎯) and math operators (⧉).
-pub const FALLBACK_FAMILIES: &[&str] =
-    &["DejaVu Sans Mono", "Noto Sans Symbols2", "Noto Sans Symbols", "Noto Sans Math", "Noto Sans CJK SC"];
+pub const FALLBACK_FAMILIES: &[&str] = &["DejaVu Sans Mono", "Noto Sans Symbols2", "Noto Sans Symbols", "Noto Sans Math", "Noto Sans CJK SC"];
 
 /// Resolve a fontconfig pattern to (file, family, index).
 fn fc_match(pattern: &str) -> Option<(String, String, u32)> {
@@ -50,12 +49,8 @@ pub fn find_font(family: Family, weight: Weight, italic: bool) -> Option<FontFac
 pub fn nerd_mono_families() -> Vec<String> {
     let Some(out) = Command::new("fc-list").args([":", "family"]).output().ok() else { return Vec::new() };
     let text = String::from_utf8_lossy(&out.stdout);
-    let mut families: Vec<String> = text
-        .lines()
-        .flat_map(|l| l.split(','))
-        .map(|f| f.trim().to_string())
-        .filter(|f| f.ends_with("Nerd Font Mono"))
-        .collect();
+    let mut families: Vec<String> =
+        text.lines().flat_map(|l| l.split(',')).map(|f| f.trim().to_string()).filter(|f| f.ends_with("Nerd Font Mono")).collect();
     families.sort();
     families.dedup();
     families

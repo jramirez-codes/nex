@@ -8,10 +8,12 @@ use std::sync::Arc;
 
 use egui::{Pos2, Rect, Vec2};
 
-use crate::layout::PaneId;
 use crate::agents::group::{Group, Member, Step, same_step};
 use crate::agents::model::Status;
-use crate::agents::view::{CARD_H, GAP, INDENT_STEP, LIST_INSET, MAX_COLUMNS, MIN_CARD_W, MORE_H, MORE_W, ROWS_SHOWN, ROW_H, SECTION_H, SIDE, STRIP_H, TITLE_Y};
+use crate::agents::view::{
+    CARD_H, GAP, INDENT_STEP, LIST_INSET, MAX_COLUMNS, MIN_CARD_W, MORE_H, MORE_W, ROW_H, ROWS_SHOWN, SECTION_H, SIDE, STRIP_H, TITLE_Y,
+};
+use crate::layout::PaneId;
 
 /// How tall a team's card is, open (`Some(show all)`) or closed.
 pub(super) fn team_height(g: &Group, open: Option<bool>) -> f32 {

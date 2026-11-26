@@ -155,11 +155,9 @@ impl Printer {
 pub fn text_of(v: Option<&serde_json::Value>) -> String {
     match v {
         Some(serde_json::Value::String(s)) => s.clone(),
-        Some(serde_json::Value::Array(blocks)) => blocks
-            .iter()
-            .filter_map(|b| b.as_str().or_else(|| b.get("text").and_then(|t| t.as_str())))
-            .collect::<Vec<_>>()
-            .join("\n"),
+        Some(serde_json::Value::Array(blocks)) => {
+            blocks.iter().filter_map(|b| b.as_str().or_else(|| b.get("text").and_then(|t| t.as_str()))).collect::<Vec<_>>().join("\n")
+        }
         Some(serde_json::Value::Object(o)) => o.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string(),
         _ => String::new(),
     }
@@ -168,7 +166,8 @@ pub fn text_of(v: Option<&serde_json::Value>) -> String {
 /// The argument that says what a tool call does: its command, file, pattern, address, …,
 /// else its first short text. One line, cut short.
 pub fn key_arg(input: &serde_json::Value) -> Option<String> {
-    const KEYS: [&str; 12] = ["command", "cmd", "file_path", "path", "pattern", "query", "url", "description", "skill", "subagent_type", "prompt", "plan"];
+    const KEYS: [&str; 12] =
+        ["command", "cmd", "file_path", "path", "pattern", "query", "url", "description", "skill", "subagent_type", "prompt", "plan"];
     let obj = input.as_object()?;
     let text = |v: &serde_json::Value| match v {
         serde_json::Value::String(s) => Some(s.clone()),
@@ -361,24 +360,26 @@ pub fn run(path: Option<&Path>, why: &str) -> io::Result<i32> {
 pub(crate) mod testing {
     /// `lines` without their escape sequences (the styling).
     pub(crate) fn strip(lines: &[String]) -> Vec<String> {
-        lines.iter().map(|l| {
-            let mut out = String::new();
-            let mut chars = l.chars().peekable();
-            while let Some(c) = chars.next() {
-                if c == '\x1b' {
-                    for d in chars.by_ref() {
-                        if d.is_ascii_alphabetic() {
-                            break;
+        lines
+            .iter()
+            .map(|l| {
+                let mut out = String::new();
+                let mut chars = l.chars().peekable();
+                while let Some(c) = chars.next() {
+                    if c == '\x1b' {
+                        for d in chars.by_ref() {
+                            if d.is_ascii_alphabetic() {
+                                break;
+                            }
                         }
+                    } else {
+                        out.push(c);
                     }
-                } else {
-                    out.push(c);
                 }
-            }
-            out
-        }).collect()
+                out
+            })
+            .collect()
     }
-
 }
 
 #[cfg(test)]
@@ -395,10 +396,14 @@ mod tests {
     fn escape_sequences_in_the_file_never_reach_the_terminal() {
         const EVIL: &str = "x\u{1b}]52;c;aGk=\u{7}y\u{1b}[2J\u{9b}31mz\u{1b}]2;pwned\u{7}";
         // Our own styling is ESC-led too: compare without it.
-        let ours = |lines: &[String]| lines.iter().map(|l| [DIM, BOLD, RED, GREEN, CYAN, RESET].iter().fold(l.clone(), |l, s| l.replace(s, ""))).collect::<Vec<_>>();
+        let ours = |lines: &[String]| {
+            lines.iter().map(|l| [DIM, BOLD, RED, GREEN, CYAN, RESET].iter().fold(l.clone(), |l, s| l.replace(s, ""))).collect::<Vec<_>>()
+        };
         let mut r = Renderer::new(crate::clis::CLAUDE);
-        let text = serde_json::json!({"type":"assistant","message":{"content":[{"type":"text","text":format!("{EVIL}\nsecond {EVIL}")}]}}).to_string();
-        let call = serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":EVIL,"input":{"command":EVIL}}]}}).to_string();
+        let text =
+            serde_json::json!({"type":"assistant","message":{"content":[{"type":"text","text":format!("{EVIL}\nsecond {EVIL}")}]}}).to_string();
+        let call =
+            serde_json::json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":EVIL,"input":{"command":EVIL}}]}}).to_string();
         let task = serde_json::json!({"type":"user","message":{"content":format!("do {EVIL}")}}).to_string();
         let result = serde_json::json!({"type":"user","message":{"content":[{"type":"tool_result","content":EVIL}]}}).to_string();
         let mut codex = Renderer::new(crate::clis::CODEX);

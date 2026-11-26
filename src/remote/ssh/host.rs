@@ -26,7 +26,9 @@ pub enum LoginError {
     /// password is needed.
     NeedsPassword,
     /// The host is new to nex: the user should check its key's fingerprint and trust it.
-    UnknownHost { fingerprint: String },
+    UnknownHost {
+        fingerprint: String,
+    },
     WrongPassword,
     Failed(String),
 }
@@ -137,7 +139,13 @@ pub fn login(server: &Server, password: Option<&str>, trust: Option<&str>, key_d
 
 /// Log in with the password, put a new device key on the host, and check that the key
 /// works by logging in with it. Returns that key login.
-fn with_password(server: &Server, mut profile: Profile, password: &str, trust: Option<&str>, key_days: u32) -> Result<(Client, PrivateKey), LoginError> {
+fn with_password(
+    server: &Server,
+    mut profile: Profile,
+    password: &str,
+    trust: Option<&str>,
+    key_days: u32,
+) -> Result<(Client, PrivateKey), LoginError> {
     let client = match Client::connect(server, Login::Password(password), trust) {
         Ok(c) => c,
         Err(ConnectError::Denied) => return Err(LoginError::WrongPassword),
@@ -150,7 +158,8 @@ fn with_password(server: &Server, mut profile: Profile, password: &str, trust: O
     let host_expiry = device::supports_expiry(&String::from_utf8_lossy(&version)).then_some(expires);
     let key = device::new_key(&profile.comment).map_err(|e| failed("make this device's key", e.to_string()))?;
     let line = device::authorized_line(&key, &profile.comment, host_expiry).map_err(|e| failed("write the key", e))?;
-    let (status, _) = client.run_sh(&device::install_script(&line, &profile.comment), b"").map_err(|e| failed("add the key on the server", e.to_string()))?;
+    let (status, _) =
+        client.run_sh(&device::install_script(&line, &profile.comment), b"").map_err(|e| failed("add the key on the server", e.to_string()))?;
     if status != 0 {
         return Err(failed("add the key to ~/.ssh/authorized_keys on the server", format!("the script failed ({status})")));
     }
@@ -159,7 +168,8 @@ fn with_password(server: &Server, mut profile: Profile, password: &str, trust: O
     // only takes passwords) is found out now rather than at the next connection.
     let client = Client::connect(server, Login::Key(&key), None).map_err(|e| match e {
         ConnectError::Denied => LoginError::Failed(
-            "The server didn't accept this device's key. Check that ~/.ssh is only writable by you and that sshd allows keys (PubkeyAuthentication).".into(),
+            "The server didn't accept this device's key. Check that ~/.ssh is only writable by you and that sshd allows keys (PubkeyAuthentication)."
+                .into(),
         ),
         other => other.into(),
     })?;

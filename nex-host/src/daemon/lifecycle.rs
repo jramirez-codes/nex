@@ -2,19 +2,19 @@
 //! ends, and dropping the ones that ended long ago.
 
 use std::io;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use nex_host::paths;
 use nex_host::proto::{self, MessageKind, Payload, USER, Verdict};
 
 use crate::daemon::agent::{self, Agent, Spec};
+use crate::daemon::deliver;
 use crate::daemon::mail::{Draft, letter, post};
 use crate::daemon::retire;
 use crate::daemon::state::State;
 use crate::daemon::{log, new_id};
-use crate::daemon::deliver;
 use crate::util::now_ms;
 
 /// How long the daemon stays up with nothing to do.

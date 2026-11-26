@@ -40,11 +40,19 @@ pub enum Request {
     List,
     Watch,
     /// End a session's program (it's forgotten once it has exited).
-    Kill { id: String },
+    Kill {
+        id: String,
+    },
     /// Drop an exited session from the list.
-    Forget { id: String },
+    Forget {
+        id: String,
+    },
     /// Show a session: the connection becomes its terminal, `cols` by `rows`.
-    Attach { id: String, cols: u16, rows: u16 },
+    Attach {
+        id: String,
+        cols: u16,
+        rows: u16,
+    },
     /// Start an agent to do `task`: a [`Request::Launch`] whose first message is the task.
     /// Answered with its `id`.
     Spawn {

@@ -45,10 +45,7 @@ impl App {
     fn place_in(&self, tab: &Tab, id: PaneId) -> (Direction, f32) {
         let mut rects = Vec::new();
         tab.root.layout(self.content_area, PANE_GAP, &mut rects, &mut Vec::new());
-        rects
-            .iter()
-            .find(|(p, _)| *p == id)
-            .map_or(DEFAULT_PLACE, |&(_, r)| layout::edge_placement(r, self.content_area))
+        rects.iter().find(|(p, _)| *p == id).map_or(DEFAULT_PLACE, |&(_, r)| layout::edge_placement(r, self.content_area))
     }
 
     /// `tab` (just made) with the sticky pane in it, placed as it is in the shown tab.
@@ -83,13 +80,8 @@ impl App {
     /// down to it, it stops being sticky and is the one pane of the tab being shown.
     pub(in crate::app) fn prune_sticky_tabs(&mut self) {
         let Some(id) = self.sticky else { return };
-        let lone: Vec<u64> = self
-            .tabs
-            .iter()
-            .chain(self.home_tab.iter())
-            .filter(|t| matches!(t.root, Node::Leaf(p) if p == id))
-            .map(|t| t.uid)
-            .collect();
+        let lone: Vec<u64> =
+            self.tabs.iter().chain(self.home_tab.iter()).filter(|t| matches!(t.root, Node::Leaf(p) if p == id)).map(|t| t.uid).collect();
         if lone.is_empty() {
             return;
         }

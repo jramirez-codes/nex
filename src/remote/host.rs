@@ -329,7 +329,11 @@ impl Backoff {
     /// A watch ended. The wait before the next one: short again if this one `heard` from the
     /// host, longer than the last if it didn't.
     fn ended(&mut self, heard: bool) -> Duration {
-        if heard { self.reset() } else { self.grow() }
+        if heard {
+            self.reset()
+        } else {
+            self.grow()
+        }
         self.wait
     }
 }
@@ -768,7 +772,10 @@ mod tests {
         let t = SshTarget { opts: vec![], destination: "fake".into() };
         assert_eq!(ensure(&t).expect("install").shim, Some(false), "no shim until asked");
         install_shim(&t).expect("shim");
-        assert!(std::fs::read_to_string(home.join(".bashrc")).unwrap_or_default().contains("run -- claude") || home.join(".config/fish/conf.d/nex-host.fish").exists());
+        assert!(
+            std::fs::read_to_string(home.join(".bashrc")).unwrap_or_default().contains("run -- claude")
+                || home.join(".config/fish/conf.d/nex-host.fish").exists()
+        );
         assert_eq!(ensure(&t).unwrap().shim, Some(true));
         let installed = home.join(".nex/bin/nex-host");
         let first = std::fs::metadata(&installed).unwrap().modified().unwrap();
@@ -784,7 +791,8 @@ mod tests {
             }
         };
         wait("the watch", &|s| s.state == State::Live);
-        let id = run(&Transport::Ssh(t.clone()), &format!("{REMOTE_BIN_SH} launch --name demo -- sh -c 'sleep 30'"), None).unwrap().trim().to_string();
+        let id =
+            run(&Transport::Ssh(t.clone()), &format!("{REMOTE_BIN_SH} launch --name demo -- sh -c 'sleep 30'"), None).unwrap().trim().to_string();
         wait("the agent", &|s| s.sessions.iter().any(|a| a.id == id && a.name == "demo"));
         assert_eq!(w.snapshot().home.as_deref(), Some(home.to_str().unwrap()));
         kill(&t, &id).unwrap();

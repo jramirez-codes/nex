@@ -78,7 +78,11 @@ impl Group {
         let mut out: Vec<Option<Branch>> = Vec::with_capacity(self.members.len());
         for (i, m) in self.members.iter().enumerate() {
             // Its parent: the lead at depth 1, else the nearest member above it one level up.
-            let parent = if m.depth <= 1 { Some(None) } else { self.members[..i].iter().rposition(|p| p.depth < m.depth).filter(|&j| self.members[j].depth == m.depth - 1).map(Some) };
+            let parent = if m.depth <= 1 {
+                Some(None)
+            } else {
+                self.members[..i].iter().rposition(|p| p.depth < m.depth).filter(|&j| self.members[j].depth == m.depth - 1).map(Some)
+            };
             let is_pipe = match parent {
                 Some(None) => self.is_pipeline(),
                 Some(Some(j)) => self.members[j].agent.kind == AgentKind::Pipeline,
@@ -131,7 +135,8 @@ impl Group {
                 _ => helpers += 1,
             }
         }
-        let parts: Vec<String> = [(helpers, "helper"), (pipes, "pipeline"), (subs, "sub-agent")].into_iter().filter(|(k, _)| *k > 0).map(|(k, w)| n(k, w)).collect();
+        let parts: Vec<String> =
+            [(helpers, "helper"), (pipes, "pipeline"), (subs, "sub-agent")].into_iter().filter(|(k, _)| *k > 0).map(|(k, w)| n(k, w)).collect();
         if parts.is_empty() { n(0, "helper") } else { parts.join(" · ") }
     }
 }
@@ -225,7 +230,14 @@ pub fn groups(agents: &[Arc<Agent>]) -> Vec<Arc<Group>> {
         // A sub-agent only keeps its team working (its finishing isn't the team's: its
         // agent says when that is done).
         let counts = |a: &Agent| (a.kind != AgentKind::Pipeline || !children.contains_key(&a.pane)) && (!a.team.sub || a.status == Status::Working);
-        let status = members.iter().map(|m| &*m.agent).filter(|a| counts(a)).map(|a| a.status).chain(counts(lead).then_some(lead.status)).min().unwrap_or(lead.status);
+        let status = members
+            .iter()
+            .map(|m| &*m.agent)
+            .filter(|a| counts(a))
+            .map(|a| a.status)
+            .chain(counts(lead).then_some(lead.status))
+            .min()
+            .unwrap_or(lead.status);
         let lead = if status == lead.status { Arc::clone(lead) } else { Arc::new(Agent { status, ..Agent::clone(lead) }) };
         Arc::new(Group { lead, members })
     };
@@ -391,7 +403,8 @@ mod tests {
         let g = groups(&agents);
         assert_eq!(g.len(), 1, "one card: the agent, its pipeline and its stages");
         assert_eq!(g[0].lead.status, Status::Working, "the stages' status counts");
-        let all_idle: Vec<Agent> = agents.iter().map(|a| if a.kind == AgentKind::Pipeline { a.clone() } else { Agent { status: Status::Idle, ..a.clone() } }).collect();
+        let all_idle: Vec<Agent> =
+            agents.iter().map(|a| if a.kind == AgentKind::Pipeline { a.clone() } else { Agent { status: Status::Idle, ..a.clone() } }).collect();
         assert_eq!(groups(&all_idle)[0].lead.status, Status::Idle, "not the runner printing");
         assert_eq!(g[0].size(), "1 helper · 1 pipeline");
 
@@ -492,7 +505,8 @@ mod tests {
     fn a_teams_sub_agents_hang_off_their_agent_as_a_pipelines_stages_do() {
         // An agent with two sub-agents and a helper between them (by status): each sub-agent
         // branches off the lead; the last sub-agent ends the line, whatever comes after.
-        let agents = vec![agent(1, Status::Idle, None, 0), sub(2, Status::Done, 1, 10), agent(3, Status::Working, Some(1), 5), sub(4, Status::Working, 1, 20)];
+        let agents =
+            vec![agent(1, Status::Idle, None, 0), sub(2, Status::Done, 1, 10), agent(3, Status::Working, Some(1), 5), sub(4, Status::Working, 1, 20)];
         let g = groups(&agents);
         assert_eq!(shape(&g)[0].2, [(2, 1), (3, 1), (4, 1)]);
         let stem = |last| Some(Branch { parent: None, last });

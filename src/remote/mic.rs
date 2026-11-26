@@ -769,13 +769,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     fn start_waiting(h: &Path) -> Child {
-        Command::new("sh")
-            .args(["-c", &wait_script()])
-            .env("HOME", h)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap()
+        Command::new("sh").args(["-c", &wait_script()]).env("HOME", h).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap()
     }
 
     #[cfg(target_os = "linux")]

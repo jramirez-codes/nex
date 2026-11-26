@@ -7,21 +7,21 @@ use std::time::Duration;
 use egui::emath::TSTransform;
 use egui::{Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, ViewportCommand};
 
-use crate::agents::notify;
 use crate::agents::model::{AgentKind, Status, tile_phase};
+use crate::agents::notify;
 use crate::config::AgentsTab;
 use crate::layout::PaneId;
 use crate::platform;
+use crate::ui::glide::{Glide, Lerp};
 use crate::ui::theme::{HOVER, HOVER_STRONG, Theme, white_alpha};
 use crate::ui::widgets::{HoverShape, IconButton, is_fullscreen, is_maximized};
-use crate::ui::glide::{Glide, Lerp};
 use crate::ui::{dog, glide, icons, paint};
 
 use crate::app::App;
 use crate::app::actions::Action;
-use crate::app::workspace::pane_drag::{DropTarget, SPRING_DELAY};
-use crate::app::input::press::LONG_PRESS;
 use crate::app::animation::tab_close::{GLYPH, TabDrawn, TabGhost};
+use crate::app::input::press::LONG_PRESS;
+use crate::app::workspace::pane_drag::{DropTarget, SPRING_DELAY};
 
 const TAB_HEIGHT: f32 = 30.0;
 /// Padding between the tab track's edge and the tabs inside it.
@@ -203,21 +203,22 @@ impl TabScroll {
         let animate = glide::animations(ctx);
         let (down, delta, speed, dt) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.delta().x, i.pointer.velocity().x, i.stable_dt.min(0.1)));
         if let Some((slot, uid)) = active
-            && self.revealed != Some((uid, tabs, width.to_bits())) {
-                self.revealed = Some((uid, tabs, width.to_bits()));
-                let left = slot as f32 * width;
-                let to = if left < self.offset {
-                    Some(left)
-                } else if left + width > self.offset + view {
-                    Some(left + width - view)
-                } else {
-                    None
-                };
-                if let Some(to) = to {
-                    self.velocity = 0.0;
-                    if animate { self.target = Some(to) } else { self.offset = to }
-                }
+            && self.revealed != Some((uid, tabs, width.to_bits()))
+        {
+            self.revealed = Some((uid, tabs, width.to_bits()));
+            let left = slot as f32 * width;
+            let to = if left < self.offset {
+                Some(left)
+            } else if left + width > self.offset + view {
+                Some(left + width - view)
+            } else {
+                None
+            };
+            if let Some(to) = to {
+                self.velocity = 0.0;
+                if animate { self.target = Some(to) } else { self.offset = to }
             }
+        }
         if self.swiping {
             if down {
                 self.offset -= delta;
@@ -437,7 +438,11 @@ impl App {
         }
         let animate = glide::animations(ctx);
         let id = Id::new("agents-tab-badge");
-        let t = if animate { ctx.animate_bool_with_time_and_easing(id, shown.is_some(), BADGE_FADE, glide::ease_out) } else { f32::from(u8::from(shown.is_some())) };
+        let t = if animate {
+            ctx.animate_bool_with_time_and_easing(id, shown.is_some(), BADGE_FADE, glide::ease_out)
+        } else {
+            f32::from(u8::from(shown.is_some()))
+        };
         let Some(badge) = self.chrome.strip.badge.filter(|_| t > 0.0) else { return };
         // Needs you ↔ done cross-fades too: color and size.
         let urgent = matches!(badge, notify::Badge::NeedsYou(_));
@@ -501,8 +506,7 @@ impl App {
     /// Slots left by closing tabs count as part-tabs while they close up, so the other tabs
     /// widen and the track narrows smoothly.
     fn horizontal_tab_slots(&mut self, ui: &Ui, x: f32, right: f32, cy: f32, now: f64) -> TabSlots {
-        let gaps: Vec<(usize, f32)> =
-            self.chrome.strip.tab_ghosts.iter().map(|g| (g.index, g.frame(now).gap)).filter(|&(_, f)| f > 0.0).collect();
+        let gaps: Vec<(usize, f32)> = self.chrome.strip.tab_ghosts.iter().map(|g| (g.index, g.frame(now).gap)).filter(|&(_, f)| f > 0.0).collect();
         let held: f32 = gaps.iter().map(|&(_, f)| f).sum();
         let n = self.tabs.len();
         let avail = (right - x - 2.0 * TRACK_PAD).max(MIN_TAB_WIDTH);
@@ -619,16 +623,17 @@ impl App {
         let reorders = !scroll || self.chrome.strip.scroll.reordering;
         if reorders
             && resp.dragged_by(PointerButton::Primary)
-            && let Some(pos) = resp.interact_pointer_pos() {
-                let target = slots.slot_at(pos);
-                if target != i {
-                    let tab = self.tabs.remove(i);
-                    self.tabs.insert(target, tab);
-                    self.show_tab(target);
-                    ctx.request_repaint();
-                    return true;
-                }
+            && let Some(pos) = resp.interact_pointer_pos()
+        {
+            let target = slots.slot_at(pos);
+            if target != i {
+                let tab = self.tabs.remove(i);
+                self.tabs.insert(target, tab);
+                self.show_tab(target);
+                ctx.request_repaint();
+                return true;
             }
+        }
         if reorders && resp.drag_started_by(PointerButton::Primary) {
             self.show_tab(i);
         }
@@ -779,10 +784,11 @@ impl App {
 
     fn new_tab_button(&mut self, ui: &Ui, rect: Rect, cy: f32, theme: &Theme) {
         let plus = Rect::from_center_size(Pos2::new(rect.right() - 14.0 - PLUS_SIZE / 2.0, cy), Vec2::splat(PLUS_SIZE));
-        if IconButton::new(plus, Id::new("new-tab"), theme.text, theme.text_bright)
-            .hover(HoverShape::Rounded(8), HOVER)
-            .show(ui, ui.painter(), icons::icon_plus)
-        {
+        if IconButton::new(plus, Id::new("new-tab"), theme.text, theme.text_bright).hover(HoverShape::Rounded(8), HOVER).show(
+            ui,
+            ui.painter(),
+            icons::icon_plus,
+        ) {
             self.pending.push(Action::NewTab);
         }
     }

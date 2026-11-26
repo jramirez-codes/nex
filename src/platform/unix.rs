@@ -5,10 +5,7 @@ use std::path::{Path, PathBuf};
 
 /// `$XDG_CONFIG_HOME/nex`, else `~/.config/nex` (also on macOS, like Ghostty).
 pub fn config_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| home_dir().map(|h| h.join(".config")))?;
+    let base = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| home_dir().map(|h| h.join(".config")))?;
     Some(base.join("nex"))
 }
 

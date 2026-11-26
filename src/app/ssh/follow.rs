@@ -5,8 +5,8 @@
 use std::path::PathBuf;
 
 use crate::app::App;
-use crate::layout::{Axis, PaneId};
 use crate::app::ssh::sharing::SharingPrompt;
+use crate::layout::{Axis, PaneId};
 use crate::remote;
 
 /// Where a new terminal goes.

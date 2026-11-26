@@ -88,19 +88,15 @@ impl Session {
             Some(n) => return Err(format!("unsupported version {n}")),
             None => return Err("missing version".into()),
         }
-        let tabs: Vec<TabState> = obj
-            .get("tabs")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(tab_from_value).collect())
-            .unwrap_or_default();
+        let tabs: Vec<TabState> =
+            obj.get("tabs").and_then(Value::as_array).map(|a| a.iter().filter_map(tab_from_value).collect()).unwrap_or_default();
         let explorer = obj.get("explorer").and_then(tab_from_value);
         if tabs.is_empty() && explorer.is_none() {
             return Err("no tabs".into());
         }
         let active = obj.get("active").and_then(Value::as_u64).unwrap_or(0) as usize;
         let active = active.min(tabs.len().saturating_sub(1));
-        let explorer_active = explorer.is_some()
-            && (tabs.is_empty() || obj.get("explorer_active").and_then(Value::as_bool).unwrap_or(false));
+        let explorer_active = explorer.is_some() && (tabs.is_empty() || obj.get("explorer_active").and_then(Value::as_bool).unwrap_or(false));
         Ok(Session { tabs, active, explorer, explorer_active })
     }
 }
@@ -427,12 +423,8 @@ mod tests {
 
     #[test]
     fn nested_splits_round_trip() {
-        let root = split(
-            Axis::Horizontal,
-            0.3,
-            term("/a"),
-            split(Axis::Vertical, 0.6, term("/b"), split(Axis::Horizontal, 0.5, term("/c"), term("/d"))),
-        );
+        let root =
+            split(Axis::Horizontal, 0.3, term("/a"), split(Axis::Vertical, 0.6, term("/b"), split(Axis::Horizontal, 0.5, term("/c"), term("/d"))));
         let s = Session { tabs: vec![TabState { root, focused: 2, zoomed: false }], active: 0, explorer: None, explorer_active: false };
         let back = Session::from_json(&s.to_json()).unwrap();
         assert_eq!(back, s);

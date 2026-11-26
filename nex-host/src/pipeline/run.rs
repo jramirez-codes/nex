@@ -104,7 +104,10 @@ impl Ctx<'_> {
 
     /// Give agent `id` a new task.
     fn task(&self, id: &str, body: String) -> io::Result<()> {
-        client::request(&Request::Send { from: self.me.clone(), to: id.into(), kind: MessageKind::Task, payload: Payload::text(body), force: false }, true)?;
+        client::request(
+            &Request::Send { from: self.me.clone(), to: id.into(), kind: MessageKind::Task, payload: Payload::text(body), force: false },
+            true,
+        )?;
         Ok(())
     }
 
@@ -154,7 +157,11 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
             if let Some(by) = &sent_back_by
                 && let Some(o) = results.get(by)
             {
-                body.push_str(&format!("\n\nThis is another go: {by} sent it back ({}). What it said:\n{}", o.verdict.map_or("no verdict", Verdict::label), o.body.trim()));
+                body.push_str(&format!(
+                    "\n\nThis is another go: {by} sent it back ({}). What it said:\n{}",
+                    o.verdict.map_or("no verdict", Verdict::label),
+                    o.body.trim()
+                ));
             }
             let id = match agents.get(&s.name) {
                 Some(id) if alive(id) => {
@@ -190,7 +197,11 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
         step = after(&p, g, &results, &mut loops);
         if let Next::Run(back, Some(by)) = &step {
             let to = &p.stages[groups[*back][0]].name;
-            let line = format!("↺ {by} sent it back to {to} ({}/{})", loops[by], p.stages.iter().find(|s| s.name == *by).and_then(|s| s.retry.as_ref()).map_or(0, |r| r.max));
+            let line = format!(
+                "↺ {by} sent it back to {to} ({}/{})",
+                loops[by],
+                p.stages.iter().find(|s| s.name == *by).and_then(|s| s.retry.as_ref()).map_or(0, |r| r.max)
+            );
             println!("{line}");
             title.stage(&p, g, &line);
         }
@@ -207,7 +218,15 @@ pub fn run(file: &Path, task: &str, enter: &Receiver<()>) -> io::Result<Ran> {
 /// them to one agent of `each`'s, one at a time (see `each.rs`). Tasks sent to the run
 /// itself (another `pipe` joining it) start the stages before `each` again, on that task,
 /// with their reports joining the same line. Runs until Enter; returns the exit code.
-fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, Outcome>, running: Vec<(String, String)>, enter: &Receiver<()>, mut title: Title) -> io::Result<i32> {
+fn run_each(
+    ctx: &mut Ctx,
+    each: &Stage,
+    task: &str,
+    results: &HashMap<String, Outcome>,
+    running: Vec<(String, String)>,
+    enter: &Receiver<()>,
+    mut title: Title,
+) -> io::Result<i32> {
     let p = ctx.p;
     let me = ctx.me.clone();
     let mut q = each::Queue::new(&each.name, p.stage_timeout());
@@ -240,8 +259,14 @@ fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, O
                         Ok(id) => id,
                         Err(e) => {
                             println!("✗ {} couldn't start: {e}", s.name);
-                            let payload = Payload { verdict: Some(Verdict::Failed), ..Payload::text(format!("The pipeline couldn't start {} on your task: {e}", s.name)) };
-                            let _ = client::request(&Request::Send { from: me.clone(), to: m.from.clone(), kind: MessageKind::Done, payload, force: false }, true);
+                            let payload = Payload {
+                                verdict: Some(Verdict::Failed),
+                                ..Payload::text(format!("The pipeline couldn't start {} on your task: {e}", s.name))
+                            };
+                            let _ = client::request(
+                                &Request::Send { from: me.clone(), to: m.from.clone(), kind: MessageKind::Done, payload, force: false },
+                                true,
+                            );
                             continue;
                         }
                     };
@@ -282,7 +307,8 @@ fn run_each(ctx: &mut Ctx, each: &Stage, task: &str, results: &HashMap<String, O
             }
         }
         if q.idle() && !said_idle {
-            let more = if p.joinable() { " Waiting for more (nex-host pipe with this pipeline, from this repository, adds to this run)." } else { "" };
+            let more =
+                if p.joinable() { " Waiting for more (nex-host pipe with this pipeline, from this repository, adds to this run)." } else { "" };
             println!("\nThe line is empty.{more} Press Enter to end the run and its agents.");
         }
         said_idle = q.idle();
@@ -333,7 +359,13 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
             return Ok(Outcome { verdict: Some(Verdict::Failed), ..Outcome::text(format!("{id} didn't report in time")) });
         }
         let r = client::request(
-            &Request::Recv { me: me.map(Into::into), from: Some(id.into()), reply_to: None, kind: Some(MessageKind::Done), timeout_ms: Some(left.as_millis() as u64) },
+            &Request::Recv {
+                me: me.map(Into::into),
+                from: Some(id.into()),
+                reply_to: None,
+                kind: Some(MessageKind::Done),
+                timeout_ms: Some(left.as_millis() as u64),
+            },
             true,
         );
         match r {
@@ -352,7 +384,13 @@ fn wait_done(me: Option<&str>, id: &str, timeout: Duration) -> io::Result<Outcom
 fn report(me: Option<&str>, body: &str, verdict: Option<Verdict>) {
     if me.is_some() {
         let _ = client::request(
-            &Request::Send { from: me.map(Into::into), to: "@task".into(), kind: MessageKind::Done, payload: Payload { verdict, ..Payload::text(body) }, force: false },
+            &Request::Send {
+                from: me.map(Into::into),
+                to: "@task".into(),
+                kind: MessageKind::Done,
+                payload: Payload { verdict, ..Payload::text(body) },
+                force: false,
+            },
             true,
         );
     }
@@ -369,7 +407,10 @@ mod tests {
         assert_eq!(stage_counts(&p, 0), "stage 1 of 3: plan");
         assert_eq!(stage_counts(&p, 1), "stage 2 of 3: build + tests");
         assert_eq!(stage_counts(&p, 2), "stage 3 of 3: review");
-        assert_eq!(nex_host::proto::pipeline_title(&stage_counts(&p, 2), "✓ build [approved] (PR 7): done"), "stage 3 of 3: review — ✓ build [approved] (PR 7): done");
+        assert_eq!(
+            nex_host::proto::pipeline_title(&stage_counts(&p, 2), "✓ build [approved] (PR 7): done"),
+            "stage 3 of 3: review — ✓ build [approved] (PR 7): done"
+        );
     }
 
     #[test]

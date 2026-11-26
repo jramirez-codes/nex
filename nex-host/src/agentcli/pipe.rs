@@ -23,7 +23,13 @@ pub fn pipe(args: &[String]) -> io::Result<i32> {
             for (name, path) in found {
                 let stages = std::fs::read_to_string(&path).ok().and_then(|t| pipeline::Pipeline::parse(&t).ok()).map_or_else(
                     || "(doesn't parse)".to_string(),
-                    |p| p.groups().iter().map(|g| g.iter().map(|&i| p.stages[i].name.as_str()).collect::<Vec<_>>().join(" + ")).collect::<Vec<_>>().join(" → "),
+                    |p| {
+                        p.groups()
+                            .iter()
+                            .map(|g| g.iter().map(|&i| p.stages[i].name.as_str()).collect::<Vec<_>>().join(" + "))
+                            .collect::<Vec<_>>()
+                            .join(" → ")
+                    },
                 );
                 println!("{name:<16} {stages}    {}", nex_host::paths::tilde(&path));
             }
@@ -36,7 +42,8 @@ pub fn pipe(args: &[String]) -> io::Result<i32> {
             let task = text(task)?;
             let here = std::env::current_dir()?;
             // One run per pipeline and repository: a run that's going takes this task too.
-            let going = if parsed.joinable() { client::request(&Request::List, false).ok().and_then(|r| r.sessions).unwrap_or_default() } else { Vec::new() };
+            let going =
+                if parsed.joinable() { client::request(&Request::List, false).ok().and_then(|r| r.sessions).unwrap_or_default() } else { Vec::new() };
             if let Some(run) = pipeline::joins(&going, &file, &here, &repo_top) {
                 client::request(
                     &Request::Send { from: me(), to: run.id.clone(), kind: MessageKind::Task, payload: Payload::text(task), force: false },

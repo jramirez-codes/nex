@@ -31,9 +31,9 @@ use crate::remote::ssh::Server;
 use crate::remote::ssh::device;
 use crate::remote::ssh::host::{self, LoginError, RemoteHost};
 use crate::ui::alert::{self, BLUE};
-use crate::ui::{dog, glide};
 use crate::ui::paint::{self, bold};
 use crate::ui::theme::{ERROR, HAIRLINE, Theme, white_alpha};
+use crate::ui::{dog, glide};
 
 /// The card's width at most, and the room kept either side of it on a narrow screen.
 const COLUMN: f32 = 380.0;
@@ -290,11 +290,7 @@ impl Connect {
     fn form_view(&mut self, ui: &mut Ui, theme: &Theme, busy: bool, scale: f32) -> Option<ConnectAction> {
         note(ui, "Every tab is a shell on your server. Nothing runs on this device.", theme.text_bright.gamma_multiply(0.62), Align::Min);
         ui.add_space(8.0);
-        let mut fields = vec![
-            (Field::Server, "Server", "home.example.com"),
-            (Field::User, "User", "required"),
-            (Field::Port, "Port", "22"),
-        ];
+        let mut fields = vec![(Field::Server, "Server", "home.example.com"), (Field::User, "User", "required"), (Field::Port, "Port", "22")];
         if self.needs_password {
             fields.push((Field::Password, "Password", "required"));
         }
@@ -340,7 +336,16 @@ impl Connect {
     /// One row of the group: its label, and a borderless field filling the rest. A long
     /// press (or right click) offers Paste above it, where egui has no clipboard of its own.
     #[allow(clippy::too_many_arguments)]
-    fn field_row(&mut self, ui: &mut Ui, theme: &Theme, row: Rect, field: Field, label: &str, hint: &str, busy: bool) -> (Option<ConnectAction>, bool) {
+    fn field_row(
+        &mut self,
+        ui: &mut Ui,
+        theme: &Theme,
+        row: Rect,
+        field: Field,
+        label: &str,
+        hint: &str,
+        busy: bool,
+    ) -> (Option<ConnectAction>, bool) {
         let id = field_id(field);
         ui.painter().text(Pos2::new(row.left() + INSET, row.center().y), Align2::LEFT_CENTER, label, FontId::proportional(FONT), theme.text_bright);
         let edit_rect = Rect::from_min_max(Pos2::new(row.left() + INSET + LABEL_WIDTH, row.top()), Pos2::new(row.right() - INSET, row.bottom()));
@@ -356,11 +361,13 @@ impl Connect {
             .vertical_align(Align::Center)
             .desired_width(edit_rect.width())
             .margin(Vec2::ZERO);
-        let response = ui.scope(|ui| {
-            ui.visuals_mut().selection.bg_fill = BLUE.gamma_multiply(0.45);
-            ui.visuals_mut().text_cursor.stroke = Stroke::new(2.0_f32, BLUE);
-            ui.put(edit_rect, edit)
-        }).inner;
+        let response = ui
+            .scope(|ui| {
+                ui.visuals_mut().selection.bg_fill = BLUE.gamma_multiply(0.45);
+                ui.visuals_mut().text_cursor.stroke = Stroke::new(2.0_f32, BLUE);
+                ui.put(edit_rect, edit)
+            })
+            .inner;
         // A tap on the label focuses its field, as in a settings list.
         let label_hit = ui.interact(Rect::from_min_max(row.min, Pos2::new(edit_rect.left(), row.bottom())), id.with("label"), Sense::click());
         if label_hit.clicked() && !busy {
@@ -397,7 +404,10 @@ impl Connect {
         ui.label(RichText::new("To see it on the server:").size(13.0).color(theme.text_bright.gamma_multiply(0.55)));
         ui.add_space(6.0);
         alert::recessed(ui, |ui| {
-            ui.add(egui::Label::new(RichText::new(FINGERPRINT_COMMAND).font(FontId::monospace(12.5)).color(theme.text_bright.gamma_multiply(0.85))).wrap());
+            ui.add(
+                egui::Label::new(RichText::new(FINGERPRINT_COMMAND).font(FontId::monospace(12.5)).color(theme.text_bright.gamma_multiply(0.85)))
+                    .wrap(),
+            );
         });
         ui.add_space(18.0);
         // As the alert lays out two buttons: the secondary one left, the primary one right.
@@ -447,7 +457,14 @@ fn card_span(content: Rect) -> Rangef {
 /// `dog_t` seconds into its intro, where a pane's glyph goes, and `title`), a hairline under
 /// the header, and `body` inside the pane content's inset. The card grows to fit the body,
 /// which is laid out first and painted over it. Returns the body's result, the card and the dog.
-fn pane_card<R>(ui: &mut Ui, theme: &Theme, sidebar: bool, title: &str, dog_t: f32, body: impl FnOnce(&mut Ui) -> R) -> (R, Rect, Rect, Vec<ClippedShape>) {
+fn pane_card<R>(
+    ui: &mut Ui,
+    theme: &Theme,
+    sidebar: bool,
+    title: &str,
+    dog_t: f32,
+    body: impl FnOnce(&mut Ui) -> R,
+) -> (R, Rect, Rect, Vec<ClippedShape>) {
     let under = ui.painter().add(Shape::Noop);
     let (header, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), header_height(sidebar)), Sense::hover());
     let font = if sidebar { 15.0 } else { 13.5 };
@@ -528,7 +545,9 @@ fn paste_pill(ui: &mut Ui, row: Rect) -> Pill {
     if area.inner {
         return Pill::Tapped;
     }
-    let tapped_elsewhere = ui.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer() && !ui.input(|i| i.pointer.any_down() && i.pointer.press_start_time().is_some_and(|t| i.time - t > 0.3));
+    let tapped_elsewhere = ui.input(|i| i.pointer.any_pressed())
+        && !area.response.contains_pointer()
+        && !ui.input(|i| i.pointer.any_down() && i.pointer.press_start_time().is_some_and(|t| i.time - t > 0.3));
     if tapped_elsewhere { Pill::Dismissed } else { Pill::Open }
 }
 
@@ -618,4 +637,3 @@ mod tests {
         assert!(!Connect::new(false, Some("jr@home")).auto, "only where the window works on a host");
     }
 }
-

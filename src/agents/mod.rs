@@ -37,7 +37,6 @@ use egui::{Key, Modifiers, Rect};
 
 use crate::layout::PaneId;
 
-
 /// What the pane asks the app for (it can't move focus itself).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {

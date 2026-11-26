@@ -26,8 +26,8 @@ use nex_host::proto::{self, Request, Response};
 use polling::{Event, PollMode, Poller};
 
 use super::osc7::{AgentSlot, Alert, ScanReader, Slot};
-use crate::remote::ssh::{self, ExecWriter};
 use crate::remote::ssh::host::RemoteHost;
+use crate::remote::ssh::{self, ExecWriter};
 
 /// alacritty's poll key for a PTY's child events (`tty::unix`, not exported); the data key
 /// comes from the event loop with each call.
@@ -284,14 +284,24 @@ fn request(host: &RemoteHost, request: &Request) -> Result<(Response, crate::rem
 /// Start a shell on the host (or `command`, under [`VIEW_KIND`]); its session id.
 fn launch(host: &RemoteHost, cwd: Option<String>, command: Option<Vec<String>>, cols: u16, rows: u16) -> Result<String, Attach> {
     if let Some(argv) = command {
-        let req = Request::Launch { argv, kind: Some(VIEW_KIND.into()), name: None, cwd, cols: Some(cols), rows: Some(rows), env: None, parent: None };
+        let req =
+            Request::Launch { argv, kind: Some(VIEW_KIND.into()), name: None, cwd, cols: Some(cols), rows: Some(rows), env: None, parent: None };
         let (r, _) = request(host, &req)?;
         return match r.id {
             Some(id) if r.ok => Ok(id),
             _ => Err(Attach::Gone(format!("couldn't start it on {}: {}", host.server, r.error.unwrap_or_default()))),
         };
     }
-    let shell = |argv: Vec<String>| Request::Launch { argv, kind: Some(proto::SHELL_KIND.into()), name: None, cwd: cwd.clone(), cols: Some(cols), rows: Some(rows), env: None, parent: None };
+    let shell = |argv: Vec<String>| Request::Launch {
+        argv,
+        kind: Some(proto::SHELL_KIND.into()),
+        name: None,
+        cwd: cwd.clone(),
+        cols: Some(cols),
+        rows: Some(rows),
+        env: None,
+        parent: None,
+    };
     let (mut r, _) = request(host, &shell(Vec::new()))?;
     if !r.ok && r.error.as_deref().is_some_and(|e| e.contains("nothing to run")) {
         // A daemon from before plain shells (still running the old nex-host after the new

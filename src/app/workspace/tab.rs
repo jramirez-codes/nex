@@ -25,7 +25,17 @@ pub(in crate::app) struct Tab {
 
 impl Tab {
     pub(in crate::app) fn new(uid: u64, pane: PaneId) -> Self {
-        Self { uid, root: Node::Leaf(pane), focused: pane, zoomed: false, last_terminal: None, motion: PaneMotion::default(), deck: Glide::new(0.28), deck_focus: pane, deck_len: 1 }
+        Self {
+            uid,
+            root: Node::Leaf(pane),
+            focused: pane,
+            zoomed: false,
+            last_terminal: None,
+            motion: PaneMotion::default(),
+            deck: Glide::new(0.28),
+            deck_focus: pane,
+            deck_len: 1,
+        }
     }
 
     pub(in crate::app) fn contains(&self, pane: PaneId) -> bool {
@@ -83,11 +93,6 @@ impl Tab {
         self.deck_len = n;
         let target = self.deck.to;
         let d = self.deck.value(ctx, target);
-        ids.iter()
-            .enumerate()
-            .map(|(j, id)| {
-                (process_of(*id), (j as f32 - d).rem_euclid(n as f32))
-            })
-            .collect()
+        ids.iter().enumerate().map(|(j, id)| (process_of(*id), (j as f32 - d).rem_euclid(n as f32))).collect()
     }
 }

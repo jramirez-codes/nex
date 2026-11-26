@@ -253,9 +253,7 @@ impl Probe {
     /// name. A pipeline's is how its run stands (`nex_host::proto::pipeline_title`).
     fn task(&self) -> Option<&str> {
         let title = self.title.trim();
-        let generic = title.is_empty()
-            || title.eq_ignore_ascii_case(self.kind.label())
-            || title.eq_ignore_ascii_case(self.kind.process());
+        let generic = title.is_empty() || title.eq_ignore_ascii_case(self.kind.label()) || title.eq_ignore_ascii_case(self.kind.process());
         (!generic).then_some(title)
     }
 
@@ -270,11 +268,7 @@ impl Probe {
         if let Some(n) = &self.session_name {
             return n.clone();
         }
-        self.cwd
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.kind.label().to_string())
+        self.cwd.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| self.kind.label().to_string())
     }
 }
 
@@ -646,11 +640,7 @@ fn pipeline_statuses(agents: &[Arc<Agent>]) -> HashMap<PaneId, Status> {
         return HashMap::new();
     }
     let leads: HashMap<PaneId, Status> = super::group::groups(agents).iter().map(|g| (g.key(), g.lead.status)).collect();
-    agents
-        .iter()
-        .filter(|a| a.kind == AgentKind::Pipeline)
-        .map(|a| (a.pane, leads.get(&a.pane).copied().unwrap_or(a.status)))
-        .collect()
+    agents.iter().filter(|a| a.kind == AgentKind::Pipeline).map(|a| (a.pane, leads.get(&a.pane).copied().unwrap_or(a.status))).collect()
 }
 
 /// The order the list is in: by status, then tab, then pane.

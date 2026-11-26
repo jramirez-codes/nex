@@ -19,10 +19,7 @@ const USER_EXIT_WINDOW: Duration = Duration::from_secs(3);
 
 /// The folder a restored pane opens in: its saved one if it still exists, else home.
 fn restore_dir(cwd: Option<&PathBuf>) -> PathBuf {
-    cwd.filter(|d| d.is_dir())
-        .cloned()
-        .or_else(crate::platform::home_dir)
-        .unwrap_or_else(|| PathBuf::from("/"))
+    cwd.filter(|d| d.is_dir()).cloned().or_else(crate::platform::home_dir).unwrap_or_else(|| PathBuf::from("/"))
 }
 
 /// The saved tree with each leaf's index (in `leaves` order) for its id, to lay it out.
@@ -32,9 +29,7 @@ fn shape(node: &PaneNode, next: &mut PaneId) -> Node {
             *next += 1;
             Node::Leaf(*next - 1)
         }
-        PaneNode::Split { axis, ratio, a, b } => {
-            Node::Split { axis: *axis, ratio: *ratio, a: Box::new(shape(a, next)), b: Box::new(shape(b, next)) }
-        }
+        PaneNode::Split { axis, ratio, a, b } => Node::Split { axis: *axis, ratio: *ratio, a: Box::new(shape(a, next)), b: Box::new(shape(b, next)) },
     }
 }
 
@@ -55,22 +50,13 @@ fn build(node: &PaneNode, ids: &[Option<PaneId>], next: &mut usize) -> Option<No
 
 /// The pane for saved leaf `want`, or the nearest one that opened (the earlier on a tie).
 fn nearest_open(ids: &[Option<PaneId>], want: usize) -> Option<PaneId> {
-    ids.iter()
-        .enumerate()
-        .filter_map(|(i, id)| id.map(|id| (i.abs_diff(want), id)))
-        .min_by_key(|&(d, _)| d)
-        .map(|(_, id)| id)
+    ids.iter().enumerate().filter_map(|(i, id)| id.map(|id| (i.abs_diff(want), id))).min_by_key(|&(d, _)| d).map(|(_, id)| id)
 }
 
 /// Where the first shell `restore_session` starts goes (for `Terminal::spawn_early`), or
 /// `None` if the session has no terminal panes at all.
 pub fn first_shell_dir(s: &Session) -> Option<PathBuf> {
-    s.tabs
-        .iter()
-        .chain(&s.explorer)
-        .flat_map(|t| t.root.leaves())
-        .find(|p| p.kind == PaneKind::Terminal)
-        .map(|p| restore_dir(p.cwd.as_ref()))
+    s.tabs.iter().chain(&s.explorer).flat_map(|t| t.root.leaves()).find(|p| p.kind == PaneKind::Terminal).map(|p| restore_dir(p.cwd.as_ref()))
 }
 
 /// What the window knows about the session file: the session to restore, whether this window
@@ -123,12 +109,9 @@ impl App {
                 command: self.panes.terminal(*id).and_then(|t| t.running_command()),
                 sticky: self.sticky == Some(*id),
             }),
-            Node::Split { axis, ratio, a, b } => PaneNode::Split {
-                axis: *axis,
-                ratio: *ratio,
-                a: Box::new(self.pane_node(a)),
-                b: Box::new(self.pane_node(b)),
-            },
+            Node::Split { axis, ratio, a, b } => {
+                PaneNode::Split { axis: *axis, ratio: *ratio, a: Box::new(self.pane_node(a)), b: Box::new(self.pane_node(b)) }
+            }
         }
     }
 
@@ -175,7 +158,9 @@ impl App {
                     _ => area,
                 };
                 // Every tab lists the sticky pane: the first one opens it, the rest share it.
-                if p.sticky && let Some(id) = self.sticky {
+                if p.sticky
+                    && let Some(id) = self.sticky
+                {
                     return Some(id);
                 }
                 let id = self.restore_pane(ctx, p, card);

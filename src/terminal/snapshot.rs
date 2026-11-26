@@ -43,9 +43,7 @@ impl Snapshot {
                 .display_iter
                 .filter(|c| {
                     let line = c.point.line.0 + offset as i32;
-                    line >= 0
-                        && (line as usize) < screen_lines
-                        && !c.cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+                    line >= 0 && (line as usize) < screen_lines && !c.cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
                 })
                 .map(|c| SnapCell { point: c.point, cell: c.cell.clone() }),
         );

@@ -50,10 +50,8 @@ pub fn open_with(app: &AppChoice, path: &Path) {
 
 /// `$XDG_DATA_HOME/applications`, then each of `$XDG_DATA_DIRS`.
 fn app_dirs() -> Vec<PathBuf> {
-    let home = std::env::var_os("XDG_DATA_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| super::home_dir().map(|h| h.join(".local/share")));
+    let home =
+        std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| super::home_dir().map(|h| h.join(".local/share")));
     let data = std::env::var("XDG_DATA_DIRS").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
     home.into_iter().chain(data.split(':').filter(|s| !s.is_empty()).map(PathBuf::from)).map(|d| d.join("applications")).collect()
 }

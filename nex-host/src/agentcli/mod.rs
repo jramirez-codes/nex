@@ -64,7 +64,8 @@ fn text(words: &[String]) -> io::Result<String> {
 
 pub fn spawn(args: &[String]) -> io::Result<i32> {
     let a = Args::parse(args, &["--kind", "--role", "--cwd"], &["--worktree", "--json"])?;
-    let (name, task) = a.words.split_first().ok_or_else(|| bad("usage: nex-host spawn NAME [--kind claude|codex] [--role R] [--worktree] \"TASK\""))?;
+    let (name, task) =
+        a.words.split_first().ok_or_else(|| bad("usage: nex-host spawn NAME [--kind claude|codex] [--role R] [--worktree] \"TASK\""))?;
     let task = text(task)?;
     if task.trim().is_empty() {
         return Err(bad("no task: say what it should do (or pass - and pipe it in)"));

@@ -5,8 +5,8 @@ use egui::Pos2;
 
 use crate::layout::PaneId;
 
-use crate::app::workspace::panes::Pane;
 use crate::app::App;
+use crate::app::workspace::panes::Pane;
 
 /// How much one Ctrl+= / Ctrl+- zooms a file explorer.
 pub(in crate::app) const EXPLORER_ZOOM_STEP: f32 = 1.1;

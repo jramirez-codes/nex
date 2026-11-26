@@ -11,8 +11,8 @@ mod proc;
 mod watch;
 
 pub use super::unix::{
-    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options,
-    pty_pid, shell_quote, symlink,
+    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options, pty_pid, shell_quote,
+    symlink,
 };
 pub use apps::{apps_for, mime_type, open_with};
 pub use clipboard::clipboard_files;
@@ -37,7 +37,8 @@ pub const SYSTEM_BACK: bool = false;
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
 /// nex draws its own title bar and window buttons.
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true, scroll_tabs: false };
+pub const WINDOW: WindowDefaults =
+    WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true, scroll_tabs: false };
 
 /// Desktop launchers start nex in the home folder already, so there is nothing to detect.
 /// The window keeps eframe's default icon (on macOS, the bundle's own icon wins).

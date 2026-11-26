@@ -233,7 +233,8 @@ mod tests {
 
     #[test]
     fn a_launch_on_a_retiring_daemon_is_tried_again() {
-        let launch = Request::Launch { argv: vec!["claude".into()], kind: None, name: None, cwd: None, cols: None, rows: None, env: None, parent: None };
+        let launch =
+            Request::Launch { argv: vec!["claude".into()], kind: None, name: None, cwd: None, cols: None, rows: None, env: None, parent: None };
         let tries = Cell::new(0);
         let r = retrying(&launch, || {
             tries.set(tries.get() + 1);

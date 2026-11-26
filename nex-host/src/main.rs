@@ -88,8 +88,7 @@ Agents working together (nex-host skill prints the manual for agents):
 Everything lives in ~/.nex (or $NEX_HOME); remove that folder to remove nex-host.";
 
 #[cfg(unix)]
-const USAGE: &str =
-    "usage: nex-host run|launch|attach|subagent|list|spawn|send|done|recv|read|pipe|worktree|skill|watch|kill|forget|shim|connect|--version (see nex-host help)";
+const USAGE: &str = "usage: nex-host run|launch|attach|subagent|list|spawn|send|done|recv|read|pipe|worktree|skill|watch|kill|forget|shim|connect|--version (see nex-host help)";
 
 /// A subcommand, with what it was given.
 #[cfg(unix)]
@@ -101,11 +100,16 @@ enum Command<'a> {
     Help,
     Daemon,
     /// `run` (shown here) or `launch` (in the background).
-    Launch { opts: Launch, here: bool },
+    Launch {
+        opts: Launch,
+        here: bool,
+    },
     Attach(&'a str),
     /// `subagent ID SUB`: follow sub-agent SUB of agent ID.
     Subagent(&'a str, &'a str),
-    List { json: bool },
+    List {
+        json: bool,
+    },
     Spawn(&'a [String]),
     Send(&'a [String]),
     Done(&'a [String]),
@@ -198,7 +202,10 @@ fn run(args: &[String]) -> std::io::Result<i32> {
             let cwd = opts.cwd.or_else(|| std::env::current_dir().ok().map(|d| d.to_string_lossy().into_owned()));
             // `run` is typed into a shell: the agent gets that shell's environment.
             let env = here.then(|| std::env::vars().collect());
-            let r = client::request(&Request::Launch { argv: opts.argv, kind: opts.kind, name: opts.name, cwd, cols: Some(cols), rows: Some(rows), env, parent: None }, true)?;
+            let r = client::request(
+                &Request::Launch { argv: opts.argv, kind: opts.kind, name: opts.name, cwd, cols: Some(cols), rows: Some(rows), env, parent: None },
+                true,
+            )?;
             let id = r.id.unwrap_or_default();
             if !here {
                 println!("{id}");
@@ -398,9 +405,7 @@ struct Launch {
 impl Launch {
     fn parse(args: &[String]) -> std::io::Result<Launch> {
         let bad = |m: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, m);
-        let number = |a: &agentcli::Args, name: &str| {
-            a.value(name).map(|n| n.parse().map_err(|_| bad(format!("{name} takes a number")))).transpose()
-        };
+        let number = |a: &agentcli::Args, name: &str| a.value(name).map(|n| n.parse().map_err(|_| bad(format!("{name} takes a number")))).transpose();
         let a = agentcli::Args::parse_up_to_command(args, &["--kind", "--name", "--cwd", "--cols", "--rows"], &[])?;
         let o = Launch {
             kind: a.value("--kind").map(str::to_string),

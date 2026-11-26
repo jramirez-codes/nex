@@ -52,8 +52,8 @@ fn ns_window(frame: &eframe::Frame) -> Option<Retained<NSWindow>> {
 }
 
 fn align(window: &NSWindow, height: f64) {
-    let buttons = [NSWindowButton::CloseButton, NSWindowButton::MiniaturizeButton, NSWindowButton::ZoomButton]
-        .map(|kind| window.standardWindowButton(kind));
+    let buttons =
+        [NSWindowButton::CloseButton, NSWindowButton::MiniaturizeButton, NSWindowButton::ZoomButton].map(|kind| window.standardWindowButton(kind));
     let Some(close) = &buttons[0] else { return };
     // close → NSTitlebarView → NSTitlebarContainerView → the window's frame view.
     // SAFETY: `superview` is only unsafe because a view may be released mid-mutation of

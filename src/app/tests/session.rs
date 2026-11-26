@@ -67,7 +67,12 @@ fn snapshot_restore_round_trip() {
 
     // Missing folders fall back to home; a session that can't open anything opens nothing.
     let gone = dir.join("gone");
-    let lost = Session { tabs: vec![], active: 0, explorer: Some(TabState { root: leaf(PaneKind::Explorer, &gone, None), focused: 0, zoomed: false }), explorer_active: true };
+    let lost = Session {
+        tabs: vec![],
+        active: 0,
+        explorer: Some(TabState { root: leaf(PaneKind::Explorer, &gone, None), focused: 0, zoomed: false }),
+        explorer_active: true,
+    };
     let (_ctx, app) = restored(lost);
     let snap = app.snapshot_session().unwrap();
     assert!(snap.explorer_active);
@@ -78,7 +83,12 @@ fn snapshot_restore_round_trip() {
 
 /// One saved terminal tab in `dir`.
 fn one_shell(dir: &std::path::Path) -> Session {
-    Session { tabs: vec![TabState { root: leaf(PaneKind::Terminal, dir, None), focused: 0, zoomed: false }], active: 0, explorer: None, explorer_active: false }
+    Session {
+        tabs: vec![TabState { root: leaf(PaneKind::Terminal, dir, None), focused: 0, zoomed: false }],
+        active: 0,
+        explorer: None,
+        explorer_active: false,
+    }
 }
 
 // The checks below flip `save_session` on only after the last frame, so no test touches the
@@ -174,7 +184,12 @@ fn staggered_shell_deaths_never_shrink_the_session() {
     assert!(app.tabs.is_empty() && app.home_tab.is_some());
     assert_eq!(file_policy(&mut app), (false, false));
     // The user is back (a click): the session follows the window again.
-    let click = egui::Event::PointerButton { pos: Pos2::new(600.0, 400.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() };
+    let click = egui::Event::PointerButton {
+        pos: Pos2::new(600.0, 400.0),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: Default::default(),
+    };
     frame_with(&ctx, &mut app, vec![click]);
     assert!(file_policy(&mut app).0);
 }

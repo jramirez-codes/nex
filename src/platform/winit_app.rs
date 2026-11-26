@@ -158,7 +158,9 @@ impl ApplicationHandler<UserEvent> for WinitApp<'_> {
         match &event {
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
             WindowEvent::Focused(true) => crate::remote::ssh::woke(),
-            WindowEvent::KeyboardInput { event: key, .. } if key.state == ElementState::Pressed && is_paste(self.mods, &key.logical_key, key.physical_key) => {
+            WindowEvent::KeyboardInput { event: key, .. }
+                if key.state == ElementState::Pressed && is_paste(self.mods, &key.logical_key, key.physical_key) =>
+            {
                 Dnd::note_paste_key();
                 super::paste_key_pressed(self.mods.shift_key());
             }

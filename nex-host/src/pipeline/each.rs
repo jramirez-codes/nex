@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 
 use nex_host::proto::Verdict;
 
-use crate::util::first_text_line as first_line;
 use crate::pipeline::{Outcome, SEND_BACKS};
+use crate::util::first_text_line as first_line;
 
 /// What the runner should do next.
 #[derive(Debug, PartialEq, Eq)]
@@ -74,7 +74,17 @@ pub struct Queue {
 
 impl Queue {
     pub fn new(stage: &str, timeout: Duration) -> Queue {
-        Queue { stage: stage.into(), timeout, reviewer: None, sources: Vec::new(), batches: Vec::new(), line: VecDeque::new(), reviewing: None, merged: Vec::new(), said: String::new() }
+        Queue {
+            stage: stage.into(),
+            timeout,
+            reviewer: None,
+            sources: Vec::new(),
+            batches: Vec::new(),
+            line: VecDeque::new(),
+            reviewing: None,
+            merged: Vec::new(),
+            said: String::new(),
+        }
     }
 
     /// A new batch: `task` given by `origin`. Returns its index for [`Queue::add`].
@@ -233,12 +243,25 @@ impl Queue {
                 "{} approved {}: {}{}",
                 self.stage,
                 batch.approved.len(),
-                if batch.approved.is_empty() { "nothing".to_string() } else { batch.approved.iter().map(|(n, pr)| pr.as_ref().map_or_else(|| n.clone(), |p| format!("{n} (PR {p})"))).collect::<Vec<_>>().join(", ") },
+                if batch.approved.is_empty() {
+                    "nothing".to_string()
+                } else {
+                    batch
+                        .approved
+                        .iter()
+                        .map(|(n, pr)| pr.as_ref().map_or_else(|| n.clone(), |p| format!("{n} (PR {p})")))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                },
                 if batch.failed.is_empty() { String::new() } else { format!("; not approved: {}", batch.failed.join(", ")) },
             );
             let ok = batch.failed.is_empty();
             out.push(Action::Say(format!("\n{} finished. {summary}", if ok { "✓" } else { "✗" })));
-            out.push(Action::Tell { to: batch.origin.clone(), body: format!("The pipeline finished. {summary}"), verdict: if ok { Verdict::Approved } else { Verdict::Failed } });
+            out.push(Action::Tell {
+                to: batch.origin.clone(),
+                body: format!("The pipeline finished. {summary}"),
+                verdict: if ok { Verdict::Approved } else { Verdict::Failed },
+            });
         }
         if self.reviewing.is_some() {
             return;
@@ -273,7 +296,9 @@ mod tests {
     }
 
     fn reviews(a: &[Action]) -> Vec<(&str, Option<&str>)> {
-        a.iter().filter_map(|a| if let Action::Review { from, report, .. } = a { Some((from.as_str(), report.pr.as_deref())) } else { None }).collect()
+        a.iter()
+            .filter_map(|a| if let Action::Review { from, report, .. } = a { Some((from.as_str(), report.pr.as_deref())) } else { None })
+            .collect()
     }
 
     fn tells(a: &[Action]) -> Vec<&str> {
@@ -294,7 +319,10 @@ mod tests {
         let a = q.done("b1", report("opened it", "7"), ALIVE, now);
         assert_eq!(reviews(&a), [("build", Some("7"))]);
         let a = q.done("rev", says(Verdict::Changes, "conflicts"), ALIVE, now);
-        assert!(a.contains(&Action::SendBack { to: "b1".into(), body: a.iter().find_map(|a| if let Action::SendBack { body, .. } = a { Some(body.clone()) } else { None }).unwrap() }));
+        assert!(a.contains(&Action::SendBack {
+            to: "b1".into(),
+            body: a.iter().find_map(|a| if let Action::SendBack { body, .. } = a { Some(body.clone()) } else { None }).unwrap()
+        }));
         assert!(tells(&a).is_empty(), "still open: it was sent back");
         assert!(!q.idle());
 
@@ -387,7 +415,11 @@ mod tests {
         let Some(Action::Review { task, .. }) = a.iter().find(|a| matches!(a, Action::Review { .. })) else { panic!("{a:?}") };
         assert_eq!(task, "feature two", "the review gets its own batch's task");
         let a = q.done("rev", says(Verdict::Approved, "ok"), ALIVE, now);
-        assert!(a.contains(&Action::Tell { to: "lead".into(), body: "The pipeline finished. merge approved 1: build-2 (PR 2)".into(), verdict: Verdict::Approved }));
+        assert!(a.contains(&Action::Tell {
+            to: "lead".into(),
+            body: "The pipeline finished. merge approved 1: build-2 (PR 2)".into(),
+            verdict: Verdict::Approved
+        }));
         assert!(q.idle() && !q.failed());
     }
 
@@ -403,7 +435,11 @@ mod tests {
         q.done("b", report("b", "2"), ALIVE, now);
         let dead: &dyn Fn(&str) -> bool = &|_| false;
         let a = q.done("rev", says(Verdict::Changes, "fix it"), dead, now);
-        assert_eq!(tells(&a), ["The pipeline finished. merge approved 0: nothing; not approved: build-a, build-b"], "an ended agent can't be sent back");
+        assert_eq!(
+            tells(&a),
+            ["The pipeline finished. merge approved 0: nothing; not approved: build-a, build-b"],
+            "an ended agent can't be sent back"
+        );
         assert!(q.failed());
     }
 

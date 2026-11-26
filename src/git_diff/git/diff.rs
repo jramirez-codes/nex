@@ -165,7 +165,15 @@ pub fn parse_diff(out: &str) -> FileDiff {
             new_no += 1;
         }
         let (old_no_shown, new_no_shown) = if prefix_cols > 1 { (None, n) } else { (o, n) };
-        hunk.lines.push(Line { kind, old_no: old_no_shown, new_no: new_no_shown, text: expand_tabs(text), emphasis: Vec::new(), syntax: Vec::new(), no_newline: false });
+        hunk.lines.push(Line {
+            kind,
+            old_no: old_no_shown,
+            new_no: new_no_shown,
+            text: expand_tabs(text),
+            emphasis: Vec::new(),
+            syntax: Vec::new(),
+            no_newline: false,
+        });
         total += 1;
     }
     for h in &mut diff.hunks {
@@ -286,7 +294,9 @@ index 111..222 100644
 
     #[test]
     fn combined_conflict_diff() {
-        let d = parse_diff("diff --cc c.rs\nindex 1,2..0\n--- a/c.rs\n+++ b/c.rs\n@@@ -1,1 -1,1 +1,5 @@@\n++<<<<<<< HEAD\n +ours\n++=======\n+ theirs\n++>>>>>>> b\n");
+        let d = parse_diff(
+            "diff --cc c.rs\nindex 1,2..0\n--- a/c.rs\n+++ b/c.rs\n@@@ -1,1 -1,1 +1,5 @@@\n++<<<<<<< HEAD\n +ours\n++=======\n+ theirs\n++>>>>>>> b\n",
+        );
         assert_eq!(d.hunks.len(), 1);
         let h = &d.hunks[0];
         assert_eq!(h.lines.len(), 5);

@@ -30,7 +30,10 @@ pub(super) fn render(v: &serde_json::Value, out: &mut Printer) {
                 let name = p.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
                 // A function call's arguments are a JSON string; a custom tool's input is text.
                 let args = p.get("arguments").and_then(|a| a.as_str()).and_then(|a| serde_json::from_str::<serde_json::Value>(a).ok());
-                let arg = args.as_ref().and_then(key_arg).or_else(|| p.get("input").and_then(|i| i.as_str()).map(|i| cut(i.lines().next().unwrap_or(""), ARG_CHARS)));
+                let arg = args
+                    .as_ref()
+                    .and_then(key_arg)
+                    .or_else(|| p.get("input").and_then(|i| i.as_str()).map(|i| cut(i.lines().next().unwrap_or(""), ARG_CHARS)));
                 out.call(name, arg);
             }
             Some("local_shell_call") => {
@@ -61,7 +64,8 @@ mod tests {
     use crate::transcript::Renderer;
     use crate::transcript::testing::strip;
 
-    const CLAUDE_TASK: &str = r#"{"parentUuid":null,"isSidechain":true,"agentId":"a1","type":"user","message":{"role":"user","content":"Map the view code"},"uuid":"u1"}"#;
+    const CLAUDE_TASK: &str =
+        r#"{"parentUuid":null,"isSidechain":true,"agentId":"a1","type":"user","message":{"role":"user","content":"Map the view code"},"uuid":"u1"}"#;
 
     #[test]
     fn codex_rollouts_read_the_same_way() {
@@ -76,11 +80,11 @@ mod tests {
         assert_eq!(strip(&r.line(task)), ["\u{203a} Task", "  Find the bug"]);
         let call = r#"{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"bash\",\"-lc\",\"ls\"]}","call_id":"c1"}}"#;
         assert_eq!(strip(&r.line(call)), ["\u{25cf} shell(bash -lc ls)"]);
-        let output = r#"{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"{\"output\":\"a\\nb\",\"metadata\":{}}"}}"#;
+        let output =
+            r#"{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"{\"output\":\"a\\nb\",\"metadata\":{}}"}}"#;
         assert_eq!(strip(&r.line(output)), ["  \u{2514} a", "    b"]);
         assert!(!r.finished());
         assert!(r.line(r#"{"type":"event_msg","payload":{"type":"task_complete"}}"#).is_empty());
         assert!(r.finished());
     }
-
 }

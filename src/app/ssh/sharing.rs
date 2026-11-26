@@ -88,11 +88,7 @@ impl App {
                 AlertIcon::Done,
                 "Sharing is on".to_string(),
                 "Log in once more to start sharing.".to_string(),
-                vec![
-                    format!("Type `exit` to log out of {host}"),
-                    "ssh back in with your password".to_string(),
-                    again.to_string(),
-                ],
+                vec![format!("Type `exit` to log out of {host}"), "ssh back in with your password".to_string(), again.to_string()],
                 "Got It",
                 None,
             ),
@@ -105,7 +101,8 @@ impl App {
                 None,
             ),
         };
-        let alert = Alert { id: Id::new("nex-ssh-sharing"), icon, title: &title, body: &body, steps: &steps, primary, secondary, touch: self.cfg.sidebar() };
+        let alert =
+            Alert { id: Id::new("nex-ssh-sharing"), icon, title: &title, body: &body, steps: &steps, primary, secondary, touch: self.cfg.sidebar() };
         let Some(choice) = alert.show(ctx, theme) else { return };
         self.ssh.sharing_prompt = match (prompt, choice) {
             (SharingPrompt::Offer(host, again), AlertChoice::Primary) => Some(match remote::enable_sharing() {

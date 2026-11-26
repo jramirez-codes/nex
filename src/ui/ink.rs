@@ -45,10 +45,8 @@ pub struct Bleed {
 impl Bleed {
     /// A drop at `origin` that will soak through all of `area`, starting at `start`.
     pub fn new(origin: Pos2, area: Rect, start: f64) -> Self {
-        let far = [area.left_top(), area.right_top(), area.left_bottom(), area.right_bottom()]
-            .into_iter()
-            .map(|c| c.distance(origin))
-            .fold(0.0, f32::max);
+        let far =
+            [area.left_top(), area.right_top(), area.left_bottom(), area.right_bottom()].into_iter().map(|c| c.distance(origin)).fold(0.0, f32::max);
         // Any well-spread numbers will do: derive them from the start time.
         let seed = (start * 1000.0).fract() as f32 + start as f32;
         let phases = [seed * 7.31, seed * 13.7 + 1.9, seed * 3.17 + 4.2].map(|p| p.rem_euclid(std::f32::consts::TAU));
@@ -88,10 +86,7 @@ impl Bleed {
     pub fn cover(&self, r: Rect, now: f64, new: bool) -> Cover {
         let e = self.eased(now);
         let near = r.distance_to_pos(self.origin);
-        let far = [r.left_top(), r.right_top(), r.left_bottom(), r.right_bottom()]
-            .into_iter()
-            .map(|c| c.distance(self.origin))
-            .fold(0.0, f32::max);
+        let far = [r.left_top(), r.right_top(), r.left_bottom(), r.right_bottom()].into_iter().map(|c| c.distance(self.origin)).fold(0.0, f32::max);
         let wobble = WOBBLE * (1.0 - e);
         let (lo, hi) = (e * self.reach * (1.0 - wobble), e * self.reach * (1.0 + wobble));
         // Depth range over the rect.
@@ -114,11 +109,7 @@ impl Bleed {
         let e = self.eased(now);
         for v in &mut mesh.vertices {
             let x = self.depth(v.pos, e);
-            let (alpha, dark) = if new {
-                (smoothstep(x), RIM * 4.0 * x * (1.0 - x))
-            } else {
-                (1.0 - smoothstep((2.0 * x - 1.0).max(0.0)), 0.0)
-            };
+            let (alpha, dark) = if new { (smoothstep(x), RIM * 4.0 * x * (1.0 - x)) } else { (1.0 - smoothstep((2.0 * x - 1.0).max(0.0)), 0.0) };
             v.color = fade(v.color, alpha, dark);
         }
     }
@@ -172,7 +163,13 @@ pub fn subdivide(mesh: &mut Mesh, max_edge: f32) {
             continue;
         }
         // Rotate so the longest edge is (a, b), keeping the winding.
-        let [a, b, c] = if ab >= bc && ab >= ca { [a, b, c] } else if bc >= ca { [b, c, a] } else { [c, a, b] };
+        let [a, b, c] = if ab >= bc && ab >= ca {
+            [a, b, c]
+        } else if bc >= ca {
+            [b, c, a]
+        } else {
+            [c, a, b]
+        };
         let mid = midpoint(&mesh.vertices[a as usize], &mesh.vertices[b as usize]);
         let m = mesh.vertices.len() as u32;
         mesh.vertices.push(mid);

@@ -1,8 +1,8 @@
 //! `explorer-view` picks the layout of every new file explorer, with the sidebar tab bar too.
 
-use crate::layout::{Axis, PaneKind};
 use crate::config::{Config, TabBar};
 use crate::file_explorer::View;
+use crate::layout::{Axis, PaneKind};
 
 use super::{new_app, run};
 

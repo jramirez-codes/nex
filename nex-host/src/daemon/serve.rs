@@ -13,8 +13,8 @@ use crate::daemon::agent::{self, Agent, Spec};
 use crate::daemon::broker::{self, Filter};
 use crate::daemon::lifecycle::{Hire, launch, spawn};
 use crate::daemon::mail::{Draft, post};
-use crate::daemon::retire::own_version;
 use crate::daemon::new_id;
+use crate::daemon::retire::own_version;
 use crate::daemon::state::State;
 
 /// How often `watch` looks for changes.
@@ -66,10 +66,12 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
                 Err(e) => send(&mut stream, &Response::error(format!("couldn't start it: {e}"))),
             }
         }
-        Request::Spawn { name, kind, argv, cwd, env, parent, role, task } => match spawn(state, Hire { name, kind, argv, cwd, env, parent, role, task }) {
-            Ok(id) => send(&mut stream, &Response { ok: true, id: Some(id), ..Response::default() }),
-            Err(e) => send(&mut stream, &Response::error(e)),
-        },
+        Request::Spawn { name, kind, argv, cwd, env, parent, role, task } => {
+            match spawn(state, Hire { name, kind, argv, cwd, env, parent, role, task }) {
+                Ok(id) => send(&mut stream, &Response { ok: true, id: Some(id), ..Response::default() }),
+                Err(e) => send(&mut stream, &Response::error(e)),
+            }
+        }
         Request::Send { from, to, kind, payload, force } => {
             let out = post(state, Draft { from, to, kind, payload }, force);
             match out {
@@ -92,12 +94,12 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
                 None => send(&mut stream, &Response::error("timed out: no message yet")),
             }
         }
-        Request::Read { id, lines } => {
-            match broker::lookup(&state.peers(), None, &id).and_then(|i| state.get(&i)) {
-                Some(a) => send(&mut stream, &Response { ok: true, id: Some(a.id.clone()), text: Some(a.text(lines.unwrap_or(60))), ..Response::default() }),
-                None => send(&mut stream, &Response::error(format!("no session {id}"))),
+        Request::Read { id, lines } => match broker::lookup(&state.peers(), None, &id).and_then(|i| state.get(&i)) {
+            Some(a) => {
+                send(&mut stream, &Response { ok: true, id: Some(a.id.clone()), text: Some(a.text(lines.unwrap_or(60))), ..Response::default() })
             }
-        }
+            None => send(&mut stream, &Response::error(format!("no session {id}"))),
+        },
         Request::List => send(&mut stream, &Response::sessions(state.sessions())),
         Request::Watch => watch(state, &mut stream),
         Request::Kill { id } => match state.get(&id) {

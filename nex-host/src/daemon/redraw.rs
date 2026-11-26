@@ -11,7 +11,8 @@ use alacritty_terminal::term::{Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor};
 
 /// Turn off everything a program may have turned on, for a pane the agent is leaving.
-pub const RESET_MODES: &str = "\x1b[0m\x1b[?1049l\x1b[?25h\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1004l\x1b[<u";
+pub const RESET_MODES: &str =
+    "\x1b[0m\x1b[?1049l\x1b[?25h\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1004l\x1b[<u";
 
 /// Colors and attributes of a run of cells.
 #[derive(Clone, Copy, PartialEq)]
@@ -40,14 +41,9 @@ impl Style {
     fn sgr(&self, out: &mut String) {
         out.push_str("\x1b[0");
         let f = self.flags;
-        for (flag, code) in [
-            (Flags::BOLD, "1"),
-            (Flags::DIM, "2"),
-            (Flags::ITALIC, "3"),
-            (Flags::INVERSE, "7"),
-            (Flags::HIDDEN, "8"),
-            (Flags::STRIKEOUT, "9"),
-        ] {
+        for (flag, code) in
+            [(Flags::BOLD, "1"), (Flags::DIM, "2"), (Flags::ITALIC, "3"), (Flags::INVERSE, "7"), (Flags::HIDDEN, "8"), (Flags::STRIKEOUT, "9")]
+        {
             if f.contains(flag) {
                 out.push(';');
                 out.push_str(code);

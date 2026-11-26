@@ -205,7 +205,6 @@ impl GitDiff {
             self.diff_column(&f, painter, diff, snap, false);
         }
     }
-
 }
 
 /// The list's width beside the diff.
@@ -272,7 +271,13 @@ fn message(p: &Painter, area: Rect, c: &Theme, glyph: Glyph, title: &str, detail
     }
     p.text(center + Vec2::new(0.0, 6.0), Align2::CENTER_CENTER, title, paint::bold(15.0), c.text_bright);
     if !detail.is_empty() {
-        paint::caption(p, Rect::from_center_size(center + Vec2::new(0.0, 28.0), Vec2::new((area.width() - 40.0).max(0.0), 18.0)), detail, FontId::proportional(12.5), c.text_dim);
+        paint::caption(
+            p,
+            Rect::from_center_size(center + Vec2::new(0.0, 28.0), Vec2::new((area.width() - 40.0).max(0.0), 18.0)),
+            detail,
+            FontId::proportional(12.5),
+            c.text_dim,
+        );
     }
 }
 
@@ -283,10 +288,12 @@ fn refresh_icon(p: &Painter, r: Rect, color: Color32, turn: f32, spinning: bool)
     let radius = r.width().min(r.height()) / 2.0;
     let (start, sweep) = if spinning { (turn, TAU * 0.72) } else { (-PI * 0.35, TAU * 0.8) };
     let n = 28;
-    let pts: Vec<Pos2> = (0..=n).map(|i| {
-        let a = start + sweep * i as f32 / n as f32;
-        m + Vec2::new(a.cos(), a.sin()) * radius
-    }).collect();
+    let pts: Vec<Pos2> = (0..=n)
+        .map(|i| {
+            let a = start + sweep * i as f32 / n as f32;
+            m + Vec2::new(a.cos(), a.sin()) * radius
+        })
+        .collect();
     let end = *pts.last().unwrap_or(&m);
     p.add(Shape::line(pts, Stroke::new(1.6_f32, color)));
     if !spinning {
@@ -296,6 +303,10 @@ fn refresh_icon(p: &Painter, r: Rect, color: Color32, turn: f32, spinning: bool)
         let normal = Vec2::new(a.cos(), a.sin());
         let k = radius * 0.55;
         let tip = end + tangent * k * 0.6;
-        p.add(Shape::convex_polygon(vec![tip, end - tangent * k * 0.35 + normal * k * 0.6, end - tangent * k * 0.35 - normal * k * 0.6], color, Stroke::NONE));
+        p.add(Shape::convex_polygon(
+            vec![tip, end - tangent * k * 0.35 + normal * k * 0.6, end - tangent * k * 0.35 - normal * k * 0.6],
+            color,
+            Stroke::NONE,
+        ));
     }
 }

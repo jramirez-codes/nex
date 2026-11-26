@@ -58,11 +58,8 @@ pub fn find_font(family: Family, weight: Weight, italic: bool) -> Option<FontFac
 
 /// Installed "… Nerd Font Mono" families, sorted.
 pub fn nerd_mono_families() -> Vec<String> {
-    let mut families: Vec<String> = db()
-        .faces()
-        .flat_map(|f| f.families.iter().map(|(n, _)| n.clone()))
-        .filter(|n| n.ends_with("Nerd Font Mono"))
-        .collect();
+    let mut families: Vec<String> =
+        db().faces().flat_map(|f| f.families.iter().map(|(n, _)| n.clone())).filter(|n| n.ends_with("Nerd Font Mono")).collect();
     families.sort();
     families.dedup();
     families

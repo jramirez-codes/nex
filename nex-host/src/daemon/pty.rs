@@ -85,17 +85,13 @@ pub fn spawn_in_pty(
         }
     };
     // `nex-host` itself on the PATH, for the agent's `nex-host done` and friends.
-    let base_path = env.and_then(|e| e.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone())).or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
+    let base_path =
+        env.and_then(|e| e.iter().find(|(k, _)| k == "PATH").map(|(_, v)| v.clone())).or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
     let path = match std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.to_string_lossy().into_owned())) {
         Some(dir) if !base_path.split(':').any(|p| p == dir) => format!("{dir}:{base_path}"),
         _ => base_path,
     };
-    cmd.current_dir(cwd)
-        .stdin(slave.try_clone()?)
-        .stdout(slave.try_clone()?)
-        .stderr(slave)
-        .envs(own_env)
-        .env("PATH", path);
+    cmd.current_dir(cwd).stdin(slave.try_clone()?).stdout(slave.try_clone()?).stderr(slave).envs(own_env).env("PATH", path);
     for key in ["SSH_TTY", "TMUX", "TMUX_PANE", "STY"] {
         cmd.env_remove(key);
     }

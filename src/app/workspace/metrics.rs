@@ -14,10 +14,7 @@ impl App {
     pub(in crate::app) fn term_rect_for(&self, card: Rect, ppp: f32) -> Rect {
         let pad = self.cfg.window_padding;
         let top = if self.cfg.pane_headers { card.top() + self.header_height() } else { card.top() + pad * 0.5 };
-        let r = Rect::from_min_max(
-            Pos2::new(card.left() + pad, top + 2.0),
-            Pos2::new(card.right() - pad, card.bottom() - pad * 0.6),
-        );
+        let r = Rect::from_min_max(Pos2::new(card.left() + pad, top + 2.0), Pos2::new(card.right() - pad, card.bottom() - pad * 0.6));
         // Snap the origin to the pixel grid so glyphs stay crisp.
         Rect::from_min_size(Pos2::new((r.left() * ppp).round() / ppp, (r.top() * ppp).round() / ppp), r.size())
     }
@@ -27,10 +24,7 @@ impl App {
             return GridSize { cols: 80, lines: 24 };
         }
         let r = self.term_rect_for(card, ppp);
-        GridSize {
-            cols: ((r.width() / m.width).floor() as usize).max(2),
-            lines: ((r.height() / m.height).floor() as usize).max(1),
-        }
+        GridSize { cols: ((r.width() / m.width).floor() as usize).max(2), lines: ((r.height() / m.height).floor() as usize).max(1) }
     }
 
     /// Font size of one pane (its own zoom level, or the config default).
@@ -91,11 +85,13 @@ impl App {
     /// Cell metrics of pane `id` (filled by `update_metrics` each frame).
     pub(in crate::app) fn pane_metrics(&self, id: PaneId) -> CellMetrics {
         let size = self.render_font(id);
-        self.metrics
-            .get(&size.to_bits())
-            .or_else(|| self.metrics.get(&self.cfg.font_size.to_bits()))
-            .copied()
-            .unwrap_or(CellMetrics { width: 8.0, height: 17.0, baseline_offset: 0.0, font_size: size, ppp: 1.0 })
+        self.metrics.get(&size.to_bits()).or_else(|| self.metrics.get(&self.cfg.font_size.to_bits())).copied().unwrap_or(CellMetrics {
+            width: 8.0,
+            height: 17.0,
+            baseline_offset: 0.0,
+            font_size: size,
+            ppp: 1.0,
+        })
     }
 
     /// Recompute metrics for the default size and every per-pane size in use.

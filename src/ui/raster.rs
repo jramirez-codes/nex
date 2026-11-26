@@ -44,10 +44,8 @@ pub fn render(ctx: &Context, shapes: Vec<ClippedShape>, origin: Pos2, px_per_poi
                         }
                     }
                     if textured {
-                        let uv = Pos2::new(
-                            b[0] * v[0].uv.x + b[1] * v[1].uv.x + b[2] * v[2].uv.x,
-                            b[0] * v[0].uv.y + b[1] * v[1].uv.y + b[2] * v[2].uv.y,
-                        );
+                        let uv =
+                            Pos2::new(b[0] * v[0].uv.x + b[1] * v[1].uv.x + b[2] * v[2].uv.x, b[0] * v[0].uv.y + b[1] * v[1].uv.y + b[2] * v[2].uv.y);
                         let t = sample(&atlas, uv);
                         for ch in 0..4 {
                             src[ch] *= t[ch] / 255.0;
@@ -86,4 +84,3 @@ fn sample(img: &ColorImage, uv: Pos2) -> [f32; 4] {
         top * (1.0 - fy) + bottom * fy
     })
 }
-

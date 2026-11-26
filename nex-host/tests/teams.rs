@@ -8,7 +8,7 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use common::{eventually, Host};
+use common::{Host, eventually};
 use nex_host::proto::{Message, MessageKind};
 
 impl Host {
@@ -292,7 +292,9 @@ fn a_pipe_from_an_agent_shows_under_it_and_outlives_it() {
     let run = pipe("one");
     assert_eq!(h.session(&run).unwrap().parent.as_deref(), Some(asker.as_str()), "under the agent that asked");
     assert_eq!(pipe("two"), run, "the second joins the same run");
-    eventually("both builders and the merger under the run", || h.sessions().iter().filter(|s| s.parent.as_deref() == Some(run.as_str())).count() == 3);
+    eventually("both builders and the merger under the run", || {
+        h.sessions().iter().filter(|s| s.parent.as_deref() == Some(run.as_str())).count() == 3
+    });
 
     // The asker ending doesn't end the run it asked for.
     h.run(&["kill", &asker]);

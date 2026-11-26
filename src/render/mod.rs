@@ -10,17 +10,17 @@ pub mod glyphs;
 
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::SelectionRange;
+use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::search::Match;
-use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
 use egui::{Color32, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 use crate::config::Config;
 use crate::render::glyphs::{GlyphCache, GridMesh};
-use crate::terminal::snapshot::{SnapCell, Snapshot};
 use crate::terminal::Terminal;
+use crate::terminal::snapshot::{SnapCell, Snapshot};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CellMetrics {
@@ -66,30 +66,22 @@ pub fn default_indexed_color(index: usize, cfg: &Config) -> Color32 {
             let v = (8 + (index - 232) * 10) as u8;
             Color32::from_rgb(v, v, v)
         }
-        256 => cfg.foreground,              // NamedColor::Foreground
-        257 => cfg.background,              // NamedColor::Background
-        258 => cfg.cursor_color,            // NamedColor::Cursor
+        256 => cfg.foreground,                      // NamedColor::Foreground
+        257 => cfg.background,                      // NamedColor::Background
+        258 => cfg.cursor_color,                    // NamedColor::Cursor
         259..=266 => dim(cfg.palette[index - 259]), // DimBlack..DimWhite
-        267 => cfg.foreground,              // BrightForeground
-        268 => dim(cfg.foreground),         // DimForeground
+        267 => cfg.foreground,                      // BrightForeground
+        268 => dim(cfg.foreground),                 // DimForeground
         _ => cfg.foreground,
     }
 }
 
 fn dim(c: Color32) -> Color32 {
-    Color32::from_rgb(
-        (c.r() as f32 * 0.66) as u8,
-        (c.g() as f32 * 0.66) as u8,
-        (c.b() as f32 * 0.66) as u8,
-    )
+    Color32::from_rgb((c.r() as f32 * 0.66) as u8, (c.g() as f32 * 0.66) as u8, (c.b() as f32 * 0.66) as u8)
 }
 
 fn resolve(color: Color, colors: &Colors, cfg: &Config) -> Color32 {
-    let indexed = |i: usize| {
-        colors[i]
-            .map(|rgb| Color32::from_rgb(rgb.r, rgb.g, rgb.b))
-            .unwrap_or_else(|| default_indexed_color(i, cfg))
-    };
+    let indexed = |i: usize| colors[i].map(|rgb| Color32::from_rgb(rgb.r, rgb.g, rgb.b)).unwrap_or_else(|| default_indexed_color(i, cfg));
     match color {
         Color::Spec(rgb) => Color32::from_rgb(rgb.r, rgb.g, rgb.b),
         Color::Named(n) => indexed(n as usize),
@@ -150,11 +142,8 @@ pub fn terminal_shapes(
 
     let mut styler = CellStyler::new(&snap.colors, cfg, &opts, snap.selection, offset);
     let cursor_line = cursor.point.line.0 + offset as i32;
-    let cursor_shape = if opts.cursor_visible && offset == 0 && snap.mode.contains(TermMode::SHOW_CURSOR) {
-        cursor.shape
-    } else {
-        CursorShape::Hidden
-    };
+    let cursor_shape =
+        if opts.cursor_visible && offset == 0 && snap.mode.contains(TermMode::SHOW_CURSOR) { cursor.shape } else { CursorShape::Hidden };
     styler.block_cursor = opts.focused && cursor_shape == CursorShape::Block;
     let mut layers = Layers::new(painter, glyphs, rect, m, snap.cells.len());
     let mut cursor_cell_width = 1;
@@ -364,9 +353,7 @@ impl<'a> Layers<'a> {
                 Shape::rect_stroke(r.shrink(0.5), 1.0, Stroke::new(1.0_f32, color), egui::StrokeKind::Inside)
             }
             CursorShape::Beam => Shape::rect_filled(Rect::from_min_size(r.min, Vec2::new(thickness, r.height())), 0.0, color),
-            CursorShape::Underline => {
-                Shape::rect_filled(Rect::from_min_max(Pos2::new(r.left(), r.bottom() - thickness), r.max), 0.0, color)
-            }
+            CursorShape::Underline => Shape::rect_filled(Rect::from_min_max(Pos2::new(r.left(), r.bottom() - thickness), r.max), 0.0, color),
         };
         self.decorations.push(shape);
     }
@@ -382,22 +369,13 @@ impl<'a> Layers<'a> {
 
 /// Convert a position inside the terminal rect into a grid point (accounting for
 /// scrollback) and which half of the cell was hit.
-pub fn point_at(
-    pos: Pos2,
-    rect: Rect,
-    m: CellMetrics,
-    terminal: &Terminal,
-) -> (Point, alacritty_terminal::index::Side, usize, usize) {
+pub fn point_at(pos: Pos2, rect: Rect, m: CellMetrics, terminal: &Terminal) -> (Point, alacritty_terminal::index::Side, usize, usize) {
     let size = terminal.size();
     let rel = pos - rect.min;
     let col_f = (rel.x / m.width).max(0.0);
     let col = (col_f as usize).min(size.cols.saturating_sub(1));
     let line = ((rel.y / m.height).max(0.0) as usize).min(size.lines.saturating_sub(1));
-    let side = if col_f.fract() < 0.5 {
-        alacritty_terminal::index::Side::Left
-    } else {
-        alacritty_terminal::index::Side::Right
-    };
+    let side = if col_f.fract() < 0.5 { alacritty_terminal::index::Side::Left } else { alacritty_terminal::index::Side::Right };
     let offset = terminal.term.lock().grid().display_offset();
     let point = Point::new(Line(line as i32 - offset as i32), Column(col));
     (point, side, col, line)

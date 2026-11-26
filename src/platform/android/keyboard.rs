@@ -114,10 +114,7 @@ pub fn install() {
             &[JValue::Object(&buffer), JValue::Object(&parent)],
         )?;
         let name = env.new_string(CLASS)?;
-        let class: JClass = env
-            .call_method(&loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&name)])?
-            .l()?
-            .into();
+        let class: JClass = env.call_method(&loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&name)])?.l()?.into();
         env.register_native_methods(
             &class,
             &[

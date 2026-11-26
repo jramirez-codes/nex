@@ -25,7 +25,9 @@ pub fn find(name: &str) -> Option<PathBuf> {
 /// Every pipeline `find` can see, by name.
 pub fn list() -> Vec<(String, PathBuf)> {
     let mut dirs: Vec<PathBuf> = std::env::current_dir().map(|c| c.ancestors().map(|d| d.join(".nex/pipelines")).collect()).unwrap_or_default();
-    if let Some(config) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config"))) {
+    if let Some(config) =
+        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+    {
         dirs.push(config.join("nex/pipelines"));
     }
     let mut out: Vec<(String, PathBuf)> = Vec::new();
@@ -47,7 +49,12 @@ pub fn list() -> Vec<(String, PathBuf)> {
 
 /// Of `sessions`, the run of the pipeline in `file` that a `pipe` from `here` joins: a
 /// live one, from the same repository (`top` says which a folder is in), the latest.
-pub fn joins<'a>(sessions: &'a [nex_host::proto::Session], file: &Path, here: &Path, top: &dyn Fn(&Path) -> PathBuf) -> Option<&'a nex_host::proto::Session> {
+pub fn joins<'a>(
+    sessions: &'a [nex_host::proto::Session],
+    file: &Path,
+    here: &Path,
+    top: &dyn Fn(&Path) -> PathBuf,
+) -> Option<&'a nex_host::proto::Session> {
     let file = file.to_string_lossy();
     let repo = top(here);
     sessions
