@@ -70,8 +70,9 @@ src/
 ├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture),
 │                     installing and watching nex-host; ssh/ is nex's own ssh client (russh):
 │                     host keys, the one-time password and device key, reconnecting;
-│                     exec.rs runs shell scripts on a pane's host (for Files and Changes
-│                     panes opened from an ssh pane), over `ssh` or nex's own connection
+│                     transport.rs is the one way a script reaches a host, over `ssh` or
+│                     nex's own connection, for exec.rs (shell scripts for Files and Changes
+│                     panes opened from an ssh pane), host.rs and mic.rs
 ├── ui/               shared UI kit: theme, glide/ink animation, painting, icons, widgets, toasts
 └── platform/         everything OS-specific, behind one API (see platform/mod.rs)
     ├── mod.rs            the shared types and the per-OS switch

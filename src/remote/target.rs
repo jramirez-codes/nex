@@ -193,7 +193,7 @@ impl SshTarget {
         args.push(self.destination.clone());
         // ssh hands this to the remote login shell (which may be fish or csh): one
         // single-quoted word that every shell passes to `sh` unchanged.
-        args.push(format!("sh -c {}", posix_quote(script)));
+        args.push(crate::remote::ssh::sh_command(script));
         args
     }
 
