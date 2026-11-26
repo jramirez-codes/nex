@@ -46,12 +46,19 @@ pub(super) fn member_word(a: &Agent) -> String {
 /// What a helper goes by in its team: its word and a number (`Build-01`). The number is its
 /// session name's (`build-2` is 02), else its place among the `siblings` (the helpers its
 /// parent started, itself among them or not) with the same word, in the order they started.
+/// (The view tags a whole team at once: [`member_tags`].)
+#[cfg(test)]
 pub(super) fn member_tag(a: &Agent, siblings: &[&Agent]) -> String {
-    let word = member_word(a);
+    let words: Vec<String> = siblings.iter().map(|s| member_word(s)).collect();
+    tag_among(a, &member_word(a), siblings.iter().copied().zip(words.iter().map(String::as_str)))
+}
+
+/// [`member_tag`] for `a`, whose word is `word`, among `siblings` with theirs.
+fn tag_among<'a>(a: &Agent, word: &str, siblings: impl Iterator<Item = (&'a Agent, &'a str)>) -> String {
     let own = if a.team.sub { None } else { numbered(session_name(a)).1 };
     let n = own.unwrap_or_else(|| {
         let order = |x: &Agent| (x.team.started, x.pane);
-        let before = siblings.iter().filter(|s| s.pane != a.pane && order(s) < order(a) && member_word(s) == word).count();
+        let before = siblings.filter(|(s, w)| s.pane != a.pane && order(s) < order(a) && *w == word).count();
         before as u32 + 1
     });
     format!("{word}-{n:02}")
@@ -65,15 +72,12 @@ pub(super) fn member_task(a: &Agent) -> Option<&str> {
     (!task.is_empty()).then_some(task)
 }
 
-/// Each member's tag, in `g.members`' order.
+/// Each member's tag, in `g.members`' order: [`member_tag`] among the helpers its parent
+/// started, each helper's word worked out once.
 pub(super) fn member_tags(g: &Group) -> Vec<String> {
-    g.members
-        .iter()
-        .map(|m| {
-            let siblings: Vec<&Agent> = g.members.iter().map(|s| &*s.agent).filter(|s| s.team.parent == m.agent.team.parent).collect();
-            member_tag(&m.agent, &siblings)
-        })
-        .collect()
+    let words: Vec<String> = g.members.iter().map(|m| member_word(&m.agent)).collect();
+    let all = || g.members.iter().map(|m| &*m.agent).zip(words.iter().map(String::as_str));
+    all().map(|(a, word)| tag_among(a, word, all().filter(|(s, _)| s.team.parent == a.team.parent))).collect()
 }
 
 /// The last part of the folder an agent works in (`nex`, or a worktree's own folder), so

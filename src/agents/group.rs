@@ -101,19 +101,20 @@ impl Group {
 
     /// The closed card's capsule row: the lead's helpers (by status, as in `members`), with
     /// a pipeline among them opened into its stages (its name first). Stages stay in the
-    /// pipeline's order whatever their status ([`by_step`]).
-    pub fn strip(&self) -> Vec<Step<'_>> {
+    /// pipeline's order whatever their status ([`by_step`]). Owned (it shares the agents), so
+    /// the view can keep it for as long as the card.
+    pub fn strip(&self) -> Vec<Step> {
         if self.is_pipeline() {
-            return by_step(self.direct().map(|m| &*m.agent).collect()).into_iter().map(Step::Stage).collect();
+            return by_step(self.direct().map(|m| &m.agent).collect()).into_iter().map(|a| Step::Stage(Arc::clone(a))).collect();
         }
         let mut out = Vec::new();
         for (i, m) in self.members.iter().enumerate().filter(|(_, m)| m.depth == 1) {
-            let stages: Vec<&Agent> = self.under(i).filter(|s| !s.agent.team.sub).map(|s| &*s.agent).collect();
+            let stages: Vec<&Arc<Agent>> = self.under(i).filter(|s| !s.agent.team.sub).map(|s| &s.agent).collect();
             if m.agent.kind == AgentKind::Pipeline && !stages.is_empty() {
-                out.push(Step::Heading(&m.agent.name));
-                out.extend(by_step(stages).into_iter().map(Step::Stage));
+                out.push(Step::Heading(m.agent.name.as_str().into()));
+                out.extend(by_step(stages).into_iter().map(|a| Step::Stage(Arc::clone(a))));
             } else {
-                out.push(Step::Helper(&m.agent));
+                out.push(Step::Helper(Arc::clone(&m.agent)));
             }
         }
         out
@@ -141,6 +142,12 @@ impl Group {
     }
 }
 
+impl AsRef<Group> for Group {
+    fn as_ref(&self) -> &Group {
+        self
+    }
+}
+
 /// A stage's place under its pipeline in the open card's list ([`Group::branches`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Branch {
@@ -151,18 +158,18 @@ pub struct Branch {
 }
 
 /// One thing in a closed team's capsule row.
-#[derive(Clone, Copy, Debug)]
-pub enum Step<'a> {
+#[derive(Clone, Debug)]
+pub enum Step {
     /// A nested pipeline's name, before its stages.
-    Heading(&'a str),
+    Heading(Arc<str>),
     /// A pipeline's stage: drawn as steps, joined to the one before unless it's the same
     /// stage ([`same_step`]).
-    Stage(&'a Agent),
-    Helper(&'a Agent),
+    Stage(Arc<Agent>),
+    Helper(Arc<Agent>),
 }
 
-impl<'a> Step<'a> {
-    pub fn agent(self) -> Option<&'a Agent> {
+impl Step {
+    pub fn agent(&self) -> Option<&Agent> {
         match self {
             Step::Heading(_) => None,
             Step::Stage(a) | Step::Helper(a) => Some(a),
@@ -184,7 +191,7 @@ fn step_of(a: &Agent) -> &str {
 /// A pipeline's `stages` (by status, as in [`Group::members`]) in the pipeline's order: the
 /// steps in the order their first agent started, so a builder started after the merge
 /// stage is still among the builders, and each step's agents in the order given.
-fn by_step(mut stages: Vec<&Agent>) -> Vec<&Agent> {
+fn by_step(mut stages: Vec<&Arc<Agent>>) -> Vec<&Arc<Agent>> {
     let mut first: HashMap<&str, (u64, PaneId)> = HashMap::new();
     for a in &stages {
         let at = (a.team.started, a.pane);

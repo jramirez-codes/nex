@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use egui::{Pos2, Rect, Vec2};
 
-use crate::agents::group::{Group, Member, Step, same_step};
+use crate::agents::group::{Branch, Group, Member, Step, same_step};
 use crate::agents::model::Status;
 use crate::agents::view::{
     CARD_H, GAP, INDENT_STEP, LIST_INSET, MAX_COLUMNS, MIN_CARD_W, MORE_H, MORE_W, ROW_H, ROWS_SHOWN, SECTION_H, SIDE, STRIP_H, TITLE_Y,
@@ -44,11 +44,12 @@ pub(super) fn row_rect(r: Rect, i: usize) -> Rect {
     Rect::from_min_size(Pos2::new(list.left(), list.top() + i as f32 * ROW_H), Vec2::new(list.width(), ROW_H))
 }
 
-/// Where the sections and cards go, in content coordinates (before scrolling).
-pub(super) struct Layout<'a> {
+/// Where the sections and cards go, in content coordinates (before scrolling). `T`: the
+/// teams laid out (a shared [`Group`], or the view's card made from one).
+pub(super) struct Layout<T> {
     /// Each status with cards: its count and its header's rect.
     pub(super) sections: Vec<(Status, usize, Rect)>,
-    pub(super) cards: Vec<(&'a Arc<Group>, Rect)>,
+    pub(super) cards: Vec<(Arc<T>, Rect)>,
     pub(super) content_h: f32,
 }
 
@@ -56,16 +57,16 @@ pub(super) struct Layout<'a> {
 /// fit. A closed team is a cell of the grid like any card, only taller, so teams fill rows
 /// of their own first and the single cards follow (no row mixes heights); an open team
 /// spans the row, as tall as its list.
-pub(super) fn layout<'a>(teams: &'a [Arc<Group>], width: f32, expanded: &HashMap<PaneId, bool>) -> Layout<'a> {
+pub(super) fn layout<T: AsRef<Group>>(teams: &[Arc<T>], width: f32, expanded: &HashMap<PaneId, bool>) -> Layout<T> {
     let columns = (((width + GAP) / (MIN_CARD_W + GAP)).floor() as usize).clamp(1, MAX_COLUMNS);
     let card_w = (width - GAP * (columns as f32 - 1.0)) / columns as f32;
     let mut sections: Vec<(Status, usize, Rect)> = Vec::new();
-    let mut cards: Vec<(&Arc<Group>, Rect)> = Vec::with_capacity(teams.len());
+    let mut cards: Vec<(Arc<T>, Rect)> = Vec::with_capacity(teams.len());
     let mut y = 4.0;
     let mut rest = teams;
     for status in Status::ALL {
         // Sorted by status: this one's teams are the next ones.
-        let (group, after) = rest.split_at(rest.iter().take_while(|g| g.lead.status == status).count());
+        let (group, after) = rest.split_at(rest.iter().take_while(|t| group_of(t).lead.status == status).count());
         rest = after;
         if group.is_empty() {
             continue;
@@ -75,7 +76,9 @@ pub(super) fn layout<'a>(teams: &'a [Arc<Group>], width: f32, expanded: &HashMap
         // The row being filled: how many cards it has, and how tall they are.
         let mut col = 0;
         let mut row_h = 0.0;
-        for g in group.iter().filter(|g| g.is_team()).chain(group.iter().filter(|g| !g.is_team())) {
+        let is_team = |t: &&Arc<T>| group_of(t).is_team();
+        for t in group.iter().filter(is_team).chain(group.iter().filter(|t| !is_team(t))) {
+            let g = group_of(t);
             let open = g.is_team().then(|| expanded.get(&g.key()).copied()).flatten();
             let h = if g.is_team() { team_height(g, open) } else { CARD_H };
             if col > 0 && (open.is_some() || h != row_h) {
@@ -83,11 +86,11 @@ pub(super) fn layout<'a>(teams: &'a [Arc<Group>], width: f32, expanded: &HashMap
                 col = 0;
             }
             if open.is_some() {
-                cards.push((g, Rect::from_min_size(Pos2::new(SIDE, y), Vec2::new(width, h))));
+                cards.push((Arc::clone(t), Rect::from_min_size(Pos2::new(SIDE, y), Vec2::new(width, h))));
                 y += h + GAP;
                 continue;
             }
-            cards.push((g, Rect::from_min_size(Pos2::new(SIDE + col as f32 * (card_w + GAP), y), Vec2::new(card_w, h))));
+            cards.push((Arc::clone(t), Rect::from_min_size(Pos2::new(SIDE + col as f32 * (card_w + GAP), y), Vec2::new(card_w, h))));
             row_h = h;
             col += 1;
             if col == columns {
@@ -101,6 +104,11 @@ pub(super) fn layout<'a>(teams: &'a [Arc<Group>], width: f32, expanded: &HashMap
         y += 6.0;
     }
     Layout { sections, cards, content_h: y + 12.0 }
+}
+
+/// The team a laid-out item is.
+fn group_of<T: AsRef<Group>>(t: &Arc<T>) -> &Group {
+    (**t).as_ref()
 }
 
 /// The status pill in header `r`, for a label `label_w` wide: top right.
@@ -138,8 +146,8 @@ pub(super) fn capsule_layout(steps: &[Step], widths: &[f32], strip_w: f32) -> Ca
     let left = |i: usize| steps[i..].iter().filter(|s| s.agent().is_some()).count();
     let mut laid = CapsuleLayout { xs: Vec::new(), joins: Vec::new(), more: None };
     let mut x = 0.0;
-    let mut prev: Option<Step> = None;
-    for (i, (&step, &w)) in steps.iter().zip(widths).enumerate() {
+    let mut prev: Option<&Step> = None;
+    for (i, (step, &w)) in steps.iter().zip(widths).enumerate() {
         let (gap, joined) = match (prev, step) {
             (None, _) => (0.0, false),
             (_, Step::Heading(_)) => (14.0, false),
@@ -182,17 +190,18 @@ pub(super) fn row_depth(g: &Group, m: &Member) -> usize {
     m.depth + (g.is_pipeline() || (m.depth == 1 && m.agent.team.sub)) as usize
 }
 
-/// Where the connectors to `g`'s stages go in its list `list` (its first `shown` rows): for
+/// Where the connectors to `g`'s stages go in its list `list` (its first `shown` rows; its
+/// `branches` are [`Group::branches`], worked out once per list): for
 /// each, its [`icons::icon_branch`](crate::ui::icons::icon_branch) slot, from its pipeline's tile centre to just short of the
 /// stage's tile, plus the line's lead-in from a nested pipeline's tile to its first stage and
 /// its run past a stage's own helpers to the next stage (zero-width slots). By slot, so they
 /// stay while rows glide.
-pub(super) fn branch_slots(list: Rect, g: &Group, shown: usize) -> Vec<(Rect, bool)> {
+pub(super) fn branch_slots(list: Rect, g: &Group, branches: &[Option<Branch>], shown: usize) -> Vec<(Rect, bool)> {
     let tile_left = |m: &Member| list.left() + 12.0 + row_indent(row_depth(g, m));
     let slot_top = |i: usize| list.top() + i as f32 * ROW_H;
     let mut out = Vec::new();
-    for (i, b) in g.branches().into_iter().enumerate().take(shown) {
-        let Some(b) = b else { continue };
+    for (i, b) in branches.iter().enumerate().take(shown) {
+        let Some(b) = *b else { continue };
         let m = &g.members[i];
         let x = b.parent.map_or(list.left() + 12.0, |j| tile_left(&g.members[j])) + 13.0;
         let right = tile_left(m) - 3.0;
