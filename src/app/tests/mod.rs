@@ -12,6 +12,7 @@ mod drop;
 mod explorer_refresh;
 mod explorer_view;
 mod git_diff;
+mod gone_agent;
 mod keyboard_button;
 mod session;
 mod sticky;

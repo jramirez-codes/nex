@@ -101,6 +101,14 @@ impl RemoteHost {
         Ok((response, exec))
     }
 
+    /// A host that was never logged in to, with a throwaway key: every connection to it is
+    /// tried afresh (tests point it at a port nothing listens on).
+    #[cfg(test)]
+    pub fn offline(server: Server) -> RemoteHost {
+        let key = PrivateKey::random(&mut rand::rng(), russh::keys::Algorithm::Ed25519).expect("an ed25519 key");
+        RemoteHost { server, key, client: Mutex::new(None) }
+    }
+
     /// The plain shells running on the host that no pane shows (the ones this device had
     /// open when it was last closed), oldest first.
     pub fn idle_shells(&self) -> Vec<String> {

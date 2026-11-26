@@ -56,6 +56,9 @@ const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(750);
 const MAX_ATLAS_SIDE: usize = 4096;
 /// How long after startup or a font change freed memory is handed back to the OS.
 const TRIM_HEAP_DELAY: Duration = Duration::from_millis(500);
+/// A new shell opened in place of an ended last tab (`App::replace_ended_tab`) that ends
+/// within this long isn't replaced again.
+const REPLACE_WINDOW: Duration = Duration::from_secs(5);
 
 pub struct App {
     cfg: Config,
@@ -546,6 +549,9 @@ impl App {
     /// closing.
     fn close_if_empty(&mut self, ctx: &egui::Context) -> bool {
         if self.tabs.is_empty() && !self.home_keeps_window() {
+            if self.replace_ended_tab(ctx) {
+                return false;
+            }
             if self.forgets_session_when_empty() {
                 self.forget_session();
             }
@@ -557,6 +563,26 @@ impl App {
             self.home_active = true;
         }
         false
+    }
+
+    /// A thin client (Android, `--remote`) whose last tab ended on the host without the user
+    /// closing it: its agent was stopped from another connection while the phone slept, or
+    /// its shell was killed. Rather than close the window (which an Android app can't open
+    /// again without being restarted), open a new shell on the host in its place. Should that
+    /// one end right away too, go back to the connect screen instead of trying again and
+    /// again. Returns `true` if the window stays open.
+    fn replace_ended_tab(&mut self, ctx: &egui::Context) -> bool {
+        let Some(host) = self.connect.host.clone().filter(|_| self.connect.active && !self.session.closed_by_user) else { return false };
+        let now = Instant::now();
+        let again = self.connect.replaced_at.is_some_and(|at| now.duration_since(at) < REPLACE_WINDOW);
+        self.connect.replaced_at = Some(now);
+        if !again {
+            self.new_tab(ctx, None, None);
+        }
+        if self.tabs.is_empty() {
+            self.connect.say(format!("The shell on {} ended right away. Connect to try again.", host.server.host));
+        }
+        true
     }
 
     /// Once startup (or a font change) is over, give the memory it freed back to the OS.

@@ -46,6 +46,10 @@ All notable changes to nex are documented here. The format follows
 - Android and iPhone: tapping the keyboard button on the Agents tab no longer also opens the
   agent whose card is under it. Its taps, drags and holds are the button's alone; the card
   still opens when tapped anywhere else.
+- Android and `nex --remote`: when the only tab showed an agent that was stopped from another
+  connection meanwhile, coming back to the app closed its window, and the Android app then
+  wouldn't open again until it was restarted. Now a new shell on the host takes the tab's
+  place; should that one end at once too, the connect screen comes back instead.
 
 ## [0.16.0] - 2026-11-25
 
