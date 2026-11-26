@@ -8,8 +8,10 @@
 //! Here: `run` (one `git` call on this machine, with a timeout), `RunError` and what the
 //! files share (the limits, git's environment and arguments). `status` (what changed, with
 //! line counts), `diff` (one file's diff, parsed into hunks), `emphasis` (the words that
-//! changed within a line) and `remote` (the same commands on an ssh host).
+//! changed within a line), `remote` (the same commands on an ssh host) and `backend`
+//! (`GitBackend`, which picks between here and the host once).
 
+pub mod backend;
 pub mod diff;
 pub mod emphasis;
 pub mod remote;

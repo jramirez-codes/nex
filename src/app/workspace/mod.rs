@@ -156,7 +156,7 @@ impl App {
         match self.panes.get(id)? {
             Pane::Terminal(t) => t.cwd.clone(),
             Pane::Explorer(b) => Some(b).filter(|b| b.transport().is_none()).map(|b| b.dir.clone()),
-            Pane::Diff(d) => Some(d).filter(|d| d.remote.is_none()).map(|d| d.dir.clone()),
+            Pane::Diff(d) => Some(d).filter(|d| d.transport().is_none()).map(|d| d.dir.clone()),
             Pane::Agents(_) => None,
         }
     }
@@ -187,7 +187,7 @@ impl App {
                 })
             }
             Pane::Diff(d) => {
-                Some(match &d.remote {
+                Some(match d.transport() {
                     Some(t) => Location::Remote(t.clone(), d.dir.clone()),
                     None => Location::Local(d.dir.clone()),
                 })
@@ -397,7 +397,7 @@ impl App {
     /// Show `path` (picked in Changes pane `pane`) in a Files pane split off it.
     pub(in crate::app) fn reveal_from_diff(&mut self, ctx: &egui::Context, pane: PaneId, path: &Path) {
         let Some(dir) = path.parent().map(Path::to_path_buf) else { return };
-        let remote = self.panes.diff(pane).and_then(|d| d.remote.clone());
+        let remote = self.panes.diff(pane).and_then(|d| d.transport().cloned());
         let at = match remote {
             Some(t) => Location::Remote(t, dir),
             None => Location::Local(dir),

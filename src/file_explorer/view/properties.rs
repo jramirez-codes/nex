@@ -13,9 +13,9 @@ use crate::layout::PaneId;
 use crate::terminal::tilde;
 use crate::ui::theme::{ACCENT, Theme};
 
-use crate::file_explorer::fs::ops::{human_size, thousands, tree_summary};
-use crate::file_explorer::fs::remote;
-use crate::remote::exec::Transport;
+use crate::file_explorer::fs::backend::FsBackend;
+use crate::file_explorer::fs::ops::{human_size, thousands};
+use crate::file_explorer::fs::remote::Details;
 use crate::file_explorer::view::items::{paint_icon, sizes};
 use crate::file_explorer::{Entry, FileExplorer};
 
@@ -60,8 +60,17 @@ struct Slow {
     done: bool,
 }
 
-fn time(t: std::io::Result<SystemTime>) -> Option<String> {
-    t.ok().and_then(crate::platform::format_local_time)
+impl From<Details> for Info {
+    fn from(d: Details) -> Self {
+        Info {
+            link_target: d.link_target,
+            modified: epoch_time(d.modified),
+            accessed: epoch_time(d.accessed),
+            created: epoch_time(d.created),
+            mode: d.mode,
+            owner: d.owner,
+        }
+    }
 }
 
 /// Seconds since 1970 as a local time.
@@ -112,14 +121,8 @@ impl Properties {
             is_symlink: link.file_type().is_symlink(),
             executable: crate::platform::is_executable(&meta),
         };
-        let info = Info {
-            link_target: link.file_type().is_symlink().then(|| std::fs::read_link(&path).ok()).flatten(),
-            modified: time(meta.modified()),
-            accessed: time(meta.accessed()),
-            created: time(meta.created()),
-            mode: crate::platform::file_mode(&meta),
-            owner: crate::platform::owner_names(&meta),
-        };
+        let backend = FsBackend::Local;
+        let info = Info::from(backend.details(&path));
         let location = path.parent().map(tilde);
         let slow = Arc::new(Mutex::new(Slow::default()));
         let stop = Arc::new(AtomicBool::new(false));
@@ -131,15 +134,14 @@ impl Properties {
             }
             ctx.request_repaint();
             if is_dir {
-                let (bytes, items) = tree_summary(&p, &mut |bytes, items| {
+                let contents = backend.tree_summary(&p, &st, &mut |bytes, items| {
                     if let Ok(mut s) = s.lock() {
                         s.contents = Some((bytes, items));
                     }
                     ctx.request_repaint();
-                    !st.load(Ordering::Relaxed)
                 });
                 if let Ok(mut s) = s.lock() {
-                    s.contents = Some((bytes, items));
+                    s.contents = contents;
                 }
             }
             if let Ok(mut s) = s.lock() {
@@ -150,28 +152,21 @@ impl Properties {
         Some(Self { path, name, entry, location, info, slow, stop })
     }
 
-    /// Properties of `entry`, on the host `t` reaches: everything comes from there, in the
-    /// background.
-    fn open_remote(ctx: &egui::Context, t: std::sync::Arc<Transport>, entry: Entry, location: Option<String>) -> Self {
+    /// Properties of `entry`, on the machine `backend` works on (an ssh host): everything
+    /// comes from there, in the background.
+    fn open_in_background(ctx: &egui::Context, backend: FsBackend, entry: Entry, location: Option<String>) -> Self {
         let slow = Arc::new(Mutex::new(Slow::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let (s, st, p, ctx, is_dir) = (slow.clone(), stop.clone(), entry.path.clone(), ctx.clone(), entry.is_dir);
         std::thread::spawn(move || {
-            let details = remote::details(&t, &p).unwrap_or_default();
+            let mut details = backend.details(&p);
             if let Ok(mut s) = s.lock() {
-                s.mime = details.mime.clone().filter(|_| !is_dir);
-                s.info = Some(Info {
-                    link_target: details.link_target,
-                    modified: epoch_time(details.modified),
-                    accessed: epoch_time(details.accessed),
-                    created: epoch_time(details.created),
-                    mode: details.mode,
-                    owner: details.owner,
-                });
+                s.mime = details.mime.take().filter(|_| !is_dir);
+                s.info = Some(Info::from(details));
             }
             ctx.request_repaint();
             if is_dir && !st.load(Ordering::Relaxed) {
-                let contents = remote::tree_summary(&t, &p, &st);
+                let contents = backend.tree_summary(&p, &st, &mut |_, _| {});
                 if let Ok(mut s) = s.lock() {
                     s.contents = contents;
                 }
@@ -265,12 +260,12 @@ impl FileExplorer {
         // The key that opened the dialog (Alt+Enter) mustn't also close it.
         let just_opened = self.pending_properties.is_some();
         if let Some(path) = self.pending_properties.take() {
-            self.properties = match self.transport().cloned() {
-                Some(t) => {
-                    let location = path.parent().map(|p| self.shown_path(p));
-                    Some(Properties::open_remote(ctx, t, self.entry_for(&path), location))
-                }
-                None => Properties::open(ctx, path),
+            // A file here is read right away; one on a host can't be without a trip there.
+            self.properties = if self.backend.is_remote() {
+                let location = path.parent().map(|p| self.shown_path(p));
+                Some(Properties::open_in_background(ctx, self.backend.clone(), self.entry_for(&path), location))
+            } else {
+                Properties::open(ctx, path)
             };
         }
         let Some(mut props) = self.properties.take() else { return };
