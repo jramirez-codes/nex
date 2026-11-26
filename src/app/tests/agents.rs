@@ -654,3 +654,26 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
     run(&mut app, &ctx, 1400.0);
     assert_eq!(app.tabs.len(), tabs + 1);
 }
+
+/// A host's watch losing its connection shows at the top of the Agents pane in the frame
+/// that watch wakes, not at the next process poll (up to a second later).
+#[test]
+fn a_host_that_stops_answering_shows_in_the_frame_its_watch_wakes() {
+    use crate::remote::host::{HostError, Snapshot, State};
+    let ctx = egui::Context::default();
+    let mut app = new_app(&ctx, Config::default());
+    run(&mut app, &ctx, 1400.0);
+    app.pending.push(Action::ToggleAgents);
+    run(&mut app, &ctx, 1400.0);
+    // The poll isn't due for an hour: only the watch waking can bring the note in.
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    let target = crate::remote::SshTarget { opts: vec![], destination: "nex-test.invalid".into() };
+    let lost = Snapshot { state: State::Failed(HostError::Remote("the host stopped answering".into())), ..Default::default() };
+    let wake = app.ssh.remote_hosts.watch_fake(target, lost);
+    run(&mut app, &ctx, 1400.0);
+    assert!(app.ssh.agent_notes.is_empty(), "nothing heard yet: {:?}", app.ssh.agent_notes);
+    wake();
+    run(&mut app, &ctx, 1400.0);
+    let notes: Vec<_> = app.ssh.agent_notes.iter().map(|n| (n.title.as_str(), n.detail.as_str())).collect();
+    assert_eq!(notes, vec![("Not connected", "nex-test.invalid \u{00b7} trying again \u{00b7} the host stopped answering")]);
+}

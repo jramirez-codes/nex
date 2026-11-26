@@ -108,6 +108,44 @@ fn watch_streams_changes() {
     let _ = watch.wait();
 }
 
+/// With nothing changing, `watch` still says something every keepalive (a blank line), with
+/// a daemon to listen to or without one, so nex can tell a quiet host from a lost one.
+#[test]
+fn watch_keeps_talking_when_nothing_changes() {
+    use std::io::BufRead;
+    let keepalive = Duration::from_millis(proto::KEEPALIVE_MS);
+    for with_daemon in [false, true] {
+        let h = Host::new();
+        if with_daemon {
+            h.launch(&["sleep", "30"]);
+        }
+        let mut watch = h.cmd(&["watch"]).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let out = watch.stdout.take().unwrap();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(out).lines() {
+                let Ok(line) = line else { break };
+                if tx.send((Instant::now(), line)).is_err() {
+                    break;
+                }
+            }
+        });
+        let (mut last, first) = rx.recv_timeout(Duration::from_secs(5)).expect("a first line");
+        assert!(serde_json::from_str::<Response>(&first).is_ok(), "the list comes first: {first}");
+        let end = Instant::now() + keepalive * 2 + Duration::from_millis(500);
+        let mut blanks = 0;
+        while Instant::now() < end {
+            let (at, line) = rx.recv_timeout(keepalive + Duration::from_secs(1)).expect("a line within the keepalive");
+            assert!(at - last < keepalive + Duration::from_secs(1), "quiet for {:?}", at - last);
+            blanks += usize::from(line.is_empty());
+            last = at;
+        }
+        assert!(blanks >= 1, "no keepalive (daemon: {with_daemon})");
+        let _ = watch.kill();
+        let _ = watch.wait();
+    }
+}
+
 #[test]
 fn run_passes_the_shells_environment_on() {
     let h = Host::new();

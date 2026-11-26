@@ -46,6 +46,13 @@ All notable changes to nex are documented here. The format follows
   fade in and out, and the cards below glide rather than jump. A remote pane's own lines
   ("Connection to devbox lost · reconnecting…") are dim italic sentences instead of
   bracketed ones, and alerts dim the window less, with a softer shadow and icon.
+- The Agents pane keeps up sooner. A host whose connection went without a word (Wi-Fi gone,
+  the laptop suspended) shows "Not connected" after at most 7 s, where it took
+  20–30 s on the phone and 45–60 s on desktops, waiting for ssh's keepalives: `nex-host watch`
+  now says something every 2 s (a blank line when nothing changed), and nex treats three
+  missed in a row as a lost connection. An agent on an ssh host changing status, title or
+  folder shows in the frame its update arrives, not at the next poll up to a second later.
+  This changes nex-host's protocol to 4, so hosts get the new nex-host on the next connect.
 - The file explorer's action bar is icons now (Select all, Copy, Cut, Rename, Delete, Paste /
   Move here, Cancel, Done, each named in its tooltip), and a little shorter. In a narrow pane
   the buttons shrink to fit instead of dropping off the left, and the status line makes way.

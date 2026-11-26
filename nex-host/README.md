@@ -41,7 +41,8 @@ Agents pane ◄── nex-host watch ◄───────────── 
   then the live output. Keys and resizes go back to the agent. Closing the pane only ends the
   attach. If you attach from a second pane, it takes the agent over from the first one.
 - **watch:** streams every agent as JSON lines whenever something changes (and every 15 s
-  regardless). For Claude Code it includes the status from its own session file
+  regardless), with a blank line every 2 s that nothing else is sent: nex counts a watch
+  that's quiet for 7 s as a lost connection. For Claude Code it includes the status from its own session file
   (`~/.claude/sessions/<pid>.json`). The format is defined in [`src/proto.rs`](src/proto.rs),
   which nex shares.
 
