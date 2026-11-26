@@ -107,7 +107,7 @@ impl App {
                 cwd: self.pane_cwd(*id),
                 font_size: self.pane_fonts.get(id).copied(),
                 command: self.panes.terminal(*id).and_then(|t| t.running_command()),
-                sticky: self.sticky == Some(*id),
+                sticky: self.sticky.iter().position(|p| p == id).map(|i| i as u32),
             }),
             Node::Split { axis, ratio, a, b } => {
                 PaneNode::Split { axis: *axis, ratio: *ratio, a: Box::new(self.pane_node(a)), b: Box::new(self.pane_node(b)) }
@@ -119,8 +119,10 @@ impl App {
     /// their place). Returns `false` if nothing at all could be opened.
     pub(in crate::app) fn restore_session(&mut self, ctx: &egui::Context, s: Session) -> bool {
         let mut active = None;
+        // The pinned panes opened so far, by their saved number.
+        let mut pins = Vec::new();
         for (i, t) in s.tabs.iter().enumerate() {
-            if let Some(tab) = self.restore_tab(ctx, t) {
+            if let Some(tab) = self.restore_tab(ctx, t, &mut pins) {
                 if i <= s.active {
                     active = Some(self.tabs.len());
                 }
@@ -128,8 +130,10 @@ impl App {
             }
         }
         if let Some(t) = &s.explorer {
-            self.home_tab = self.restore_tab(ctx, t);
+            self.home_tab = self.restore_tab(ctx, t, &mut pins);
         }
+        pins.sort_by_key(|&(n, _)| n);
+        self.sticky = pins.into_iter().map(|(_, id)| id).collect();
         // Only an Agents tab came back: there's nothing to watch without a terminal, so start
         // a fresh one beside it.
         if self.tabs.is_empty() && !self.home_keeps_window() {
@@ -143,7 +147,8 @@ impl App {
 
     /// Open tab `t`'s panes, each sized for its card in the saved layout (a zoomed tab's
     /// focused pane fills the area), so shells draw their first prompt at the right width.
-    fn restore_tab(&mut self, ctx: &egui::Context, t: &TabState) -> Option<Tab> {
+    /// `pins` maps the pinned panes opened so far by their saved numbers.
+    fn restore_tab(&mut self, ctx: &egui::Context, t: &TabState, pins: &mut Vec<(u32, PaneId)>) -> Option<Tab> {
         let area = self.content_area;
         let mut cards = Vec::new();
         shape(&t.root, &mut 0).layout(area, PANE_GAP, &mut cards, &mut Vec::new());
@@ -157,15 +162,15 @@ impl App {
                     Some(&(_, r)) if !(zoomed && i == t.focused) => r,
                     _ => area,
                 };
-                // Every tab lists the sticky pane: the first one opens it, the rest share it.
-                if p.sticky
-                    && let Some(id) = self.sticky
+                // Every tab lists each pinned pane: the first one opens it, the rest share it.
+                if let Some(n) = p.sticky
+                    && let Some(&(_, id)) = pins.iter().find(|(m, _)| *m == n)
                 {
                     return Some(id);
                 }
                 let id = self.restore_pane(ctx, p, card);
-                if p.sticky {
-                    self.sticky = id;
+                if let (Some(n), Some(id)) = (p.sticky, id) {
+                    pins.push((n, id));
                 }
                 id
             })
@@ -278,7 +283,7 @@ mod tests {
     #[test]
     fn a_failed_leaf_hands_its_split_to_its_sibling() {
         use crate::layout::Axis;
-        let leaf = || PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: None, font_size: None, command: None, sticky: false });
+        let leaf = || PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: None, font_size: None, command: None, sticky: None });
         let split = |a, b| PaneNode::Split { axis: Axis::Horizontal, ratio: 0.3, a: Box::new(a), b: Box::new(b) };
         let tree = split(leaf(), split(leaf(), leaf()));
         assert_eq!(build(&tree, &[Some(7), None, Some(9)], &mut 0).unwrap().panes(), vec![7, 9]);

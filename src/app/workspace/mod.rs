@@ -39,11 +39,11 @@ pub(in crate::app) enum Location {
 }
 
 impl App {
-    /// Forget every pane of `tab` (already out of the strip) except the sticky one, which
-    /// lives on in the other tabs.
+    /// Forget every pane of `tab` (already out of the strip) except the pinned ones, which
+    /// live on in the other tabs.
     fn forget_tab_panes(&mut self, tab: &Tab) {
-        let sticky = self.sticky;
-        for id in tab.root.panes().into_iter().filter(|&id| Some(id) != sticky) {
+        let panes: Vec<PaneId> = tab.root.panes().into_iter().filter(|&id| !self.is_sticky(id)).collect();
+        for id in panes {
             self.forget_pane(id);
         }
     }

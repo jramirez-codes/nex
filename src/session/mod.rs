@@ -58,9 +58,11 @@ pub struct PaneState {
     /// What a terminal was running in its shell (`npm run dev`), run again on restore.
     /// `None` when it was at its prompt, and always for explorers.
     pub command: Option<Vec<String>>,
-    /// The window's sticky pane, which every tab's tree lists (with its own place in each).
-    /// All sticky leaves are one pane: it is opened once.
-    pub sticky: bool,
+    /// Which of the window's sticky (pinned) panes this leaf is, if it is one: every tab's
+    /// tree lists each (with its own place in each), and all leaves with the same number are
+    /// one pane, opened once. Saved as `"sticky": true` plus `"pin": n` when `n` isn't 0, so
+    /// a session with one pinned pane reads and writes as before multiple pins.
+    pub sticky: Option<u32>,
 }
 
 pub use crate::layout::PaneKind;
@@ -144,8 +146,11 @@ fn node_to_value(n: &PaneNode) -> Value {
             if let Some(cmd) = p.command.as_ref().filter(|_| p.kind == PaneKind::Terminal) {
                 m.insert("command".into(), json!(cmd));
             }
-            if p.sticky {
+            if let Some(pin) = p.sticky {
                 m.insert("sticky".into(), true.into());
+                if pin != 0 {
+                    m.insert("pin".into(), pin.into());
+                }
             }
             Value::Object(m)
         }
@@ -201,7 +206,11 @@ fn node_from_value(v: &Value, depth: usize) -> Option<PaneNode> {
             }
         };
         let command = obj.get("command").filter(|_| kind == PaneKind::Terminal).and_then(command_from_value);
-        let sticky = obj.get("sticky").and_then(Value::as_bool).unwrap_or(false);
+        let sticky = obj
+            .get("sticky")
+            .and_then(Value::as_bool)
+            .filter(|&s| s)
+            .map(|_| obj.get("pin").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()).unwrap_or(0));
         return Some(PaneNode::Leaf(PaneState { kind, cwd, font_size, command, sticky }));
     }
     let axis = match obj.get("axis")?.as_str()? {
@@ -343,7 +352,7 @@ mod tests {
     use super::*;
 
     fn term(cwd: &str) -> PaneNode {
-        PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some(cwd.into()), font_size: None, command: None, sticky: false })
+        PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some(cwd.into()), font_size: None, command: None, sticky: None })
     }
 
     fn split(axis: Axis, ratio: f32, a: PaneNode, b: PaneNode) -> PaneNode {
@@ -360,7 +369,7 @@ mod tests {
 
     #[test]
     fn sticky_round_trips_and_defaults_off() {
-        let pinned = PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some("/s".into()), font_size: None, command: None, sticky: true });
+        let pinned = PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some("/s".into()), font_size: None, command: None, sticky: Some(0) });
         let split = |x| PaneNode::Split { axis: Axis::Horizontal, ratio: 0.6, a: Box::new(x), b: Box::new(pinned.clone()) };
         let s = Session { tabs: vec![tab(split(term("/a"))), tab(split(term("/b")))], active: 0, explorer: None, explorer_active: false };
         let json = s.to_json();
@@ -369,12 +378,25 @@ mod tests {
     }
 
     #[test]
+    fn several_pins_round_trip_and_an_unnumbered_one_is_the_first() {
+        let pin = |n| PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: None, command: None, sticky: Some(n) });
+        let split = |a, b| PaneNode::Split { axis: Axis::Horizontal, ratio: 0.5, a: Box::new(a), b: Box::new(b) };
+        let s = Session { tabs: vec![tab(split(term("/a"), split(pin(0), pin(1))))], active: 0, explorer: None, explorer_active: false };
+        let json = s.to_json();
+        assert_eq!(json.matches("\"pin\"").count(), 1, "the first pin isn't numbered");
+        assert_eq!(Session::from_json(&json).unwrap(), s);
+        // `"sticky": false` with a stray number is not pinned.
+        let s = Session::from_json(&one_tab(json!({ "kind": "terminal", "sticky": false, "pin": 3 }))).unwrap();
+        assert!(matches!(&s.tabs[0].root, PaneNode::Leaf(p) if p.sticky.is_none()));
+    }
+
+    #[test]
     fn round_trip() {
         let s = Session {
             tabs: vec![
                 tab(term("/a")),
                 TabState {
-                    root: PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(18.5), command: None, sticky: false }),
+                    root: PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(18.5), command: None, sticky: None }),
                     focused: 0,
                     zoomed: true,
                 },
@@ -390,7 +412,7 @@ mod tests {
     #[test]
     fn commands_round_trip() {
         let cmd = |c: &[&str]| Some(c.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-        let leaf = |command| PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some("/a".into()), font_size: None, command, sticky: false });
+        let leaf = |command| PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: Some("/a".into()), font_size: None, command, sticky: None });
         let s = Session {
             tabs: vec![tab(split(Axis::Horizontal, 0.5, leaf(cmd(&["npm", "run", "dev"])), leaf(cmd(&["echo", "a b", "it's"]))))],
             active: 0,
@@ -434,7 +456,7 @@ mod tests {
 
     #[test]
     fn explorer_tab_round_trip() {
-        let ex = |d: &str| PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: Some(d.into()), font_size: None, command: None, sticky: false });
+        let ex = |d: &str| PaneNode::Leaf(PaneState { kind: PaneKind::Explorer, cwd: Some(d.into()), font_size: None, command: None, sticky: None });
         let s = Session {
             tabs: vec![tab(term("/a"))],
             active: 0,
@@ -551,7 +573,7 @@ mod tests {
                 root: split(
                     Axis::Vertical,
                     0.6,
-                    PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(13.3), command: None, sticky: false }),
+                    PaneNode::Leaf(PaneState { kind: PaneKind::Terminal, cwd: None, font_size: Some(13.3), command: None, sticky: None }),
                     term("/b"),
                 ),
                 focused: 0,

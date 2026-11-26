@@ -1,5 +1,5 @@
-//! The sticky pane: pinned into every tab (each keeping its own size for it), surviving the
-//! tabs it outlives, and closing out of all of them at once.
+//! Sticky panes: pinned into every tab (each keeping its own size for it), surviving the
+//! tabs they outlive, and closing out of all of them at once. Several can be pinned.
 
 use egui::{Pos2, RawInput, Rect, Vec2};
 
@@ -59,7 +59,7 @@ impl Sim {
         s.act(Action::Split(Axis::Horizontal));
         let sticky = s.focused();
         s.act(Action::ToggleSticky(sticky));
-        assert_eq!(s.app.sticky, Some(sticky));
+        assert_eq!(s.app.sticky, vec![sticky]);
         (s, left, sticky)
     }
 }
@@ -102,7 +102,7 @@ fn pinned_split(cfg: crate::config::Config, split: Option<Axis>) -> (Axis, f32) 
     }
     let sticky = s.focused();
     s.act(Action::ToggleSticky(sticky));
-    assert_eq!(s.app.sticky, Some(sticky));
+    assert_eq!(s.app.sticky, vec![sticky]);
     let Node::Split { axis, ratio, b, .. } = &s.app.tabs[1].root else { panic!("not split") };
     assert!(matches!(**b, Node::Leaf(id) if id == sticky), "pinned on the right or bottom");
     (*axis, *ratio)
@@ -133,7 +133,7 @@ fn a_tab_down_to_the_sticky_pane_closes_and_the_pane_lives_on() {
     s.act(Action::ClosePane(other));
     assert_eq!(s.app.tabs.len(), 1);
     assert!(s.app.panes.is_terminal(sticky));
-    assert_eq!(s.app.sticky, Some(sticky));
+    assert_eq!(s.app.sticky, vec![sticky]);
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn closing_the_sticky_pane_takes_it_out_of_every_tab() {
     let (mut s, _, sticky) = Sim::pinned();
     s.act(Action::NewTab);
     s.act(Action::ClosePane(sticky));
-    assert_eq!(s.app.sticky, None);
+    assert!(s.app.sticky.is_empty());
     assert_eq!(s.app.tabs.len(), 2);
     assert!(s.app.tabs.iter().all(|t| !t.contains(sticky)));
     assert!(!s.app.panes.is_terminal(sticky));
@@ -152,7 +152,7 @@ fn unpinning_keeps_it_in_the_shown_tab_only() {
     let (mut s, _, sticky) = Sim::pinned();
     s.act(Action::NewTab);
     s.act(Action::ToggleSticky(sticky));
-    assert_eq!(s.app.sticky, None);
+    assert!(s.app.sticky.is_empty());
     assert!(s.app.tabs[1].contains(sticky) && !s.app.tabs[0].contains(sticky));
 }
 
@@ -160,7 +160,7 @@ fn unpinning_keeps_it_in_the_shown_tab_only() {
 fn the_last_tab_down_to_it_keeps_it_as_a_plain_pane() {
     let (mut s, left, sticky) = Sim::pinned();
     s.act(Action::ClosePane(left));
-    assert_eq!(s.app.sticky, None);
+    assert!(s.app.sticky.is_empty());
     assert_eq!(s.app.tabs.len(), 1);
     assert!(matches!(s.app.tabs[0].root, Node::Leaf(id) if id == sticky));
 }
@@ -176,12 +176,172 @@ fn it_survives_a_restart_as_one_pane() {
     let app = App::new(&cc, crate::config::Config::default(), args, None, Some(snap), None);
     let mut r = Sim { ctx, app, t: 0.0 };
     r.frames(3);
-    let pinned = r.app.sticky.expect("still sticky");
+    let [pinned] = r.app.sticky[..] else { panic!("one pinned pane, not {:?}", r.app.sticky) };
     assert_eq!(r.app.tabs.len(), 2);
     assert!(r.everywhere(pinned));
     // Two tabs of two panes each, three panes in all.
     assert_eq!(r.app.panes.ids(PaneKind::Terminal).count(), 3);
     let _ = sticky;
+}
+
+impl Sim {
+    /// `snap` opened in a fresh window.
+    fn restored(snap: crate::session::Session) -> Self {
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let args = crate::cli::Args { no_restore: true, ..Default::default() };
+        let app = App::new(&cc, crate::config::Config::default(), args, None, Some(snap), None);
+        let mut r = Sim { ctx, app, t: 0.0 };
+        r.frames(3);
+        r
+    }
+
+    /// A tab of three panes side by side, its middle and right ones pinned; returns
+    /// `(left, [middle, right])`.
+    fn two_pinned() -> (Self, PaneId, [PaneId; 2]) {
+        let mut s = Sim::new();
+        let left = s.focused();
+        s.act(Action::Split(Axis::Horizontal));
+        let middle = s.focused();
+        s.act(Action::Split(Axis::Horizontal));
+        let right = s.focused();
+        s.act(Action::ToggleSticky(middle));
+        s.act(Action::ToggleSticky(right));
+        assert_eq!(s.app.sticky, vec![middle, right]);
+        (s, left, [middle, right])
+    }
+
+    /// Where pane `id` is drawn in the shown tab.
+    fn rect_of(&self, id: PaneId) -> Rect {
+        let tab = self.app.cur_tab().unwrap();
+        let mut rects = Vec::new();
+        tab.root.layout(self.app.content_area, crate::app::PANE_GAP, &mut rects, &mut Vec::new());
+        rects.into_iter().find(|(p, _)| *p == id).map(|(_, r)| r).expect("in the shown tab")
+    }
+}
+
+#[test]
+fn several_panes_pin_at_once_and_each_joins_every_tab_in_its_place() {
+    let (mut s, left, [middle, right]) = Sim::two_pinned();
+    let (m0, r0) = (s.rect_of(middle), s.rect_of(right));
+    s.act(Action::NewTab);
+    s.act(Action::ToggleExplorer);
+    assert!(s.everywhere(middle) && s.everywhere(right));
+    assert!(!s.app.tabs[1].contains(left));
+    // In the new tab both stay on the right, the right one rightmost and as wide as it was,
+    // the middle one roughly (it is placed by its share of the window, around the new pane).
+    s.act(Action::GotoTab(1));
+    let (m1, r1) = (s.rect_of(middle), s.rect_of(right));
+    assert!(m1.max.x <= r1.min.x + 1.0 && m1.min.x > s.app.content_area.center().x - 100.0, "middle {m1:?} right {r1:?}");
+    assert!((r1.width() - r0.width()).abs() < 10.0 && (m1.width() - m0.width()).abs() < 100.0, "{m0:?} {r0:?} / {m1:?} {r1:?}");
+    // One terminal each, however many tabs list them.
+    let terms: Vec<PaneId> = s.app.panes.ids(PaneKind::Terminal).collect();
+    assert_eq!(terms.iter().filter(|&&id| id == middle || id == right).count(), 2);
+
+    // Sizing one in one tab leaves the other tab alone.
+    let ratio = |s: &Sim, i: usize| match s.app.tabs[i].root {
+        Node::Split { ratio, .. } => ratio,
+        _ => panic!("not split"),
+    };
+    let before = ratio(&s, 0);
+    *s.app.tabs[1].root.ratio_mut(&[]).unwrap() = 0.3;
+    s.frames(2);
+    assert_eq!(ratio(&s, 0), before);
+}
+
+#[test]
+fn unpinning_one_leaves_the_others_pinned() {
+    let (mut s, _, [middle, right]) = Sim::two_pinned();
+    s.act(Action::NewTab);
+    s.act(Action::ToggleSticky(middle));
+    assert_eq!(s.app.sticky, vec![right]);
+    assert!(s.app.tabs[1].contains(middle) && !s.app.tabs[0].contains(middle), "kept in the shown tab only");
+    assert!(s.everywhere(right));
+    // A tab opened now gets only the one still pinned.
+    s.act(Action::NewTab);
+    assert!(s.app.tabs[2].contains(right) && !s.app.tabs[2].contains(middle));
+}
+
+#[test]
+fn closing_one_pinned_pane_leaves_the_others() {
+    let (mut s, _, [middle, right]) = Sim::two_pinned();
+    s.act(Action::NewTab);
+    s.act(Action::ClosePane(right));
+    assert_eq!(s.app.sticky, vec![middle]);
+    assert_eq!(s.app.tabs.len(), 2);
+    assert!(s.app.tabs.iter().all(|t| !t.contains(right)));
+    assert!(s.everywhere(middle));
+}
+
+#[test]
+fn a_tab_down_to_pinned_panes_closes_unless_it_is_the_last() {
+    let (mut s, left, [middle, right]) = Sim::two_pinned();
+    s.act(Action::NewTab);
+    let other = s.app.tabs[1].root.panes().into_iter().find(|&id| !s.app.is_sticky(id)).unwrap();
+    s.act(Action::ClosePane(other));
+    assert_eq!(s.app.tabs.len(), 1);
+    assert_eq!(s.app.sticky, vec![middle, right]);
+    // The last tab down to them keeps them as plain panes.
+    s.act(Action::ClosePane(left));
+    assert!(s.app.sticky.is_empty());
+    assert_eq!(s.app.tabs.len(), 1);
+    assert_eq!(s.app.tabs[0].root.panes().len(), 2);
+}
+
+#[test]
+fn every_pinned_card_glides_on_a_tab_switch() {
+    let (mut s, _, [middle, right]) = Sim::two_pinned();
+    s.act(Action::NewTab);
+    s.act(Action::GotoTab(0));
+    let mut glides: Vec<PaneId> = s.app.sticky_glide.keys().copied().collect();
+    glides.sort();
+    let mut want = vec![middle, right];
+    want.sort();
+    assert_eq!(glides, want);
+    // Unpinned, its glide goes.
+    s.act(Action::ToggleSticky(middle));
+    assert_eq!(s.app.sticky_glide.keys().copied().collect::<Vec<_>>(), vec![right]);
+}
+
+#[test]
+fn several_pinned_panes_survive_a_restart_each_as_one_pane() {
+    let (mut s, _, _) = Sim::two_pinned();
+    s.act(Action::NewTab);
+    let snap = s.app.snapshot_session().unwrap();
+    let json = snap.to_json();
+    assert!(json.contains("\"pin\": 1"), "the second pin is numbered: {json}");
+    let mut r = Sim::restored(crate::session::Session::from_json(&json).unwrap());
+    assert_eq!(r.app.sticky.len(), 2);
+    assert_eq!(r.app.tabs.len(), 2);
+    assert!(r.app.sticky.iter().all(|&id| r.everywhere(id)));
+    // Three panes in the first tab, one more in the second: four in all.
+    assert_eq!(r.app.panes.ids(PaneKind::Terminal).count(), 4);
+    // Pinned in the same order: unpinning the first leaves the second.
+    let first = r.app.sticky[0];
+    r.act(Action::ToggleSticky(first));
+    assert_eq!(r.app.sticky.len(), 1);
+}
+
+#[test]
+fn an_old_session_with_one_sticky_pane_loads_as_before() {
+    // As written before several pins: `"sticky": true` and no `"pin"`.
+    let leaf = |cwd: &str, sticky: bool| {
+        let mut v = serde_json::json!({ "kind": "terminal", "cwd": cwd });
+        if sticky {
+            v["sticky"] = true.into();
+        }
+        v
+    };
+    let tab = |cwd: &str| serde_json::json!({ "root": { "axis": "horizontal", "ratio": 0.6, "a": leaf(cwd, false), "b": leaf("/tmp", true) } });
+    let json = serde_json::json!({ "version": 1, "tabs": [tab("/"), tab("/")], "active": 0 }).to_string();
+    let r = Sim::restored(crate::session::Session::from_json(&json).unwrap());
+    let [pinned] = r.app.sticky[..] else { panic!("one pinned pane, not {:?}", r.app.sticky) };
+    assert!(r.everywhere(pinned));
+    assert_eq!(r.app.panes.ids(PaneKind::Terminal).count(), 3);
+    // And it saves the same way again.
+    let again = r.app.snapshot_session().unwrap().to_json();
+    assert_eq!(again.matches("\"sticky\"").count(), 2);
+    assert!(!again.contains("\"pin\""));
 }
 
 /// The header glyph `ch` that `cfg` draws in the focused pane's header, with Shift held or
@@ -235,16 +395,16 @@ fn the_shortcut_pins_and_unpins_the_focused_pane() {
     s.act(Action::Split(Axis::Horizontal));
     let right = s.focused();
     s.act(Action::ToggleSticky(0));
-    assert_eq!(s.app.sticky, Some(right));
+    assert_eq!(s.app.sticky, vec![right]);
     s.act(Action::NewTab);
     assert!(s.everywhere(right));
-    // From another pane it moves the pin there; from the pinned pane it unpins.
+    // From another pane it pins that one too; from a pinned pane it unpins just that one.
     s.act(Action::ToggleSticky(0));
     let other = s.focused();
     assert_ne!(other, right);
-    assert_eq!(s.app.sticky, Some(other));
+    assert_eq!(s.app.sticky, vec![right, other]);
     s.act(Action::ToggleSticky(0));
-    assert_eq!(s.app.sticky, None);
+    assert_eq!(s.app.sticky, vec![right]);
 }
 
 /// The Agents panes in the Agents tab.
@@ -260,7 +420,7 @@ fn the_agents_tab_opens_on_a_pinned_agents_pane_without_adding_another() {
     let pinned = s.focused();
     assert!(s.app.panes.agents(pinned).is_some());
     s.act(Action::ToggleSticky(pinned));
-    assert_eq!(s.app.sticky, Some(pinned));
+    assert_eq!(s.app.sticky, vec![pinned]);
 
     s.act(Action::ToggleAgentsTab);
     assert!(s.app.home_active);

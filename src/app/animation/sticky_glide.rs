@@ -1,5 +1,7 @@
-//! The sticky pane on a tab switch: it doesn't leave with the old tab's panes, its card
-//! glides (and resizes) from where the old tab had it to where the new one does.
+//! A pinned (sticky) pane on a tab switch: it doesn't leave with the old tab's panes, its
+//! card glides (and resizes) from where the old tab had it to where the new one does. Each
+//! pinned pane has its own `StickyGlide`, so several glide at once, each to its own place;
+//! one not drawn in a frame is dropped and starts afresh (in place) when drawn again.
 
 use egui::Rect;
 
@@ -40,13 +42,6 @@ impl StickyGlide {
         self.last = Some((tab, drawn));
         (drawn, self.from.is_some())
     }
-
-    /// It wasn't drawn this frame (the tab is zoomed on another pane): it appears in place
-    /// next time instead of gliding from a stale spot.
-    pub(in crate::app) fn hidden(&mut self) {
-        self.last = None;
-        self.from = None;
-    }
 }
 
 #[cfg(test)]
@@ -77,11 +72,9 @@ mod tests {
     }
 
     #[test]
-    fn snaps_with_animations_off_or_after_hiding() {
+    fn snaps_with_animations_off_or_when_new() {
         let ctx = egui::Context::default();
         let mut g = StickyGlide::default();
-        g.frame(&ctx, 1, rect(60.0, 100.0));
-        g.hidden();
         assert_eq!(g.frame(&ctx, 2, rect(0.0, 30.0)), (rect(0.0, 30.0), false));
         glide::set_animations(&ctx, false);
         assert_eq!(g.frame(&ctx, 1, rect(60.0, 100.0)), (rect(60.0, 100.0), false));
