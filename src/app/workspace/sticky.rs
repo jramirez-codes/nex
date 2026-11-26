@@ -1,10 +1,11 @@
-//! The sticky pane: one pane that follows the user from tab to tab (Shift + the header's ×
-//! turns it into a pin; Ctrl+Shift+P pins the focused pane). It is a leaf in every tab's
-//! split tree, the Files tab's too, so each tab keeps its own place and size for it; its
-//! terminal is resized to whichever tab shows it. On a tab switch it glides to its new card
-//! rather than leaving with the old tab (see `animation/sticky_glide.rs`).
+//! Sticky (pinned) panes: panes that follow the user from tab to tab (Shift + the header's ×
+//! turns it into a pin; Ctrl+Shift+P pins the focused pane). Any number can be pinned, and
+//! each is pinned or unpinned on its own. Each is a leaf in every tab's split tree, the Files
+//! tab's too, so each tab keeps its own place and size for every one; a terminal is resized
+//! to whichever tab shows it. On a tab switch each glides to its new card rather than
+//! leaving with the old tab (see `animation/sticky_glide.rs`).
 
-use crate::layout::{self, Direction, Node, PaneId};
+use crate::layout::{self, Direction, PaneId};
 
 use crate::app::workspace::tab::Tab;
 use crate::app::{App, PANE_GAP};
@@ -18,7 +19,12 @@ const MOBILE_PLACE: (Direction, f32) = (Direction::Down, 0.4);
 
 impl App {
     pub(in crate::app) fn is_sticky(&self, id: PaneId) -> bool {
-        self.sticky == Some(id)
+        self.sticky.contains(&id)
+    }
+
+    /// Whether every pane of `tab` is pinned (it only holds panes every other tab has).
+    fn only_pinned(&self, tab: &Tab) -> bool {
+        tab.root.iter().all(|p| self.is_sticky(p))
     }
 
     /// Every tab: the terminal tabs and the Files tab.
@@ -27,31 +33,30 @@ impl App {
     }
 
     /// Pin pane `id` (of the shown tab) so it follows the user to every tab, or unpin it.
-    /// Only one pane is sticky at a time: pinning another unpins the old one.
+    /// The other pinned panes stay pinned. In tabs that already hold them, it goes along the
+    /// same edge as in the shown tab, around everything else there.
     pub(in crate::app) fn toggle_sticky(&mut self, ctx: &egui::Context, id: PaneId) {
         if self.is_sticky(id) {
-            self.unstick();
+            self.unstick(id);
+            ctx.request_repaint();
             return;
-        }
-        if self.sticky.is_some() {
-            self.unstick();
         }
         let Some(tab) = self.cur_tab().filter(|t| t.contains(id)) else { return };
         let (home, (dir, frac)) = (tab.uid, self.place_in(tab, id));
         for t in self.every_tab_mut().filter(|t| t.uid != home) {
             t.root.wrap_edge(id, dir, frac);
         }
-        self.sticky = Some(id);
+        self.sticky.push(id);
         ctx.request_repaint();
     }
 
-    /// Mobile stacks the sticky pane under the others rather than beside them, unless where
+    /// Mobile stacks a sticky pane under the others rather than beside them, unless where
     /// it already sits says otherwise.
     fn sticky_stacks(&self) -> bool {
         crate::platform::SOFT_KEYBOARD || self.cfg.sidebar()
     }
 
-    /// Where the sticky pane goes when nothing says where.
+    /// Where a sticky pane goes when nothing says where.
     fn default_place(&self) -> (Direction, f32) {
         if self.sticky_stacks() { MOBILE_PLACE } else { DEFAULT_PLACE }
     }
@@ -67,18 +72,24 @@ impl App {
             .unwrap_or_else(|| self.default_place())
     }
 
-    /// `tab` (just made) with the sticky pane in it, placed as it is in the shown tab.
+    /// `tab` (just made) with the pinned panes in it, each placed as it is in the shown tab
+    /// (the last pinned outermost, as in tabs that were open while they were pinned).
     pub(in crate::app) fn with_sticky(&self, mut tab: Tab) -> Tab {
-        let Some(id) = self.sticky.filter(|&id| !tab.contains(id)) else { return tab };
-        let place = self.cur_tab().filter(|t| t.contains(id)).map_or_else(|| self.default_place(), |t| self.place_in(t, id));
-        tab.root.wrap_edge(id, place.0, place.1);
+        for &id in &self.sticky {
+            if tab.contains(id) {
+                continue;
+            }
+            let place = self.cur_tab().filter(|t| t.contains(id)).map_or_else(|| self.default_place(), |t| self.place_in(t, id));
+            tab.root.wrap_edge(id, place.0, place.1);
+        }
         tab
     }
 
-    /// The sticky pane stops being sticky: it stays in the shown tab only (or, if that one
-    /// doesn't have it, the first that does).
-    pub(in crate::app) fn unstick(&mut self) {
-        let Some(id) = self.sticky.take() else { return };
+    /// Pane `id` stops being sticky: it stays in the shown tab only (or, if that one doesn't
+    /// have it, the first that does). Other pinned panes stay pinned.
+    pub(in crate::app) fn unstick(&mut self, id: PaneId) {
+        let Some(i) = self.sticky.iter().position(|&p| p == id) else { return };
+        self.sticky.remove(i);
         let keep = self
             .cur_tab()
             .filter(|t| t.contains(id))
@@ -92,15 +103,17 @@ impl App {
         }
         // Tabs that had only it (there shouldn't be any: see `prune_sticky_tabs`).
         self.drop_tabs(&lone);
+        self.sticky_glide.remove(&id);
     }
 
-    /// While a pane is sticky no tab holds only it: such a tab (its last other pane closed
-    /// or moved away) closes, and the sticky pane lives on in the others. If every tab is
-    /// down to it, it stops being sticky and is the one pane of the tab being shown.
+    /// No tab holds only pinned panes: such a tab (its last other pane closed or moved away)
+    /// closes, and the pinned panes live on in the others. If every tab is down to them, they
+    /// stop being sticky and are the panes of the tab being shown.
     pub(in crate::app) fn prune_sticky_tabs(&mut self) {
-        let Some(id) = self.sticky else { return };
-        let lone: Vec<u64> =
-            self.tabs.iter().chain(self.home_tab.iter()).filter(|t| matches!(t.root, Node::Leaf(p) if p == id)).map(|t| t.uid).collect();
+        if self.sticky.is_empty() {
+            return;
+        }
+        let lone: Vec<u64> = self.tabs.iter().chain(self.home_tab.iter()).filter(|t| self.only_pinned(t)).map(|t| t.uid).collect();
         if lone.is_empty() {
             return;
         }
@@ -110,7 +123,8 @@ impl App {
             return;
         }
         let keep = self.cur_tab().map(|t| t.uid);
-        self.sticky = None;
+        self.sticky.clear();
+        self.sticky_glide.clear();
         self.drop_tabs(&lone.into_iter().filter(|&u| Some(u) != keep).collect::<Vec<_>>());
     }
 
@@ -126,11 +140,13 @@ impl App {
     }
 
     /// Close the sticky pane `id`: it leaves every tab (collapsing out of the shown one).
+    /// Other pinned panes stay.
     pub(in crate::app) fn close_sticky(&mut self, ctx: &egui::Context, id: PaneId) {
         let (title, process) = self.pane_label_owned(id);
         let shapes = self.panes.terminal_mut(id).map(|t| t.take_shapes()).unwrap_or_default();
         self.forget_pane(id);
-        self.sticky = None;
+        self.sticky.retain(|&p| p != id);
+        self.sticky_glide.remove(&id);
         let shown = self.cur_tab().map(|t| t.uid);
         let mut lone = Vec::new();
         let mut shapes = Some(shapes);
@@ -147,16 +163,16 @@ impl App {
             }
         }
         self.drop_tabs(&lone);
+        self.prune_sticky_tabs();
     }
 
-    /// After closing tab panes: the sticky pane outlives a tab, unless no tab is left.
+    /// After closing tab panes: the pinned panes outlive a tab, unless no tab is left.
     pub(in crate::app) fn forget_sticky_if_alone(&mut self) {
-        if let Some(id) = self.sticky
-            && self.tabs.is_empty()
-            && self.home_tab.is_none()
-        {
-            self.sticky = None;
-            self.forget_pane(id);
+        if self.tabs.is_empty() && self.home_tab.is_none() {
+            self.sticky_glide.clear();
+            for id in std::mem::take(&mut self.sticky) {
+                self.forget_pane(id);
+            }
         }
     }
 }

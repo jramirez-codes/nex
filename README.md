@@ -268,7 +268,8 @@ ssh-mic = off        # no mic button in ssh panes
   working, done or idle (and for how long). The label in the title bar opens it as a tab of
   its own and tells you at a glance when an agent is waiting. Click a card to jump to its pane.
 - **Pin a pane to every tab.** `Ctrl+Shift+P` (or Shift + the header's ×) pins the focused
-  pane, such as the Agents pane, so it shows beside whatever tab you switch to.
+  pane, such as the Agents pane, so it shows beside whatever tab you switch to. Pin as many
+  panes as you like; each keeps its own place and size in every tab.
 - **Agent pipelines.** `nex-host pipe feature "add a stats command"` starts builders in their
   own git worktrees and a reviewer that merges their PRs one at a time. See
   [nex-host and pipelines](#nex-host-and-pipelines).

@@ -34,7 +34,7 @@ src/
 │   │                     press/hold timings the touch controls share (press.rs)
 │   ├── chrome/           title bar and tab strip, mobile sidebar, window edges and drops
 │   ├── workspace/        tabs, splits, opening and closing panes, the pane store (panes.rs),
-│   │                     drawing panes, pane drag, the sticky pane, keeping Agents panes up
+│   │                     drawing panes, pane drag, sticky panes, keeping Agents panes up
 │   │                     to date, and Back to the previous tab (history.rs)
 │   ├── animation/        pane motion, tab close, tab-switch transitions, sticky glide,
 │   │                     agent panes' titles rolling over (title_roll.rs), a held header's

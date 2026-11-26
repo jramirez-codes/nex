@@ -133,7 +133,7 @@ impl App {
         }
         // Carried over from another tab: drawn over this one's panes, not laid out with them.
         let visitor = held.filter(|(id, _)| !rects.iter().any(|(r, _)| r == id));
-        let sticky = self.sticky;
+        let sticky = self.sticky.clone();
         let Some(tab) = self.cur_tab_mut() else { return };
         let focused = tab.focused;
         let multi = rects.len() > 1;
@@ -155,8 +155,8 @@ impl App {
         // the panes fading back in).
         views.sort_by_key(|v| (v.lifted, v.on_top));
         // Drawn after the tab's sheet, so a tab switch doesn't carry them off with the old
-        // tab: the sticky pane (it glides to its place in the new tab), then the dragged card.
-        let pinned = sticky.and_then(|s| views.iter().position(|v| v.id == s)).map(|i| views.remove(i));
+        // tab: the pinned panes (each glides to its place in the new tab), then the dragged card.
+        let pinned: Vec<PaneView> = views.extract_if(.., |v| sticky.contains(&v.id)).collect();
         if let Some(i) = views.iter().position(|v| v.lifted) {
             lifted.extend(views.drain(i..));
         }
@@ -185,14 +185,14 @@ impl App {
             blinks |= self.draw_pane(ui, pane, theme, blink_on);
         }
         self.switch.end(ui, sheet);
-        match pinned {
-            Some(mut pane) => {
-                let (card, gliding) = self.sticky_glide.frame(&ctx, tab_uid, pane.card);
-                pane.card = card;
-                pane.scale_content |= gliding;
-                blinks |= self.draw_pane(ui, &pane, theme, blink_on);
-            }
-            None => self.sticky_glide.hidden(),
+        // A pinned pane not drawn this frame (the tab is zoomed on another) appears in place
+        // next time instead of gliding from a stale spot.
+        self.sticky_glide.retain(|id, _| pinned.iter().any(|v| v.id == *id));
+        for mut pane in pinned {
+            let (card, gliding) = self.sticky_glide.entry(pane.id).or_default().frame(&ctx, tab_uid, pane.card);
+            pane.card = card;
+            pane.scale_content |= gliding;
+            blinks |= self.draw_pane(ui, &pane, theme, blink_on);
         }
         for pane in lifted.iter() {
             blinks |= self.draw_pane(ui, pane, theme, blink_on);

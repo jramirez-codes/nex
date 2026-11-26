@@ -116,11 +116,12 @@ pub struct App {
     history: workspace::history::TabHistory,
     /// The system Back key goes back a tab (`platform::SYSTEM_BACK`; tests turn it on).
     system_back: bool,
-    /// The sticky pane: it follows the user from tab to tab, a leaf in every tab's split
-    /// tree (each tab keeps its own place and size for it). See `workspace/sticky.rs`.
-    sticky: Option<PaneId>,
-    /// Its card gliding from where the last tab had it to where this one does.
-    sticky_glide: animation::sticky_glide::StickyGlide,
+    /// The sticky (pinned) panes, in the order they were pinned: each follows the user from
+    /// tab to tab, a leaf in every tab's split tree (each tab keeps its own place and size
+    /// for it). See `workspace/sticky.rs`.
+    sticky: Vec<PaneId>,
+    /// Each pinned card gliding from where the last tab had it to where this one does.
+    sticky_glide: HashMap<PaneId, animation::sticky_glide::StickyGlide>,
     /// Agent panes' header titles rolling over when they change (`animation/title_roll.rs`).
     title_rolls: animation::title_roll::TitleRolls,
     /// A header's long title scrolling sideways while it's held (`animation/title_scroll.rs`).
@@ -211,7 +212,7 @@ impl App {
             home_active: false,
             history: Default::default(),
             system_back: crate::platform::SYSTEM_BACK,
-            sticky: None,
+            sticky: Vec::new(),
             sticky_glide: Default::default(),
             title_rolls: Default::default(),
             title_scroll: Default::default(),

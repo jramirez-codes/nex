@@ -8,6 +8,12 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Pin several panes at once. Pinning a pane (`Ctrl+Shift+P`, or Shift + the header's ×) no
+  longer unpins the one pinned before: every pinned pane follows you to every tab, each
+  with its own place and size there, and glides to it on a tab switch. Unpinning or closing
+  one leaves the others pinned, and all of them come back after a restart. Sessions saved
+  with one pinned pane open as before.
+
 - Agents pane: press and hold a card or an open team's helper row to read a task or folder
   that's cut off. While the finger stays down, each line too long for its card scrolls along
   to its end and back; lifting it snaps the line back, without opening the agent or

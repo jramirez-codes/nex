@@ -225,9 +225,9 @@ impl App {
             return;
         }
         if self.home_tab.is_none() {
-            let tab = match self.sticky.filter(|&id| self.panes.agents(id).is_some()) {
+            let tab = match self.sticky.iter().copied().find(|&id| self.panes.agents(id).is_some()) {
                 // The pinned Agents pane already shows every agent: a second one would repeat it.
-                Some(pinned) => Tab::new(pinned, pinned),
+                Some(pinned) => self.with_sticky(Tab::new(pinned, pinned)),
                 None => {
                     let id = self.add_pane(Pane::Agents(AgentsPane::new()), None);
                     self.with_sticky(Tab::new(id, id))
