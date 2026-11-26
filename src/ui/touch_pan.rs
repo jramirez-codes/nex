@@ -117,6 +117,14 @@ impl TouchPan {
         d
     }
 
+    /// Leave the rest of this touch alone (something else took it, as a press and hold does):
+    /// it scrolls nothing until the finger lifts.
+    pub fn ignore(&mut self) {
+        if matches!(self.phase, Phase::Pending | Phase::Panning) {
+            self.phase = Phase::Ignored;
+        }
+    }
+
     /// Stop a fling (the content reached its end).
     pub fn stop(&mut self) {
         if self.phase == Phase::Flinging {

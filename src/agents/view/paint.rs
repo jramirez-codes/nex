@@ -5,13 +5,14 @@
 //! root decides what goes where and in what order; these only paint.
 
 use egui::epaint::Shadow;
-use egui::{Align2, Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 use crate::agents::group::{Branch, Group, Member};
 use crate::agents::model::{Agent, Status, elapsed};
 use crate::agents::motion::{Badge, TileMotion, breath, stage_progress};
 use crate::agents::view::card::Header;
 use crate::agents::view::layout::{branch_slots, chevron_center, pill_rect, row_indent, row_text_x};
+use crate::agents::view::reveal;
 use crate::agents::view::text::member_task;
 use crate::agents::view::viewing;
 use crate::agents::view::{CARD_H, CARD_RADIUS, DETAIL_Y, Frame, SIDE, TAG_H, TILE, TITLE_Y, status_color, ui_font};
@@ -44,6 +45,8 @@ pub(super) struct Look {
     pub(super) seen: (f32, f32),
     /// A pipeline's tile: its ring and badge.
     pub(super) tile: Option<TileLook>,
+    /// Pressed and held this many seconds: its cut-off lines scroll (see `reveal`).
+    pub(super) held: Option<f64>,
 }
 
 /// A pipeline tile's progress ring and corner badge, as drawn this frame (see [`TileMotion`]).
@@ -151,8 +154,9 @@ pub(super) fn card_body(p: &Painter, r: Rect, look: &Look) {
 /// task over its folder and tab (`text`, the card's [`Header`]), and the status pill over how
 /// long it has been in that state. A team's (`open`: how open it is) also has a disclosure
 /// chevron.
-/// Returns the pill's rect (a team's chevron sits left of it: [`chevron_hit`](crate::agents::view::layout::chevron_hit)).
-pub(super) fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, text: &Header, open: Option<f32>) -> Rect {
+/// Returns the pill's rect (a team's chevron sits left of it: [`chevron_hit`](crate::agents::view::layout::chevron_hit)),
+/// and how far along its lines were drawn while it's held (`look.held`; 0 while they fit).
+pub(super) fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, text: &Header, open: Option<f32>) -> (Rect, f32) {
     let c = f.c;
     let tile = Rect::from_center_size(Pos2::new(r.left() + 14.0 + TILE / 2.0, r.top() + CARD_H / 2.0), Vec2::splat(TILE));
     pipeline_tile(f, p, tile, agent, look.tile.as_ref());
@@ -189,20 +193,54 @@ pub(super) fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look:
     }
 
     // The task, and the checkout it's working in. A pipeline's counts follow its name in
-    // lighter type.
+    // lighter type. Held, what's cut off of them scrolls into view.
     let title_room = (title_right - x).max(0.0);
     let Header { title, counts, detail } = text;
-    paint::faded_text(p, Pos2::new(x, r.top() + TITLE_Y), title, paint::bold(14.0), c.text_bright, title_room, 18.0);
-    if let Some(counts) = counts {
-        let used = p.layout_no_wrap(title.clone(), paint::bold(14.0), c.text_bright).size().x;
-        let room = title_room - used - 18.0;
-        if room > 0.0 {
-            paint::faded_text(p, Pos2::new(x + used, r.top() + TITLE_Y), counts, ui_font(13.5), c.text, room + 18.0, 18.0);
+    let title_at = Pos2::new(x, r.top() + TITLE_Y);
+    let mut pieces = vec![(title.as_str(), paint::bold(14.0), c.text_bright)];
+    pieces.extend(counts.as_deref().map(|counts| (counts, ui_font(13.5), c.text)));
+    let mut shifted = 0.0_f32;
+    match look.held.and_then(|held| held_line(f, p, title_at, &pieces, title_room, held)) {
+        Some(off) => shifted = shifted.max(off),
+        None => {
+            paint::faded_text(p, title_at, title, paint::bold(14.0), c.text_bright, title_room, 18.0);
+            if let Some(counts) = counts {
+                let used = p.layout_no_wrap(title.clone(), paint::bold(14.0), c.text_bright).size().x;
+                let room = title_room - used - 18.0;
+                if room > 0.0 {
+                    paint::faded_text(p, Pos2::new(x + used, r.top() + TITLE_Y), counts, ui_font(13.5), c.text, room + 18.0, 18.0);
+                }
+            }
         }
     }
     let detail_room = (pill.right() - 4.0 - since_w - 12.0 - x).max(0.0);
-    paint::faded_text(p, Pos2::new(x, since_y), detail, ui_font(12.0), c.text_dim, detail_room, 18.0);
-    pill
+    let detail_at = Pos2::new(x, since_y);
+    match look.held.and_then(|held| held_line(f, p, detail_at, &[(detail, ui_font(12.0), c.text_dim)], detail_room, held)) {
+        Some(off) => shifted = shifted.max(off),
+        None => paint::faded_text(p, detail_at, detail, ui_font(12.0), c.text_dim, detail_room, 18.0),
+    }
+    (pill, shifted)
+}
+
+/// A line made of `pieces` (each its text, font and color) from `left_center`, while it's
+/// held `held` seconds: `None` if it fits in `room` (it's drawn as ever), else drawn whole,
+/// cut to its room and as far along as [`reveal::offset`] says, which it returns.
+fn held_line(f: &Frame, p: &Painter, left_center: Pos2, pieces: &[(&str, FontId, Color32)], room: f32, held: f64) -> Option<f32> {
+    let galleys: Vec<_> = pieces.iter().map(|(text, font, color)| p.layout_no_wrap((*text).to_owned(), font.clone(), *color)).collect();
+    let overflow = galleys.iter().map(|g| g.size().x).sum::<f32>() - room;
+    if overflow <= 0.0 {
+        return None;
+    }
+    let off = reveal::offset(held, overflow, f.animate);
+    let clip = p.clip_rect();
+    let cp = p.with_clip_rect(clip.intersect(Rect::from_x_y_ranges(left_center.x..=left_center.x + room, clip.y_range())));
+    let mut x = left_center.x - off;
+    for (g, (_, _, color)) in galleys.into_iter().zip(pieces) {
+        let size = g.size();
+        cp.galley(Pos2::new(x, left_center.y - size.y / 2.0), g, *color);
+        x += size.x;
+    }
+    Some(off)
 }
 
 /// A disclosure chevron at `at`, turning from › (`open` 0) to ⌄ (`open` 1).
@@ -233,7 +271,9 @@ pub(super) fn branch_lines(p: &Painter, list: Rect, g: &Group, branches: &[Optio
 
 /// One helper's row in an open team: tile (indented for a helper's own helpers), its `tag`
 /// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
-/// in (`detail`), and its status with how long it has been in it.
+/// in (`detail`), and its status with how long it has been in it. Pressed and held `held`
+/// seconds, its cut-off task and folder scroll (see `reveal`); returns how far along they
+/// were drawn (0 while they fit).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn helper_row(
     f: &Frame,
@@ -244,7 +284,8 @@ pub(super) fn helper_row(
     (tag, detail): (&str, &str),
     seen: (f32, f32),
     (tick, tile_look): (f32, Option<TileLook>),
-) {
+    held: Option<f64>,
+) -> f32 {
     let c = f.c;
     let a = &m.agent;
     let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + row_indent(depth) + 13.0, row.center().y), Vec2::splat(26.0));
@@ -279,11 +320,21 @@ pub(super) fn helper_row(
     let tp = p.with_clip_rect(p.clip_rect().intersect(Rect::from_min_max(row.min, Pos2::new(x + room, row.bottom()))));
     tp.rect_filled(cap, TAG_H / 2.0, white_alpha(13));
     tp.galley(Pos2::new(cap.left() + 8.0, line_y - tag_g.size().y / 2.0), tag_g, c.text);
+    let mut shifted = 0.0_f32;
     if let Some(task) = member_task(a) {
-        let task_x = cap.right() + 8.0;
-        paint::faded_text(p, Pos2::new(task_x, line_y), task, paint::bold(13.0), c.text_bright, (x + room - task_x).max(0.0), 16.0);
+        let at = Pos2::new(cap.right() + 8.0, line_y);
+        let task_room = (x + room - at.x).max(0.0);
+        match held.and_then(|held| held_line(f, p, at, &[(task, paint::bold(13.0), c.text_bright)], task_room, held)) {
+            Some(off) => shifted = shifted.max(off),
+            None => paint::faded_text(p, at, task, paint::bold(13.0), c.text_bright, task_room, 16.0),
+        }
     }
-    paint::faded_text(p, Pos2::new(x, row.top() + 32.0), detail, ui_font(11.5), c.text_dim, room, 16.0);
+    let at = Pos2::new(x, row.top() + 32.0);
+    match held.and_then(|held| held_line(f, p, at, &[(detail, ui_font(11.5), c.text_dim)], room, held)) {
+        Some(off) => shifted = shifted.max(off),
+        None => paint::faded_text(p, at, detail, ui_font(11.5), c.text_dim, room, 16.0),
+    }
+    shifted
 }
 
 /// A helper's status in a capsule or row: a tick once it's done, else its dot. `drawn` (0 to

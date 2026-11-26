@@ -78,7 +78,8 @@ src/
 │   └── view/             drawing and the mouse: mod.rs (state, the frame, orchestration),
 │                         text.rs (what cards say), card.rs (what a card shows, worked out
 │                         once per change of the list), layout.rs (where things go), paint.rs
-│                         (leaf painters), viewing.rs (the "Viewing" mark), tests.rs
+│                         (leaf painters), viewing.rs (the "Viewing" mark), reveal.rs
+│                         (press and hold to scroll cut-off lines), tests.rs
 ├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture),
 │                     installing and watching nex-host; ssh/ is nex's own ssh client (russh):
 │                     host keys, the one-time password and device key, reconnecting;
