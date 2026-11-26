@@ -52,14 +52,16 @@ src/
 ├── file_explorer/    the explorer pane
 │   ├── mod.rs            state, navigation, selection
 │   ├── fs/               listing, copying, moving, path quoting; file clipboard and jobs;
-│   │                     remote.rs: the same on an ssh host, as shell scripts run there
+│   │                     remote.rs: the same on an ssh host, as shell scripts run there;
+│   │                     backend.rs: FsBackend (Local / Remote), which picks between them
 │   ├── input/            clicks, touch gestures, drags, keys; renaming, location bar, zoom
 │   ├── view/             path bar, listing rows and tiles, action bar, Properties dialog
 │   └── tests/            the folder fixture, unit tests and egui-driven UI tests
 ├── git_diff/         the Changes pane (Ctrl+G): read-only git diff viewer
 │   ├── mod.rs            state, background loading, keys
 │   ├── git/              running git and reading what it prints: mod.rs (`run`), status.rs,
-│   │                     diff.rs, emphasis.rs (word-level highlights), remote.rs (on an ssh host)
+│   │                     diff.rs, emphasis.rs (word-level highlights), remote.rs (on an ssh host),
+│   │                     backend.rs (GitBackend: Local / Remote, which picks between them)
 │   ├── syntax.rs         syntax colors (syntect with bat's grammars)
 │   └── view/             drawing and the mouse: the layout, toolbar, file list and diff
 ├── agents/           the Agents pane: every Claude Code / Codex agent at a glance

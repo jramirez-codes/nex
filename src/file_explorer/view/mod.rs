@@ -365,7 +365,7 @@ impl FileExplorer {
             // Look up "Open With" apps while the menu opens (this machine's apps open only
             // this machine's files).
             if let [one] = self.targets().as_slice()
-                && self.remote.is_none()
+                && !self.backend.is_remote()
                 && self.menu_on_item && !one.is_dir() {
                     let one = one.clone();
                     self.load_open_with(f.ui.ctx(), one);

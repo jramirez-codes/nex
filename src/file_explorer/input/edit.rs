@@ -9,8 +9,7 @@ use std::time::{Duration, Instant};
 use crate::platform::AppChoice;
 
 use crate::file_explorer::{After, FileExplorer};
-use crate::file_explorer::fs::ops::{complete_location, create_new, expand_location, invalid_name, rename_path};
-use crate::file_explorer::fs::remote;
+use crate::file_explorer::fs::ops::{complete_location, expand_location, invalid_name};
 use crate::file_explorer::input::line_edit::LineEdit;
 use crate::file_explorer::fs::transfer::{FS_GENERATION, clipboard, set_clipboard};
 
@@ -84,10 +83,10 @@ impl FileExplorer {
     /// Rename `path`, then show and select it under its new name. Used by the rename field
     /// and the Properties dialog.
     pub(in crate::file_explorer) fn rename_item(&mut self, path: &Path, new_name: &str) -> Result<PathBuf, String> {
-        if self.remote.is_some() {
-            return self.rename_remote(path, new_name);
+        if self.backend.is_remote() {
+            return self.rename_in_background(path, new_name);
         }
-        let new = rename_path(path, new_name)?;
+        let new = self.backend.rename_path(path, new_name)?;
         // Cut or copied files keep pointing at the right file.
         if let Some(mut clip) = clipboard() {
             for p in clip.paths.iter_mut().filter(|p| *p == path) {
@@ -103,15 +102,15 @@ impl FileExplorer {
 
     /// Rename on the ssh host, in the background: the new name is selected once the folder
     /// has been read again. Only a bad name fails right away.
-    fn rename_remote(&mut self, path: &Path, new_name: &str) -> Result<PathBuf, String> {
+    fn rename_in_background(&mut self, path: &Path, new_name: &str) -> Result<PathBuf, String> {
         if let Some(why) = invalid_name(new_name) {
             return Err(why.into());
         }
-        let Some(t) = self.transport().cloned() else { return Err("Not on a host".into()) };
+        let backend = self.backend.clone();
         let (path, new_name) = (path.to_path_buf(), new_name.to_string());
         let new = path.with_file_name(&new_name);
         self.spawn_job_then(&self.ctx_for_jobs(), format!("Renaming to “{new_name}”"), false, move |_| {
-            let new = remote::rename_path(&t, &path, &new_name)?;
+            let new = backend.rename_path(&path, &new_name)?;
             Ok((format!("Renamed to “{new_name}”"), Some(After::Select(new))))
         });
         Ok(new)
@@ -127,18 +126,18 @@ impl FileExplorer {
 
     /// Make "New Folder" (or an empty "Untitled" file) here and start naming it.
     pub fn create_item(&mut self, folder: bool) {
-        if let Some(t) = self.transport().cloned() {
+        if self.backend.is_remote() {
             // On an ssh host, in the background; naming starts once the folder is read again.
-            let dest = self.dir.clone();
+            let (backend, dest) = (self.backend.clone(), self.dir.clone());
             let what = if folder { "folder" } else { "file" };
             self.spawn_job_then(&self.ctx_for_jobs(), format!("Creating a {what}"), false, move |_| {
-                let path = remote::create_new(&t, &dest, folder)?;
+                let path = backend.create_new(&dest, folder)?;
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 Ok((format!("Created “{name}”"), Some(After::Rename(path))))
             });
             return;
         }
-        match create_new(&self.dir, folder) {
+        match self.backend.create_new(&self.dir, folder) {
             Ok(path) => {
                 FS_GENERATION.fetch_add(1, Ordering::Relaxed);
                 self.refresh();
@@ -175,7 +174,7 @@ impl FileExplorer {
     /// Go to the typed folder, or open the typed file. Unknown paths keep the field open.
     pub(in crate::file_explorer) fn commit_location(&mut self) {
         let Some(field) = self.location.take() else { return };
-        if self.remote.is_some() {
+        if self.backend.is_remote() {
             // Nothing to check here: the host says if it isn't a folder.
             let path = expand_remote(&field.text, &self.dir, self.home().as_deref());
             self.navigate(path);
@@ -197,7 +196,7 @@ impl FileExplorer {
     }
 
     pub(in crate::file_explorer) fn complete_location(&mut self) {
-        if self.remote.is_some() {
+        if self.backend.is_remote() {
             self.complete_from_listing();
             return;
         }

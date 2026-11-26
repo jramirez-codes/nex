@@ -154,7 +154,7 @@ impl GitDiff {
                 return;
             }
             Some(Status::NeedsLogin) => {
-                let host = self.remote.as_ref().map_or_else(|| "the host".into(), |t| t.label());
+                let host = self.backend.host_label();
                 message(painter, body, c, Glyph::Warning, "Couldn't Log In", &format!("nex can't log in to {host} without a password."));
                 return;
             }

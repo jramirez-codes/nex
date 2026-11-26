@@ -4,6 +4,7 @@
 mod ui;
 
 use super::*;
+use std::time::Duration;
 
 pub(super) fn fixture(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("nex-files-{}-{name}", std::process::id()));
@@ -160,7 +161,7 @@ fn old_listing_is_reread_in_the_background() {
     let dir = fixture("old");
     let mut b = FileExplorer::new(dir.clone());
     std::fs::write(dir.join("Banana.md"), "b").unwrap();
-    b.last_refresh = Instant::now() - REFRESH_INTERVAL;
+    b.last_refresh = Instant::now() - b.backend.refresh_interval();
     b.refresh_if_stale();
     assert!(b.listing.running(), "nothing is being read");
     assert_eq!(names(&b), ["Alpha", "beta", "Apple.md", "zeta.txt"]);

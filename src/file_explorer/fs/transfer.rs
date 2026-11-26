@@ -10,8 +10,7 @@ use egui::Pos2;
 
 
 use crate::file_explorer::{After, FileExplorer};
-use crate::file_explorer::fs::ops::{count, delete_paths, human_size, parse_paths, run_op};
-use crate::file_explorer::fs::remote;
+use crate::file_explorer::fs::ops::{count, human_size, parse_paths};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
@@ -158,7 +157,7 @@ impl FileExplorer {
                 self.start_op(ctx, if clip.cut { Op::Move } else { Op::Copy }, clip.paths, dest);
             }
             // Paths as text are this machine's.
-            None if self.remote.is_some() => {}
+            None if self.backend.is_remote() => {}
             None => {
                 let paths = text.map(parse_paths).unwrap_or_default();
                 if !paths.is_empty() {
@@ -193,16 +192,11 @@ impl FileExplorer {
         }
         let (verb, past) = if op == Op::Copy { ("Copying", "copied") } else { ("Moving", "moved") };
         let label = format!("{verb} {}", count(paths.len()));
-        let transport = self.transport().cloned();
+        let backend = self.backend.clone();
         let shown = self.shown_path(&dest);
-        // On a host, progress counts items (the copy runs there, out of sight).
-        self.spawn_job(ctx, label, transport.is_none(), move |progress| {
+        self.spawn_job(ctx, label, backend.progress_in_bytes(), move |progress| {
             let total = paths.len();
-            let result = match &transport {
-                Some(t) => remote::run_op(t, op, &paths, &dest, progress),
-                None => run_op(op, &paths, &dest, progress),
-            };
-            result.map(|n| {
+            backend.run_op(op, &paths, &dest, progress).map(|n| {
                 if progress.cancelled() {
                     format!("Cancelled — {past} {n} of {}", count(total))
                 } else if n == 0 {
@@ -277,13 +271,9 @@ impl FileExplorer {
         }
         self.clear_selection();
         let label = format!("Deleting {}", count(paths.len()));
-        let transport = self.transport().cloned();
+        let backend = self.backend.clone();
         self.spawn_job(ctx, label, false, move |progress| {
-            let result = match &transport {
-                Some(t) => remote::delete_paths(t, &paths, progress),
-                None => delete_paths(&paths, progress),
-            };
-            result.map(|n| {
+            backend.delete_paths(&paths, progress).map(|n| {
                 if progress.cancelled() { format!("Cancelled — deleted {n} of {}", count(paths.len())) } else { format!("Deleted {}", count(n)) }
             })
         });
