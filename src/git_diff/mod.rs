@@ -17,19 +17,19 @@ mod tests;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use egui::{Key, Modifiers};
 
+use crate::jobs::{Job, Sender};
 use crate::layout::PaneId;
 use crate::remote::exec::Transport;
 
 use crate::git_diff::git::diff::FileDiff;
 use crate::git_diff::git::status::{FileChange, Status};
 
-/// What a diff job sends, tagged with its generation and file.
-type DiffResult = (u64, Sel, DiffMsg);
+/// What a diff job sends, tagged with its file.
+type DiffResult = (Sel, DiffMsg);
 
 /// A diff job's messages: the diff first, then its syntax colors a chunk at a time.
 #[derive(Debug)]
@@ -135,14 +135,12 @@ pub struct GitDiff {
     told_login: bool,
     ctx: egui::Context,
     status: Option<Arc<Status>>,
-    status_job: Option<Receiver<(u64, Status)>>,
-    status_gen: u64,
+    status_job: Job<Status>,
     last_status: Option<Instant>,
     selected: Option<Sel>,
     /// The diff on screen and the file it belongs to.
     diff: Option<(Sel, Arc<Result<FileDiff, String>>)>,
-    diff_job: Option<Receiver<DiffResult>>,
-    diff_gen: u64,
+    diff_job: Job<DiffResult>,
     /// The topmost hunk on screen, written by the view each frame: the diff job colors from
     /// there down first.
     color_focus: Arc<AtomicUsize>,
@@ -176,13 +174,11 @@ impl GitDiff {
             told_login: false,
             ctx: ctx.clone(),
             status: None,
-            status_job: None,
-            status_gen: 0,
+            status_job: Job::new(),
             last_status: None,
             selected: None,
             diff: None,
-            diff_job: None,
-            diff_gen: 0,
+            diff_job: Job::new(),
             color_focus: Arc::new(AtomicUsize::new(0)),
             filter: Filter::All,
             collapsed: [false; 2],
@@ -226,32 +222,23 @@ impl GitDiff {
     pub fn refresh_if_stale(&mut self) {
         // Not while a diff is still being colored: a re-read would start it over.
         let interval = if self.remote.is_some() { REMOTE_REFRESH_INTERVAL } else { REFRESH_INTERVAL };
-        if self.status_job.is_none() && self.diff_job.is_none() && self.last_status.is_none_or(|t| t.elapsed() >= interval) {
+        if !self.status_job.running() && !self.diff_job.running() && self.last_status.is_none_or(|t| t.elapsed() >= interval) {
             self.refresh();
         }
     }
 
     /// Re-read the status now (and then the selected file's diff).
     pub fn refresh(&mut self) {
-        self.status_gen += 1;
-        let generation = self.status_gen;
         let dir = self.dir.clone();
-        let ctx = self.ctx.clone();
         let remote = self.remote.clone();
-        let (tx, rx) = mpsc::channel();
-        self.status_job = Some(rx);
-        std::thread::spawn(move || {
-            let status = match &remote {
-                Some(t) => git::remote::load_status_remote(t, &dir),
-                None => git::status::load_status(&dir),
-            };
-            let _ = tx.send((generation, status));
-            ctx.request_repaint();
+        self.status_job.start("nex-git-status", self.ctx.clone(), move || match &remote {
+            Some(t) => git::remote::load_status_remote(t, &dir),
+            None => git::status::load_status(&dir),
         });
     }
 
     pub fn loading(&self) -> bool {
-        self.status_job.is_some() || self.diff_job.is_some()
+        self.status_job.running() || self.diff_job.running()
     }
 
     /// Load the selected file's diff in the background.
@@ -261,10 +248,7 @@ impl GitDiff {
             return;
         };
         let Some(file) = find(snap, &sel).cloned() else { return };
-        self.diff_gen += 1;
-        let generation = self.diff_gen;
         let root = snap.root.clone();
-        let ctx = self.ctx.clone();
         let remote = self.remote.clone();
         // The diff on screen, when it's this file's: its colors are reused where it's unchanged.
         let prev = self.diff.as_ref().filter(|(s, _)| *s == sel).map(|(_, d)| Arc::clone(d));
@@ -273,15 +257,9 @@ impl GitDiff {
             self.color_focus.store(0, Ordering::Relaxed);
         }
         let focus = Arc::clone(&self.color_focus);
-        let (tx, rx) = mpsc::channel();
-        self.diff_job = Some(rx);
-        std::thread::spawn(move || {
+        self.diff_job.stream("nex-git-diff", self.ctx.clone(), move |tx: &Sender<DiffResult>| {
             // Stops early once nobody listens (another file was picked, or a re-read began).
-            let send = |msg: DiffMsg| {
-                let ok = tx.send((generation, sel.clone(), msg)).is_ok();
-                ctx.request_repaint();
-                ok
-            };
+            let send = |msg: DiffMsg| tx.send((sel.clone(), msg));
             let loaded = match &remote {
                 Some(t) => git::remote::load_diff_remote(t, &root, &file),
                 None => git::diff::load_diff(&root, &file),
@@ -331,26 +309,13 @@ impl GitDiff {
 
     /// Pick up finished background work.
     fn poll(&mut self) {
-        if let Some(rx) = &self.status_job
-            && let Ok((generation, status)) = rx.try_recv()
-        {
-            self.status_job = None;
-            if generation == self.status_gen {
-                self.last_status = Some(Instant::now());
-                self.set_status(status);
-            }
+        if let Some(status) = self.status_job.poll() {
+            self.last_status = Some(Instant::now());
+            self.set_status(status);
         }
         // A diff job sends the diff, then colors for the rest of it; it's done when it hangs up.
-        while let Some(rx) = &self.diff_job {
-            let (generation, sel, msg) = match rx.try_recv() {
-                Ok(msg) => msg,
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.diff_job = None;
-                    break;
-                }
-            };
-            if generation != self.diff_gen || Some(&sel) != self.selected.as_ref() {
+        while let Some((sel, msg)) = self.diff_job.poll() {
+            if Some(&sel) != self.selected.as_ref() {
                 continue;
             }
             let diff = match msg {

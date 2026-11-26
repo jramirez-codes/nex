@@ -3,7 +3,6 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -88,12 +87,12 @@ impl Progress {
     }
 }
 
-/// A copy, move or delete running on its own thread.
 /// A finished job's message, and what to select once the folder has been read again.
 pub(in crate::file_explorer) type Done = (String, Option<After>);
 
-pub(in crate::file_explorer) struct Job {
-    rx: Receiver<Result<Done, String>>,
+/// A copy, move or delete running on its own thread (in `FileExplorer::jobs`): what the
+/// action bar shows about it.
+pub(in crate::file_explorer) struct Transfer {
     progress: Arc<Progress>,
     /// "Copying 3 items".
     label: String,
@@ -237,22 +236,19 @@ impl FileExplorer {
         work: impl FnOnce(&Progress) -> Result<Done, String> + Send + 'static,
     ) {
         let progress = Arc::new(Progress::default());
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
         let p = progress.clone();
-        std::thread::spawn(move || {
+        self.set_status(format!("{label}…"), false);
+        let transfer = Transfer { progress, label, bytes, started: Instant::now() };
+        self.jobs.push("nex-files", ctx.clone(), transfer, move || {
             let result = work(&p);
             FS_GENERATION.fetch_add(1, Ordering::Relaxed);
-            let _ = tx.send(result);
-            ctx.request_repaint();
+            result
         });
-        self.set_status(format!("{label}…"), false);
-        self.jobs.push(Job { rx, progress, label, bytes, started: Instant::now() });
     }
 
     /// Stop every running job (each stops at its next chunk or item).
     pub(in crate::file_explorer) fn cancel_jobs(&mut self) {
-        for job in &self.jobs {
+        for job in self.jobs.iter() {
             job.progress.cancel.store(true, Ordering::Relaxed);
         }
     }
@@ -298,16 +294,8 @@ impl FileExplorer {
     }
 
     pub(in crate::file_explorer) fn poll_jobs(&mut self, ctx: &egui::Context) {
-        let mut finished = Vec::new();
-        self.jobs.retain(|job| match job.rx.try_recv() {
-            Ok(r) => {
-                finished.push(r);
-                false
-            }
-            Err(TryRecvError::Empty) => true,
-            Err(TryRecvError::Disconnected) => false,
-        });
-        for r in finished {
+        // A job whose thread ended without a result is just gone.
+        for r in self.jobs.poll().into_iter().filter_map(|(_, r)| r) {
             match r {
                 Ok((msg, after)) => {
                     self.set_status(msg, false);
@@ -331,11 +319,11 @@ impl FileExplorer {
     /// The running jobs, added up into one line and one bar.
     pub(in crate::file_explorer) fn job_summary(&self) -> Option<JobSummary> {
         let first = self.jobs.first()?;
-        let fraction_of = |job: &Job| {
+        let fraction_of = |job: &Transfer| {
             let (done, total) = job.progress.amounts();
             if total == 0 { 0.0 } else { (done as f64 / total as f64).min(1.0) }
         };
-        let byte_jobs: Vec<&Job> = self.jobs.iter().filter(|j| j.bytes).collect();
+        let byte_jobs: Vec<&Transfer> = self.jobs.iter().filter(|j| j.bytes).collect();
         let (done, total) = byte_jobs.iter().map(|j| j.progress.amounts()).fold((0, 0), |(d, t), (jd, jt)| (d + jd, t + jt));
         // Mixed jobs (a copy and a delete) can't be added up by bytes: average them.
         let fraction = if byte_jobs.len() == self.jobs.len() && total > 0 {

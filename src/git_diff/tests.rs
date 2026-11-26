@@ -206,7 +206,7 @@ fn big_diffs_show_first_and_color_in_chunks() {
         {
             let colored = d.hunks[0].lines.iter().filter(|l| !l.syntax.is_empty()).count();
             saw_partial |= colored < d.hunks[0].lines.len();
-            if g.diff_job.is_none() && d.hunks.iter().all(|h| h.colored) {
+            if !g.diff_job.running() && d.hunks.iter().all(|h| h.colored) {
                 let last = d.hunks[0].lines.last().unwrap();
                 assert!(last.syntax.iter().any(|(_, t)| *t == Token::Comment));
                 break;

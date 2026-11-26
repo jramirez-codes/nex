@@ -4,9 +4,9 @@
 //! uploads reuse the pane's login.
 
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
+use crate::jobs::Jobs;
 use crate::layout::PaneId;
 use crate::platform::ClipboardFiles;
 use crate::remote::{self, RemoteError, SshTarget};
@@ -14,6 +14,9 @@ use crate::ui::toast::Toast;
 
 use crate::app::App;
 use crate::app::ssh::sharing::LoginHelp;
+
+/// Uploads on their way, each with what to do once it's done.
+pub(in crate::app) type Uploads = Jobs<Result<Vec<String>, RemoteError>, Upload>;
 
 /// An upload on its way to a pane's remote host.
 pub(in crate::app) struct Upload {
@@ -24,7 +27,6 @@ pub(in crate::app) struct Upload {
     fallback: Vec<PathBuf>,
     /// The temp file a pasted image was saved to, removed once the upload is done.
     temp: Option<PathBuf>,
-    rx: Receiver<Result<Vec<String>, RemoteError>>,
 }
 
 impl App {
@@ -64,16 +66,8 @@ impl App {
             (false, n) => format!("{n} files"),
         };
         self.toast = Some(Toast::new(ctx, format!("Uploading {what} to {host}…")));
-        let (tx, rx) = mpsc::channel();
-        let repaint = ctx.clone();
-        std::thread::Builder::new()
-            .name("nex-upload".into())
-            .spawn(move || {
-                let _ = tx.send(remote::upload(&target, &paths));
-                repaint.request_repaint();
-            })
-            .ok();
-        self.ssh.uploads.push(Upload { pane, host, fallback, temp, rx });
+        let up = Upload { pane, host, fallback, temp };
+        self.ssh.uploads.push("nex-upload", ctx.clone(), up, move || remote::upload(&target, &paths));
     }
 
     /// Type the remote paths of finished uploads into their panes.
@@ -81,17 +75,8 @@ impl App {
         if self.ssh.uploads.is_empty() {
             return;
         }
-        let mut i = 0;
-        while i < self.ssh.uploads.len() {
-            let result = match self.ssh.uploads[i].rx.try_recv() {
-                Ok(r) => r,
-                Err(TryRecvError::Empty) => {
-                    i += 1;
-                    continue;
-                }
-                Err(TryRecvError::Disconnected) => Err("the upload stopped".into()),
-            };
-            let up = self.ssh.uploads.remove(i);
+        for (up, result) in self.ssh.uploads.poll() {
+            let result = result.unwrap_or_else(|| Err("the upload stopped".into()));
             if let Some(temp) = &up.temp {
                 remote::remove_saved(temp);
             }

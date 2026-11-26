@@ -36,11 +36,12 @@ mod view;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, OnceLock, mpsc};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use egui::{Pos2, Rect};
 
+use crate::jobs::{Job, Jobs};
 use crate::remote::RemoteError;
 use crate::remote::exec::{ExecError, Transport};
 use crate::terminal::tilde;
@@ -52,7 +53,7 @@ use input::Press;
 use view::items::Layout;
 use input::line_edit::LineEdit;
 use view::properties::Properties;
-use fs::transfer::{FS_GENERATION, Job};
+use fs::transfer::{Done, FS_GENERATION, Transfer};
 
 pub use input::{ExplorerDrag, release_pos};
 pub use view::items::{drag_image, paint_drag_ghost};
@@ -150,9 +151,8 @@ pub struct FileExplorer {
     layout: Option<Layout>,
     last_refresh: Instant,
     seen_generation: u64,
-    /// The listing being read in the background, and which request it answers.
-    listing: Option<mpsc::Receiver<(u64, Answer)>>,
-    listing_generation: u64,
+    /// The listing being read in the background.
+    listing: Job<Answer>,
     /// The context to repaint when a background listing is in: the one this was last
     /// painted in (an explorer on an ssh host has it from the start).
     repaint: Arc<OnceLock<egui::Context>>,
@@ -163,7 +163,7 @@ pub struct FileExplorer {
     /// release frame needs this to know where a drop landed.
     last_pos: Option<Pos2>,
     last_click: Option<(usize, f64)>,
-    jobs: Vec<Job>,
+    jobs: Jobs<Result<Done, String>, Transfer>,
     status: Option<(String, bool, Instant)>,
     /// Items waiting for the user to confirm they should be permanently deleted.
     confirm_delete: Option<Vec<PathBuf>>,
@@ -231,14 +231,13 @@ impl FileExplorer {
             layout: None,
             last_refresh: Instant::now(),
             seen_generation: FS_GENERATION.load(Ordering::Relaxed),
-            listing: None,
-            listing_generation: 0,
+            listing: Job::new(),
             repaint,
             watch: None,
             press: None,
             last_pos: None,
             last_click: None,
-            jobs: Vec::new(),
+            jobs: Jobs::new(),
             status: None,
             confirm_delete: None,
             delete_has_folder: false,
@@ -306,7 +305,7 @@ impl FileExplorer {
     /// The folder is still being read (on an ssh host; one on this machine keeps showing
     /// what it has while it is re-read).
     pub fn loading(&self) -> bool {
-        self.remote.is_some() && self.listing.is_some()
+        self.remote.is_some() && self.listing.running()
     }
 
     /// Re-read the directory, keeping the same entry selected if it still exists. A folder on
@@ -320,8 +319,7 @@ impl FileExplorer {
         }
         self.watch_dir();
         // A background read on its way is older than this one: forget it.
-        self.listing = None;
-        self.listing_generation += 1;
+        self.listing.cancel();
         let entries = read_entries(&self.dir, self.show_hidden).map_err(|e| e.to_string());
         self.set_entries(entries);
     }
@@ -346,39 +344,17 @@ impl FileExplorer {
     /// Read the folder on another thread; [`poll_listing`](Self::poll_listing) takes the
     /// answer. A listing already on its way is forgotten.
     fn start_listing(&mut self) {
-        self.listing_generation += 1;
-        let (generation, dir, show_hidden) = (self.listing_generation, self.dir.clone(), self.show_hidden);
-        let (transport, repaint) = (self.transport().cloned(), self.repaint.clone());
-        let (tx, rx) = mpsc::channel();
-        self.listing = Some(rx);
-        std::thread::spawn(move || {
-            let answer = match &transport {
-                Some(t) => Answer::Remote(fs::remote::list(t, &dir)),
-                None => Answer::Local(read_entries(&dir, show_hidden)),
-            };
-            let _ = tx.send((generation, answer));
-            // Looked up after sending: a paint that sets it later also polls later.
-            if let Some(ctx) = repaint.get() {
-                ctx.request_repaint();
-            }
+        let (dir, show_hidden) = (self.dir.clone(), self.show_hidden);
+        let transport = self.transport().cloned();
+        self.listing.start("nex-listing", self.repaint.clone(), move || match &transport {
+            Some(t) => Answer::Remote(fs::remote::list(t, &dir)),
+            None => Answer::Local(read_entries(&dir, show_hidden)),
         });
     }
 
     /// Show a listing read in the background once it's there.
     pub(in crate::file_explorer) fn poll_listing(&mut self) {
-        let Some(rx) = &self.listing else { return };
-        let (generation, answer) = match rx.try_recv() {
-            Ok(answer) => answer,
-            Err(mpsc::TryRecvError::Empty) => return,
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.listing = None;
-                return;
-            }
-        };
-        if generation != self.listing_generation {
-            return;
-        }
-        self.listing = None;
+        let Some(answer) = self.listing.poll() else { return };
         let listing = match answer {
             Answer::Local(entries) => {
                 self.set_entries(entries.map_err(|e| e.to_string()));
@@ -451,7 +427,7 @@ impl FileExplorer {
         let generation = FS_GENERATION.load(Ordering::Relaxed);
         let interval = if self.remote.is_some() { REMOTE_REFRESH_INTERVAL } else { REFRESH_INTERVAL };
         // A slow host or disk: one read at a time, unless files changed meanwhile.
-        let due = self.last_refresh.elapsed() >= interval && self.listing.is_none();
+        let due = self.last_refresh.elapsed() >= interval && !self.listing.running();
         if generation != self.seen_generation || due {
             self.seen_generation = generation;
             self.refresh_in_background();

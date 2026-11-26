@@ -117,7 +117,7 @@ fn targets_follow_marks_in_listing_order() {
 /// Wait for the listing being read in the background, as a paint would take it.
 fn settle(b: &mut FileExplorer) {
     let deadline = Instant::now() + Duration::from_secs(10);
-    while b.listing.is_some() {
+    while b.listing.running() {
         assert!(Instant::now() < deadline, "the listing never arrived");
         std::thread::sleep(Duration::from_millis(1));
         b.poll_listing();
@@ -140,7 +140,7 @@ fn stale_listing_is_reread_in_the_background() {
 
     files_changed();
     b.refresh_if_stale();
-    assert!(b.listing.is_some(), "nothing is being read");
+    assert!(b.listing.running(), "nothing is being read");
     assert!(!b.loading());
     assert_eq!(names(&b), ["Alpha", "beta", "Apple.md", "zeta.txt"]);
     assert_eq!((b.selected, b.scroll), (3, 17.0));
@@ -162,7 +162,7 @@ fn old_listing_is_reread_in_the_background() {
     std::fs::write(dir.join("Banana.md"), "b").unwrap();
     b.last_refresh = Instant::now() - REFRESH_INTERVAL;
     b.refresh_if_stale();
-    assert!(b.listing.is_some(), "nothing is being read");
+    assert!(b.listing.running(), "nothing is being read");
     assert_eq!(names(&b), ["Alpha", "beta", "Apple.md", "zeta.txt"]);
     settle(&mut b);
     assert_eq!(names(&b), ["Alpha", "beta", "Apple.md", "Banana.md", "zeta.txt"]);
@@ -178,9 +178,9 @@ fn navigating_forgets_the_read_on_its_way() {
     let mut b = FileExplorer::new(dir.clone());
     files_changed();
     b.refresh_if_stale();
-    assert!(b.listing.is_some());
+    assert!(b.listing.running());
     b.navigate(dir.join("beta"));
-    assert!(b.listing.is_none());
+    assert!(!b.listing.running());
     std::thread::sleep(Duration::from_millis(20));
     b.poll_listing();
     assert_eq!(names(&b), ["inside.txt"]);

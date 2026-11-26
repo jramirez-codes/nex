@@ -41,7 +41,7 @@ impl GitDiff {
                 Some(Err(e)) => message(p, view, c, Glyph::Warning, "Couldn't Load the Diff", e),
                 _ => {
                     // Usually only a frame or two; a spinner only if it takes a while.
-                    if self.diff_job.is_some() {
+                    if self.diff_job.running() {
                         ctx.request_repaint();
                     }
                 }
