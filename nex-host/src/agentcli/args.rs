@@ -8,15 +8,27 @@ use crate::agentcli::bad;
 
 /// Options, and the words that aren't (all words after `--` go in `rest`).
 #[derive(Default)]
-pub(super) struct Args {
+pub(crate) struct Args {
     pub(super) words: Vec<String>,
     values: Vec<(String, String)>,
     flags: Vec<String>,
-    pub(super) rest: Vec<String>,
+    pub(crate) rest: Vec<String>,
 }
 
 impl Args {
+    /// Options and words in any order, up to `--`.
     pub(super) fn parse(args: &[String], takes_value: &[&str], flags: &[&str]) -> io::Result<Args> {
+        Args::parse_with(args, takes_value, flags, false)
+    }
+
+    /// Options up to the first word that isn't one, for a command line that ends in a command
+    /// to run (`nex-host run --name x codex --full-auto`): that word and everything after it,
+    /// options included, go in `rest`, as everything after `--` does.
+    pub(crate) fn parse_up_to_command(args: &[String], takes_value: &[&str], flags: &[&str]) -> io::Result<Args> {
+        Args::parse_with(args, takes_value, flags, true)
+    }
+
+    fn parse_with(args: &[String], takes_value: &[&str], flags: &[&str], stop_at_word: bool) -> io::Result<Args> {
         let mut out = Args::default();
         let mut it = args.iter();
         while let Some(a) = it.next() {
@@ -31,13 +43,17 @@ impl Args {
                 }
                 o if flags.contains(&o) => out.flags.push(o.to_string()),
                 o if o.starts_with("--") => return Err(bad(format!("unknown option {o}"))),
+                _ if stop_at_word => {
+                    out.rest = std::iter::once(a).chain(it).cloned().collect();
+                    break;
+                }
                 _ => out.words.push(a.clone()),
             }
         }
         Ok(out)
     }
 
-    pub(super) fn value(&self, name: &str) -> Option<&str> {
+    pub(crate) fn value(&self, name: &str) -> Option<&str> {
         self.values.iter().rev().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
     }
 
@@ -73,5 +89,22 @@ mod tests {
         assert_eq!(a.rest, v(&["codex", "--x"]));
         assert!(Args::parse(&v(&["--nope"]), &[], &[]).is_err());
         assert!(Args::parse(&v(&["--files"]), &["--files"], &[]).is_err());
+    }
+
+    #[test]
+    fn options_up_to_the_command() {
+        let v = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let a = Args::parse_up_to_command(&v(&["--name", "x", "--ask", "codex", "--full-auto", "--", "y"]), &["--name"], &["--ask"]).unwrap();
+        assert_eq!(a.value("--name"), Some("x"));
+        assert!(a.flag("--ask"));
+        assert!(a.words.is_empty());
+        assert_eq!(a.rest, v(&["codex", "--full-auto", "--", "y"]), "the command and all after it, verbatim");
+        let a = Args::parse_up_to_command(&v(&["--name", "x", "--", "claude", "--model", "opus"]), &["--name"], &[]).unwrap();
+        assert_eq!(a.rest, v(&["claude", "--model", "opus"]));
+        assert!(Args::parse_up_to_command(&v(&["--name", "x"]), &["--name"], &[]).unwrap().rest.is_empty());
+        let e = Args::parse_up_to_command(&v(&["--bogus", "claude"]), &[], &[]).err().unwrap();
+        assert_eq!(e.to_string(), "unknown option --bogus");
+        let e = Args::parse_up_to_command(&v(&["--name"]), &["--name"], &[]).err().unwrap();
+        assert_eq!(e.to_string(), "--name needs a value");
     }
 }
