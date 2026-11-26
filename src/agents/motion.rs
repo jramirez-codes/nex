@@ -19,7 +19,7 @@ use std::sync::Arc;
 use egui::{Color32, Rect};
 
 use crate::layout::PaneId;
-use crate::ui::glide::{Lerp, ease_in_out, ease_out};
+use crate::ui::glide::{Tween, ease_in_out, ease_out};
 
 use super::group::Member;
 use super::model::{Agent, Seen, Status};
@@ -32,61 +32,6 @@ pub const FADE: f64 = 0.25;
 pub const COLOR: f64 = 0.3;
 /// The "Viewing" highlight coming on or going off.
 pub const VIEW: f64 = 0.2;
-
-/// A value easing from where it was toward its latest target over `duration` seconds.
-pub struct Tween<T: Lerp> {
-    from: T,
-    to: T,
-    start: f64,
-    duration: f64,
-    ease: fn(f32) -> f32,
-}
-
-impl<T: Lerp> Tween<T> {
-    pub fn new(v: T, duration: f64, ease: fn(f32) -> f32) -> Self {
-        Tween { from: v, to: v, start: f64::NEG_INFINITY, duration, ease }
-    }
-
-    fn progress(&self, now: f64) -> f32 {
-        ((now - self.start) / self.duration).clamp(0.0, 1.0) as f32
-    }
-
-    pub fn get(&self, now: f64) -> T {
-        T::lerp(self.from, self.to, (self.ease)(self.progress(now)))
-    }
-
-    /// Head for `target` (from wherever the value is now); `animate` false jumps there.
-    pub fn set(&mut self, now: f64, target: T, animate: bool) {
-        if !animate {
-            self.snap(target);
-        } else if target != self.to {
-            self.from = self.get(now);
-            self.to = target;
-            self.start = now;
-        }
-    }
-
-    /// Where it's headed.
-    pub fn target(&self) -> T {
-        self.to
-    }
-
-    pub fn snap(&mut self, v: T) {
-        self.from = v;
-        self.to = v;
-        self.start = f64::NEG_INFINITY;
-    }
-
-    /// Still on its way.
-    pub fn moving(&self, now: f64) -> bool {
-        self.progress(now) < 1.0
-    }
-
-    /// How far along the current move is, 0 to 1 (1 when settled).
-    pub fn t(&self, now: f64) -> f32 {
-        self.progress(now)
-    }
-}
 
 /// How far a card's (or a helper row's) "Viewing" highlight is in: `shown`, 0 (not on
 /// screen) to 1, and `primary`, 0 (a neighbour's look) to 1 (the focused pane's). Each eases
@@ -642,25 +587,8 @@ impl Motion {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::glide::Lerp;
     use egui::{Pos2, Vec2};
-
-    #[test]
-    fn tweens_ease_toward_a_new_target_from_where_they_are() {
-        let mut t = Tween::new(0.0_f32, 1.0, |x| x);
-        t.set(10.0, 100.0, true);
-        assert_eq!(t.get(10.0), 0.0);
-        assert_eq!(t.get(10.5), 50.0);
-        assert!(t.moving(10.5));
-        // Retargeted halfway: it starts from 50, not from 0 or 100.
-        t.set(10.5, 0.0, true);
-        assert_eq!(t.get(10.5), 50.0);
-        assert_eq!(t.get(11.5), 0.0);
-        assert!(!t.moving(11.5));
-        // With animations off it jumps.
-        t.set(12.0, 7.0, false);
-        assert_eq!(t.get(12.0), 7.0);
-        assert!(!t.moving(12.0));
-    }
 
     #[test]
     fn the_viewing_highlight_eases_in_and_out_and_lands_exactly() {

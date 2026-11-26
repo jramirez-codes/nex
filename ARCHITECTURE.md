@@ -66,7 +66,9 @@ src/
 │   ├── local.rs          the agent CLIs (nex-host's `clis`) as they run in this machine's panes
 │   ├── motion.rs         cards moving between sections
 │   ├── notify.rs         the Agents tab's badge, and when to send a system notification
-│   └── view.rs           drawing and the mouse
+│   └── view/             drawing and the mouse: mod.rs (state, the frame, orchestration),
+│                         text.rs (what cards say), layout.rs (where things go), paint.rs
+│                         (leaf painters), viewing.rs (the "Viewing" mark), tests.rs
 ├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture),
 │                     installing and watching nex-host; ssh/ is nex's own ssh client (russh):
 │                     host keys, the one-time password and device key, reconnecting;
@@ -118,7 +120,8 @@ Outside the Rust code:
   in its own map. Code that treats kinds differently matches on `App::pane_kind(id)` rather
   than probing the maps, so the compiler finds every place a new kind needs handling.
 - **`ui/` is stateless and shared.** Colors shared across the chrome belong in `ui/theme.rs`;
-  easing curves, `smoothstep` and `Lerp` in `ui/glide.rs`; font size limits in `config.rs`.
+  easing curves, `smoothstep`, `Lerp` and `Tween` in `ui/glide.rs`; font size limits in
+  `config.rs`.
 - **Background work never blocks a frame.** Git, file copies, ssh jobs and process polls run on
   threads and hand results back; the frame loop picks them up (`App::poll_background`).
 
