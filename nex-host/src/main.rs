@@ -268,14 +268,17 @@ fn run(args: &[String]) -> std::io::Result<i32> {
 /// `watch`: the session list as JSON lines, forever. It doesn't start the daemon (that would
 /// keep one running for nothing): while none runs it reports no sessions and looks again
 /// every couple of seconds, and when the daemon exits it goes back to that. Each line from a
-/// daemon older than this program carries its version in `daemon_version`.
+/// daemon older than this program carries its version in `daemon_version`. Whenever
+/// `proto::KEEPALIVE_MS` pass with nothing to print, it prints a blank line, so nex hears
+/// a lost connection within seconds (and this exits, its stdout gone, as soon as it does).
 #[cfg(unix)]
 fn watch() -> std::io::Result<i32> {
-    use std::io::{self, Write};
+    use std::io::{self, BufRead, ErrorKind, Write};
     use std::time::{Duration, Instant};
 
     use nex_host::proto::{self, Request, Response};
 
+    let keepalive = Duration::from_millis(proto::KEEPALIVE_MS);
     let mut out = io::stdout().lock();
     let mut idle_sent: Option<Instant> = None;
     loop {
@@ -295,22 +298,36 @@ fn watch() -> std::io::Result<i32> {
                 let first = client::ask(&mut stream, &Request::Watch)?;
                 writeln!(out, "{}", mark(&serde_json::to_string(&first).map_err(io::Error::other)?))?;
                 out.flush()?;
-                // Line by line, so each one reaches nex as soon as it's sent.
+                // A read that waits no longer than the keepalive: when it gives up, that's
+                // the blank line's turn.
+                stream.set_read_timeout(Some(keepalive))?;
+                // Line by line, so each one reaches nex as soon as it's sent. As bytes: a
+                // read that timed out keeps what it had of a line, the rest joins it.
                 let mut lines = io::BufReader::new(stream);
-                let mut line = String::new();
-                while io::BufRead::read_line(&mut lines, &mut line)? > 0 {
-                    writeln!(out, "{}", mark(line.trim_end()))?;
+                let mut line = Vec::new();
+                loop {
+                    match lines.read_until(b'\n', &mut line) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            writeln!(out, "{}", mark(String::from_utf8_lossy(&line).trim_end()))?;
+                            line.clear();
+                        }
+                        Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => writeln!(out)?,
+                        Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                        Err(e) => return Err(e),
+                    }
                     out.flush()?;
-                    line.clear();
                 }
             }
             Err(_) => {
                 if idle_sent.is_none_or(|t| t.elapsed() >= Duration::from_secs(proto::HEARTBEAT_SECS)) {
                     writeln!(out, "{}", serde_json::to_string(&Response::sessions(Vec::new())).map_err(io::Error::other)?)?;
-                    out.flush()?;
                     idle_sent = Some(Instant::now());
+                } else {
+                    writeln!(out)?;
                 }
-                std::thread::sleep(Duration::from_secs(2));
+                out.flush()?;
+                std::thread::sleep(keepalive);
             }
         }
     }

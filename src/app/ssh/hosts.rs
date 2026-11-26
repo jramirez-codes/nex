@@ -9,6 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use egui::Id;
@@ -62,6 +63,8 @@ pub(in crate::app) struct Hosts {
     direct: Option<(SshTarget, Arc<RemoteHost>)>,
     /// Repaints the window when a watch hears something.
     ctx: Option<egui::Context>,
+    /// A watch heard something since the Agents pane last looked (see [`Self::take_heard`]).
+    heard: Arc<AtomicBool>,
 }
 
 impl Hosts {
@@ -69,6 +72,34 @@ impl Hosts {
         if self.ctx.is_none() {
             self.ctx = Some(ctx.clone());
         }
+    }
+
+    /// Whether a watch heard something (a host's agents changed, or its connection did)
+    /// since this was last asked: the Agents pane then catches up in this frame, rather
+    /// than at the next process poll.
+    pub(in crate::app) fn take_heard(&self) -> bool {
+        self.heard.swap(false, Ordering::Relaxed)
+    }
+
+    /// What a watch calls when it hears something: note it, and repaint.
+    fn waker(&self) -> impl Fn() + Send + use<> {
+        let (ctx, heard) = (self.ctx.clone(), self.heard.clone());
+        move || {
+            heard.store(true, Ordering::Relaxed);
+            if let Some(c) = &ctx {
+                c.request_repaint();
+            }
+        }
+    }
+
+    /// Watch `target` (remembered, as a host with agents is) through a fake showing
+    /// `snapshot`; what's returned stands in for the watch hearing something.
+    #[cfg(test)]
+    pub(in crate::app) fn watch_fake(&mut self, target: SshTarget, snapshot: Snapshot) -> impl Fn() + use<> {
+        self.loaded = true;
+        self.remembered.push(target.clone());
+        self.watches.insert(target, Watch::fake(snapshot));
+        self.waker()
     }
 
     fn load_once(&mut self) {
@@ -114,12 +145,7 @@ impl Hosts {
         for target in wanted {
             // Tests never connect anywhere.
             if !self.watches.contains_key(target) && !cfg!(test) {
-                let ctx = self.ctx.clone();
-                let watch = Watch::start(target.clone(), move || {
-                    if let Some(c) = &ctx {
-                        c.request_repaint();
-                    }
-                });
+                let watch = Watch::start(target.clone(), self.waker());
                 self.watches.insert(target.clone(), watch);
             }
         }
@@ -132,12 +158,7 @@ impl Hosts {
             self.direct = Some((target.clone(), host.clone()));
         }
         if !self.watches.contains_key(&target) && !cfg!(test) {
-            let ctx = self.ctx.clone();
-            let watch = Watch::start_direct(host.clone(), move || {
-                if let Some(c) = &ctx {
-                    c.request_repaint();
-                }
-            });
+            let watch = Watch::start_direct(host.clone(), self.waker());
             self.watches.insert(target, watch);
         }
     }

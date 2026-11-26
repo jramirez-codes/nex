@@ -14,7 +14,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use nex_host::proto::{self, Response, Session};
@@ -33,6 +33,14 @@ pub(super) const REMOTE_BIN_SH: &str = "\"$HOME/.nex/bin/nex-host\"";
 /// Wait this long before trying a host again after it failed, doubling up to [`RETRY_MAX`].
 const RETRY_MIN: Duration = Duration::from_secs(3);
 const RETRY_MAX: Duration = Duration::from_secs(60);
+/// How long the watch may go quiet before its connection counts as gone and it starts over:
+/// `nex-host watch` sends something at least every [`proto::KEEPALIVE_MS`] (a blank line when
+/// nothing changed), so this is three of those missed, and a second for the network. The
+/// ssh keepalives would take 30 s (nex's own connection) to a minute (`ssh`) to notice.
+const SILENCE: Duration = Duration::from_millis(3 * proto::KEEPALIVE_MS + 1000);
+/// Before the first line, the script is still connecting (and maybe checking the install):
+/// ssh's own timeouts cover that, so this only catches one that never gets anywhere.
+const FIRST_SILENCE: Duration = Duration::from_secs(30);
 
 /// Why a host can't be watched.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -437,13 +445,15 @@ fn watch(transport: &Transport, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, s
                 continue;
             }
         };
-        let (lines, check, running) = read(process.stdout, process.running, snapshot, stop, slot, wake);
+        let Run { lines, check, running, silent } = read(process.stdout, process.running, snapshot, stop, slot, wake, [FIRST_SILENCE, SILENCE]);
         let err = process.stderr.and_then(|r| r.recv().ok()).unwrap_or_default();
         let (code, failure) = running.map(|r| r.exit(&err)).unwrap_or_default();
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        if failure == Some(RemoteError::NeedsLogin) {
+        if silent {
+            set_state(State::Failed(RemoteError::Other(STOPPED_ANSWERING.into()).into()));
+        } else if failure == Some(RemoteError::NeedsLogin) {
             set_state(State::Failed(RemoteError::NeedsLogin.into()));
         } else if code == Some(NEEDS_INSTALL) {
             match install(|script, stdin| run(transport, script, stdin), HostInfo::parse(&check)) {
@@ -470,11 +480,29 @@ fn watch(transport: &Transport, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, s
     }
 }
 
-/// Read one run of the watch's script into `snapshot`, until it ends or the [`Watch`] is
-/// dropped: `slot` holds the script meanwhile, which [`Watch`]'s `Drop` ends (and so this
-/// read, which would otherwise wait for a line that may never come). Returns how many lines
-/// it read, the lines that weren't the watch's (`shim on` ahead of it, or the install check),
-/// and the script, taken back out of `slot`.
+/// What a watch that went quiet says, until it hears from the host again.
+const STOPPED_ANSWERING: &str = "the host stopped answering";
+
+/// How one run of the watch's script went (see [`read`]).
+struct Run {
+    /// How many of its lines were the watch's.
+    lines: usize,
+    /// The lines that weren't (`shim on` ahead of it, or the install check).
+    check: String,
+    /// The script, taken back out of the slot.
+    running: Option<Running>,
+    /// It went quiet for longer than it's allowed to, and was ended for it.
+    silent: bool,
+}
+
+/// Read one run of the watch's script into `snapshot`, until it ends, the [`Watch`] is
+/// dropped, or nothing comes for `quiet[0]` (before the first line) or `quiet[1]` (after
+/// it): `slot` holds the script meanwhile, which [`Watch`]'s `Drop` ends (and so this read,
+/// which would otherwise wait for a line that may never come), and so does going quiet. The
+/// lines are read on a thread of their own, so waiting for one has a deadline and costs
+/// nothing: the thread sleeps in the read, this one in the wait. Blank lines are
+/// `nex-host watch` saying it's still there; only the others wake the window.
+#[allow(clippy::too_many_arguments)]
 fn read(
     stdout: Box<dyn Read + Send>,
     running: Running,
@@ -482,7 +510,8 @@ fn read(
     stop: &AtomicBool,
     slot: &Mutex<Option<Running>>,
     wake: &dyn Fn(),
-) -> (usize, String, Option<Running>) {
+    quiet: [Duration; 2],
+) -> Run {
     {
         let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
         *s = Some(running);
@@ -493,13 +522,40 @@ fn read(
             r.end();
         }
     }
+    let (tx, rx) = mpsc::channel();
+    let _ = std::thread::Builder::new().name("nex-host-watch-read".into()).spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
     let mut lines = 0;
+    let mut heard = false;
+    let mut silent = false;
     let mut check = String::new();
-    for line in BufReader::new(stdout).lines() {
+    loop {
+        let line = match rx.recv_timeout(quiet[usize::from(heard)]) {
+            Ok(line) => line,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // The connection is gone without saying so: end the script, which ends the
+                // read on the other thread.
+                silent = true;
+                if let Some(r) = slot.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                    r.end();
+                }
+                break;
+            }
+        };
+        heard = true;
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
         let Ok(r) = serde_json::from_str::<Response>(&line) else {
             if let Some(shim) = HostInfo::parse(&line).shim
                 && let Ok(mut s) = snapshot.lock()
@@ -514,7 +570,7 @@ fn read(
         apply_response(snapshot, r);
         wake();
     }
-    (lines, check, slot.lock().unwrap_or_else(|e| e.into_inner()).take())
+    Run { lines, check, running: slot.lock().unwrap_or_else(|e| e.into_inner()).take(), silent }
 }
 
 /// The watch, on a host the window is connected to itself. An `sh` script (`exec`, `$HOME`):
@@ -608,7 +664,7 @@ mod tests {
         let (tx, ended) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let p = Process::nex(exec, false, ());
-            let (lines, _, running) = read(p.stdout, p.running, &snapshot, &stop, &slot, &|| {});
+            let Run { lines, running, .. } = read(p.stdout, p.running, &snapshot, &stop, &slot, &|| {}, [FIRST_SILENCE, SILENCE]);
             // Ended on the host too, as `watch` does.
             if let Some(r) = running {
                 r.exit("");
@@ -647,6 +703,62 @@ mod tests {
         w.stop.store(true, Ordering::Relaxed);
         let ended = reading(&w, Exec::hanging(b""));
         assert_eq!(ended.recv_timeout(Duration::from_secs(5)).expect("the read ended"), 0);
+    }
+
+    /// A watch that goes quiet after its first line (the network went, and nothing said
+    /// so) is ended once its deadline passes, and says why.
+    #[test]
+    fn a_watch_that_goes_quiet_is_ended() {
+        let line = serde_json::to_string(&serde_json::json!({ "ok": true, "sessions": [] })).unwrap();
+        let w = Watch::fake(Snapshot::default());
+        let p = Process::nex(Exec::hanging(format!("{line}\n").as_bytes()), false, ());
+        let quiet = Duration::from_millis(150);
+        let started = Instant::now();
+        let run = read(p.stdout, p.running, &w.snapshot, &w.stop, &w.running, &|| {}, [Duration::from_secs(5), quiet]);
+        assert!(run.silent && run.lines == 1);
+        assert!(started.elapsed() < quiet + Duration::from_secs(1), "ended after {:?}", started.elapsed());
+        assert!(run.running.is_some() && w.running.lock().unwrap().is_none());
+    }
+
+    /// Before the first line the script may still be connecting: the longer deadline.
+    #[test]
+    fn a_watch_waits_longer_for_its_first_line() {
+        // A script still connecting: nothing yet, and no end.
+        let (out, _feed) = std::io::pipe().unwrap();
+        let w = Watch::fake(Snapshot::default());
+        let p = Process::nex(Exec::hanging(b""), false, ());
+        let started = Instant::now();
+        let run = read(Box::new(out), p.running, &w.snapshot, &w.stop, &w.running, &|| {}, [Duration::from_millis(300), Duration::from_millis(50)]);
+        assert!(run.silent && run.lines == 0);
+        assert!(started.elapsed() >= Duration::from_millis(300), "gave up after {:?}", started.elapsed());
+    }
+
+    /// `nex-host watch`'s blank lines keep a quiet watch going without waking the window;
+    /// the lists between them do wake it. It ends, not silent, when the script does.
+    #[test]
+    fn keepalives_keep_a_quiet_watch_going() {
+        let (out, mut feed) = std::io::pipe().unwrap();
+        let w = Watch::fake(Snapshot::default());
+        let p = Process::nex(Exec::hanging(b""), false, ());
+        let line = serde_json::to_string(&serde_json::json!({ "ok": true, "sessions": [session("a")] })).unwrap();
+        let feeder = std::thread::spawn(move || {
+            writeln!(feed, "{line}").unwrap();
+            // Four times the deadline in all, never quiet for as long as it.
+            for _ in 0..8 {
+                std::thread::sleep(Duration::from_millis(50));
+                writeln!(feed).unwrap();
+            }
+            writeln!(feed, "{line}").unwrap();
+        });
+        let wakes = std::sync::atomic::AtomicUsize::new(0);
+        let wake = || {
+            wakes.fetch_add(1, Ordering::Relaxed);
+        };
+        let run = read(Box::new(out), p.running, &w.snapshot, &w.stop, &w.running, &wake, [Duration::from_secs(5), Duration::from_millis(100)]);
+        feeder.join().unwrap();
+        assert!(!run.silent, "kept alive");
+        assert_eq!((run.lines, wakes.load(Ordering::Relaxed), run.check.as_str()), (2, 2, ""), "blank lines are neither lines nor wakes");
+        assert_eq!(w.with_snapshot(|s| s.sessions.len()), 1);
     }
 
     /// Looking at a snapshot copies nothing (the sessions stay where they are), where

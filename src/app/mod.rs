@@ -594,11 +594,17 @@ impl App {
     }
 
     /// Every so often: refresh process names / cwds, re-read stale file listings, and reload
-    /// the config if its file changed.
+    /// the config if its file changed. Agents on ssh hosts are caught up with as soon as their
+    /// watch hears something: that wakes the window, and waiting for the next poll would add
+    /// up to a second.
     fn poll_background(&mut self) {
         if self.timers.last_proc_poll.elapsed() <= PROCESS_POLL_INTERVAL {
+            if self.ssh.remote_hosts.take_heard() {
+                self.track_agents();
+            }
             return;
         }
+        self.ssh.remote_hosts.take_heard();
         self.timers.last_proc_poll = Instant::now();
         if config::modified() != self.timers.config_mtime {
             self.pending.push(Action::ReloadConfig);

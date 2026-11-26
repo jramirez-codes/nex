@@ -3,7 +3,9 @@
 //! Every connection to the daemon's socket starts with one [`Request`] as a JSON line, and
 //! the daemon answers with one [`Response`] line. Then:
 //! - `watch` gets a new [`Response`] line with every session whenever something changes
-//!   (and every [`HEARTBEAT_SECS`] regardless), until the client hangs up;
+//!   (and every [`HEARTBEAT_SECS`] regardless), until the client hangs up. The `nex-host
+//!   watch` command passing them on adds a blank line whenever [`KEEPALIVE_MS`] go by with
+//!   nothing to send;
 //! - `attach` turns into a terminal: the daemon sends the agent's screen and then its output
 //!   as raw bytes, and the client sends [`frame`]s (keys, resizes) back;
 //! - `recv` waits (up to its timeout) for a message before it answers;
@@ -38,13 +40,19 @@ pub use message::{Message, MessageKind, Payload, USER, Verdict};
 pub use request::{RECV_DEFAULT_MS, Request, Response};
 pub use session::{BUSY_WINDOW_MS, Claude, PIPELINE_KIND, SHELL_KIND, Session, Status, SubAgent, TITLE_SEP, pipeline_title, split_pipeline_title};
 
-/// Bumped whenever a change here would confuse the other side.
-pub const PROTOCOL: u32 = 3;
+/// Bumped whenever a change here would confuse the other side. (4: `nex-host watch` sends
+/// a blank line every [`KEEPALIVE_MS`] that nothing else is sent, and nex counts a watch
+/// that goes quiet for longer as disconnected: a host with a protocol-3 nex-host gets this
+/// one, rather than nex taking its quiet for a lost connection.)
+pub const PROTOCOL: u32 = 4;
 /// The `nex-host` version, which nex compares to its own to decide whether to reinstall.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-/// How often `watch` resends the session list when nothing has changed: a client that hears
-/// nothing for longer than this knows the connection is gone.
+/// How often `watch` resends the session list when nothing has changed.
 pub const HEARTBEAT_SECS: u64 = 15;
+/// The longest `nex-host watch` goes without printing anything: when nothing else comes,
+/// a blank line, so a client that hears nothing for a few of these knows the connection is
+/// gone (a couple of bytes, where the whole list could be kilobytes).
+pub const KEEPALIVE_MS: u64 = 2000;
 
 /// What a daemon that's handing over to a newer nex-host answers a `launch` or `spawn`
 /// with: the client starts the new daemon and asks it again.
