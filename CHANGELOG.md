@@ -69,6 +69,11 @@ All notable changes to nex are documented here. The format follows
   connection meanwhile, coming back to the app closed its window, and the Android app then
   wouldn't open again until it was restarted. Now a new shell on the host takes the tab's
   place; should that one end at once too, the connect screen comes back instead.
+- The Agents pane's tree connectors (├, └ and the line between them) line up exactly: each
+  line is one crisp column of whole pixels at every depth, its pieces meet row to row with no
+  gap, step or brighter seam, and the arm meets the row's tile at its middle. At fractional
+  scales (most phones, 125%/150% desktops) the top and bottom halves of a ├ used to sit up to
+  half a pixel apart and blur differently.
 
 ## [0.16.0] - 2026-11-25
 
