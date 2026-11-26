@@ -5,15 +5,11 @@
 //! right click does the same on a desktop, until the next press or the pointer leaves.
 //! Lines that fit don't move. With animations off a held line shows its end, still.
 //!
-//! The state is here ([`Reveal`]) with the scrolling's timing ([`offset`]); the painters
+//! The state is here ([`Reveal`]) with the scrolling's timing ([`offset`], shared with pane headers' titles
+//! from `ui::glide`); the painters
 //! (`paint`) draw each line [`offset`] along.
 
 use crate::layout::PaneId;
-
-/// The pause at each end of the scroll, in seconds.
-const PAUSE: f64 = 0.6;
-/// How fast a line scrolls, in points a second.
-const SPEED: f32 = 60.0;
 
 /// What's held: a card (a team's header) or a helper's row in an open team.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,25 +49,5 @@ impl Reveal {
 }
 
 /// How far along to draw a line `overflow` points too long for its room, `held` seconds into
-/// a hold: still for a moment, along to its end, still again, back, and round again. A line
-/// that fits (`overflow` 0 or less) stays put; with animations off (`animate`) the end shows.
-pub(super) fn offset(held: f64, overflow: f32, animate: bool) -> f32 {
-    if overflow <= 0.0 {
-        return 0.0;
-    }
-    if !animate {
-        return overflow;
-    }
-    let travel = f64::from(overflow / SPEED);
-    let t = held.max(0.0) % (2.0 * (PAUSE + travel));
-    let along = if t < PAUSE {
-        0.0
-    } else if t < PAUSE + travel {
-        (t - PAUSE) / travel
-    } else if t < 2.0 * PAUSE + travel {
-        1.0
-    } else {
-        1.0 - (t - 2.0 * PAUSE - travel) / travel
-    };
-    overflow * crate::ui::glide::ease_in_out(along as f32)
-}
+/// a hold: the marquee timing pane headers' titles share (see [`marquee`](crate::ui::glide::marquee)).
+pub(super) use crate::ui::glide::marquee as offset;

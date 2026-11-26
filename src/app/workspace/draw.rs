@@ -603,6 +603,7 @@ impl App {
         let font = if self.cfg.sidebar() { 15.0 } else { 13.5 };
         // Borrowed from the pane, so read here, once the buttons are done changing things.
         let mut rolls = std::mem::take(&mut self.title_rolls);
+        let mut scroll = std::mem::take(&mut self.title_scroll);
         let (title, process) = self.pane_label(id);
         let (mark, text) = icons::title_mark(process, &title);
         icons::header_glyph(painter, header_glyph_rect(header), process, mark, title_color);
@@ -618,9 +619,29 @@ impl App {
             rolls.forget(id);
             None
         };
-        match roll {
-            Some(frame) => header_title_rolling(painter, header, frame, title_color, bx - 4.0, font),
-            None => header_title(painter, header, text, title_color, bx - 4.0, font),
+        // A long title scrolls sideways while the header is held, to be read whole: a long
+        // press on touch (which egui doesn't let start a drag or count as a click), or the
+        // secondary button held on desktop. One that fits ignores the hold.
+        let now = ui.input(|i| i.time);
+        let right = bx - 4.0;
+        let overflow = || header_title_width(painter, text, title_color, font) - (right - title_left(header));
+        let secondary = handle.is_pointer_button_down_on() && ui.input(|i| i.pointer.button_down(PointerButton::Secondary));
+        if (handle.long_touched() || secondary) && !scroll.held(id) && overflow() > 0.5 {
+            scroll.hold(id, now);
+        }
+        if !ui.input(|i| i.pointer.any_down()) {
+            scroll.release();
+        }
+        // The held title is the current one, whole; a roll under way carries on underneath
+        // and shows again on release if it hasn't finished.
+        let offset = if scroll.held(id) { scroll.offset(id, now, overflow(), glide::animations(ui.ctx())) } else { None };
+        match (offset, roll) {
+            (Some(offset), _) => {
+                ui.ctx().request_repaint();
+                header_title_scrolled(painter, header, text, title_color, right, font, offset);
+            }
+            (None, Some(frame)) => header_title_rolling(painter, header, frame, title_color, right, font),
+            (None, None) => header_title(painter, header, text, title_color, right, font),
         }
         // The connect handoff draws the same label on its card as it lands here: a copy it
         // keeps, made only while it plays.
@@ -640,6 +661,7 @@ impl App {
             self.pending.push(Action::FocusPane(id));
         }
         self.title_rolls = rolls;
+        self.title_scroll = scroll;
     }
 }
 
@@ -661,13 +683,36 @@ pub(in crate::app) fn header_glyph_rect(header: Rect) -> Rect {
     Rect::from_center_size(Pos2::new(header.left() + 20.0, header.center().y + 1.0), Vec2::splat(13.0))
 }
 
+/// Where a pane header's title starts, after the glyph.
+fn title_left(header: Rect) -> f32 {
+    header_glyph_rect(header).right() + 8.0
+}
+
+/// How wide a pane header's title is, whole.
+fn header_title_width(painter: &Painter, title: &str, color: Color32, font: f32) -> f32 {
+    painter.layout_no_wrap(title.to_owned(), paint::bold(font), color).size().x
+}
+
 /// A pane header's title, after the glyph, faded out before `right`.
 pub(in crate::app) fn header_title(painter: &Painter, header: Rect, title: &str, color: Color32, right: f32, font: f32) {
     let glyph = header_glyph_rect(header);
-    let text_left = glyph.right() + 8.0;
+    let text_left = title_left(header);
     if right > text_left {
         paint::faded_text(painter, Pos2::new(text_left, glyph.center().y), title, paint::bold(font), color, right - text_left, 24.0);
     }
+}
+
+/// A pane header's title scrolled `offset` points to the left while the header is held (see
+/// `animation/title_scroll.rs`): cut off at the glyph, and still faded out before `right`
+/// until its end comes into view.
+fn header_title_scrolled(painter: &Painter, header: Rect, title: &str, color: Color32, right: f32, font: f32, offset: f32) {
+    let left = title_left(header);
+    if right <= left {
+        return;
+    }
+    let clip = Rect::from_x_y_ranges(left..=right, header.y_range()).intersect(painter.clip_rect());
+    let y = header_glyph_rect(header).center().y;
+    paint::faded_text(&painter.with_clip_rect(clip), Pos2::new(left - offset, y), title, paint::bold(font), color, right - left + offset, 24.0);
 }
 
 /// A pane header's title mid-roll (see [`RollFrame`]): the words that stay, then the new

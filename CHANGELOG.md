@@ -13,6 +13,10 @@ All notable changes to nex are documented here. The format follows
   to its end and back; lifting it snaps the line back, without opening the agent or
   scrolling the list. Lines that fit don't move, and a tap still opens the agent. On a
   desktop a right click does the same until the next click.
+- Press and hold a pane's header to read a title too long for it: while the finger stays
+  down (or the right mouse button, on desktop), the title scrolls sideways to its end and
+  back, pausing at each end, and lifting snaps it back to the usual faded-out start. A title
+  that fits doesn't move, and the hold doesn't pick the pane up to drag it.
 - Android: download a file from the Files pane of an ssh session to the phone. Long-press a
   file and pick "Download to phone", or tap Download in its Properties. It's saved to the
   phone's Downloads (Android 11 or newer) under its own name, or "name (2).ext" when that's

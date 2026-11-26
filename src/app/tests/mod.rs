@@ -16,6 +16,7 @@ mod keyboard_button;
 mod session;
 mod sticky;
 mod tab_scroll;
+mod title_hold;
 mod touch_scroll;
 
 /// An `App` with config `cfg` that doesn't restore (or save over) the user's session.
