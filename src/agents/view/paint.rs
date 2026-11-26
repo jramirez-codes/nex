@@ -1,6 +1,6 @@
 //! The leaf painters of the Agents pane, each drawing one thing where `layout` put it: a
 //! section header, a card's body and header, a pipeline's tile, the chevron, a helper row
-//! and its connectors, status dots and glyphs, the host notes, the empty state. Also the
+//! and its connectors, status dots and glyphs, the host notices, the empty state. Also the
 //! per-frame looks they take (`Look`, `TileLook`) and the colors behind them. The view's
 //! root decides what goes where and in what order; these only paint.
 
@@ -16,6 +16,7 @@ use crate::agents::view::reveal;
 use crate::agents::view::text::member_task;
 use crate::agents::view::viewing;
 use crate::agents::view::{CARD_H, CARD_RADIUS, DETAIL_Y, Frame, SIDE, TAG_H, TILE, TITLE_Y, status_color, ui_font};
+use crate::ui::notice::{self, Notice};
 use crate::ui::theme::{ACCENT, Theme, white_alpha};
 use crate::ui::{icons, paint};
 
@@ -379,18 +380,23 @@ pub(super) fn status_dot(f: &Frame, p: &Painter, at: Pos2, status: Status, color
     p.circle_filled(at, 3.2 + 0.6 * breathe, color.gamma_multiply(0.75 + 0.25 * breathe));
 }
 
-/// The hosts that can't be watched, one quiet line each with an amber dot, above the cards.
-/// Returns the height they took.
-pub(super) fn host_notes(f: &Frame, p: &Painter, area: Rect, notes: &[String]) -> f32 {
-    const LINE: f32 = 20.0;
-    let mut y = area.top() + 8.0 + LINE / 2.0;
-    let room = (area.width() - 2.0 * SIDE - 14.0).max(0.0);
-    for note in notes {
-        p.circle_filled(Pos2::new(area.left() + SIDE + 3.0, y), 3.0, f.c.yellow.gamma_multiply(0.8));
-        paint::faded_text(p, Pos2::new(area.left() + SIDE + 14.0, y), note, ui_font(12.0), f.c.text_dim, room, LINE);
-        y += LINE;
+/// The hosts that can't be watched, a quiet card each above the cards, fading in and out
+/// (`notices` holds each with its presence). Returns the height they took, which eases with
+/// them so the cards below glide rather than jump.
+pub(super) fn host_notes(f: &Frame, p: &Painter, area: Rect, notices: &[(&Notice, f32)]) -> f32 {
+    const GAP: f32 = 8.0;
+    let width = (area.width() - 2.0 * SIDE).max(0.0);
+    let mut y = area.top() + 6.0;
+    for &(n, presence) in notices {
+        let laid = notice::layout(p, n, width, f.c);
+        let r = Rect::from_min_size(Pos2::new(area.left() + SIDE, y), Vec2::new(width, laid.height));
+        notice::paint(p, r, n, &laid, f.c, presence);
+        y += (laid.height + GAP) * presence;
     }
-    8.0 + notes.len() as f32 * LINE
+    if notices.iter().any(|&(_, presence)| presence < 1.0) {
+        f.ui.ctx().request_repaint();
+    }
+    y - area.top()
 }
 
 /// Nothing to show: no agents running.

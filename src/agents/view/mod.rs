@@ -75,6 +75,7 @@ use crate::agents::view::text::{header_text, member_detail};
 use crate::layout::PaneId;
 use crate::ui;
 use crate::ui::glide::animations;
+use crate::ui::notice::{Notice, Notices};
 use crate::ui::theme::{ACCENT, Theme, lighten, white_alpha};
 use crate::ui::touch_pan::TouchPan;
 use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
@@ -143,6 +144,8 @@ pub(super) struct ViewState {
     draw_order: Vec<(PaneId, f32)>,
     /// A card or helper row pressed and held, its cut-off lines scrolling.
     reveal: Option<Reveal>,
+    /// The host notices above the cards, kept while they fade out.
+    notices: Notices,
 }
 
 impl ViewState {
@@ -160,6 +163,7 @@ impl ViewState {
             viewing: Viewing::default(),
             draw_order: Vec::new(),
             reveal: None,
+            notices: Notices::default(),
         }
     }
 
@@ -218,8 +222,8 @@ pub struct PaintArgs<'a> {
     pub c: &'a Theme,
     /// All the agents, sorted.
     pub agents: &'a Agents,
-    /// One line per ssh host that can't be watched, shown above the cards.
-    pub notes: &'a [String],
+    /// One notice per ssh host that can't be watched, shown above the cards.
+    pub notes: &'a [Notice],
     /// The terminal tab on screen (`None` for the Agents / Files tab): switching to one
     /// bubbles the cards of the agents on it.
     pub shown_tab: Option<usize>,
@@ -290,9 +294,9 @@ impl AgentsPane {
         let painter = &painter.with_clip_rect(f.clip);
 
         let mut body = Rect::from_min_max(rect.min + Vec2::new(0.0, 6.0), rect.max);
-        if !notes.is_empty() {
-            let strip = host_notes(&f, painter, body, notes);
-            body.min.y += strip;
+        let notices = self.view.notices.update(f.time, notes, f.animate);
+        if !notices.is_empty() {
+            body.min.y += host_notes(&f, painter, body, &notices);
         }
         if !body.is_positive() {
             return;

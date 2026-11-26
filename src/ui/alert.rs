@@ -1,4 +1,4 @@
-//! A macOS-style alert: a narrow centered card over a dimmed window, with an icon tile, a bold
+//! A macOS-style alert: a narrow centered card over a softly dimmed window, fading in, with an icon tile, a bold
 //! centered title, softer body text, optional numbered steps, and equal-width buttons
 //! (secondary on the left, primary on the right). Enter picks the primary button; Escape or a
 //! tap outside picks the secondary one (or dismisses an alert with a single button). Its
@@ -13,7 +13,7 @@ use super::theme::{ACCENT, Theme, lighten, white_alpha};
 
 const WIDTH: f32 = 300.0;
 const RADIUS: u8 = 16;
-const ICON: f32 = 52.0;
+const ICON: f32 = 48.0;
 const TITLE_SIZE: f32 = 15.0;
 const BODY_SIZE: f32 = 12.5;
 const BUTTON_RADIUS: u8 = 8;
@@ -60,11 +60,11 @@ impl Alert<'_> {
             .fill(fill)
             .corner_radius(RADIUS)
             .stroke(Stroke::new(1.0_f32, white_alpha(26)))
-            .shadow(Shadow { offset: [0, 18], blur: 48, spread: 0, color: Color32::from_black_alpha(150) })
+            .shadow(Shadow { offset: [0, 12], blur: 40, spread: 0, color: Color32::from_black_alpha(100) })
             .inner_margin(egui::Margin { left: 20, right: 20, top: 22, bottom: 18 });
         let (enter, escape) = ctx.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
         let mut choice = None;
-        let modal = egui::Modal::new(self.id).frame(frame).backdrop_color(Color32::from_black_alpha(120)).show(ctx, |ui| {
+        let modal = egui::Modal::new(self.id).frame(frame).backdrop_color(Color32::from_black_alpha(84)).show(ctx, |ui| {
             ui.set_width((WIDTH * scale).min(ctx.content_rect().width() - 48.0));
             ui.spacing_mut().item_spacing = Vec2::ZERO;
 
@@ -220,7 +220,7 @@ pub fn icon_tile(p: &Painter, r: Rect, icon: AlertIcon) {
         AlertIcon::Warning => Color32::from_rgb(0xff, 0x9f, 0x0a),
     };
     let radius = (r.width() * 0.26) as u8;
-    p.add(Shadow { offset: [0, 4], blur: 14, spread: 0, color: color.gamma_multiply(0.35) }.as_shape(r, radius));
+    p.add(Shadow { offset: [0, 4], blur: 14, spread: 0, color: color.gamma_multiply(0.2) }.as_shape(r, radius));
     p.rect_filled(r, radius, color);
     // Lighter upper half for a little depth.
     let upper = Rect::from_min_max(r.min, Pos2::new(r.right(), r.center().y));

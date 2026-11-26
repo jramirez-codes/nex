@@ -20,6 +20,7 @@ use crate::remote::host::{self, HostError, Snapshot, State, Watch};
 use crate::remote::ssh::host::RemoteHost;
 use crate::remote::{self, RemoteError, SshTarget};
 use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
+use crate::ui::notice::{Notice, Tone};
 use crate::ui::theme::Theme;
 use crate::ui::toast::Toast;
 
@@ -325,32 +326,51 @@ impl App {
         }
     }
 
-    /// One line per watched host that isn't working, for the top of the Agents pane.
-    pub(in crate::app) fn host_notes(&self) -> Vec<String> {
+    /// A notice per watched host that isn't working, for the top of the Agents pane.
+    pub(in crate::app) fn host_notes(&self) -> Vec<Notice> {
         let snapshots = self.ssh.remote_hosts.snapshots();
         // Read only when it matters: a host wants a password.
         let sharing =
             snapshots.iter().any(|(_, s)| s.state == State::Failed(HostError::Remote(RemoteError::NeedsLogin))) && remote::sharing_enabled();
         snapshots
             .into_iter()
-            .filter_map(|(t, s)| match s.state {
-                // Sharing is on, but the pane's login started before it was.
-                State::Failed(HostError::Remote(RemoteError::NeedsLogin)) if sharing => {
-                    Some(format!("{} needs a password: log out of it (exit) and ssh back in, and nex shares that login", t.host()))
-                }
-                State::Failed(HostError::Remote(RemoteError::NeedsLogin)) => {
-                    Some(format!("{} needs a password, so nex can't see its agents", t.host()))
-                }
-                State::Failed(HostError::Unsupported(system)) => Some(format!("{}: nex has no helper for {system}", t.host())),
-                State::Failed(HostError::Remote(RemoteError::Other(e))) => Some(format!("{}: can't connect ({e}), retrying", t.host())),
-                // An older nex-host still holds agents there; it hands over once they finish.
-                State::Live if s.daemon_version.is_some() => {
-                    Some(format!("{}: nex-host update pending (it switches over when its agents finish)", t.host()))
-                }
-                State::Connecting | State::Live => None,
+            .filter_map(|(t, s)| {
+                let host = t.host();
+                let (title, detail, tone) = match s.state {
+                    // Sharing is on, but the pane's login started before it was.
+                    State::Failed(HostError::Remote(RemoteError::NeedsLogin)) if sharing => {
+                        ("Password needed", format!("{host} \u{00b7} exit and ssh back in to share the login"), Tone::Warning)
+                    }
+                    State::Failed(HostError::Remote(RemoteError::NeedsLogin)) => {
+                        ("Password needed", format!("{host} \u{00b7} its agents can't be shown"), Tone::Warning)
+                    }
+                    State::Failed(HostError::Unsupported(system)) => {
+                        ("Not supported", format!("{host} \u{00b7} no helper for {system}"), Tone::Warning)
+                    }
+                    State::Failed(HostError::Remote(RemoteError::Other(e))) => {
+                        let detail = match reason(&e, host) {
+                            "" => format!("{host} \u{00b7} trying again"),
+                            why => format!("{host} \u{00b7} trying again \u{00b7} {why}"),
+                        };
+                        ("Not connected", detail, Tone::Warning)
+                    }
+                    // An older nex-host still holds agents there; it hands over once they finish.
+                    State::Live if s.daemon_version.is_some() => {
+                        ("Update waiting", format!("{host} \u{00b7} switches over when its agents finish"), Tone::Info)
+                    }
+                    State::Connecting | State::Live => return None,
+                };
+                Some(Notice { key: host.to_string(), title: title.into(), detail, tone })
             })
             .collect()
     }
+}
+
+/// Why a host can't be reached, without repeating what the notice says already ("Not
+/// connected to devbox: ").
+fn reason<'a>(e: &'a str, host: &str) -> &'a str {
+    let e = e.trim();
+    e.strip_prefix("Not connected to ").and_then(|rest| rest.strip_prefix(host)).and_then(|rest| rest.strip_prefix(':')).map_or(e, str::trim)
 }
 
 /// `agent-hosts.json`, next to the session file.
@@ -422,6 +442,15 @@ fn from_json(text: &str) -> (Vec<SshTarget>, Vec<SshTarget>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_not_connected_reason_drops_what_the_notice_says() {
+        assert_eq!(reason("Not connected to devbox: connection refused", "devbox"), "connection refused");
+        assert_eq!(reason("Not connected to devbox:", "devbox"), "");
+        assert_eq!(reason("connection refused", "devbox"), "connection refused");
+        // Another host's message is kept whole.
+        assert_eq!(reason("Not connected to prod: timed out", "devbox"), "Not connected to prod: timed out");
+    }
 
     #[test]
     fn finds_a_pane_host_that_wants_a_password() {
