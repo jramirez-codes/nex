@@ -24,6 +24,6 @@ pub(in crate::app) struct SshState {
     pub(in crate::app) remote_hosts: hosts::Hosts,
     /// An alert about agents on a host: the shim offer, stopping one (see `ssh/hosts.rs`).
     pub(in crate::app) agent_prompt: Option<hosts::AgentPrompt>,
-    /// Hosts the Agents pane can't watch, one line each, for the top of the pane.
-    pub(in crate::app) agent_notes: Vec<String>,
+    /// Hosts the Agents pane can't watch, a notice each, for the top of the pane.
+    pub(in crate::app) agent_notes: Vec<crate::ui::notice::Notice>,
 }

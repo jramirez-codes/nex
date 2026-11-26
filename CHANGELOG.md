@@ -40,6 +40,12 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- The Agents pane's notices about ssh hosts are quieter cards: a light translucent rounded
+  card each, with a soft tinted dot, a short title ("Not connected", "Password needed",
+  "Update waiting") and the host and detail under it, wrapping to two lines on a phone. They
+  fade in and out, and the cards below glide rather than jump. A remote pane's own lines
+  ("Connection to devbox lost · reconnecting…") are dim italic sentences instead of
+  bracketed ones, and alerts dim the window less, with a softer shadow and icon.
 - The file explorer's action bar is icons now (Select all, Copy, Cut, Rename, Delete, Paste /
   Move here, Cancel, Done, each named in its tooltip), and a little shorter. In a narrow pane
   the buttons shrink to fit instead of dropping off the left, and the status line makes way.

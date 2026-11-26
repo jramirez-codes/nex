@@ -87,7 +87,7 @@ src/
 │                     transport.rs is the one way a script reaches a host, over `ssh` or
 │                     nex's own connection, for exec.rs (shell scripts for Files and Changes
 │                     panes opened from an ssh pane), host.rs and mic.rs
-├── ui/               shared UI kit: theme, glide/ink animation, painting, icons, widgets, toasts
+├── ui/               shared UI kit: theme, glide/ink animation, painting, icons, widgets, toasts, notices
 └── platform/         everything OS-specific, behind one API (see platform/mod.rs)
     ├── mod.rs            the shared types and the per-OS switch
     ├── unix.rs           POSIX pieces shared by Linux and macOS

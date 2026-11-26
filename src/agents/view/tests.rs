@@ -205,6 +205,19 @@ fn frame(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut
 
 /// [`frame`], with `viewing` on screen.
 fn frame_viewing(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, events: Vec<egui::Event>, viewing: &Viewing) {
+    frame_with(ctx, pane, agents, time, events, viewing, &[]);
+}
+
+/// [`frame_viewing`], with host `notes` above the cards.
+fn frame_with(
+    ctx: &egui::Context,
+    pane: &mut AgentsPane,
+    agents: &Agents,
+    time: &mut f64,
+    events: Vec<egui::Event>,
+    viewing: &Viewing,
+    notes: &[crate::ui::notice::Notice],
+) {
     *time += 0.05;
     let theme = Theme::from_config(&crate::config::Config::default());
     let input = egui::RawInput {
@@ -216,9 +229,37 @@ fn frame_viewing(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, ti
     let _ = ctx.run(input, |ctx| {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             let rect = ui.max_rect();
-            pane.paint(ui, ui.painter(), rect, PaintArgs { pane: 1, focused: true, c: &theme, agents, notes: &[], shown_tab: None, viewing });
+            pane.paint(ui, ui.painter(), rect, PaintArgs { pane: 1, focused: true, c: &theme, agents, notes, shown_tab: None, viewing });
         });
     });
+}
+
+#[test]
+fn a_host_notice_fades_out_once_the_host_is_back() {
+    use crate::ui::notice::{FADE, Notice, Tone};
+    let ctx = egui::Context::default();
+    crate::render::fonts::install(&ctx, &crate::config::Config::default());
+    crate::ui::glide::set_animations(&ctx, true);
+    let list = Agents::new(vec![agent(1, None)]);
+    let mut pane = AgentsPane::new();
+    let mut time = 0.0;
+    let none = Viewing::default();
+    let down = [Notice { key: "devbox".into(), title: "Not connected".into(), detail: "devbox \u{00b7} trying again".into(), tone: Tone::Warning }];
+    for _ in 0..10 {
+        frame_with(&ctx, &mut pane, &list, &mut time, vec![], &none, &down);
+    }
+    assert_eq!(pane.view.notices.update(time, &down, true), [(&down[0], 1.0)]);
+
+    // The host is back: the card stays while it fades, then goes.
+    frame_with(&ctx, &mut pane, &list, &mut time, vec![], &none, &[]);
+    frame_with(&ctx, &mut pane, &list, &mut time, vec![], &none, &[]);
+    let fading = pane.view.notices.update(time, &[], true);
+    assert!(fading.len() == 1 && fading[0].1 > 0.0 && fading[0].1 < 1.0, "{fading:?}");
+    let gone = time + FADE;
+    while time < gone {
+        frame_with(&ctx, &mut pane, &list, &mut time, vec![], &none, &[]);
+    }
+    assert!(pane.view.notices.update(time, &[], true).is_empty());
 }
 
 #[test]

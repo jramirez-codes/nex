@@ -174,7 +174,7 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
 
     let mut out = pane;
     let say = |out: &mut UnixStream, line: &str| {
-        let _ = out.write_all(format!("\r\n\x1b[2m[{line}]\x1b[0m\r\n").as_bytes());
+        let _ = out.write_all(notice_line(line).as_bytes());
     };
     let mut wait = RETRY_FIRST;
     // What the pane last said about a host it can't reach, so retries don't repeat it.
@@ -202,7 +202,7 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
             }
             Err(Attach::Unreachable(why)) => {
                 // Try again until the host is back (or the pane is closed).
-                let line = format!("can't reach {}: {why}; trying again", host.server);
+                let line = format!("Can't reach {} \u{00b7} trying again \u{00b7} {why}", host.server);
                 if said.as_deref() != Some(line.as_str()) {
                     say(&mut out, &line);
                     said = Some(line);
@@ -229,7 +229,7 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
             break;
         }
         eprintln!("nex: lost the connection to {}; reconnecting", host.server);
-        say(&mut out, &format!("lost the connection to {}; reconnecting", host.server));
+        say(&mut out, &format!("Connection to {} lost \u{00b7} reconnecting\u{2026}", host.server));
     }
     if !pane_closed.load(Ordering::Relaxed) {
         // Tell the event loop the shell ended; it closes the pane, and the keys thread ends
@@ -246,6 +246,14 @@ fn pump(start: Start, pane: UnixStream, mut exit_tx: UnixStream, resizes: Receiv
         let _ = request(&host, &Request::Kill { id });
     }
     let _ = keys;
+}
+
+/// A line the pane says itself (between the shell's output), set apart quietly: on a line of
+/// its own, dim and italic, after a soft dot, starting with a capital.
+fn notice_line(line: &str) -> String {
+    let mut chars = line.chars();
+    let line: String = chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default();
+    format!("\r\n\x1b[2;3m\u{25e6} {line}\x1b[0m\r\n")
 }
 
 /// Did the attached stream end because the daemon let go, rather than the connection
@@ -343,6 +351,12 @@ fn attach(host: &RemoteHost, id: &str, cols: u16, rows: u16) -> Result<crate::re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_panes_own_lines_are_quiet_and_capitalized() {
+        assert_eq!(notice_line("the session ended"), "\r\n\x1b[2;3m\u{25e6} The session ended\x1b[0m\r\n");
+        assert_eq!(notice_line(""), "\r\n\x1b[2;3m\u{25e6} \x1b[0m\r\n");
+    }
 
     fn shell(id: &str, running: Option<&str>, exit: Option<i32>) -> proto::Session {
         proto::Session {
