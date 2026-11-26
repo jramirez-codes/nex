@@ -688,6 +688,12 @@ impl Terminal {
     pub fn title(&self) -> &str {
         &self.title
     }
+
+    /// Label the terminal `title` until something it is built from changes (for tests).
+    #[cfg(test)]
+    pub fn set_title(&mut self, title: &str) {
+        title.clone_into(&mut self.title);
+    }
 }
 
 /// A terminal's label (see [`Terminal::title`]): the program's own title while the process

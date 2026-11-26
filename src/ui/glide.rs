@@ -1,7 +1,8 @@
 //! The animation basics every animation shares: easing curves, blending ([`Lerp`]), a value
 //! that animates toward its target with an ease-out curve ([`Glide`]), a value of any `Lerp`
 //! type easing toward its latest target along a chosen curve on a clock you pass in
-//! ([`Tween`]: the Agents pane's cards, rows and capsules), and the global switch
+//! ([`Tween`]: the Agents pane's cards, rows and capsules), the timing of a held line
+//! scrolling to show its end ([`marquee`]), and the global switch
 //! (`animations` in the config) that turns every animation off.
 
 use egui::{Color32, Id, Rect};
@@ -20,6 +21,36 @@ pub fn ease_in(t: f32) -> f32 {
 pub fn ease_in_out(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
+}
+
+/// The pause at each end of a [`marquee`], in seconds.
+const MARQUEE_PAUSE: f64 = 0.6;
+/// How fast a [`marquee`] scrolls, in points a second.
+const MARQUEE_SPEED: f32 = 60.0;
+
+/// How far along to draw a line `overflow` points too long for its room, `held` seconds into
+/// a press and hold that reveals it: still for a moment, along to its end, still again, back,
+/// and round again. A line that fits (`overflow` 0 or less) stays put; with animations off
+/// (`animate`) the end shows. Shared by the Agents pane's held cards and held pane headers.
+pub fn marquee(held: f64, overflow: f32, animate: bool) -> f32 {
+    if overflow <= 0.0 {
+        return 0.0;
+    }
+    if !animate {
+        return overflow;
+    }
+    let travel = f64::from(overflow / MARQUEE_SPEED);
+    let t = held.max(0.0) % (2.0 * (MARQUEE_PAUSE + travel));
+    let along = if t < MARQUEE_PAUSE {
+        0.0
+    } else if t < MARQUEE_PAUSE + travel {
+        (t - MARQUEE_PAUSE) / travel
+    } else if t < 2.0 * MARQUEE_PAUSE + travel {
+        1.0
+    } else {
+        1.0 - (t - 2.0 * MARQUEE_PAUSE - travel) / travel
+    };
+    overflow * ease_in_out(along as f32)
 }
 
 /// Smoothstep: eases in and out, flat at both ends. For cross-fades.

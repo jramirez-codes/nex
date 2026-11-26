@@ -7,14 +7,14 @@ use egui::{Event, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, T
 use crate::app::App;
 use crate::layout::{PaneId, PaneKind};
 
-struct Sim {
-    ctx: egui::Context,
-    app: App,
+pub(super) struct Sim {
+    pub(super) ctx: egui::Context,
+    pub(super) app: App,
     t: f64,
 }
 
 impl Sim {
-    fn new(tabs: usize) -> Self {
+    pub(super) fn new(tabs: usize) -> Self {
         let ctx = egui::Context::default();
         let app = super::new_app(&ctx, crate::config::Config::default());
         let mut s = Sim { ctx, app, t: 0.0 };
@@ -26,7 +26,7 @@ impl Sim {
         s.settle();
         s
     }
-    fn frame(&mut self, events: Vec<Event>) {
+    pub(super) fn frame(&mut self, events: Vec<Event>) {
         self.t += 0.016;
         let input = RawInput {
             events,
@@ -40,12 +40,12 @@ impl Sim {
             eframe::App::update(app, ctx, &mut frame);
         });
     }
-    fn settle(&mut self) {
+    pub(super) fn settle(&mut self) {
         for _ in 0..40 {
             self.frame(vec![]);
         }
     }
-    fn touch(&mut self, id: u64, phase: TouchPhase, pos: Pos2) {
+    pub(super) fn touch(&mut self, id: u64, phase: TouchPhase, pos: Pos2) {
         let mut ev = vec![Event::Touch { device_id: TouchDeviceId(1), id: TouchId(id), phase, pos, force: None }];
         if id == 0 {
             match phase {
@@ -71,7 +71,7 @@ impl Sim {
         self.touch(0, TouchPhase::End, to);
     }
     /// The shown terminal and its content rect.
-    fn terminal(&self) -> (PaneId, Rect) {
+    pub(super) fn terminal(&self) -> (PaneId, Rect) {
         *self.app.term_rects.first().expect("no terminal shown")
     }
     /// Fill terminal `id` with numbered lines, leaving plenty of scrollback.

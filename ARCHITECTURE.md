@@ -37,7 +37,8 @@ src/
 │   │                     drawing panes, pane drag, the sticky pane, keeping Agents panes up
 │   │                     to date, and Back to the previous tab (history.rs)
 │   ├── animation/        pane motion, tab close, tab-switch transitions, sticky glide,
-│   │                     agent panes' titles rolling over (title_roll.rs)
+│   │                     agent panes' titles rolling over (title_roll.rs), a held header's
+│   │                     long title scrolling sideways to be read (title_scroll.rs)
 │   ├── ssh/              following ssh sessions (follow), uploads, the mic button, the hosts
 │   │                     whose agents the Agents pane shows (hosts), connection sharing (sharing)
 │   └── tests/            whole-App tests driven through egui

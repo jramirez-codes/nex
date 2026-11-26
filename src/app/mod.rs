@@ -120,6 +120,8 @@ pub struct App {
     sticky_glide: animation::sticky_glide::StickyGlide,
     /// Agent panes' header titles rolling over when they change (`animation/title_roll.rs`).
     title_rolls: animation::title_roll::TitleRolls,
+    /// A header's long title scrolling sideways while it's held (`animation/title_scroll.rs`).
+    title_scroll: animation::title_scroll::TitleScroll,
     /// Drag and drop with other windows, where the platform needs nex to do it (Wayland).
     dnd: Option<crate::platform::Dnd>,
     /// Uploads, the shared mic, watched agents and their dialogs (see `ssh/`).
@@ -209,6 +211,7 @@ impl App {
             sticky: None,
             sticky_glide: Default::default(),
             title_rolls: Default::default(),
+            title_scroll: Default::default(),
             dnd: crate::platform::Dnd::new(cc),
             ssh: ssh::SshState {
                 uploads: Default::default(),
