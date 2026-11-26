@@ -27,6 +27,7 @@ pub mod model;
 mod motion;
 pub mod notify;
 mod view;
+pub use view::PaintArgs;
 #[cfg(test)]
 mod tests;
 

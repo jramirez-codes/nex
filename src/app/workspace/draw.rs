@@ -476,7 +476,8 @@ impl App {
             let viewing = app.viewing(id);
             if let Some(a) = app.agents.get_mut(&id) {
                 let shown_tab = (!app.home_active).then_some(app.active);
-                a.paint(ui, painter, content, id, focused, theme, app.agent_tracker.agents(), &app.ssh.agent_notes, shown_tab, &viewing);
+                let args = crate::agents::PaintArgs { pane: id, focused, c: theme, agents: app.agent_tracker.agents(), notes: &app.ssh.agent_notes, shown_tab, viewing: &viewing };
+                a.paint(ui, painter, content, args);
                 app.agent_requests.extend(a.requests.drain(..).map(|r| (id, r)));
             }
         });

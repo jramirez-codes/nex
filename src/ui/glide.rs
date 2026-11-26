@@ -1,5 +1,7 @@
 //! The animation basics every animation shares: easing curves, blending ([`Lerp`]), a value
-//! that animates toward its target with an ease-out curve ([`Glide`]), and the global switch
+//! that animates toward its target with an ease-out curve ([`Glide`]), a value of any `Lerp`
+//! type easing toward its latest target along a chosen curve on a clock you pass in
+//! ([`Tween`]: the Agents pane's cards, rows and capsules), and the global switch
 //! (`animations` in the config) that turns every animation off.
 
 use egui::{Color32, Id, Rect};
@@ -110,5 +112,83 @@ impl Glide {
             return self.to;
         }
         self.from + (self.to - self.from) * ease_out(t)
+    }
+}
+
+/// A value easing from where it was toward its latest target over `duration` seconds.
+pub struct Tween<T: Lerp> {
+    from: T,
+    to: T,
+    start: f64,
+    duration: f64,
+    ease: fn(f32) -> f32,
+}
+
+impl<T: Lerp> Tween<T> {
+    pub fn new(v: T, duration: f64, ease: fn(f32) -> f32) -> Self {
+        Tween { from: v, to: v, start: f64::NEG_INFINITY, duration, ease }
+    }
+
+    fn progress(&self, now: f64) -> f32 {
+        ((now - self.start) / self.duration).clamp(0.0, 1.0) as f32
+    }
+
+    pub fn get(&self, now: f64) -> T {
+        T::lerp(self.from, self.to, (self.ease)(self.progress(now)))
+    }
+
+    /// Head for `target` (from wherever the value is now); `animate` false jumps there.
+    pub fn set(&mut self, now: f64, target: T, animate: bool) {
+        if !animate {
+            self.snap(target);
+        } else if target != self.to {
+            self.from = self.get(now);
+            self.to = target;
+            self.start = now;
+        }
+    }
+
+    /// Where it's headed.
+    pub fn target(&self) -> T {
+        self.to
+    }
+
+    pub fn snap(&mut self, v: T) {
+        self.from = v;
+        self.to = v;
+        self.start = f64::NEG_INFINITY;
+    }
+
+    /// Still on its way.
+    pub fn moving(&self, now: f64) -> bool {
+        self.progress(now) < 1.0
+    }
+
+    /// How far along the current move is, 0 to 1 (1 when settled).
+    pub fn t(&self, now: f64) -> f32 {
+        self.progress(now)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tweens_ease_toward_a_new_target_from_where_they_are() {
+        let mut t = Tween::new(0.0_f32, 1.0, |x| x);
+        t.set(10.0, 100.0, true);
+        assert_eq!(t.get(10.0), 0.0);
+        assert_eq!(t.get(10.5), 50.0);
+        assert!(t.moving(10.5));
+        // Retargeted halfway: it starts from 50, not from 0 or 100.
+        t.set(10.5, 0.0, true);
+        assert_eq!(t.get(10.5), 50.0);
+        assert_eq!(t.get(11.5), 0.0);
+        assert!(!t.moving(11.5));
+        // With animations off it jumps.
+        t.set(12.0, 7.0, false);
+        assert_eq!(t.get(12.0), 7.0);
+        assert!(!t.moving(12.0));
     }
 }
