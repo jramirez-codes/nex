@@ -28,6 +28,7 @@ pub(crate) fn ms(t: SystemTime) -> u64 {
     t.duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
+/// Milliseconds since the Unix epoch (the daemon's clock too: `util` re-exports this).
 pub fn now_ms() -> u64 {
     ms(SystemTime::now())
 }

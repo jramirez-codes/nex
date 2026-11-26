@@ -100,6 +100,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
+      # nex links nex-host without its `daemon` feature: make sure that library still builds alone.
+      - name: Build nex-host library (no default features)
+        if: needs.changes.outputs.host == 'true'
+        run: cargo build --locked -p nex-host --no-default-features --lib
+
       # nex-host ships to servers as a static binary: make sure it still builds as one.
       - name: Build nex-host (static, musl)
         if: runner.os == 'Linux' && needs.changes.outputs.host == 'true'

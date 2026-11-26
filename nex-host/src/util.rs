@@ -7,6 +7,8 @@
 //! take down the daemon and all its agents. A panic happens between two updates of the data,
 //! and everything behind these locks stays usable after a half-done one (at worst a screen
 //! misses a bit of output), so the others carry on instead.
+//!
+//! The clock ([`now_ms`]) is the library's (`nex_host::subagents`), re-exported so both share one.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -21,10 +23,7 @@ impl<T> Locked<T> for Mutex<T> {
     }
 }
 
-/// Milliseconds since the Unix epoch.
-pub fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
-}
+pub use nex_host::subagents::now_ms;
 
 /// The first line of `body` with text on it, trimmed, however long.
 pub fn first_text_line(body: &str) -> &str {
