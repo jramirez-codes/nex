@@ -2,6 +2,7 @@
 //! through egui to check what's drawn, where clicks go and how things move.
 
 use super::*;
+use crate::agents::group::{Group, Step, groups};
 use crate::agents::model::{AgentKind, Source, Team};
 use crate::agents::view::layout::{
     CapsuleLayout, Layout, branch_slots, capsule_layout, chevron_center, chevron_hit, layout, pill_rect, row_depth, row_indent, row_rect, row_text_x,
@@ -45,7 +46,7 @@ fn a_pipelines_stages_hang_off_it_by_one_connector_each() {
     let column = list.left() + 25.0;
     let tile_left = list.left() + 12.0 + row_indent(2);
     assert!(tile_left - column >= 8.0, "room for the arm: {tile_left} vs {column}");
-    let slots = branch_slots(list, g, 3);
+    let slots = branch_slots(list, g, &g.branches(), 3);
     let slot = |i: usize| Rect::from_min_max(Pos2::new(column, i as f32 * ROW_H), Pos2::new(tile_left - 3.0, (i + 1) as f32 * ROW_H));
     let run = Rect::from_min_max(Pos2::new(column, ROW_H), Pos2::new(column, 2.0 * ROW_H));
     assert_eq!(slots, [(slot(0), false), (run, false), (slot(2), true)]);
@@ -53,7 +54,7 @@ fn a_pipelines_stages_hang_off_it_by_one_connector_each() {
     assert!(g.members.iter().all(|m| row_text_x(list.left(), row_depth(g, m)) > column));
 
     // Cut off after the first stage: its line still runs on, out of the list.
-    assert_eq!(branch_slots(list, g, 1), [(slot(0), false)]);
+    assert_eq!(branch_slots(list, g, &g.branches(), 1), [(slot(0), false)]);
 }
 
 /// A team's sub-agents are drawn as a pipeline's stages are: as far in, off the same
@@ -73,7 +74,7 @@ fn a_teams_sub_agents_are_laid_out_as_a_pipelines_stages() {
     let (p, t) = (&pipeline[0], &team[0]);
     let depths = |g: &Group| g.members.iter().map(|m| row_depth(g, m)).collect::<Vec<_>>();
     assert_eq!(depths(t), depths(p));
-    assert_eq!(branch_slots(list, t, 2), branch_slots(list, p, 2));
+    assert_eq!(branch_slots(list, t, &t.branches(), 2), branch_slots(list, p, &p.branches(), 2));
     assert_eq!(member_tags(t), member_tags(p));
     assert_eq!(member_detail(&t.members[0].agent), member_detail(&p.members[0].agent));
     assert!(t.strip().iter().all(|s| matches!(s, Step::Helper(_))), "capsules side by side, as one step's stages");
@@ -155,7 +156,7 @@ fn a_closed_team_is_a_cell_of_the_grid_and_spans_the_row_when_open() {
     agents.extend((20..22).map(|p| agent(p, Some(4))));
     let teams = groups(&Agents::new(agents));
     let closed = layout(&teams, 700.0, &HashMap::new());
-    let rect = |l: &Layout, key| l.cards.iter().find(|(g, _)| g.key() == key).unwrap().1;
+    let rect = |l: &Layout<Group>, key| l.cards.iter().find(|(g, _)| g.key() == key).unwrap().1;
     assert_eq!(closed.cards.len(), 5, "helpers are inside their team's card");
     let (t3, t4) = (rect(&closed, 3), rect(&closed, 4));
     assert_eq!((t3.width(), t3.height()), (rect(&closed, 1).width(), CARD_H + STRIP_H), "as wide as a card, taller");
@@ -456,16 +457,16 @@ fn a_frame_shares_the_trackers_agents_and_regroups_only_when_they_change() {
     tracker.update(probes(Status::Idle), at);
     let mut pane = AgentsPane::new();
     let mut time = 0.0;
-    let teams = |pane: &AgentsPane| Arc::clone(&pane.view.grouped.as_ref().expect("painted").1);
+    let teams = |pane: &AgentsPane| Arc::clone(&pane.view.grouped.as_ref().expect("painted").cards);
 
     frame(&ctx, &mut pane, tracker.agents(), &mut time, vec![]);
     let first = teams(&pane);
-    assert_eq!(first.iter().map(|g| (g.key(), g.members.len())).collect::<Vec<_>>(), [(1, 1), (3, 0)]);
+    assert_eq!(first.iter().map(|c| (c.key(), c.group.members.len())).collect::<Vec<_>>(), [(1, 1), (3, 0)]);
     // Nothing is copied on the way to the screen: the cards hold the tracker's agents.
     let tracked = |tracker: &Tracker, pane: PaneId| Arc::clone(tracker.agents().iter().find(|a| a.pane == pane).unwrap());
-    assert!(Arc::ptr_eq(&first[0].lead, &tracked(&tracker, 1)) && Arc::ptr_eq(&first[0].members[0].agent, &tracked(&tracker, 2)));
+    assert!(Arc::ptr_eq(&first[0].group.lead, &tracked(&tracker, 1)) && Arc::ptr_eq(&first[0].group.members[0].agent, &tracked(&tracker, 2)));
     assert!(Arc::ptr_eq(&pane.view.motion.cards[&3].agent, &tracked(&tracker, 3)));
-    assert!(Arc::ptr_eq(&pane.view.teams[&1], &first[0]));
+    assert!(Arc::ptr_eq(&pane.view.cards[&1], &first[0]));
 
     // More frames, and polls that find the agents as they were: the same teams.
     for _ in 0..3 {
@@ -481,7 +482,7 @@ fn a_frame_shares_the_trackers_agents_and_regroups_only_when_they_change() {
     frame(&ctx, &mut pane, tracker.agents(), &mut time, vec![]);
     let second = teams(&pane);
     assert!(!Arc::ptr_eq(&first, &second));
-    assert_eq!(second.iter().map(|g| (g.key(), g.lead.status)).collect::<Vec<_>>(), [(3, Status::Working), (1, Status::Idle)]);
+    assert_eq!(second.iter().map(|c| (c.key(), c.group.lead.status)).collect::<Vec<_>>(), [(3, Status::Working), (1, Status::Idle)]);
 }
 
 #[test]
@@ -520,7 +521,7 @@ fn a_pipelines_tile_rings_its_finished_stages_and_a_finished_stage_draws_its_tic
     assert!((card(&pane).tile.ring(time) - 2.0 / 3.0).abs() < 1e-6);
     assert_eq!(pane.view.motion.teams[&1].tick(time, 3), 1.0);
     // The team is Done (an unseen stage finished), but stage 4 still works: no tick yet.
-    assert_eq!(pane.view.teams[&1].lead.status, Status::Done);
+    assert_eq!(pane.view.cards[&1].group.lead.status, Status::Done);
     assert_eq!(card(&pane).tile.badge(time), None, "no Done badge mid-run");
 
     // The last stage finishes: the ring closes and the Done badge pops in.
@@ -605,7 +606,8 @@ fn capsules_are_laid_along_the_strip_with_a_count_for_the_rest() {
         a
     };
     let (b1, b2, merge, other) = (stage(2, "build"), stage(3, "build"), stage(4, "merge"), agent(5, Some(1)));
-    let stages = [Step::Stage(&b1), Step::Stage(&b2), Step::Stage(&merge)];
+    let (b1, b2, merge, other) = (Arc::new(b1), Arc::new(b2), Arc::new(merge), Arc::new(other));
+    let stages = [Step::Stage(Arc::clone(&b1)), Step::Stage(b2), Step::Stage(Arc::clone(&merge))];
     // The builders side by side, a hairline on to the merge stage.
     let laid = capsule_layout(&stages, &[60.0, 60.0, 60.0], 300.0);
     assert_eq!(laid, CapsuleLayout { xs: vec![0.0, 66.0, 142.0], joins: vec![(129.0, 139.0)], more: None });
@@ -619,7 +621,7 @@ fn capsules_are_laid_along_the_strip_with_a_count_for_the_rest() {
     assert_eq!(capsule_layout(&stages, &[60.0, 60.0, 60.0], 40.0).more, Some((0.0, 3)), "nothing fits");
 
     // A helper, then a pipeline's name before its stages (a name is no agent).
-    let nested = [Step::Helper(&other), Step::Heading("feature"), Step::Stage(&b1), Step::Stage(&merge)];
+    let nested = [Step::Helper(other), Step::Heading("feature".into()), Step::Stage(b1), Step::Stage(merge)];
     let laid = capsule_layout(&nested, &[50.0, 40.0, 60.0, 60.0], 400.0);
     assert_eq!(laid, CapsuleLayout { xs: vec![0.0, 64.0, 112.0, 188.0], joins: vec![(175.0, 185.0)], more: None });
     assert_eq!(capsule_layout(&nested, &[50.0, 40.0, 60.0, 60.0], 150.0).more, Some((56.0, 2)));
@@ -825,4 +827,184 @@ fn a_pipelines_header_says_how_its_run_stands() {
     a.name = "Fix it — properly".into();
     a.task = Some(a.name.clone());
     assert_eq!(text(&a), ("Fix it — properly".into(), None, "nex · 2 stages".into()));
+}
+
+/// What a frame leaves for the keys: the cards in reading order (by section, a team's card
+/// before the single ones), an open team's rows after its card, and the highlight on the
+/// first card until a key moves it. A highlighted helper whose row is no longer drawn hands
+/// the highlight to its team's card; one that's gone, to the first card.
+#[test]
+fn a_frame_leaves_the_cards_and_an_open_teams_rows_for_the_keys_in_reading_order() {
+    let ctx = egui::Context::default();
+    crate::render::fonts::install(&ctx, &crate::config::Config::default());
+    crate::ui::glide::set_animations(&ctx, false);
+    let mut working = agent(5, None);
+    working.status = Status::Working;
+    let list = |helpers: &[PaneId]| {
+        let mut agents = vec![agent(1, None), agent(4, None), working.clone()];
+        agents.extend(helpers.iter().map(|&p| agent(p, Some(1))));
+        Agents::new(agents)
+    };
+    let agents = list(&[2, 3]);
+    let mut pane = AgentsPane::new();
+    let mut time = 0.0;
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    let targets = |pane: &AgentsPane| pane.targets.iter().map(|(p, _)| *p).collect::<Vec<_>>();
+    assert_eq!(targets(&pane), [5, 1, 4], "working first; idle: the team, then the single card");
+    assert_eq!(pane.selected, Some(5), "the first card is highlighted");
+    assert_eq!(pane.team_of, HashMap::from([(1, 1), (2, 1), (3, 1)]));
+
+    pane.selected = Some(1);
+    assert!(pane.key(egui::Key::Space, egui::Modifiers::NONE), "space opens the team");
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    assert_eq!(targets(&pane), [5, 1, 2, 3, 4], "its rows follow its card");
+    pane.key(egui::Key::ArrowDown, egui::Modifiers::NONE);
+    pane.key(egui::Key::ArrowDown, egui::Modifiers::NONE);
+    assert_eq!(pane.selected, Some(3));
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    assert_eq!(pane.selected, Some(3), "a frame that changes nothing keeps the highlight");
+
+    // The team is closed with 3 highlighted: the highlight goes up to its card.
+    pane.expanded.clear();
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    assert_eq!((targets(&pane), pane.selected), (vec![5, 1, 4], Some(1)));
+
+    // Open again, helper 3 highlighted, and then gone: the first card is highlighted.
+    pane.expanded.insert(1, false);
+    pane.selected = Some(3);
+    let fewer = list(&[2]);
+    frame(&ctx, &mut pane, &fewer, &mut time, vec![]);
+    assert_eq!(targets(&pane), [5, 1, 2, 4]);
+    assert_eq!(pane.selected, Some(5));
+
+    // The team breaks up: it closes, and opens closed should it come back.
+    frame(&ctx, &mut pane, &list(&[]), &mut time, vec![]);
+    assert!(pane.expanded.is_empty() && pane.team_of.is_empty());
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    assert_eq!(targets(&pane), [5, 1, 4]);
+}
+
+/// The cards are made once per list and the layout once per list, width and set of open
+/// teams: frames that change none of them reuse both, and each change makes them again.
+#[test]
+fn the_layout_is_kept_until_the_list_the_width_or_an_open_team_changes() {
+    let ctx = egui::Context::default();
+    crate::render::fonts::install(&ctx, &crate::config::Config::default());
+    crate::ui::glide::set_animations(&ctx, false);
+    let agents = Agents::new(vec![agent(1, None), agent(2, Some(1)), agent(3, None)]);
+    let mut pane = AgentsPane::new();
+    let mut time = 0.0;
+    let laid = |pane: &AgentsPane| Arc::clone(pane.view.laid.as_ref().expect("painted"));
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    let first = laid(&pane);
+    for _ in 0..3 {
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    }
+    assert!(Arc::ptr_eq(&first, &laid(&pane)), "nothing changed: the same layout");
+
+    // A team opens: laid out again, the team spanning the row.
+    pane.expanded.insert(1, false);
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    let open = laid(&pane);
+    assert!(!Arc::ptr_eq(&first, &open));
+    assert!(Arc::ptr_eq(&open.cards, &first.cards), "the cards themselves are kept");
+    assert_eq!(open.layout.cards.iter().find(|(c, _)| c.key() == 1).unwrap().1.width(), 800.0 - 2.0 * SIDE);
+    assert_eq!(pane.targets.iter().map(|(p, _)| *p).collect::<Vec<_>>(), [1, 2, 3]);
+
+    // A narrower pane: laid out again.
+    let theme = Theme::from_config(&crate::config::Config::default());
+    time += 0.05;
+    let input =
+        egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 600.0))), time: Some(time), ..Default::default() };
+    let _ = ctx.run(input, |ctx| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
+            let rect = ui.max_rect();
+            let viewing = Viewing::default();
+            pane.paint(
+                ui,
+                ui.painter(),
+                rect,
+                PaintArgs { pane: 1, focused: true, c: &theme, agents: &agents, notes: &[], shown_tab: None, viewing: &viewing },
+            );
+        });
+    });
+    let narrow = laid(&pane);
+    assert!(!Arc::ptr_eq(&open, &narrow) && narrow.width == 400.0 - 2.0 * SIDE);
+
+    // A new list (even of the same agents): new cards, laid out again.
+    let again = Agents::new(vec![agent(1, None), agent(2, Some(1)), agent(3, None)]);
+    frame(&ctx, &mut pane, &again, &mut time, vec![]);
+    let relisted = laid(&pane);
+    assert!(!Arc::ptr_eq(&relisted.cards, &narrow.cards));
+    assert!(Arc::ptr_eq(&pane.view.cards[&1], &relisted.cards[0]), "the card drawn is the new one");
+}
+
+/// A card's words, worked out once with it, are what the text functions say: its header,
+/// a closed team's capsules, each helper's tag, folder and parent, and how a pipeline stands.
+#[test]
+fn a_card_works_out_what_it_shows_once_as_the_text_says() {
+    use crate::agents::view::card::{Card, Parent};
+    let mut agents = vec![
+        agent(1, None),
+        helper(2, "build", Some("build"), 10),
+        helper(3, "build-2", Some("build"), 20),
+        helper(4, "rev", Some("review"), 30),
+        sub(5, Some("Explore"), 40),
+    ];
+    let mut pipe = agent(6, Some(1));
+    pipe.kind = AgentKind::Pipeline;
+    pipe.name = "feature".into();
+    let mut stage = agent(7, Some(6));
+    stage.team.role = Some("build".into());
+    stage.status = Status::Working;
+    let mut done = agent(8, Some(6));
+    done.team.role = Some("merge".into());
+    done.status = Status::Done;
+    agents.extend([pipe, stage, done]);
+    agents[1].cwd = Some("/w/nex-build".into());
+    let teams = groups(&Agents::new(agents));
+    let g = &teams[0];
+    let card = Card::new(Arc::clone(g));
+
+    let direct = header_text(&g.lead, Some(&g.size()));
+    assert_eq!(
+        (card.header.title.as_str(), card.header.detail.as_str(), card.header.counts.is_none()),
+        (direct.title.as_str(), direct.detail.as_str(), true)
+    );
+    let tags = member_tags(g);
+    let siblings: Vec<&Agent> = g.members.iter().map(|m| &*m.agent).filter(|a| a.team.parent == Some(1)).collect();
+    for (i, m) in g.members.iter().enumerate() {
+        assert_eq!(card.members[i].tag, tags[i]);
+        assert_eq!(card.members[i].detail, member_detail(&m.agent));
+        assert_eq!(card.member_index(m.agent.pane), Some(i));
+        if m.agent.team.parent == Some(1) {
+            assert_eq!(tags[i], member_tag(&m.agent, &siblings), "a whole team tagged at once tags each as alone");
+            assert_eq!(card.members[i].parent, Some(Parent::Lead));
+        }
+    }
+    let at = |pane| card.member_index(pane).unwrap();
+    assert_eq!(card.members[at(7)].parent, Some(Parent::Member(at(6))));
+    assert_eq!(card.parent(at(7)).map(|a| a.pane), Some(6));
+    assert_eq!(card.members[at(2)].detail, "nex-build");
+    let words: Vec<&str> = card.labels.iter().map(String::as_str).collect();
+    assert_eq!(words.len(), g.strip().len());
+    assert!(words.contains(&"feature:") && words.contains(&"Build") && words.contains(&"Explore"));
+    assert_eq!(card.branches, g.branches());
+    assert_eq!(card.pipeline, None, "the lead is no pipeline");
+    let nested: Vec<_> = card.nested.iter().map(|n| (n.member, n.stages.clone(), n.state)).collect();
+    assert_eq!(nested, [(at(6), vec![at(8), at(7)], (0.5, Status::Done, true))], "its stages by status, the done one first");
+    assert!(card.breathes, "a stage is at work");
+    assert_eq!(card.show_all, "Show All 7");
+
+    // A pipeline's own card: its counts after its name, and how its stages stand.
+    let mut p = agent(10, None);
+    p.kind = AgentKind::Pipeline;
+    p.name = "feature".into();
+    p.task = Some(nex_host::proto::pipeline_title("2 building", "build-2 started"));
+    let stages = (11..13).map(|pane| Agent { status: Status::Done, ..agent(pane, Some(10)) });
+    let teams = groups(&Agents::new(std::iter::once(p).chain(stages).collect()));
+    let card = Card::new(Arc::clone(&teams[0]));
+    assert_eq!(card.header.counts.as_deref(), Some(" \u{00b7} 2 building"));
+    assert_eq!(card.pipeline, Some((1.0, Status::Done, false)));
+    assert!(!card.breathes);
 }

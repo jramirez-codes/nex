@@ -7,11 +7,12 @@
 use egui::epaint::Shadow;
 use egui::{Align2, Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
-use crate::agents::group::{Group, Member};
+use crate::agents::group::{Branch, Group, Member};
 use crate::agents::model::{Agent, Status, elapsed};
 use crate::agents::motion::{Badge, TileMotion, breath, stage_progress};
+use crate::agents::view::card::Header;
 use crate::agents::view::layout::{branch_slots, chevron_center, pill_rect, row_indent, row_text_x};
-use crate::agents::view::text::{HeaderText, header_text, member_detail, member_task};
+use crate::agents::view::text::member_task;
 use crate::agents::view::viewing;
 use crate::agents::view::{CARD_H, CARD_RADIUS, DETAIL_Y, Frame, SIDE, TAG_H, TILE, TITLE_Y, status_color, ui_font};
 use crate::ui::theme::{ACCENT, Theme, white_alpha};
@@ -147,11 +148,11 @@ pub(super) fn card_body(p: &Painter, r: Rect, look: &Look) {
 }
 
 /// An agent's header, `r` being its 74-point-tall card (or a team card's top): app tile, its
-/// task over its folder and tab, and the status pill over how long it has been in that
-/// state. A team's (`team`: its size, and how open it is) also says how big it is and has
-/// a disclosure chevron.
+/// task over its folder and tab (`text`, the card's [`Header`]), and the status pill over how
+/// long it has been in that state. A team's (`open`: how open it is) also has a disclosure
+/// chevron.
 /// Returns the pill's rect (a team's chevron sits left of it: [`chevron_hit`](crate::agents::view::layout::chevron_hit)).
-pub(super) fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, team: Option<(&str, f32)>) -> Rect {
+pub(super) fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look: &Look, text: &Header, open: Option<f32>) -> Rect {
     let c = f.c;
     let tile = Rect::from_center_size(Pos2::new(r.left() + 14.0 + TILE / 2.0, r.top() + CARD_H / 2.0), Vec2::splat(TILE));
     pipeline_tile(f, p, tile, agent, look.tile.as_ref());
@@ -159,7 +160,7 @@ pub(super) fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look:
     // The status pill, top right, with the time in that state under it.
     let color = look.tint;
     let pill_font = paint::bold(11.0);
-    let label = p.layout_no_wrap(agent.status.label().to_string(), pill_font, color);
+    let label = p.layout_no_wrap(agent.status.label().into(), pill_font, color);
     let pill = pill_rect(r, label.size().x);
     p.rect_filled(pill, 10, color.gamma_multiply(0.12));
     let dot = Pos2::new(pill.left() + 11.0, pill.center().y);
@@ -172,7 +173,7 @@ pub(super) fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look:
 
     // A team's chevron, left of the pill: pointing right while closed, down when open.
     let mut title_right = pill.left() - 12.0;
-    if let Some((_, open)) = team {
+    if let Some(open) = open {
         let at = chevron_center(pill);
         chevron(p, at, open, c.text_dim);
         title_right = at.x - 12.0;
@@ -190,17 +191,17 @@ pub(super) fn agent_header(f: &Frame, p: &Painter, r: Rect, agent: &Agent, look:
     // The task, and the checkout it's working in. A pipeline's counts follow its name in
     // lighter type.
     let title_room = (title_right - x).max(0.0);
-    let HeaderText { title, counts, detail } = header_text(agent, team.map(|(size, _)| size));
-    paint::faded_text(p, Pos2::new(x, r.top() + TITLE_Y), &title, paint::bold(14.0), c.text_bright, title_room, 18.0);
+    let Header { title, counts, detail } = text;
+    paint::faded_text(p, Pos2::new(x, r.top() + TITLE_Y), title, paint::bold(14.0), c.text_bright, title_room, 18.0);
     if let Some(counts) = counts {
-        let used = p.layout_no_wrap(title, paint::bold(14.0), c.text_bright).size().x;
+        let used = p.layout_no_wrap(title.clone(), paint::bold(14.0), c.text_bright).size().x;
         let room = title_room - used - 18.0;
         if room > 0.0 {
-            paint::faded_text(p, Pos2::new(x + used, r.top() + TITLE_Y), &format!(" \u{00b7} {counts}"), ui_font(13.5), c.text, room + 18.0, 18.0);
+            paint::faded_text(p, Pos2::new(x + used, r.top() + TITLE_Y), counts, ui_font(13.5), c.text, room + 18.0, 18.0);
         }
     }
     let detail_room = (pill.right() - 4.0 - since_w - 12.0 - x).max(0.0);
-    paint::faded_text(p, Pos2::new(x, since_y), &detail, ui_font(12.0), c.text_dim, detail_room, 18.0);
+    paint::faded_text(p, Pos2::new(x, since_y), detail, ui_font(12.0), c.text_dim, detail_room, 18.0);
     pill
 }
 
@@ -218,10 +219,10 @@ pub(super) fn chevron(p: &Painter, at: Pos2, open: f32, color: Color32) {
 /// Paints [`branch_slots`]: the connector icon in each stage's slot, a plain line where it
 /// only runs on (a zero-width slot). A quiet hairline, a step over the separators, starting
 /// a little below the list's top.
-pub(super) fn branch_lines(p: &Painter, list: Rect, g: &Group, shown: usize) {
+pub(super) fn branch_lines(p: &Painter, list: Rect, g: &Group, branches: &[Option<Branch>], shown: usize) {
     let c = white_alpha(22);
     let p = p.with_clip_rect(p.clip_rect().intersect(Rect::from_min_max(list.min + Vec2::new(0.0, 6.0), list.max)));
-    for (r, last) in branch_slots(list, g, shown) {
+    for (r, last) in branch_slots(list, g, branches, shown) {
         if r.width() <= 0.0 {
             p.line_segment([r.left_top(), r.left_bottom()], Stroke::new(1.2_f32, c));
         } else {
@@ -232,7 +233,7 @@ pub(super) fn branch_lines(p: &Painter, list: Rect, g: &Group, shown: usize) {
 
 /// One helper's row in an open team: tile (indented for a helper's own helpers), its `tag`
 /// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
-/// in, and its status with how long it has been in it.
+/// in (`detail`), and its status with how long it has been in it.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn helper_row(
     f: &Frame,
@@ -240,7 +241,7 @@ pub(super) fn helper_row(
     row: Rect,
     m: &Member,
     depth: usize,
-    tag: &str,
+    (tag, detail): (&str, &str),
     seen: (f32, f32),
     (tick, tile_look): (f32, Option<TileLook>),
 ) {
@@ -254,7 +255,7 @@ pub(super) fn helper_row(
     let since = elapsed(f.now.saturating_duration_since(a.since));
     let since_g = p.layout_no_wrap(since, ui_font(11.5), c.text_dim);
     let since_x = row.right() - 12.0 - since_g.size().x;
-    let label_g = p.layout_no_wrap(a.status.label().to_string(), paint::bold(11.0), color);
+    let label_g = p.layout_no_wrap(a.status.label().into(), paint::bold(11.0), color);
     let label_x = since_x - 12.0 - label_g.size().x;
     let dot = Pos2::new(label_x - 9.0, row.center().y);
     member_glyph(f, p, dot, a.status, color, tick);
@@ -282,8 +283,7 @@ pub(super) fn helper_row(
         let task_x = cap.right() + 8.0;
         paint::faded_text(p, Pos2::new(task_x, line_y), task, paint::bold(13.0), c.text_bright, (x + room - task_x).max(0.0), 16.0);
     }
-    let detail = member_detail(a);
-    paint::faded_text(p, Pos2::new(x, row.top() + 32.0), &detail, ui_font(11.5), c.text_dim, room, 16.0);
+    paint::faded_text(p, Pos2::new(x, row.top() + 32.0), detail, ui_font(11.5), c.text_dim, room, 16.0);
 }
 
 /// A helper's status in a capsule or row: a tick once it's done, else its dot. `drawn` (0 to

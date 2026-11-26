@@ -12,7 +12,7 @@ use egui::epaint::Shadow;
 use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 use crate::agents::group::{Group, Member};
-use crate::agents::model::{Seen, Viewing};
+use crate::agents::model::{Agent, Seen, Viewing};
 use crate::layout::PaneId;
 use crate::ui::glide::Lerp;
 use crate::ui::icons;
@@ -41,23 +41,33 @@ pub(super) fn member_seen(viewing: &Viewing, g: &Group, m: &Member) -> Option<Se
         .team
         .parent
         .and_then(|p| if p == g.lead.pane { Some(&*g.lead) } else { g.members.iter().find(|o| o.agent.pane == p).map(|o| &*o.agent) });
-    let shown = m.agent.shown_pane();
-    if parent.is_some_and(|p| p.shown_pane() == shown) {
+    seen_under(viewing, &m.agent, parent)
+}
+
+/// [`member_seen`] for helper `a`, started by `parent` (when that's on its card).
+pub(super) fn seen_under(viewing: &Viewing, a: &Agent, parent: Option<&Agent>) -> Option<Seen> {
+    if parent.is_some_and(|p| p.shown_pane() == a.shown_pane()) {
         return None;
     }
-    viewing.of(&m.agent)
+    viewing.of(a)
 }
 
 /// The teams to open now that `viewing` is on screen (it was `was`): each closed one with a
 /// helper that has just come into view, and whether it must show all its rows to list it
 /// (it's past the first `rows_shown`). Only a change opens a team, so one you close stays
 /// closed while you keep looking.
-pub(super) fn teams_to_open(viewing: &Viewing, was: &Viewing, teams: &[std::sync::Arc<Group>], rows_shown: usize) -> Vec<(PaneId, bool)> {
+pub(super) fn teams_to_open<T: AsRef<Group>>(
+    viewing: &Viewing,
+    was: &Viewing,
+    teams: &[std::sync::Arc<T>],
+    rows_shown: usize,
+) -> Vec<(PaneId, bool)> {
     if viewing == was {
         return Vec::new();
     }
     teams
         .iter()
+        .map(|t| (**t).as_ref())
         .filter(|g| g.is_team())
         .filter_map(|g| {
             let new = |m: &Member| member_seen(viewing, g, m).is_some() && member_seen(was, g, m).is_none();

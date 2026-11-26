@@ -36,11 +36,17 @@
 //! following its transcript) like its row. A team's sub-agents are drawn as a pipeline's
 //! stages are: each hangs off its agent by a connector, tagged by its type, over its folder.
 //!
-//! The work divides by role: `text` (what cards, rows and capsules say), `layout` (where
+//! The work divides by role: `text` (what cards, rows and capsules say), `card` (what a card
+//! shows that only changes with the list, worked out once per change of it), `layout` (where
 //! everything goes), `paint` (the leaf painters), `viewing` (the "Viewing" mark), and here
 //! the state kept between frames ([`ViewState`]), what a frame shares (`Frame`), and the
 //! orchestration: `paint`, scrolling, the cards, a team's card, its helper list and its
 //! capsules. Tests are in `tests`.
+//!
+//! A frame does as little as it can: the cards (`card::Cards`) are made again only when the
+//! list's generation changes, the layout and what the keys move through only when the
+//! cards, the width or the open teams do (`LaidOut`); what's left per frame is what moves
+//! or ticks (the motion, the time in a state, what's on screen, the pointer).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,17 +55,18 @@ use std::time::{Duration, Instant};
 use egui::{Align2, Color32, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::agents::AgentsPane;
-use crate::agents::group::{Group, Member, Step, groups};
-use crate::agents::model::{Agent, AgentKind, Agents, Status, Viewing};
+use crate::agents::group::Member;
+use crate::agents::model::{Agent, Agents, Status, Viewing};
 use crate::agents::motion::{Motion, TeamMotion};
+use crate::agents::view::card::{Card, Cards, Header};
 use crate::agents::view::layout::{
     Layout, capsule_layout, chevron_hit, layout, list_rect, row_depth, row_rect, row_text_x, shown_members, team_height,
 };
 use crate::agents::view::paint::{
     Look, TileLook, agent_header, border_for, branch_lines, card_body, empty_state, helper_row, host_notes, member_glyph, needs_you_tint,
-    pipeline_state, section_header, team_breathes, tile_look,
+    section_header, tile_look,
 };
-use crate::agents::view::text::{member_tags, member_word};
+use crate::agents::view::text::{header_text, member_detail};
 use crate::layout::PaneId;
 use crate::ui;
 use crate::ui::glide::animations;
@@ -67,6 +74,7 @@ use crate::ui::theme::{ACCENT, Theme, lighten, white_alpha};
 use crate::ui::touch_pan::TouchPan;
 use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
 
+mod card;
 mod layout;
 mod paint;
 #[cfg(test)]
@@ -117,13 +125,16 @@ pub(super) struct ViewState {
     /// The terminal tab shown when it was last drawn (`None` inside: the Agents / Files
     /// tab); `None` before the first frame.
     shown_tab: Option<Option<usize>>,
-    /// Each team card's team as last laid out, kept while its card fades away.
-    teams: HashMap<PaneId, Arc<Group>>,
-    /// The agents as teams, and the generation of the list they were made from: made again
-    /// only when that changes.
-    grouped: Option<(u64, Arc<[Arc<Group>]>)>,
+    /// Each card as last laid out, kept while it fades away.
+    cards: HashMap<PaneId, Arc<Card>>,
+    /// The agents as cards, made again only when the list's generation changes.
+    grouped: Option<Cards>,
+    /// Where the cards go: kept until the cards, the width or the open teams change.
+    laid: Option<Arc<LaidOut>>,
     /// What was on screen last frame: a helper newly in view opens its team.
     viewing: Viewing,
+    /// The order the cards are drawn in this frame (kept to reuse its room).
+    draw_order: Vec<(PaneId, f32)>,
 }
 
 impl ViewState {
@@ -135,22 +146,58 @@ impl ViewState {
             pan: TouchPan::default(),
             motion: Motion::new(),
             shown_tab: None,
-            teams: HashMap::new(),
+            cards: HashMap::new(),
             grouped: None,
+            laid: None,
             viewing: Viewing::default(),
+            draw_order: Vec::new(),
         }
     }
 
-    /// `agents` as teams: the ones made last time, unless the list changed since.
-    fn grouped(&mut self, agents: &Agents) -> Arc<[Arc<Group>]> {
-        match &self.grouped {
-            Some((generation, teams)) if *generation == agents.generation() => Arc::clone(teams),
-            _ => {
-                let teams: Arc<[Arc<Group>]> = groups(agents).into();
-                self.grouped = Some((agents.generation(), Arc::clone(&teams)));
-                teams
-            }
+    /// `agents` as cards: the ones made last time, unless the list changed since. Says
+    /// whether they were made again.
+    fn grouped(&mut self, agents: &Agents) -> (Arc<[Arc<Card>]>, bool) {
+        if let Some(cards) = self.grouped.as_ref().filter(|c| c.generation == agents.generation()) {
+            return (Arc::clone(&cards.cards), false);
         }
+        let cards = Cards::new(agents);
+        let shared = Arc::clone(&cards.cards);
+        self.grouped = Some(cards);
+        (shared, true)
+    }
+
+    /// Where `cards` go `width` wide with `expanded` open: last frame's layout while none of
+    /// them changed, else a new one. Says whether it's new.
+    fn laid_out(&mut self, cards: &Arc<[Arc<Card>]>, width: f32, expanded: &HashMap<PaneId, bool>) -> (Arc<LaidOut>, bool) {
+        if let Some(laid) = self.laid.as_ref().filter(|l| l.fits(cards, width, expanded)) {
+            return (Arc::clone(laid), false);
+        }
+        let laid = Arc::new(LaidOut::new(cards, width, expanded));
+        self.laid = Some(Arc::clone(&laid));
+        (laid, true)
+    }
+}
+
+/// A layout of the cards, and what it was made from (see [`ViewState::laid_out`]).
+struct LaidOut {
+    cards: Arc<[Arc<Card>]>,
+    width: f32,
+    expanded: HashMap<PaneId, bool>,
+    layout: Layout<Card>,
+    /// Each laid card's lead, where it goes: what `Motion` heads for.
+    leads: Vec<(Arc<Agent>, Rect)>,
+}
+
+impl LaidOut {
+    fn new(cards: &Arc<[Arc<Card>]>, width: f32, expanded: &HashMap<PaneId, bool>) -> LaidOut {
+        let layout = layout(cards, width, expanded);
+        let leads = layout.cards.iter().map(|(c, r)| (Arc::clone(&c.group.lead), *r)).collect();
+        LaidOut { cards: Arc::clone(cards), width, expanded: expanded.clone(), layout, leads }
+    }
+
+    /// Whether it is the layout of `cards`, `width` wide with `expanded` open.
+    fn fits(&self, cards: &Arc<[Arc<Card>]>, width: f32, expanded: &HashMap<PaneId, bool>) -> bool {
+        Arc::ptr_eq(&self.cards, cards) && self.width == width && self.expanded == *expanded
     }
 }
 
@@ -243,27 +290,32 @@ impl AgentsPane {
         }
 
         let width = body.width() - 2.0 * SIDE;
-        let teams = self.view.grouped(agents);
-        // Teams that broke up, or whose lead is gone, close.
-        self.expanded.retain(|lead, _| teams.iter().any(|g| g.key() == *lead && g.is_team()));
-        // A helper coming into view opens its team, so its row is there to be marked.
-        let was = std::mem::replace(&mut self.view.viewing, viewing.clone());
-        for (lead, all) in viewing::teams_to_open(viewing, &was, &teams, ROWS_SHOWN) {
-            let shown_all = self.expanded.entry(lead).or_insert(false);
-            *shown_all |= all;
+        let (cards, regrouped) = self.view.grouped(agents);
+        if regrouped {
+            self.regrouped(&cards);
         }
-        let Layout { sections, cards, content_h } = layout(&teams, width, &self.expanded);
-        self.remember_targets(&teams, &cards);
+        // A helper coming into view opens its team, so its row is there to be marked.
+        if self.view.viewing != *viewing {
+            let was = std::mem::replace(&mut self.view.viewing, viewing.clone());
+            for (lead, all) in viewing::teams_to_open(viewing, &was, &cards, ROWS_SHOWN) {
+                let shown_all = self.expanded.entry(lead).or_insert(false);
+                *shown_all |= all;
+            }
+        }
+        let (laid, relaid) = self.view.laid_out(&cards, width, &self.expanded);
+        if relaid {
+            self.note_layout(&laid.layout);
+        }
         if self.selected.is_none_or(|p| !self.targets.iter().any(|(t, _)| *t == p)) {
             self.selected = self.selected.and_then(|p| self.team_of.get(&p).copied()).or_else(|| self.targets.first().map(|(t, _)| *t));
         }
+        let content_h = laid.layout.content_h;
         let mut motion = std::mem::take(&mut self.view.motion);
-        let laid: Vec<(&Arc<Agent>, Rect)> = cards.iter().map(|(g, r)| (&g.lead, *r)).collect();
-        motion.update(f.time, f.animate, &sections, &laid, width);
-        for (g, _) in &cards {
-            self.view.teams.insert(g.key(), Arc::clone(g));
+        motion.update(f.time, f.animate, &laid.layout.sections, &laid.leads, width);
+        // The cards kept are the ones `motion` still draws: the laid ones, and those fading.
+        if self.view.cards.len() > motion.cards.len() {
+            self.view.cards.retain(|k, _| motion.cards.contains_key(k));
         }
-        self.view.teams.retain(|k, _| motion.cards.contains_key(k));
         let switched = self.view.shown_tab.replace(shown_tab).is_some_and(|was| was != shown_tab);
         if switched
             && f.animate
@@ -296,24 +348,32 @@ impl AgentsPane {
         ctx.request_repaint_after(next);
     }
 
-    /// What the keys move through this frame: every card, and an open team's helper rows
-    /// after it; and which team each member belongs to.
-    fn remember_targets(&mut self, teams: &[Arc<Group>], cards: &[(&Arc<Group>, Rect)]) {
+    /// The cards were made again (the list changed): teams that broke up, or whose lead is
+    /// gone, close, and each member's team is noted for the keys.
+    fn regrouped(&mut self, cards: &[Arc<Card>]) {
+        self.team_of.clear();
+        for c in cards.iter().filter(|c| c.group.is_team()) {
+            self.team_of.insert(c.key(), c.key());
+            for m in &c.group.members {
+                self.team_of.insert(m.agent.pane, c.key());
+            }
+        }
+        // A team's lead is its own team: what's open is what's still a team.
+        self.expanded.retain(|lead, _| self.team_of.get(lead) == Some(lead));
+    }
+
+    /// The layout changed: what the keys move through (every card, and an open team's
+    /// helper rows after it), and the cards to draw.
+    fn note_layout(&mut self, laid: &Layout<Card>) {
         self.targets.clear();
-        for (g, r) in cards {
-            self.targets.push((g.key(), Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H))));
-            if let Some(&all) = self.expanded.get(&g.key()) {
-                for (i, m) in shown_members(g, all).iter().enumerate() {
+        for (c, r) in &laid.cards {
+            self.targets.push((c.key(), Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H))));
+            if let Some(&all) = self.expanded.get(&c.key()) {
+                for (i, m) in shown_members(&c.group, all).iter().enumerate() {
                     self.targets.push((m.agent.pane, row_rect(*r, i)));
                 }
             }
-        }
-        self.team_of.clear();
-        for g in teams.iter().filter(|g| g.is_team()) {
-            self.team_of.insert(g.key(), g.key());
-            for m in &g.members {
-                self.team_of.insert(m.agent.pane, g.key());
-            }
+            self.view.cards.insert(c.key(), Arc::clone(c));
         }
     }
 
@@ -368,10 +428,12 @@ impl AgentsPane {
             section_header(&p, sec.rect.get(now).translate(origin), *status, sec.count, f.c);
         }
         // Lifted cards are drawn last, over the ones they pass.
-        let mut ids: Vec<(PaneId, f32)> = motion.cards.iter().map(|(id, card)| (*id, card.lift(now, shown_tab))).collect();
+        let mut ids = std::mem::take(&mut self.view.draw_order);
+        ids.clear();
+        ids.extend(motion.cards.iter().map(|(id, card)| (*id, card.lift(now, shown_tab))));
         ids.sort_by_key(|&(id, lift)| (lift > 0.0, id));
         let mut breathing = false;
-        for (id, lift) in ids {
+        for &(id, lift) in &ids {
             let Some(card) = motion.cards.get_mut(&id) else { continue };
             busy |= card.busy(now);
             let opacity = card.opacity.get(now);
@@ -384,7 +446,8 @@ impl AgentsPane {
             // An agent on the shown tab lifts off the grid when you switch to it or it
             // changes sections. Clicks go where it's drawn, lifted.
             let r = Rect::from_center_size(r.center(), r.size() * (1.0 + 0.025 * lift));
-            let team = self.view.teams.get(&id).filter(|g| g.is_team()).cloned();
+            let Some(drawn) = self.view.cards.get(&id).cloned() else { continue };
+            let team = drawn.group.is_team().then_some(&*drawn);
             // The width the card is laid out at (not the one it's drawn at while it lifts).
             let laid_w = card.rect.target().width();
             // The part of the card that's the agent itself: a team's header.
@@ -406,8 +469,8 @@ impl AgentsPane {
             let seen = if card.leaving {
                 None
             } else {
-                match &team {
-                    Some(g) => viewing::team_seen(f.viewing, g),
+                match team {
+                    Some(t) => viewing::team_seen(f.viewing, &t.group),
                     None => f.viewing.of(&card.agent),
                 }
             };
@@ -419,17 +482,12 @@ impl AgentsPane {
                 viewing::ring_over((card.border.get(now), card.border_width.get(now)), card.ring.shown(now), card.ring.primary(now));
             let (shown, primary) = (card.seen.shown(now), card.seen.primary(now));
             // A pipeline's tile: a ring for how far its stages are, a badge for how it stands.
-            let tile = match &team {
-                Some(g) if g.is_pipeline() => {
-                    pipeline_state(&g.direct().filter(|m| !m.agent.team.sub).map(|m| &*m.agent).collect::<Vec<_>>()).map(|(progress, _, working)| {
-                        card.tile.update(now, progress, g.lead.status, seen.is_some(), f.animate);
-                        busy |= card.tile.busy(now);
-                        breathing |= card.tile.breathing();
-                        tile_look(f, &card.tile, working)
-                    })
-                }
-                _ => None,
-            };
+            let tile = team.and_then(|t| t.pipeline).map(|(progress, _, working)| {
+                card.tile.update(now, progress, drawn.group.lead.status, seen.is_some(), f.animate);
+                busy |= card.tile.busy(now);
+                breathing |= card.tile.breathing();
+                tile_look(f, &card.tile, working)
+            });
             let look = Look {
                 hover,
                 lift,
@@ -443,23 +501,27 @@ impl AgentsPane {
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
             match team {
-                Some(g) => {
-                    breathing |= team_breathes(&g);
+                Some(t) => {
+                    breathing |= t.breathes;
                     let leaving = card.leaving;
                     // Its rows and capsules slide, unless the card itself was resized.
                     let inside = motion.teams.entry(id).or_default();
                     let slide = f.animate && !inside.resized(laid_w);
-                    self.team_card(f, &p, r, &g, look, leaving, inside, slide);
+                    self.team_card(f, &p, r, t, look, leaving, inside, slide);
                     busy |= inside.busy(now);
                 }
                 None => {
                     motion.teams.remove(&id);
                     breathing |= card.agent.status == Status::Working;
                     card_body(&p, r, &look);
-                    agent_header(f, &p, r, &card.agent, &look, None);
+                    // Its words were worked out with the card, for the lead it was laid out
+                    // with: `motion`'s agent is that one.
+                    let header = if Arc::ptr_eq(&drawn.group.lead, &card.agent) { None } else { Some(Header::from(header_text(&card.agent, None))) };
+                    agent_header(f, &p, r, &card.agent, &look, header.as_ref().unwrap_or(&drawn.header), None);
                 }
             }
         }
+        self.view.draw_order = ids;
         (busy, breathing)
     }
 
@@ -467,7 +529,8 @@ impl AgentsPane {
     /// helpers as capsules (closed) or an inset list (open), cross-fading as the card grows.
     /// `inside`: where its rows and capsules are; `slide`: whether they glide to new places.
     #[allow(clippy::too_many_arguments)]
-    fn team_card(&mut self, f: &Frame, p: &Painter, r: Rect, g: &Group, look: Look, leaving: bool, inside: &mut TeamMotion, slide: bool) {
+    fn team_card(&mut self, f: &Frame, p: &Painter, r: Rect, card: &Card, look: Look, leaving: bool, inside: &mut TeamMotion, slide: bool) {
+        let g = &*card.group;
         let key = g.key();
         // A helper that has just finished draws its tick in, in its capsule and its row.
         inside.note_statuses(f.time, f.animate, g.members.iter().map(|m| &*m.agent));
@@ -478,8 +541,7 @@ impl AgentsPane {
         let t = if open_h > closed_h { ((r.height() - closed_h) / (open_h - closed_h)).clamp(0.0, 1.0) } else { 0.0 };
         card_body(p, r, &look);
         let head = Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H));
-        let size = g.size();
-        let pill = agent_header(f, p, head, &g.lead, &look, Some((&size, t)));
+        let pill = agent_header(f, p, head, &g.lead, &look, &card.header, Some(t));
 
         // Clicking the chevron opens and closes it (over the header's own click, which
         // jumps to the lead); so do the capsules while it's closed, but a sub-agent's, which
@@ -513,7 +575,8 @@ impl AgentsPane {
             );
             let mut sp = p.clone();
             sp.multiply_opacity(sep_alpha);
-            let subs = capsules(f, &sp, Rect::from_min_size(Pos2::new(r.left() + 14.0, y), Vec2::new(r.width() - 28.0, STRIP_H)), g, inside, slide);
+            let subs =
+                capsules(f, &sp, Rect::from_min_size(Pos2::new(r.left() + 14.0, y), Vec2::new(r.width() - 28.0, STRIP_H)), card, inside, slide);
             // Over the strip's click (the later one takes it).
             for (pane, cap) in subs {
                 if !leaving
@@ -532,7 +595,7 @@ impl AgentsPane {
         if t > 0.01 {
             let mut lp = p.with_clip_rect(p.clip_rect().intersect(r.shrink(1.0)));
             lp.multiply_opacity(t);
-            self.helper_list(f, &lp, r, g, open.unwrap_or(false), t > 0.99 && !leaving, inside, slide);
+            self.helper_list(f, &lp, r, card, open.unwrap_or(false), t > 0.99 && !leaving, inside, slide);
         } else {
             inside.close_rows();
         }
@@ -543,30 +606,38 @@ impl AgentsPane {
     /// Each row is drawn where `inside` has it on the way to its slot (`slide`: gliding
     /// there), the one whose helper just changed state over the others.
     #[allow(clippy::too_many_arguments)]
-    fn helper_list(&mut self, f: &Frame, p: &Painter, r: Rect, g: &Group, all: bool, live: bool, inside: &mut TeamMotion, slide: bool) {
+    fn helper_list(&mut self, f: &Frame, p: &Painter, r: Rect, card: &Card, all: bool, live: bool, inside: &mut TeamMotion, slide: bool) {
+        let g = &*card.group;
         let list = list_rect(r);
         p.rect_filled(list, 10, white_alpha(6));
         let key = g.key();
         let now = f.time;
         let rows = shown_members(g, all);
-        let tags = member_tags(g);
-        let slots: Vec<(&Member, &str, f32)> = rows.iter().zip(&tags).enumerate().map(|(i, (m, tag))| (m, tag.as_str(), i as f32 * ROW_H)).collect();
+        let slots: Vec<(&Member, &str, f32)> =
+            rows.iter().zip(&card.members).enumerate().map(|(i, (m, t))| (m, t.tag.as_str(), i as f32 * ROW_H)).collect();
         inside.update_rows(now, slide, &slots);
         // Each row's "Viewing" mark fades in and out with its helper on screen.
         for m in inside.rows.values_mut() {
-            let seen = (!m.leaving).then(|| viewing::member_seen(f.viewing, g, &m.member)).flatten();
+            let seen = if m.leaving {
+                None
+            } else {
+                match card.member_index(m.member.agent.pane) {
+                    Some(i) => viewing::seen_under(f.viewing, &m.member.agent, card.parent(i)),
+                    None => viewing::member_seen(f.viewing, g, &m.member),
+                }
+            };
             m.seen.set(now, seen, f.animate);
         }
         // A pipeline among the helpers: its tile's ring and badge, from its own stages.
-        let mut tiles: HashMap<PaneId, TileLook> = HashMap::new();
-        for (i, member) in g.members.iter().enumerate().filter(|(_, m)| m.agent.kind == AgentKind::Pipeline) {
-            let stages: Vec<&Agent> = g.under(i).filter(|s| !s.agent.team.sub).map(|s| &*s.agent).collect();
+        let mut tiles: Vec<(PaneId, TileLook)> = Vec::new();
+        for n in &card.nested {
+            let member = &g.members[n.member];
             let Some(row) = inside.rows.get_mut(&member.agent.pane) else { continue };
-            if let Some((progress, status, working)) = pipeline_state(&stages) {
-                let seen = !row.leaving && std::iter::once(&*member.agent).chain(stages.iter().copied()).any(|a| f.viewing.of(a).is_some());
-                row.tile.update(now, progress, status, seen, f.animate);
-                tiles.insert(member.agent.pane, tile_look(f, &row.tile, working));
-            }
+            let (progress, status, working) = n.state;
+            let viewed = |a: &Agent| f.viewing.of(a).is_some();
+            let seen = !row.leaving && (viewed(&member.agent) || n.stages.iter().any(|&j| viewed(&g.members[j].agent)));
+            row.tile.update(now, progress, status, seen, f.animate);
+            tiles.push((member.agent.pane, tile_look(f, &row.tile, working)));
         }
 
         // The hairlines stay where the slots are, each starting at its slot's text.
@@ -579,24 +650,28 @@ impl AgentsPane {
                 );
             }
         }
-        branch_lines(p, list, g, rows.len());
+        branch_lines(p, list, g, &card.branches, rows.len());
 
         // Settled rows first, then the ones making room, then the ones whose helper changed
         // state (the latest on top), each on a backing so it reads as it passes over.
-        let over = |id: &PaneId| inside.rows[id].status_change && inside.rows[id].sliding(now);
-        let mut order: Vec<PaneId> = inside.rows.keys().copied().collect();
-        order.sort_by(|a, b| {
-            let (ra, rb) = (&inside.rows[a], &inside.rows[b]);
-            (over(a), ra.sliding(now)).cmp(&(over(b), rb.sliding(now))).then(ra.changed.total_cmp(&rb.changed)).then(a.cmp(b))
-        });
+        // Each row's place in that order worked out once, not at every comparison.
+        let mut order: Vec<((bool, bool), f64, PaneId)> = inside
+            .rows
+            .iter()
+            .map(|(id, m)| {
+                let sliding = m.sliding(now);
+                ((m.status_change && sliding, sliding), m.changed, *id)
+            })
+            .collect();
+        order.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
         let backing = lighten(f.c.card.to_opaque(), 0.07);
-        for id in order {
+        for ((over, _), _, id) in order {
             let m = &inside.rows[&id];
             let row = Rect::from_min_size(Pos2::new(list.left(), list.top() + m.y.get(now)), Vec2::new(list.width(), ROW_H));
             let mut rp = p.clone();
             rp.multiply_opacity(m.opacity.get(now));
             let inner = row.shrink2(Vec2::new(4.0, 3.0));
-            if over(&id) {
+            if over {
                 // In as it sets off, out as it lands.
                 let arc = (m.y.t(now) * std::f32::consts::PI).sin();
                 rp.rect_filled(inner, 8, backing.gamma_multiply((arc * 4.0).min(1.0)));
@@ -623,12 +698,19 @@ impl AgentsPane {
             if keyed {
                 rp.rect_stroke(inner, 8, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);
             }
-            let glyph = (inside.tick(now, id), tiles.get(&id).copied());
-            helper_row(f, &rp, row, &m.member, row_depth(g, &m.member), &m.tag, seen, glyph);
+            let glyph = (inside.tick(now, id), tiles.iter().find(|(p, _)| *p == id).map(|(_, t)| *t));
+            // Its folder as worked out with the card, unless the row still shows an agent the
+            // card has moved on from (fading out).
+            let own = card.member_index(id).filter(|&i| Arc::ptr_eq(&g.members[i].agent, &m.member.agent));
+            let detail = match own {
+                Some(i) => std::borrow::Cow::Borrowed(card.members[i].detail.as_str()),
+                None => std::borrow::Cow::Owned(member_detail(&m.member.agent)),
+            };
+            helper_row(f, &rp, row, &m.member, row_depth(g, &m.member), (&m.tag, &detail), seen, glyph);
         }
         if g.members.len() > ROWS_SHOWN {
             let more = Rect::from_min_size(Pos2::new(list.left(), list.top() + rows.len() as f32 * ROW_H), Vec2::new(list.width(), MORE_H));
-            let text = if all { "Show Fewer".to_string() } else { format!("Show All {}", g.members.len()) };
+            let text = if all { "Show Fewer" } else { card.show_all.as_str() };
             let mut color = ACCENT;
             if live && let Some(hit) = f.interact(more, ("more", key)) {
                 if hit.hovered() {
@@ -649,28 +731,20 @@ impl AgentsPane {
 /// [`capsule_layout`]). A capsule is drawn where `inside` has it on the way to its place
 /// (`slide`: gliding there when the order changes); one going into the `+N` fades.
 /// Returns where the sub-agents' capsules are, which take clicks of their own.
-fn capsules(f: &Frame, p: &Painter, strip: Rect, g: &Group, inside: &mut TeamMotion, slide: bool) -> Vec<(PaneId, Rect)> {
+fn capsules(f: &Frame, p: &Painter, strip: Rect, card: &Card, inside: &mut TeamMotion, slide: bool) -> Vec<(PaneId, Rect)> {
     let c = f.c;
     let now = f.time;
-    let steps = g.strip();
+    let steps = &card.strip;
     let y = strip.center().y;
     let font = ui::paint::bold(11.5);
+    // The labels were worked out with the card; egui keeps their shaped text between frames.
     let galleys: Vec<_> = steps
         .iter()
-        .map(|step| match step {
-            Step::Heading(name) => p.layout_no_wrap(format!("{name}:"), font.clone(), c.text_dim),
-            Step::Stage(a) | Step::Helper(a) => {
-                // A stage or helper running sub-agents says how many.
-                let label = match g.subs_of(a.pane) {
-                    0 => member_word(a),
-                    n => format!("{} \u{00b7}{n}", member_word(a)),
-                };
-                p.layout_no_wrap(label, font.clone(), c.text_bright)
-            }
-        })
+        .zip(&card.labels)
+        .map(|(step, label)| p.layout_no_wrap(label.clone(), font.clone(), if step.agent().is_some() { c.text_bright } else { c.text_dim }))
         .collect();
     let widths: Vec<f32> = steps.iter().zip(&galleys).map(|(s, g)| g.size().x + if s.agent().is_some() { 30.0 } else { 0.0 }).collect();
-    let laid = capsule_layout(&steps, &widths, strip.width());
+    let laid = capsule_layout(steps, &widths, strip.width());
 
     for &(from, to) in &laid.joins {
         p.line_segment([Pos2::new(strip.left() + from, y), Pos2::new(strip.left() + to, y)], Stroke::new(1.0_f32, white_alpha(40)));

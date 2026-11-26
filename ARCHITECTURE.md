@@ -75,7 +75,8 @@ src/
 │   ├── motion.rs         cards moving between sections
 │   ├── notify.rs         the Agents tab's badge, and when to send a system notification
 │   └── view/             drawing and the mouse: mod.rs (state, the frame, orchestration),
-│                         text.rs (what cards say), layout.rs (where things go), paint.rs
+│                         text.rs (what cards say), card.rs (what a card shows, worked out
+│                         once per change of the list), layout.rs (where things go), paint.rs
 │                         (leaf painters), viewing.rs (the "Viewing" mark), tests.rs
 ├── remote/           ssh: nex's own connections, uploads, mic sharing (+ audio capture),
 │                     installing and watching nex-host; ssh/ is nex's own ssh client (russh):

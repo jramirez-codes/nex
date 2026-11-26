@@ -13,6 +13,7 @@
 //! place is its offset from the top of the list and a capsule's from the left of the strip,
 //! so the card moving or growing around them doesn't set them off.
 
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -428,15 +429,20 @@ impl TeamMotion {
                 r.status_change = false;
             }
             r.member = member.clone();
-            r.tag = tag.to_string();
+            if r.tag != tag {
+                r.tag = tag.to_string();
+            }
             r.leaving = false;
             r.y.set(now, y, animate);
             r.opacity.set(now, 1.0, animate);
         }
-        for (pane, r) in &mut self.rows {
-            if !rows.iter().any(|(m, ..)| m.agent.pane == *pane) {
-                r.leaving = true;
-                r.opacity.set(now, 0.0, animate);
+        // Every row kept is listed (the common case): none to fade out, nothing to look up.
+        if self.rows.len() > rows.len() {
+            for (pane, r) in &mut self.rows {
+                if !rows.iter().any(|(m, ..)| m.agent.pane == *pane) {
+                    r.leaving = true;
+                    r.opacity.set(now, 0.0, animate);
+                }
             }
         }
         self.forget_gone(now);
@@ -458,10 +464,12 @@ impl TeamMotion {
             c.x.set(now, x, slide);
             c.opacity.set(now, 1.0, animate);
         }
-        for (pane, c) in &mut self.capsules {
-            if !capsules.iter().any(|(p, _)| p == pane) {
-                c.leaving = true;
-                c.opacity.set(now, 0.0, animate);
+        if self.capsules.len() > capsules.len() {
+            for (pane, c) in &mut self.capsules {
+                if !capsules.iter().any(|(p, _)| p == pane) {
+                    c.leaving = true;
+                    c.opacity.set(now, 0.0, animate);
+                }
             }
         }
         self.forget_gone(now);
@@ -535,7 +543,7 @@ impl Motion {
     /// Head every card and header for its place in the latest layout (content coordinates
     /// at `width`). New ones fade in where they belong, ones no longer there fade out where
     /// they were. `animate` false (or a resize, or the first layout) puts everything in place.
-    pub fn update(&mut self, now: f64, animate: bool, sections: &[(Status, usize, Rect)], cards: &[(&Arc<Agent>, Rect)], width: f32) {
+    pub fn update<A: Borrow<Arc<Agent>>>(&mut self, now: f64, animate: bool, sections: &[(Status, usize, Rect)], cards: &[(A, Rect)], width: f32) {
         let animate = animate && !std::mem::take(&mut self.fresh);
         let slide = animate && (self.width - width).abs() < 0.5;
         self.width = width;
@@ -554,7 +562,8 @@ impl Motion {
             }
         }
 
-        for &(agent, r) in cards {
+        for (agent, r) in cards {
+            let (agent, r) = (agent.borrow(), *r);
             let c = self.cards.entry(agent.pane).or_insert_with(|| CardMotion::new(Arc::clone(agent), r));
             // A new status means a new section; a settled card that is only pushed along
             // by the others moves flat.
@@ -572,11 +581,14 @@ impl Motion {
             c.rect.set(now, r, slide);
             c.opacity.set(now, 1.0, animate);
         }
-        let present: HashSet<PaneId> = cards.iter().map(|(a, _)| a.pane).collect();
-        for (pane, c) in &mut self.cards {
-            if !present.contains(pane) {
-                c.leaving = true;
-                c.opacity.set(now, 0.0, animate);
+        // Only when some card isn't in the layout any more: the set of those that are.
+        if self.cards.len() > cards.len() {
+            let present: HashSet<PaneId> = cards.iter().map(|(a, _)| a.borrow().pane).collect();
+            for (pane, c) in &mut self.cards {
+                if !present.contains(pane) {
+                    c.leaving = true;
+                    c.opacity.set(now, 0.0, animate);
+                }
             }
         }
         self.forget_gone(now);
@@ -928,6 +940,33 @@ mod tests {
         assert!(!t.busy(3.0) && t.capsules[&1].x.get(3.0) == 0.0);
     }
 
+    /// One card, row or capsule swapped for another, the count unchanged: the one gone still
+    /// fades out where it was (the update only looks for those gone when there are more kept
+    /// than listed), and once faded is forgotten.
+    #[test]
+    fn one_swapped_for_another_fades_out_as_the_new_one_fades_in() {
+        let (one, two) = (agent(1, Status::Idle), agent(2, Status::Idle));
+        let mut m = Motion::new();
+        m.update(0.0, true, &[(Status::Idle, 1, at(0.0))], &[(&one, at(30.0))], 300.0);
+        m.update(1.0, true, &[(Status::Idle, 1, at(0.0))], &[(&two, at(30.0))], 300.0);
+        assert!(m.cards[&1].leaving && m.cards[&1].opacity.get(1.0 + FADE / 2.0) < 1.0);
+        assert!(!m.cards[&2].leaving && m.cards[&2].opacity.get(1.0) == 0.0, "fading in");
+        m.update(1.0 + FADE, true, &[(Status::Idle, 1, at(0.0))], &[(&two, at(30.0))], 300.0);
+        assert_eq!(m.cards.keys().copied().collect::<Vec<_>>(), [2]);
+
+        let mut t = TeamMotion::default();
+        let (a, b) = (member(1, Status::Idle), member(2, Status::Idle));
+        t.update_rows(0.0, true, &slots(std::slice::from_ref(&a)));
+        t.update_rows(1.0, true, &slots(std::slice::from_ref(&b)));
+        assert!(t.rows[&1].leaving && !t.rows[&2].leaving);
+        t.update_capsules(0.0, true, &[(1, 0.0)]);
+        t.update_capsules(1.0, true, &[(2, 0.0)]);
+        assert!(t.capsules[&1].leaving && !t.capsules[&2].leaving);
+        t.update_rows(1.0 + FADE, true, &slots(std::slice::from_ref(&b)));
+        t.update_capsules(1.0 + FADE, true, &[(2, 0.0)]);
+        assert!(!t.rows.contains_key(&1) && !t.capsules.contains_key(&1));
+    }
+
     #[test]
     fn a_teams_motion_goes_with_its_card() {
         let mut m = Motion::new();
@@ -936,7 +975,7 @@ mod tests {
         m.teams.entry(1).or_default().update_rows(0.0, true, &slots(&[member(2, Status::Idle)]));
         m.forget_gone(0.5);
         assert!(m.teams.contains_key(&1));
-        m.update(1.0, true, &[], &[], 300.0);
+        m.update::<Arc<Agent>>(1.0, true, &[], &[], 300.0);
         m.forget_gone(1.0 + FADE);
         assert!(m.teams.is_empty() && m.cards.is_empty());
     }
