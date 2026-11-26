@@ -16,6 +16,7 @@ The checks CI runs (`.github/workflows/ci.yml`):
 ```sh
 cargo nextest run --locked --profile ci --workspace --exclude nex-ios --exclude nex-android
 cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo fmt --all --check
 shellcheck install.sh bench/*.sh packaging/macos/*.sh
 # nex-host ships to servers as a static binary:
 cargo build --locked -p nex-host --release --target x86_64-unknown-linux-musl
