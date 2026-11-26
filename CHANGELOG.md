@@ -17,6 +17,9 @@ All notable changes to nex are documented here. The format follows
   down (or the right mouse button, on desktop), the title scrolls sideways to its end and
   back, pausing at each end, and lifting snaps it back to the usual faded-out start. A title
   that fits doesn't move, and the hold doesn't pick the pane up to drag it.
+- Android and iOS: open a link from a pane in the phone's browser. Double-tap the keyboard
+  button to arm Ctrl, then tap the link, as Ctrl+click does on a desktop. A plain tap still
+  only focuses the pane (or clicks in programs that take the mouse).
 - Android: download a file from the Files pane of an ssh session to the phone. Long-press a
   file and pick "Download to phone", or tap Download in its Properties. It's saved to the
   phone's Downloads (Android 11 or newer) under its own name, or "name (2).ext" when that's

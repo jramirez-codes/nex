@@ -2,7 +2,7 @@
 //! touch screens a finger is not a mouse: a swipe up or down scrolls (and flings on after
 //! the finger lifts), a swipe sideways is left to `swipe.rs` (it switches tabs), a long press
 //! selects a word (and a following drag extends it), and a tap focuses (and clicks in
-//! programs that take the mouse).
+//! programs that take the mouse, or with Ctrl armed on the keyboard button, opens a link).
 
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,7 @@ use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, Re
 use crate::layout::PaneId;
 use crate::render;
 use crate::terminal::input::{self, MouseAction, MouseButton};
+use crate::terminal::search::Link;
 
 use crate::app::App;
 use crate::app::actions::Action;
@@ -181,7 +182,7 @@ impl App {
             && let Some((link_pane, link)) = &self.input.hover_link
             && *link_pane == id
         {
-            crate::platform::open_uri(link.uri.as_ref());
+            (self.input.open_link)(link.uri.as_ref());
             return;
         }
         self.pending.push(Action::FocusPane(id));
@@ -440,10 +441,19 @@ impl App {
         }
     }
 
-    /// A finger lifting: a tap, or the end of a scroll (which may fling on).
+    /// A finger lifting: a tap, or the end of a scroll (which may fling on). With Ctrl
+    /// armed on the keyboard button (a phone's Ctrl), a tap on a link in the focused pane
+    /// opens it, as Ctrl+click does with a mouse, and uses the Ctrl up.
     fn on_touch_release(&mut self, ctx: &egui::Context, press: TouchPress, pos: Pos2) {
         match press.gesture {
             TouchGesture::Pending => {
+                if self.chrome.keyboard_button.ctrl_armed
+                    && let Some(link) = self.link_at(press.id, press.rect, press.origin)
+                {
+                    self.chrome.keyboard_button.ctrl_armed = false;
+                    (self.input.open_link)(link.uri.as_ref());
+                    return;
+                }
                 let m = self.pane_metrics(press.id);
                 let Some(t) = self.panes.terminal_mut(press.id) else { return };
                 let mode = *t.term.lock().mode();
@@ -478,12 +488,7 @@ impl App {
         if let (true, Some(pos), None) = (ctrl, hover, self.input.mouse.capture)
             && let Some((id, rect)) = self.terminal_at(pos)
         {
-            let m = self.pane_metrics(id);
-            if let Some(t) = self.panes.terminal(id) {
-                let (point, ..) = render::point_at(pos, rect, m, t);
-                let term = t.term.lock();
-                self.input.hover_link = self.input.links.link_at(&term, point).map(|l| (id, l));
-            }
+            self.input.hover_link = self.link_at(id, rect, pos).map(|l| (id, l));
         }
         if self.input.hover_link.is_some() {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
@@ -491,6 +496,15 @@ impl App {
         if previous != self.input.hover_link.as_ref().map(|(id, l)| (*id, l.range.clone())) {
             ctx.request_repaint();
         }
+    }
+
+    /// The link (OSC 8 or a plain-text URL) at `pos` in terminal `id`, shown in `rect`.
+    fn link_at(&mut self, id: PaneId, rect: Rect, pos: Pos2) -> Option<Link> {
+        let m = self.pane_metrics(id);
+        let t = self.panes.terminal(id)?;
+        let (point, ..) = render::point_at(pos, rect, m, t);
+        let term = t.term.lock();
+        self.input.links.link_at(&term, point)
     }
 
     /// A text cursor over terminals, unless the program handles the mouse itself.

@@ -430,7 +430,7 @@ your home server, and nothing else runs on the device.
 - **A keyboard button made for terminals.** The round button in the bottom-right corner
   hides or shows the keyboard. Drag it as a joystick for the arrow keys (they repeat faster
   the further you push), spin it round in a full circle for Esc, double-tap it to arm Ctrl for the next key (double-tap, then `c`, is
-  `^C`), and feel a light haptic tick on taps, arrows and Ctrl.
+  `^C`; with Ctrl armed, tap a link to open it in the phone's browser), and feel a light haptic tick on taps, arrows and Ctrl.
 - **Talk to Claude Code.** Hold the keyboard button to use Claude Code's voice mode: the
   phone's microphone is shared with the host while Space is held for you (see
   [Sharing your microphone](#sharing-your-microphone-experimental)).
