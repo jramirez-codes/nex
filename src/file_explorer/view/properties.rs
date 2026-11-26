@@ -1,6 +1,7 @@
 //! The Properties dialog: a file's or folder's name (which can be edited), kind, location,
 //! size, dates, permissions and owner. A folder's contents are added up on a background
-//! thread, and the dialog shows the running total until that finishes.
+//! thread, and the dialog shows the running total until that finishes. On the phone, a
+//! file on the ssh host has a Download button (see `fs/download.rs`).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -278,6 +279,9 @@ impl FileExplorer {
             (confirm, cancel) = (false, false);
         }
         let touch = self.touch;
+        // A file on the host can be downloaded to the phone from here too.
+        let download = self.entries.iter().position(|e| e.path == props.path).filter(|&i| self.can_download(i));
+        let mut download_clicked = false;
         let rows = props.rows();
         let frame = egui::Frame::popup(&ctx.style()).fill(c.card).corner_radius(12).inner_margin(18.0);
         let modal = egui::Modal::new(Id::new(("files-properties", pane))).frame(frame).show(ctx, |ui| {
@@ -320,11 +324,19 @@ impl FileExplorer {
                     cancel |= ui.add(button("Cancel", Color32::from_white_alpha(18), c.text_bright)).clicked();
                 } else {
                     cancel |= ui.add(button("Close", Color32::from_white_alpha(18), c.text_bright)).clicked();
+                    if download.is_some() {
+                        ui.add_space(6.0);
+                        download_clicked = ui.add(button("Download", ACCENT, Color32::WHITE)).clicked();
+                    }
                 }
             });
         });
         cancel |= modal.backdrop_response.clicked();
         if cancel {
+            return;
+        }
+        if let (true, Some(i)) = (download_clicked, download) {
+            self.download(ctx, i);
             return;
         }
         if confirm {

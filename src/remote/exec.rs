@@ -132,6 +132,13 @@ impl Transport {
         parse_many(&out.out, commands.len()).ok_or_else(|| RemoteError::from("The host's answer was cut short").into())
     }
 
+    /// Run `script` until it ends or `cancel` is set, handing what it prints to `sink` as it
+    /// arrives instead of keeping it (a file being downloaded). Returns its exit status. A
+    /// `sink` error stops the script and comes back as the error.
+    pub fn stream(&self, script: &str, cancel: &AtomicBool, sink: &mut dyn FnMut(&[u8]) -> std::io::Result<()>) -> Result<i32, ExecError> {
+        stream_process(self.spawn(script, false)?, cancel, sink)
+    }
+
     fn start(&self, script: &str) -> Result<Started, ExecError> {
         Ok(follow(self.spawn(script, false)?))
     }
@@ -180,6 +187,51 @@ fn follow(process: Process) -> Started {
         }
     });
     Started { out, done, abort }
+}
+
+/// [`Transport::stream`] for a started script: its stdout is read on a thread of its own and
+/// handed over a chunk at a time (a few chunks ahead at most, so a slow `sink` slows the
+/// read rather than filling memory).
+fn stream_process(process: Process, cancel: &AtomicBool, sink: &mut dyn FnMut(&[u8]) -> std::io::Result<()>) -> Result<i32, ExecError> {
+    let Process { stdout, stderr, running, .. } = process;
+    let (tx, chunks) = mpsc::sync_channel::<Vec<u8>>(8);
+    let mut stdout = stdout;
+    std::thread::spawn(move || {
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+    });
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            running.stop();
+            return Err(ExecError::Cancelled);
+        }
+        match chunks.recv_timeout(Duration::from_millis(50)) {
+            Ok(chunk) => {
+                if let Err(e) = sink(&chunk) {
+                    running.stop();
+                    return Err(RemoteError::Other(e.to_string()).into());
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    let stderr = stderr.and_then(|r| r.recv().ok()).unwrap_or_default();
+    let ssh = running.over_ssh();
+    let (code, failure) = running.exit(&stderr);
+    let code = code.unwrap_or(255);
+    if ssh { ssh_result(code, failure, &stderr) } else { Ok(code) }
 }
 
 /// What an `ssh` that exited with `code` comes to: the script's own status is the caller's
@@ -353,6 +405,47 @@ mod tests {
         let out = wait(follow(Process::nex(exec, false, Ended(tx))), Some(Duration::from_secs(5)), None, &mut |_| {}).unwrap();
         assert_eq!(out.out, b"done\n");
         ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    /// A streamed command hands its output over as it comes, and a Cancel ends it.
+    #[test]
+    fn a_stream_hands_over_output_then_stops_on_cancel() {
+        let (tx, ended) = mpsc::channel();
+        let cancel = AtomicBool::new(false);
+        let mut seen = Vec::new();
+        let result = stream_process(Process::nex(Exec::hanging(b"chunk"), false, Ended(tx)), &cancel, &mut |bytes| {
+            seen.extend_from_slice(bytes);
+            cancel.store(true, Ordering::Relaxed);
+            Ok(())
+        });
+        assert_eq!(result, Err(ExecError::Cancelled));
+        assert_eq!(seen, b"chunk");
+        ended.recv_timeout(Duration::from_secs(5)).expect("the command was ended, not left running");
+    }
+
+    /// A sink that can't take more (the phone's storage is full) stops the command.
+    #[test]
+    fn a_failing_sink_stops_the_stream() {
+        let (tx, ended) = mpsc::channel();
+        let cancel = AtomicBool::new(false);
+        let result =
+            stream_process(Process::nex(Exec::hanging(b"chunk"), false, Ended(tx)), &cancel, &mut |_| Err(std::io::Error::other("disk full")));
+        assert_eq!(result, Err(RemoteError::from("disk full").into()));
+        ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    /// A command that ends by itself is streamed to its end.
+    #[test]
+    fn a_stream_reads_to_the_end() {
+        let exec = Exec::hanging(b"all of it");
+        exec.closer.close();
+        let (tx, _ended) = mpsc::channel();
+        let mut seen = Vec::new();
+        let _ = stream_process(Process::nex(exec, false, Ended(tx)), &AtomicBool::new(false), &mut |b| {
+            seen.extend_from_slice(b);
+            Ok(())
+        });
+        assert_eq!(seen, b"all of it");
     }
 
     #[test]

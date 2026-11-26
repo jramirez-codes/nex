@@ -558,6 +558,7 @@ impl FileExplorer {
             _ => None,
         };
         let folder = single.as_ref().filter(|(_, dir, _)| *dir).map(|(i, _, _)| *i);
+        let download = single.as_ref().map(|(i, _, _)| *i).filter(|&i| self.can_download(i));
         let file_apps = single
             .as_ref()
             .filter(|(_, dir, _)| !dir)
@@ -602,6 +603,9 @@ impl FileExplorer {
                 }
                 if folder.is_some() {
                     item(ui, "Open Terminal Here".into(), Command::OpenTerminal(folder), &mut picked);
+                }
+                if let Some(i) = download {
+                    item(ui, "Download to phone".into(), Command::Download(i), &mut picked);
                 }
                 ui.separator();
                 item(ui, "Copy".into(), Command::Copy, &mut picked);

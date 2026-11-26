@@ -4,6 +4,7 @@
 //! app's private storage, and sends stdout and stderr to logcat (see `log.rs`).
 
 mod clipboard;
+mod downloads;
 mod keyboard;
 mod log;
 
@@ -18,6 +19,7 @@ pub use super::unix::{
     symlink,
 };
 pub use clipboard::{clipboard_text, mirror_copies};
+pub use downloads::downloads_dir;
 pub use keyboard::{ask_mic, haptic, mic_allowed, soft_keyboard_visible, sync_soft_keyboard, typed_text};
 
 use super::{ProcInfo, ShortcutStyle, WindowDefaults};

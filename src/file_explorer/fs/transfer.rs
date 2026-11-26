@@ -209,7 +209,7 @@ impl FileExplorer {
     }
 
     /// Run `work` on a new thread as a job the action bar follows.
-    fn spawn_job(
+    pub(in crate::file_explorer) fn spawn_job(
         &mut self,
         ctx: &egui::Context,
         label: String,

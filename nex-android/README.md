@@ -112,6 +112,19 @@ cargo apk run -p nex-android --release
    shell: `~/.nex/bin/nex-host list` on the server no longer shows it.
 6. **No panics.** `adb logcat -s nex` shows none.
 
+## What to check on the phone: downloading a file
+
+1. Open a Files pane on the host and long-press a file. The menu has **Download to phone**
+   (not for a folder). Pick it: the action bar shows "Downloading “…”" with a progress bar,
+   then "Saved “…” to Downloads".
+2. The Files app (or Downloads) shows the file, byte for byte the same as on the host
+   (`sha256sum` there; compare with a checksum app or `adb shell sha256sum /sdcard/Download/…`).
+3. Download the same file again: it arrives as "name (2).ext", and the first one is still there.
+4. Properties of a file has a **Download** button that does the same.
+5. Cancel during a big download: nothing half-written stays in Downloads.
+6. A file you can't read on the host (`chmod 000`) says "Permission denied on the host".
+7. On Android 10 or older the save is refused, and the action bar says why.
+
 The same thing runs on a desktop with `nex --remote=you@server`, which is quicker for checking
 the server side.
 

@@ -19,7 +19,8 @@
 //!
 //! An explorer opened from a terminal in an `ssh` session shows that session's folder on the
 //! host (see `fs/remote.rs`, picked by `fs/backend.rs`): listings load in the background, and file operations run there.
-//! Files can't be copied between the host and this machine, or opened with a local app.
+//! Files can't be copied between the host and this machine, or opened with a local app; on
+//! the phone a file there can be downloaded to the phone's Downloads (`fs/download.rs`).
 //!
 //! Folders are read off the UI thread wherever nobody is waiting for the answer: a folder on
 //! an ssh host always, and one on this machine when it is re-read because time passed or
@@ -181,6 +182,9 @@ pub struct FileExplorer {
     /// The machine the folder is on, and what is done there.
     backend: FsBackend,
     host: HostState,
+    /// Where files on the host can be downloaded to on this device (the phone's Downloads;
+    /// `None` on a desktop, or for an explorer of this machine's own files).
+    download_dir: Option<PathBuf>,
 }
 
 impl FileExplorer {
@@ -197,6 +201,7 @@ impl FileExplorer {
     /// `ctx`: what background work repaints, when it's known from the start.
     fn make(dir: PathBuf, backend: FsBackend, ctx: Option<&egui::Context>) -> Self {
         let repaint = Arc::new(OnceLock::new());
+        let download_dir = if backend.is_remote() { crate::platform::downloads_dir() } else { None };
         if let Some(ctx) = ctx {
             let _ = repaint.set(ctx.clone());
         }
@@ -243,6 +248,7 @@ impl FileExplorer {
             requests: Vec::new(),
             backend,
             host: HostState::default(),
+            download_dir,
         };
         b.refresh();
         b

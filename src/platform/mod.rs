@@ -181,6 +181,14 @@ pub fn soft_keyboard_visible() -> Option<bool> {
     None
 }
 
+/// Where a file downloaded from an ssh host to this device goes (the phone's Downloads).
+/// `None` where nex doesn't download files to the device: on a desktop the explorer only
+/// works on the host, as before.
+#[cfg(not(target_os = "android"))]
+pub fn downloads_dir() -> Option<PathBuf> {
+    None
+}
+
 /// Desktops ask for the microphone themselves when it's opened, or don't ask at all.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn mic_allowed() -> bool {

@@ -8,6 +8,11 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Android: download a file from the Files pane of an ssh session to the phone. Long-press a
+  file and pick "Download to phone", or tap Download in its Properties. It's saved to the
+  phone's Downloads (Android 11 or newer) under its own name, or "name (2).ext" when that's
+  taken, so nothing there is replaced. The action bar shows its progress, with Cancel, then
+  where it went or why it failed. Desktops don't change.
 - Android and iPhone: spinning the keyboard button's joystick round in a full circle, either
   way, sends Esc, once a turn, and no arrows: the joystick's arrow now waits until the finger
   has settled on it (about 0.12 s pointing one way, hardly turning), which a finger going
