@@ -29,7 +29,7 @@ pub(in crate::file_explorer) fn sizes(touch: bool, zoom: f32) -> Sizes {
     let (bar, row, tile, icon, action_bar, button, font) = if touch {
         (40.0, 40.0, Vec2::new(112.0, 104.0), 44.0, 52.0, 38.0, 14.0)
     } else {
-        (30.0, 24.0, Vec2::new(96.0, 86.0), 36.0, 38.0, 26.0, 13.0)
+        (30.0, 24.0, Vec2::new(96.0, 86.0), 36.0, 34.0, 26.0, 13.0)
     };
     let z = zoom;
     Sizes { bar: bar * z, row: row * z, tile: tile * z, icon: icon * z, action_bar: action_bar * z, button: button * z, font: font * z, scale: z }

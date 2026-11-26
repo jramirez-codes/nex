@@ -17,6 +17,12 @@ All notable changes to nex are documented here. The format follows
   signs and notarizes it, and uploads the DMG, a signed app zip and an updated
   `SHA256SUMS.txt`. v0.16.0's DMG was made this way.
 
+### Changed
+
+- The file explorer's action bar is icons now (Select all, Copy, Cut, Rename, Delete, Paste /
+  Move here, Cancel, Done, each named in its tooltip), and a little shorter. In a narrow pane
+  the buttons shrink to fit instead of dropping off the left, and the status line makes way.
+
 ## [0.16.0] - 2026-11-25
 
 ### Added

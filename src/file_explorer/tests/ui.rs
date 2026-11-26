@@ -21,6 +21,8 @@ pub(in crate::file_explorer) struct Harness {
     pass: u64,
     /// Modifier keys held down.
     pub(in crate::file_explorer) mods: Modifiers,
+    /// The pane's width.
+    pub(in crate::file_explorer) width: f32,
 }
 
 impl Harness {
@@ -29,8 +31,17 @@ impl Harness {
         ctx.enable_accesskit();
         crate::render::fonts::install(&ctx, &crate::config::Config::default());
         let theme = Theme::from_config(&crate::config::Config::default());
-        let mut h =
-            Self { ctx, b: FileExplorer::new(dir), theme, nodes: Vec::new(), seen: Default::default(), time: 0.0, pass: 0, mods: Modifiers::NONE };
+        let mut h = Self {
+            ctx,
+            b: FileExplorer::new(dir),
+            theme,
+            nodes: Vec::new(),
+            seen: Default::default(),
+            time: 0.0,
+            pass: 0,
+            mods: Modifiers::NONE,
+            width: 800.0,
+        };
         h.frame(vec![]);
         h.frame(vec![]);
         h
@@ -39,7 +50,7 @@ impl Harness {
     pub(in crate::file_explorer) fn frame(&mut self, events: Vec<Event>) {
         self.time += 0.05;
         let input = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(self.width, 600.0))),
             time: Some(self.time),
             modifiers: self.mods,
             events,
@@ -220,6 +231,38 @@ fn action_bar_delete_asks_first() {
     }
     assert!(h.b.confirm_delete.is_some() && h.find("Cancel").is_some());
     assert!(dir.join("zeta.txt").exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// In a narrow pane the action bar's icon buttons all stay inside it, side by side without
+/// overlapping, and still work.
+#[test]
+fn action_bar_fits_a_narrow_pane() {
+    let dir = fixture("ui-bar-narrow");
+    let mut h = Harness::new(dir.clone());
+    h.width = 150.0;
+    h.frame(vec![]);
+    // Select one item, then Ctrl+click it: just that one is marked, so Rename shows too.
+    let at = Pos2::new(60.0, h.row(3).y);
+    h.click_at(at, PointerButton::Primary);
+    h.mods = Modifiers::COMMAND;
+    h.click_at(at, PointerButton::Primary);
+    h.mods = Modifiers::NONE;
+    h.frame(vec![]);
+    let labels = ["Select all", "Copy", "Cut", "Rename", "Delete", "Done"];
+    let rects: Vec<Rect> = labels.iter().map(|l| h.find(l).unwrap_or_else(|| panic!("no “{l}” button"))).collect();
+    for (k, r) in rects.iter().enumerate() {
+        assert!(r.left() >= 0.0 && r.right() <= 150.0, "{} at {r:?}", labels[k]);
+        assert!(r.width() >= 16.0, "{} is {r:?}", labels[k]);
+        if k > 0 {
+            assert!(rects[k - 1].right() <= r.left(), "{} overlaps {}", labels[k - 1], labels[k]);
+        }
+    }
+    h.click_label("Delete");
+    for _ in 0..3 {
+        h.frame(vec![]);
+    }
+    assert!(h.b.confirm_delete.is_some());
     std::fs::remove_dir_all(dir).unwrap();
 }
 

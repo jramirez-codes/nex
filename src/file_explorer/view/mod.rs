@@ -30,6 +30,16 @@ const SEGMENT_TRACK: Color32 = Color32::from_black_alpha(50);
 const SEGMENT_ON: Color32 = white_alpha(30);
 /// The magnifier drawn in the type-to-find pill.
 const FIND_GLYPH: char = '\u{f0349}';
+/// The action bar's icons (Material Design glyphs from the embedded Nerd Font).
+const GLYPH_SELECT_ALL: char = '\u{f0486}';
+const GLYPH_COPY: char = '\u{f018f}';
+const GLYPH_CUT: char = '\u{f0190}';
+const GLYPH_RENAME: char = '\u{f0cb6}';
+const GLYPH_DELETE: char = '\u{f0a7a}';
+const GLYPH_PASTE: char = '\u{f0192}';
+const GLYPH_MOVE: char = '\u{f0252}';
+const GLYPH_CLOSE: char = '\u{f0156}';
+const GLYPH_DONE: char = '\u{f012c}';
 
 /// A path-bar button: id, tooltip, enabled, what it does, icon.
 type NavButton = (&'static str, String, bool, Command, fn(&Painter, Rect, Color32));
@@ -40,6 +50,21 @@ enum Style {
     Plain,
     Primary,
     Danger,
+}
+
+/// The side of each of `n` square action-bar buttons, and the gap between them, so they fit
+/// in `room`: `side` and `gap` when there's space, shrinking (the gap first) when there isn't.
+fn fit_buttons(room: f32, n: usize, side: f32, gap: f32) -> (f32, f32) {
+    if n == 0 {
+        return (side, gap);
+    }
+    let n = n as f32;
+    let room = room.max(0.0);
+    if n * side + (n - 1.0) * gap <= room {
+        return (side, gap);
+    }
+    let gap = if n * side <= room { (room - n * side) / (n - 1.0).max(1.0) } else { 0.0 };
+    (side.min(room / n), gap)
 }
 
 /// What's being drawn this frame, shared by the parts of `paint`.
@@ -641,7 +666,9 @@ impl FileExplorer {
     }
 
     /// The bottom bar: a status line (or a running job's progress) plus selection, clipboard
-    /// and Cancel buttons.
+    /// and Cancel buttons. The buttons are icons (named by their tooltips and accessibility
+    /// labels), laid out from the right; in a narrow pane they shrink to fit rather than
+    /// dropping off, and the status line gives up its room first.
     fn action_bar(&mut self, f: &mut Frame, ab: Rect, clip: Option<&Clip>, status: Option<&(String, bool, Instant)>, jobs: Option<&JobSummary>) {
         let (ui, painter, c, s) = (f.ui, f.painter, f.c, &f.s);
         painter.line_segment([ab.left_top(), ab.right_top()], Stroke::new(1.0_f32, HAIRLINE));
@@ -649,63 +676,68 @@ impl FileExplorer {
             self.progress_bar(ui, painter, ab, jobs.fraction, s.scale);
         }
         let selecting = self.selecting || !self.marked.is_empty();
-        let mut buttons: Vec<(&str, Command, Style)> = Vec::new();
+        let mut buttons: Vec<(&str, char, Command, Style)> = Vec::new();
         if selecting {
-            buttons.push(("All", Command::SelectAll, Style::Plain));
+            buttons.push(("Select all", GLYPH_SELECT_ALL, Command::SelectAll, Style::Plain));
             if !self.marked.is_empty() {
-                buttons.push(("Copy", Command::Copy, Style::Plain));
-                buttons.push(("Cut", Command::Cut, Style::Plain));
+                buttons.push(("Copy", GLYPH_COPY, Command::Copy, Style::Plain));
+                buttons.push(("Cut", GLYPH_CUT, Command::Cut, Style::Plain));
                 if self.marked.len() == 1 {
-                    buttons.push(("Rename", Command::Rename, Style::Plain));
+                    buttons.push(("Rename", GLYPH_RENAME, Command::Rename, Style::Plain));
                 }
-                buttons.push(("Delete", Command::Delete, Style::Danger));
+                buttons.push(("Delete", GLYPH_DELETE, Command::Delete, Style::Danger));
             }
         }
         if jobs.is_some() {
-            buttons.push(("Cancel", Command::CancelJobs, Style::Plain));
+            buttons.push(("Cancel", GLYPH_CLOSE, Command::CancelJobs, Style::Plain));
         } else if let Some(clip) = clip {
-            buttons.push((if clip.cut { "Move here" } else { "Paste here" }, Command::Paste, Style::Primary));
+            let (label, glyph) = if clip.cut { ("Move here", GLYPH_MOVE) } else { ("Paste here", GLYPH_PASTE) };
+            buttons.push((label, glyph, Command::Paste, Style::Primary));
             if !selecting {
-                buttons.push(("Cancel", Command::ClearClipboard, Style::Plain));
+                buttons.push(("Cancel", GLYPH_CLOSE, Command::ClearClipboard, Style::Plain));
             }
         }
         if selecting {
-            buttons.push(("Done", Command::ClearSelection, Style::Plain));
+            buttons.push(("Done", GLYPH_DONE, Command::ClearSelection, Style::Plain));
         }
 
-        // Pill buttons, laid out from the right.
-        let font = FontId::proportional(s.font - 0.5);
-        let mut x = ab.right() - 4.0;
-        for (k, (label, cmd, style)) in buttons.iter().enumerate().rev() {
-            let w = painter.layout_no_wrap(label.to_string(), font.clone(), c.text).size().x + (if self.touch { 28.0 } else { 20.0 }) * s.scale;
-            let r = Rect::from_min_size(Pos2::new(x - w, ab.center().y - s.button / 2.0), Vec2::new(w, s.button));
-            if r.left() < ab.left() + 4.0 {
-                break;
-            }
-            x = r.left() - 6.0;
+        // Icon buttons, laid out from the right.
+        let pad = 4.0 * s.scale;
+        let (side, gap) = fit_buttons(ab.width() - 2.0 * pad, buttons.len(), s.button, 2.0 * s.scale);
+        let mut x = ab.right() - pad;
+        for (k, (label, glyph, cmd, style)) in buttons.iter().enumerate().rev() {
+            let r = Rect::from_min_size(Pos2::new(x - side, ab.center().y - side / 2.0), Vec2::splat(side));
+            x = r.left() - gap;
             let resp = ui.interact(r, Id::new(("files-action", f.pane, k)), Sense::click());
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, *label));
             let hot = resp.hovered();
             let fill = match style {
-                Style::Primary => ACCENT.gamma_multiply(if hot { 1.0 } else { 0.8 }),
-                Style::Danger => ERROR.gamma_multiply(if hot { 0.35 } else { 0.22 }),
-                Style::Plain => Color32::from_white_alpha(if hot { 34 } else { 18 }),
+                Style::Primary => Some(ACCENT.gamma_multiply(if hot { 1.0 } else { 0.8 })),
+                Style::Danger => hot.then(|| ERROR.gamma_multiply(0.25)),
+                Style::Plain => hot.then(|| Color32::from_white_alpha(26)),
             };
-            painter.rect_filled(r, (s.button / 2.0) as u8, fill);
+            if let Some(fill) = fill {
+                painter.rect_filled(r, (side * 0.3) as u8, fill);
+            }
             let col = match style {
                 Style::Primary => Color32::WHITE,
                 Style::Danger => ERROR,
-                Style::Plain => c.text_bright,
+                Style::Plain if hot => c.text_bright,
+                Style::Plain => c.text,
             };
-            painter.text(r.center(), Align2::CENTER_CENTER, label, font.clone(), col);
-            if resp.clicked_by(PointerButton::Primary) {
+            paint_glyph(painter, r.center(), side * 0.62, *glyph, col);
+            if resp.on_hover_text(*label).clicked_by(PointerButton::Primary) {
                 f.commands.push(*cmd);
             }
         }
 
-        // Status / progress / summary on the left.
-        let left = ab.left() + 8.0;
-        let room = x - left - 4.0;
+        // Status / progress / summary on the left, in whatever room the buttons leave.
+        let font = FontId::proportional(s.font - 0.5);
+        let left = ab.left() + 8.0 * s.scale;
+        let room = x - left - 6.0 * s.scale;
+        if room < 24.0 * s.scale {
+            return;
+        }
         if let Some(jobs) = jobs {
             let w = painter.layout_no_wrap(jobs.text.clone(), font.clone(), c.text).size().x.min(room);
             paint::faded_text(painter, Pos2::new(left, ab.center().y), &jobs.text, font.clone(), c.text, room, 18.0);
@@ -751,6 +783,20 @@ impl FileExplorer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_buttons_shrink_to_fit() {
+        // Room to spare: full size.
+        assert_eq!(fit_buttons(200.0, 4, 26.0, 2.0), (26.0, 2.0));
+        // A little short: the gaps close up first.
+        let (side, gap) = fit_buttons(106.0, 4, 26.0, 2.0);
+        assert_eq!(side, 26.0);
+        assert!((gap - 2.0 / 3.0).abs() < 1e-4);
+        // Shorter still: the buttons shrink, exactly filling the room.
+        assert_eq!(fit_buttons(80.0, 4, 26.0, 2.0), (20.0, 0.0));
+        assert_eq!(fit_buttons(-5.0, 3, 26.0, 2.0), (0.0, 0.0));
+        assert_eq!(fit_buttons(50.0, 0, 26.0, 2.0), (26.0, 2.0));
+    }
 
     #[test]
     fn breadcrumbs_fold_home_into_a_tilde() {
