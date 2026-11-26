@@ -36,9 +36,13 @@
 //! following its transcript) like its row. A team's sub-agents are drawn as a pipeline's
 //! stages are: each hangs off its agent by a connector, tagged by its type, over its folder.
 //!
+//! Pressing and holding a card or a helper row (or right-clicking it) scrolls what's cut off
+//! of its lines into view until it's let go (`reveal`), without opening its agent.
+//!
 //! The work divides by role: `text` (what cards, rows and capsules say), `card` (what a card
 //! shows that only changes with the list, worked out once per change of it), `layout` (where
-//! everything goes), `paint` (the leaf painters), `viewing` (the "Viewing" mark), and here
+//! everything goes), `paint` (the leaf painters), `viewing` (the "Viewing" mark), `reveal`
+//! (a press and hold scrolling cut-off lines), and here
 //! the state kept between frames ([`ViewState`]), what a frame shares (`Frame`), and the
 //! orchestration: `paint`, scrolling, the cards, a team's card, its helper list and its
 //! capsules. Tests are in `tests`.
@@ -66,6 +70,7 @@ use crate::agents::view::paint::{
     Look, TileLook, agent_header, border_for, branch_lines, card_body, empty_state, helper_row, host_notes, member_glyph, needs_you_tint,
     section_header, tile_look,
 };
+use crate::agents::view::reveal::{Held, Reveal};
 use crate::agents::view::text::{header_text, member_detail};
 use crate::layout::PaneId;
 use crate::ui;
@@ -77,6 +82,7 @@ use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
 mod card;
 mod layout;
 mod paint;
+mod reveal;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -135,6 +141,8 @@ pub(super) struct ViewState {
     viewing: Viewing,
     /// The order the cards are drawn in this frame (kept to reuse its room).
     draw_order: Vec<(PaneId, f32)>,
+    /// A card or helper row pressed and held, its cut-off lines scrolling.
+    reveal: Option<Reveal>,
 }
 
 impl ViewState {
@@ -151,6 +159,7 @@ impl ViewState {
             laid: None,
             viewing: Viewing::default(),
             draw_order: Vec::new(),
+            reveal: None,
         }
     }
 
@@ -389,6 +398,10 @@ impl AgentsPane {
                 self.view.scroll_active = f.time;
             }
         }
+        // A finger holding a card to read it doesn't scroll the list as it lets go.
+        if self.view.reveal.is_some_and(|r| r.touch) {
+            self.view.pan.ignore();
+        }
         let d = self.view.pan.delta(ui, body);
         if d != 0.0 {
             self.scroll += d;
@@ -420,6 +433,15 @@ impl AgentsPane {
         let now = f.time;
         let origin = body.min.to_vec2() - Vec2::new(0.0, self.scroll);
         let bp = painter.with_clip_rect(body.intersect(f.clip));
+        // A hold under way when this frame began: its release is no tap.
+        let holding = self.view.reveal.is_some();
+        let (down, pressed) = ui.input(|i| (i.pointer.any_down(), i.pointer.any_pressed()));
+        if let Some(r) = &mut self.view.reveal {
+            r.drawn = false;
+            if r.ended(down, pressed) {
+                self.view.reveal = None;
+            }
+        }
         let mut busy = false;
         for (status, sec) in &motion.sections {
             busy |= sec.busy(now);
@@ -453,10 +475,12 @@ impl AgentsPane {
             // The part of the card that's the agent itself: a team's header.
             let head = if team.is_some() { Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H.min(r.height()))) } else { r };
             let mut hovered = false;
+            let mut held = None;
             if !card.leaving {
                 let hit = f.interact(head, ("card", id));
                 hovered = hit.as_ref().is_some_and(|h| h.hovered());
-                if hit.as_ref().is_some_and(|h| h.clicked()) {
+                held = self.hold(hit.as_ref(), Held::Card(id), now);
+                if !holding && hit.as_ref().is_some_and(|h| h.clicked()) {
                     self.jump(id);
                 }
                 if let Some(h) = hit {
@@ -497,6 +521,7 @@ impl AgentsPane {
                 glow: viewing::glow_strength(shown, primary),
                 seen: (shown, primary),
                 tile,
+                held,
             };
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
@@ -507,7 +532,7 @@ impl AgentsPane {
                     // Its rows and capsules slide, unless the card itself was resized.
                     let inside = motion.teams.entry(id).or_default();
                     let slide = f.animate && !inside.resized(laid_w);
-                    self.team_card(f, &p, r, t, look, leaving, inside, slide);
+                    self.team_card(f, &p, r, t, look, leaving, inside, slide, holding);
                     busy |= inside.busy(now);
                 }
                 None => {
@@ -517,19 +542,58 @@ impl AgentsPane {
                     // Its words were worked out with the card, for the lead it was laid out
                     // with: `motion`'s agent is that one.
                     let header = if Arc::ptr_eq(&drawn.group.lead, &card.agent) { None } else { Some(Header::from(header_text(&card.agent, None))) };
-                    agent_header(f, &p, r, &card.agent, &look, header.as_ref().unwrap_or(&drawn.header), None);
+                    let (_, shifted) = agent_header(f, &p, r, &card.agent, &look, header.as_ref().unwrap_or(&drawn.header), None);
+                    self.shifted(Held::Card(id), shifted);
                 }
             }
         }
         self.view.draw_order = ids;
+        // A hold whose card or row isn't drawn (or a right click's the pointer left) is over.
+        if self.view.reveal.is_some_and(|r| !r.drawn) {
+            self.view.reveal = None;
+        }
+        busy |= self.view.reveal.is_some();
         (busy, breathing)
+    }
+
+    /// A press and hold (or right click) on `hit`, what's `held`, starts its reveal. Returns
+    /// how long it has been held at `now`, while it is.
+    fn hold(&mut self, hit: Option<&egui::Response>, held: Held, now: f64) -> Option<f64> {
+        if let Some(h) = hit
+            && (h.long_touched() || h.secondary_clicked())
+        {
+            self.view.reveal = Some(Reveal::new(held, now, h.long_touched()));
+        }
+        let r = self.view.reveal.as_mut().filter(|r| r.held == held)?;
+        // A finger holds it wherever it goes; a right click's lasts while the pointer's on it.
+        r.drawn |= r.touch || hit.is_some_and(|h| h.hovered());
+        Some(now - r.since)
+    }
+
+    /// How far along the lines of what's `held` were drawn (see [`Reveal::shifted`]).
+    fn shifted(&mut self, held: Held, shifted: f32) {
+        if let Some(r) = self.view.reveal.as_mut().filter(|r| r.held == held) {
+            r.shifted = shifted;
+        }
     }
 
     /// A team: its lead's header (with a disclosure chevron and the team's size), then its
     /// helpers as capsules (closed) or an inset list (open), cross-fading as the card grows.
     /// `inside`: where its rows and capsules are; `slide`: whether they glide to new places.
+    /// `holding`: a hold was under way as the frame began (its release opens nothing).
     #[allow(clippy::too_many_arguments)]
-    fn team_card(&mut self, f: &Frame, p: &Painter, r: Rect, card: &Card, look: Look, leaving: bool, inside: &mut TeamMotion, slide: bool) {
+    fn team_card(
+        &mut self,
+        f: &Frame,
+        p: &Painter,
+        r: Rect,
+        card: &Card,
+        look: Look,
+        leaving: bool,
+        inside: &mut TeamMotion,
+        slide: bool,
+        holding: bool,
+    ) {
         let g = &*card.group;
         let key = g.key();
         // A helper that has just finished draws its tick in, in its capsule and its row.
@@ -541,7 +605,8 @@ impl AgentsPane {
         let t = if open_h > closed_h { ((r.height() - closed_h) / (open_h - closed_h)).clamp(0.0, 1.0) } else { 0.0 };
         card_body(p, r, &look);
         let head = Rect::from_min_size(r.min, Vec2::new(r.width(), CARD_H));
-        let pill = agent_header(f, p, head, &g.lead, &look, &card.header, Some(t));
+        let (pill, shifted) = agent_header(f, p, head, &g.lead, &look, &card.header, Some(t));
+        self.shifted(Held::Card(key), shifted);
 
         // Clicking the chevron opens and closes it (over the header's own click, which
         // jumps to the lead); so do the capsules while it's closed, but a sub-agent's, which
@@ -595,7 +660,7 @@ impl AgentsPane {
         if t > 0.01 {
             let mut lp = p.with_clip_rect(p.clip_rect().intersect(r.shrink(1.0)));
             lp.multiply_opacity(t);
-            self.helper_list(f, &lp, r, card, open.unwrap_or(false), t > 0.99 && !leaving, inside, slide);
+            self.helper_list(f, &lp, r, card, open.unwrap_or(false), t > 0.99 && !leaving, inside, slide, holding);
         } else {
             inside.close_rows();
         }
@@ -604,9 +669,21 @@ impl AgentsPane {
     /// An open team's helpers: one row each (tile, tag and task, folder, status), hairlines
     /// between, "Show all" when there are more than fit. `live`: settled, so rows take clicks.
     /// Each row is drawn where `inside` has it on the way to its slot (`slide`: gliding
-    /// there), the one whose helper just changed state over the others.
+    /// there), the one whose helper just changed state over the others. `holding`: as for
+    /// [`team_card`](Self::team_card).
     #[allow(clippy::too_many_arguments)]
-    fn helper_list(&mut self, f: &Frame, p: &Painter, r: Rect, card: &Card, all: bool, live: bool, inside: &mut TeamMotion, slide: bool) {
+    fn helper_list(
+        &mut self,
+        f: &Frame,
+        p: &Painter,
+        r: Rect,
+        card: &Card,
+        all: bool,
+        live: bool,
+        inside: &mut TeamMotion,
+        slide: bool,
+        holding: bool,
+    ) {
         let g = &*card.group;
         let list = list_rect(r);
         p.rect_filled(list, 10, white_alpha(6));
@@ -677,12 +754,11 @@ impl AgentsPane {
                 rp.rect_filled(inner, 8, backing.gamma_multiply((arc * 4.0).min(1.0)));
             }
             let mut hovered = false;
-            if live
-                && !m.leaving
-                && let Some(hit) = f.interact(row, ("row", id))
-            {
+            let hit = if live && !m.leaving { f.interact(row, ("row", id)) } else { None };
+            let held = self.hold(hit.as_ref(), Held::Row(id), now);
+            if let Some(hit) = hit {
                 hovered = hit.hovered();
-                if hit.clicked() {
+                if !holding && hit.clicked() {
                     self.jump(id);
                 }
                 hit.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -706,7 +782,8 @@ impl AgentsPane {
                 Some(i) => std::borrow::Cow::Borrowed(card.members[i].detail.as_str()),
                 None => std::borrow::Cow::Owned(member_detail(&m.member.agent)),
             };
-            helper_row(f, &rp, row, &m.member, row_depth(g, &m.member), (&m.tag, &detail), seen, glyph);
+            let shifted = helper_row(f, &rp, row, &m.member, row_depth(g, &m.member), (&m.tag, &detail), seen, glyph, held);
+            self.shifted(Held::Row(id), shifted);
         }
         if g.members.len() > ROWS_SHOWN {
             let more = Rect::from_min_size(Pos2::new(list.left(), list.top() + rows.len() as f32 * ROW_H), Vec2::new(list.width(), MORE_H));

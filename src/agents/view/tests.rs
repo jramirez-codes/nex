@@ -9,6 +9,7 @@ use crate::agents::view::layout::{
     shown_members,
 };
 use crate::agents::view::paint::{border_for, pipeline_state, team_breathes};
+use crate::agents::view::reveal::Held;
 use crate::agents::view::text::{card_detail, header_text, member_detail, member_tag, member_tags, member_task, member_word, numbered};
 use crate::ui::icons;
 
@@ -1007,4 +1008,165 @@ fn a_card_works_out_what_it_shows_once_as_the_text_says() {
     assert_eq!(card.header.counts.as_deref(), Some(" \u{00b7} 2 building"));
     assert_eq!(card.pipeline, Some((1.0, Status::Done, false)));
     assert!(!card.breathes);
+}
+
+/// A held line too long for its room scrolls to its end and back, pausing at each; one that
+/// fits never moves; with animations off a held line shows its end.
+#[test]
+fn a_held_line_scrolls_to_its_end_and_back_and_one_that_fits_stays_put() {
+    use crate::agents::view::reveal::offset;
+    for t in [0.0, 0.5, 1.0, 3.0, 10.0] {
+        assert_eq!(offset(t, 0.0, true), 0.0, "fits, at {t}");
+        assert_eq!(offset(t, -20.0, true), 0.0, "room to spare, at {t}");
+    }
+    assert_eq!(offset(0.3, 120.0, true), 0.0, "a pause before it moves");
+    let mid = offset(1.6, 120.0, true);
+    assert!(mid > 0.0 && mid < 120.0, "on its way: {mid}");
+    // 120 points at 60 a second: at its end from 2.6 s, held there, then back.
+    assert_eq!(offset(2.8, 120.0, true), 120.0);
+    let back = offset(4.2, 120.0, true);
+    assert!(back > 0.0 && back < 120.0, "on its way back: {back}");
+    assert_eq!(offset(5.3, 120.0, true), 0.0, "home, and round again");
+    assert_eq!(offset(0.0, 120.0, false), 120.0, "animations off: its end, still");
+}
+
+/// A finger on `pane` at `at` (`phase`), as egui-winit sends it: a touch with the pointer.
+fn touch(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, phase: egui::TouchPhase, at: Pos2) {
+    use egui::{Event, PointerButton};
+    let mut ev = vec![Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(0), phase, pos: at, force: None }];
+    match phase {
+        egui::TouchPhase::Start => {
+            ev.push(Event::PointerMoved(at));
+            ev.push(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+        }
+        egui::TouchPhase::Move => ev.push(Event::PointerMoved(at)),
+        _ => {
+            ev.push(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+            ev.push(Event::PointerGone);
+        }
+    }
+    frame(ctx, pane, agents, time, ev);
+}
+
+/// Where card `key` is drawn in [`frame`]'s window, before any scrolling.
+fn card_rect(agents: &Agents, expanded: &HashMap<PaneId, bool>, key: PaneId) -> Rect {
+    let body = Rect::from_min_max(Pos2::new(0.0, 6.0), Pos2::new(800.0, 600.0));
+    let teams = groups(agents);
+    let laid = layout(&teams, body.width() - 2.0 * SIDE, expanded);
+    laid.cards.iter().find(|(c, _)| c.key() == key).unwrap().1.translate(body.min.to_vec2())
+}
+
+fn reveal_ctx() -> egui::Context {
+    let ctx = egui::Context::default();
+    crate::render::fonts::install(&ctx, &crate::config::Config::default());
+    crate::ui::glide::set_animations(&ctx, true);
+    ctx
+}
+
+/// Holding a card whose task is cut off scrolls it into view for as long as the finger
+/// stays; lifting it snaps the line back, opens nothing and scrolls nothing, even after the
+/// finger wandered. A card whose words fit doesn't move while held, and a tap still opens.
+#[test]
+fn holding_a_card_scrolls_its_cut_off_task_until_the_finger_lifts() {
+    let ctx = reveal_ctx();
+    let mut long = agent(1, None);
+    long.name = "Rework how the tracker reconciles remote panes with the transcripts they follow".into();
+    // Enough cards that the list could scroll.
+    let agents = Agents::new(std::iter::once(long).chain((2..30).map(|p| agent(p, None))).collect());
+    let mut pane = AgentsPane::new();
+    let mut time = 0.0;
+    for _ in 0..3 {
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    }
+    let at = card_rect(&agents, &HashMap::new(), 1).left_center() + Vec2::new(80.0, 0.0);
+
+    touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Start, at);
+    for _ in 0..20 {
+        touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Move, at);
+    }
+    let r = pane.view.reveal.expect("a hold past the click time reveals");
+    assert_eq!((r.held, r.touch), (Held::Card(1), true));
+    for _ in 0..30 {
+        touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Move, at);
+    }
+    assert!(pane.view.reveal.unwrap().shifted > 0.0, "the cut-off task scrolls along");
+    // The finger drifts up the list while it holds: the list stays where it is.
+    for k in 1..=10 {
+        touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Move, at - Vec2::new(0.0, 20.0 * k as f32));
+    }
+    assert!(pane.view.reveal.is_some(), "still held");
+    touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::End, at - Vec2::new(0.0, 200.0));
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    assert_eq!(pane.view.reveal, None, "lifting the finger snaps it back");
+    assert!(pane.requests.is_empty(), "and the hold opened nothing");
+    assert_eq!(pane.scroll, 0.0, "nor scrolled the list");
+
+    // A short name held: revealed, but nothing moves.
+    let at2 = card_rect(&agents, &HashMap::new(), 2).left_center() + Vec2::new(80.0, 0.0);
+    touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Start, at2);
+    for _ in 0..50 {
+        touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Move, at2);
+    }
+    let r = pane.view.reveal.expect("held");
+    assert_eq!((r.held, r.shifted), (Held::Card(2), 0.0), "its name fits: it stays put");
+    touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::End, at2);
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    assert!(pane.requests.is_empty() && pane.view.reveal.is_none());
+
+    // A tap still opens the agent.
+    touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Start, at);
+    touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::End, at);
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    assert_eq!(pane.requests, vec![super::super::Request::Focus(1)]);
+    assert_eq!(pane.view.reveal, None);
+}
+
+/// On a desktop a right click on an open team's helper row reveals its cut-off task, until
+/// the next press; it opens nothing, and a click after it opens the helper as ever.
+#[test]
+fn a_right_click_reveals_a_helper_rows_cut_off_task_until_the_next_press() {
+    let ctx = reveal_ctx();
+    let mut lead = agent(1, None);
+    lead.kind = AgentKind::Pipeline;
+    let mut build = helper(2, "build", Some("build"), 10);
+    build.name = "Teach the agents view to scroll a held card's cut-off task and folder into view, then snap it back when the finger lifts off the glass again".into();
+    build.task = Some(build.name.clone());
+    let short = helper(3, "merge", Some("merge"), 20);
+    let agents = Agents::new(vec![lead, build, short]);
+    let mut pane = AgentsPane::new();
+    pane.expanded.insert(1, false);
+    let mut time = 0.0;
+    for _ in 0..3 {
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    }
+    let open = card_rect(&agents, &pane.expanded, 1);
+    let teams = groups(&agents);
+    let index = |pane: PaneId| shown_members(&teams[0], false).iter().position(|m| m.agent.pane == pane).unwrap();
+    let at = row_rect(open, index(2)).center();
+    let right = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE };
+    for events in [vec![egui::Event::PointerMoved(at)], vec![right(true)], vec![right(false)]] {
+        frame(&ctx, &mut pane, &agents, &mut time, events);
+    }
+    assert_eq!(pane.view.reveal.map(|r| (r.held, r.touch)), Some((Held::Row(2), false)));
+    for _ in 0..30 {
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    }
+    assert!(pane.view.reveal.unwrap().shifted > 0.0, "its task scrolls along");
+    assert!(pane.requests.is_empty(), "a right click opens nothing");
+
+    // The short one's row fits: it stays put.
+    let at3 = row_rect(open, index(3)).center();
+    let right3 = |pressed| egui::Event::PointerButton { pos: at3, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE };
+    for events in [vec![egui::Event::PointerMoved(at3)], vec![right3(true)], vec![right3(false)]] {
+        frame(&ctx, &mut pane, &agents, &mut time, events);
+    }
+    for _ in 0..30 {
+        frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    }
+    assert_eq!(pane.view.reveal.map(|r| (r.held, r.shifted)), Some((Held::Row(3), 0.0)));
+
+    // A click ends it, and opens the helper as ever.
+    click(&ctx, &mut pane, &agents, &mut time, at);
+    assert_eq!(pane.view.reveal, None);
+    assert_eq!(pane.requests, vec![super::super::Request::Focus(2)]);
 }

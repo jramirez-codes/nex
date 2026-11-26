@@ -8,6 +8,11 @@ All notable changes to nex are documented here. The format follows
 
 ### Added
 
+- Agents pane: press and hold a card or an open team's helper row to read a task or folder
+  that's cut off. While the finger stays down, each line too long for its card scrolls along
+  to its end and back; lifting it snaps the line back, without opening the agent or
+  scrolling the list. Lines that fit don't move, and a tap still opens the agent. On a
+  desktop a right click does the same until the next click.
 - Android: download a file from the Files pane of an ssh session to the phone. Long-press a
   file and pick "Download to phone", or tap Download in its Properties. It's saved to the
   phone's Downloads (Android 11 or newer) under its own name, or "name (2).ext" when that's
