@@ -95,6 +95,9 @@ pub(in crate::app) struct Connect {
     shown_at: Option<f64>,
     /// The card as drawn on the last frame (where the handoff starts).
     drawn: Option<DrawnCard>,
+    /// When the window last opened a new shell in place of a last tab that ended on the host
+    /// on its own (see `App::replace_ended_tab`).
+    pub(in crate::app) replaced_at: Option<std::time::Instant>,
 }
 
 /// The connect card as a frame drew it: where the handoff to the workspace starts from.
@@ -129,6 +132,7 @@ impl Connect {
             host: None,
             shown_at: None,
             drawn: None,
+            replaced_at: None,
         };
         if active && let Some(s) = server {
             c.host_field = s.host;
@@ -179,6 +183,11 @@ impl Connect {
             self.step = Step::Connecting;
             self.message = None;
         }
+    }
+
+    /// Show `line` under the fields, as an error: the screen is back after the panes went away.
+    pub(in crate::app) fn say(&mut self, line: String) {
+        self.message = Some((line, true));
     }
 
     /// The card as the last frame drew it.
