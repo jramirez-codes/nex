@@ -9,13 +9,13 @@
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use nex_host::{paths, proto};
 
-use crate::daemon::{State, log};
+use crate::daemon::state::State;
+use crate::daemon::log;
 use crate::util::Locked;
 
 /// How long a retiring daemon lingers after it stops listening, so a request that reached it
@@ -88,16 +88,9 @@ fn version_of(path: &Path) -> Option<String> {
 /// Retire if a newer nex-host is installed and nothing is running: no agent (one that
 /// exited doesn't count) and no `recv` waiting. Doesn't return when it retires.
 pub(super) fn check(state: &State) {
-    if state.retiring.load(Ordering::Relaxed) || !idle(state) || !stale() {
+    // Checked again as it's set (see `State::retire_if_idle`): once it is, nothing starts.
+    if state.retiring() || !state.idle() || !stale() || !state.retire_if_idle() {
         return;
-    }
-    {
-        // Under the agents lock, which `launch` takes too: once this is set, nothing starts.
-        let agents = state.agents.locked();
-        if agents.values().any(|a| !a.exited()) || state.broker.waiting() {
-            return;
-        }
-        state.retiring.store(true, Ordering::Relaxed);
     }
     if let Some(sock) = paths::socket() {
         let _ = std::fs::remove_file(sock);
@@ -107,35 +100,22 @@ pub(super) fn check(state: &State) {
     std::process::exit(0);
 }
 
-fn idle(state: &State) -> bool {
-    !state.agents.locked().values().any(|a| !a.exited()) && !state.broker.waiting()
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 
     use super::*;
     use crate::daemon::agent::Spec;
-    use crate::daemon::broker::Broker;
     use crate::daemon::lifecycle::launch;
 
     #[test]
     fn nothing_starts_once_retiring() {
-        let state = Arc::new(State {
-            agents: Mutex::new(HashMap::new()),
-            clients: AtomicUsize::new(0),
-            next_token: AtomicU64::new(1),
-            broker: Broker::default(),
-            pending: Mutex::new(Vec::new()),
-            retiring: AtomicBool::new(true),
-        });
+        let state = Arc::new(State::in_memory());
+        state.set_retiring();
         let spec = Spec { argv: vec!["true".into()], kind: None, name: None, cwd: "/".into(), cols: 80, rows: 24, env: None, parent: None, role: None };
         let e = launch(&state, "a1".into(), spec).unwrap_err();
         assert_eq!(e.to_string(), proto::RESTARTING);
-        assert!(state.agents.locked().is_empty());
+        assert!(!state.has_agents());
     }
 
     #[test]

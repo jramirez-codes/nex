@@ -3,7 +3,6 @@
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -15,7 +14,8 @@ use crate::daemon::broker::{self, Filter};
 use crate::daemon::lifecycle::{Hire, launch, spawn};
 use crate::daemon::mail::{Draft, post};
 use crate::daemon::retire::own_version;
-use crate::daemon::{State, new_id};
+use crate::daemon::new_id;
+use crate::daemon::state::State;
 
 /// How often `watch` looks for changes.
 const WATCH_TICK: Duration = Duration::from_millis(500);
@@ -43,7 +43,7 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
         Err(e) => return send(&mut stream, &Response::error(format!("bad request: {e}"))),
     };
     let starts = matches!(request, Request::Launch { .. } | Request::Spawn { .. });
-    if starts && state.retiring.load(Ordering::Relaxed) {
+    if starts && state.retiring() {
         return send(&mut stream, &Response::error(proto::RESTARTING));
     }
     match request {
@@ -87,7 +87,7 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
             let from = from.map(|f| broker::lookup(&state.peers(), Some(&me), &f).unwrap_or(f));
             let filter = Filter { from, reply_to, kind };
             let timeout = Duration::from_millis(timeout_ms.unwrap_or(proto::RECV_DEFAULT_MS).min(RECV_MAX_MS));
-            match state.broker.take(&me, &filter, timeout) {
+            match state.broker().take(&me, &filter, timeout) {
                 Some(m) => send(&mut stream, &Response { ok: true, messages: Some(vec![m]), ..Response::default() }),
                 None => send(&mut stream, &Response::error("timed out: no message yet")),
             }
@@ -126,7 +126,7 @@ pub(super) fn serve(state: &Arc<State>, stream: UnixStream) -> io::Result<()> {
             if agent.exited() {
                 return send(&mut stream, &Response::error("it has exited"));
             }
-            let token = state.next_token.fetch_add(1, Ordering::Relaxed);
+            let token = state.next_token();
             let tx = crate::daemon::pty::spawn_writer(stream.try_clone()?);
             // The reply goes out through the writer, as the agent takes the pane over.
             if agent.attach(&tx, response_line(&Response::ok())?, token, cols, rows).is_none() {
