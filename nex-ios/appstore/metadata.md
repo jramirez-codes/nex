@@ -59,9 +59,13 @@ TABS, FILES AND GIT CHANGES
 Scroll the tab strip, long-press to reorder tabs, and swipe a pane sideways to switch. Browse the server's files and review git changes without leaving the app.
 
 FREE AND OPEN SOURCE
-Nex is MIT licensed, with no accounts, ads, analytics or tracking. The same GPU-accelerated terminal runs on macOS, Linux, Windows and Android: jramirez-codes.github.io/nex
+Nex is MIT licensed, with no accounts, ads, analytics or tracking. Learn more at jramirez-codes.github.io/nex
 
 You'll need a Linux or Mac server you can log in to over SSH. Nex installs its small helper, nex-host, in your account there; no root needed.
+
+Don't name other platforms' apps in the description (Android, Windows and so on): App Review
+rejected 0.16.0 under Guideline 2.3.10 for "runs on ... Android". Naming the server OS a user
+needs (Linux or Mac) is fine; that's a requirement, not a pitch for another platform.
 
 ## What's new in 0.16.0
 
