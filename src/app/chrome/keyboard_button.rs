@@ -79,6 +79,16 @@ pub(in crate::app) fn button_rect(area: Rect) -> Rect {
     Rect::from_min_size(min, Vec2::splat(SIZE))
 }
 
+/// Make the button a widget on top of everything, so egui hands presses on it to the button
+/// and not to a widget drawn underneath (an Agents card or row, a pane's header button).
+/// The button reads its own presses from the raw events; this only shadows what's below.
+/// egui hit-tests against the last frame's widgets, so it holds from the next frame on.
+fn claim_presses(ctx: &egui::Context, rect: Rect) {
+    egui::Area::new(Id::new("keyboard-button-hit")).order(Order::Foreground).fixed_pos(rect.min).show(ctx, |ui| {
+        ui.allocate_rect(rect, egui::Sense::click_and_drag());
+    });
+}
+
 /// What the button's keys go to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum Target {
@@ -431,6 +441,7 @@ impl App {
         };
         let rect = button_rect(self.content_area);
         self.chrome.keyboard_button.rect = Some(rect);
+        claim_presses(ctx, rect);
         let now = ctx.input(|i| i.time);
 
         let events = ctx.input(|i| i.events.clone());

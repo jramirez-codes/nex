@@ -37,6 +37,12 @@ All notable changes to nex are documented here. The format follows
   Move here, Cancel, Done, each named in its tooltip), and a little shorter. In a narrow pane
   the buttons shrink to fit instead of dropping off the left, and the status line makes way.
 
+### Fixed
+
+- Android and iPhone: tapping the keyboard button on the Agents tab no longer also opens the
+  agent whose card is under it. Its taps, drags and holds are the button's alone; the card
+  still opens when tapped anywhere else.
+
 ## [0.16.0] - 2026-11-25
 
 ### Added
