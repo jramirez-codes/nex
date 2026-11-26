@@ -9,8 +9,10 @@
 //!   error.rs   RemoteError: how an `ssh` of nex's own failed, read one way for every caller
 //!   mux.rs     one shared connection per host for all of nex's own, so only one logs in
 //!   upload.rs  files dropped or pasted into an ssh pane, copied to the remote host
+//!   transport.rs  Transport: the way to a host, with `ssh` or over nex's own connection, and
+//!              the script started (or run to its end) there that exec, host and mic share
 //!   exec.rs    shell scripts run on the host, for Files and Changes panes opened from an
-//!              ssh pane (with `ssh`, or over nex's own connection)
+//!              ssh pane
 //!   host.rs    nex-host on the host: installing it, watching the agents it keeps running there
 //!   mic.rs     the local microphone shared with the remote host, as its default mic
 //!   audio.rs   recording from this machine's default microphone (cpal), for mic.rs
@@ -33,6 +35,7 @@ pub mod mic;
 mod mux;
 pub mod ssh;
 mod target;
+mod transport;
 mod upload;
 
 pub use error::RemoteError;

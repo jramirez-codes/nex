@@ -7,11 +7,12 @@
 //! already the right one, and the binary travels over ssh's stdin, gzipped when the host has
 //! `gzip` (less than half the size). Then one long-lived `nex-host watch` per host streams its
 //! agents as JSON lines, for the Agents pane. Starting the watch checks the version first, so
-//! a host that's up to date takes one connection, not a check and then a watch.
+//! a host that's up to date takes one connection, not a check and then a watch. On the host
+//! the window is connected to itself (Android, `--remote`), the same watch runs over nex's own
+//! connection (see `transport.rs`), where login already put this nex's nex-host.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,7 +21,7 @@ use nex_host::proto::{self, Response, Session};
 
 use crate::remote::error::last_line;
 use crate::remote::ssh::host::RemoteHost;
-use crate::remote::ssh::{Exec, ExecCloser};
+use crate::remote::transport::{Running, Transport};
 use crate::remote::{RemoteError, SshTarget, posix_quote};
 
 /// Where the program goes on the host, for the remote shell (which expands `~`). This and
@@ -162,7 +163,8 @@ impl HostInfo {
 /// the same, folded into starting up (see [`watch_script`]). Only the install test uses it.
 #[cfg(all(test, target_os = "linux"))]
 pub fn ensure(target: &SshTarget) -> Result<HostInfo, HostError> {
-    ensure_with(|script, stdin| run(target, script, stdin))
+    let transport = Transport::Ssh(target.clone());
+    ensure_with(|script, stdin| run(&transport, script, stdin))
 }
 
 /// [`ensure`] over any connection: `run` runs a script on the host (feeding it the bytes
@@ -232,36 +234,20 @@ fn gzipped(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
     gz.finish()
 }
 
-/// Run `script` on the host over a batch connection (feeding it `stdin`), and return what
-/// it printed.
-fn run(target: &SshTarget, script: &str, stdin: Option<&[u8]>) -> Result<String, HostError> {
-    let mut child = target
-        .batch_command(script)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| RemoteError::Other(format!("ssh: {e}")))?;
-    if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        pipe.write_all(bytes).map_err(|e| RemoteError::Other(format!("sending nex-host: {e}")))?;
-    }
-    let out = child.wait_with_output().map_err(|e| RemoteError::Other(e.to_string()))?;
-    if let Some(failure) = target.batch_failure(&out) {
-        return Err(failure.into());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+/// Run `script` on the host (feeding it `stdin`), and return what it printed.
+fn run(transport: &Transport, script: &str, stdin: Option<&[u8]>) -> Result<String, HostError> {
+    Ok(String::from_utf8_lossy(&transport.output(script, stdin)?).into_owned())
 }
 
 /// End an agent on the host. Blocks.
 pub fn kill(target: &SshTarget, id: &str) -> Result<(), HostError> {
-    run(target, &format!("{REMOTE_BIN_SH} kill {}", posix_quote(id)), None).map(drop)
+    run(&Transport::Ssh(target.clone()), &format!("{REMOTE_BIN_SH} kill {}", posix_quote(id)), None).map(drop)
 }
 
 /// Put the shim in the host's shell config (see `nex-host/src/shim.rs`). Blocks.
 pub fn install_shim(target: &SshTarget) -> Result<(), HostError> {
-    run(target, &format!("{REMOTE_BIN_SH} shim install"), None).map(drop)
+    run(&Transport::Ssh(target.clone()), &format!("{REMOTE_BIN_SH} shim install"), None).map(drop)
 }
-
 
 /// How watching a host is going.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -353,34 +339,33 @@ impl Backoff {
 pub struct Watch {
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
-    /// The `ssh` running the watch, killed to stop it.
-    child: Arc<Mutex<Option<Child>>>,
-    /// The watch's command on nex's own connection ([`Watch::start_direct`]), closed to stop it.
-    closer: Arc<Mutex<Option<ExecCloser>>>,
+    /// The watch's script running now, ended to stop it.
+    running: Arc<Mutex<Option<Running>>>,
 }
 
 impl Watch {
     pub fn start(target: SshTarget, wake: impl Fn() + Send + 'static) -> Self {
-        let w = Watch::fake(Snapshot::default());
-        let (snapshot, stop, child) = (w.snapshot.clone(), w.stop.clone(), w.child.clone());
-        let _ = std::thread::Builder::new().name("nex-host-watch".into()).spawn(move || watch(&target, &snapshot, &stop, &child, &wake));
-        w
+        Self::over(Transport::Ssh(target), wake)
     }
 
     /// Watch the host the window is connected to itself (Android, `--remote`), over that
     /// connection: there's no `ssh` program to run, and login already put this nex's
     /// `nex-host` there.
     pub fn start_direct(host: Arc<RemoteHost>, wake: impl Fn() + Send + 'static) -> Self {
+        Self::over(Transport::Nex(host), wake)
+    }
+
+    fn over(transport: Transport, wake: impl Fn() + Send + 'static) -> Self {
         let w = Watch::fake(Snapshot::default());
-        let (snapshot, stop, closer) = (w.snapshot.clone(), w.stop.clone(), w.closer.clone());
-        let _ = std::thread::Builder::new().name("nex-host-watch".into()).spawn(move || watch_direct(&host, &snapshot, &stop, &closer, &wake));
+        let (snapshot, stop, running) = (w.snapshot.clone(), w.stop.clone(), w.running.clone());
+        let _ = std::thread::Builder::new().name("nex-host-watch".into()).spawn(move || watch(&transport, &snapshot, &stop, &running, &wake));
         w
     }
 
     /// A watch that connects nowhere, showing `snapshot`: what the others start from, and
     /// for tests.
     pub fn fake(snapshot: Snapshot) -> Self {
-        Watch { snapshot: Arc::new(Mutex::new(snapshot)), stop: Arc::default(), child: Arc::default(), closer: Arc::default() }
+        Watch { snapshot: Arc::new(Mutex::new(snapshot)), stop: Arc::default(), running: Arc::default() }
     }
 
     /// A copy of everything known about the host, its sessions included: for showing them.
@@ -409,21 +394,25 @@ impl Watch {
 impl Drop for Watch {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Ok(mut c) = self.child.lock()
-            && let Some(c) = c.as_mut()
-        {
-            let _ = c.kill();
-        }
-        // The direct watch's thread is reading the command's output: closing it ends that read.
-        if let Ok(mut c) = self.closer.lock()
-            && let Some(c) = c.take()
-        {
-            c.close();
+        // The watch's thread is reading the script's output: ending it ends that read.
+        if let Some(r) = self.running.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            r.end();
         }
     }
 }
 
-fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot: &Mutex<Option<Child>>, wake: &dyn Fn()) {
+/// The watch's script: over `ssh` it checks the version first (see [`watch_script`]); on nex's
+/// own connection login already put this nex's nex-host there.
+fn script(transport: &Transport) -> String {
+    match transport {
+        Transport::Ssh(_) => watch_script(),
+        Transport::Nex(_) => DIRECT_WATCH.to_string(),
+    }
+}
+
+/// What [`Watch`]'s thread runs: `nex-host watch` on the host, again whenever it ends
+/// (installing nex-host first when the script says to), until told to stop.
+fn watch(transport: &Transport, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot: &Mutex<Option<Running>>, wake: &dyn Fn()) {
     let set_state = |state: State| {
         if let Ok(mut s) = snapshot.lock()
             && s.state != state
@@ -435,50 +424,25 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
     };
     let mut retry = Backoff::new();
     while !stop.load(Ordering::Relaxed) {
-        let child = target.batch_command(&watch_script()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn();
-        let mut child = match child {
-            Ok(c) => c,
+        let process = match transport.spawn(&script(transport), false) {
+            Ok(p) => p,
             Err(e) => {
-                set_state(State::Failed(RemoteError::Other(format!("ssh: {e}")).into()));
+                set_state(State::Failed(e.into()));
                 sleep(stop, retry.wait());
+                retry.grow();
                 continue;
             }
         };
-        let (Some(stdout), mut stderr) = (child.stdout.take(), child.stderr.take()) else { continue };
-        if let Ok(mut c) = slot.lock() {
-            *c = Some(child);
-        }
-        let mut lines = 0;
-        // The lines that aren't the watch's: `shim on` ahead of it, or the install check.
-        let mut check = String::new();
-        for line in BufReader::new(stdout).lines() {
-            let Ok(line) = line else { break };
-            let Ok(r) = serde_json::from_str::<Response>(&line) else {
-                if let Some(shim) = HostInfo::parse(&line).shim
-                    && let Ok(mut s) = snapshot.lock()
-                {
-                    s.shim = Some(shim);
-                }
-                check.push_str(&line);
-                check.push('\n');
-                continue;
-            };
-            lines += 1;
-            apply_response(snapshot, r);
-            wake();
-        }
-        let status = slot.lock().ok().and_then(|mut c| c.take()).and_then(|mut c| c.wait().ok());
+        let (lines, check, running) = read(process.stdout, process.running, snapshot, stop, slot, wake);
+        let err = process.stderr.and_then(|r| r.recv().ok()).unwrap_or_default();
+        let (code, failure) = running.map(|r| r.exit(&err)).unwrap_or_default();
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        let mut err = String::new();
-        if let Some(e) = stderr.as_mut() {
-            let _ = e.read_to_string(&mut err);
-        }
-        if status.and_then(|s| target.batch_exit(s, &err)) == Some(RemoteError::NeedsLogin) {
+        if failure == Some(RemoteError::NeedsLogin) {
             set_state(State::Failed(RemoteError::NeedsLogin.into()));
-        } else if status.and_then(|s| s.code()) == Some(NEEDS_INSTALL) {
-            match install(|script, stdin| run(target, script, stdin), HostInfo::parse(&check)) {
+        } else if code == Some(NEEDS_INSTALL) {
+            match install(|script, stdin| run(transport, script, stdin), HostInfo::parse(&check)) {
                 Ok(info) => {
                     if let Ok(mut s) = snapshot.lock() {
                         s.shim = info.shim;
@@ -502,73 +466,55 @@ fn watch(target: &SshTarget, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, slot
     }
 }
 
-/// What [`Watch::start_direct`]'s thread runs: `nex-host watch` on the connection, again
-/// whenever it ends, until told to stop.
-fn watch_direct(host: &RemoteHost, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, closer: &Mutex<Option<ExecCloser>>, wake: &dyn Fn()) {
-    let fail = |why: String| {
-        if let Ok(mut s) = snapshot.lock() {
-            s.state = State::Failed(RemoteError::Other(why).into());
+/// Read one run of the watch's script into `snapshot`, until it ends or the [`Watch`] is
+/// dropped: `slot` holds the script meanwhile, which [`Watch`]'s `Drop` ends (and so this
+/// read, which would otherwise wait for a line that may never come). Returns how many lines
+/// it read, the lines that weren't the watch's (`shim on` ahead of it, or the install check),
+/// and the script, taken back out of `slot`.
+fn read(
+    stdout: Box<dyn Read + Send>,
+    running: Running,
+    snapshot: &Mutex<Snapshot>,
+    stop: &AtomicBool,
+    slot: &Mutex<Option<Running>>,
+    wake: &dyn Fn(),
+) -> (usize, String, Option<Running>) {
+    {
+        let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
+        *s = Some(running);
+        // Dropped before the script was there to end: end it here.
+        if stop.load(Ordering::Relaxed)
+            && let Some(r) = s.as_mut()
+        {
+            r.end();
         }
-        wake();
-    };
-    let mut retry = Backoff::new();
-    while !stop.load(Ordering::Relaxed) {
-        let exec = match host.client() {
-            // An `sh` script, so not for the login shell to read.
-            Ok(client) => client.exec_sh(DIRECT_WATCH),
-            Err(e) => Err(std::io::Error::other(e.to_string())),
-        };
-        let exec = match exec {
-            Ok(e) => e,
-            Err(e) => {
-                fail(e.to_string());
-                sleep(stop, retry.wait());
-                retry.grow();
-                continue;
-            }
-        };
-        let lines = read_direct(exec, snapshot, stop, closer, wake);
-        if stop.load(Ordering::Relaxed) {
-            break;
-        }
-        fail("connection lost".into());
-        sleep(stop, retry.ended(lines > 0));
-    }
-}
-
-/// Read one run of `nex-host watch` on nex's own connection into `snapshot`, until it ends or
-/// the [`Watch`] is dropped: `closer` holds the command's closer meanwhile, which
-/// [`Watch`]'s `Drop` uses to end it (and so this read, which would otherwise wait for a line
-/// that may never come). Returns how many lines it read.
-fn read_direct(exec: Exec, snapshot: &Mutex<Snapshot>, stop: &AtomicBool, closer: &Mutex<Option<ExecCloser>>, wake: &dyn Fn()) -> usize {
-    if let Ok(mut c) = closer.lock() {
-        *c = Some(exec.closer.clone());
-    }
-    // Dropped before the closer was there to use: end the command here.
-    if stop.load(Ordering::Relaxed) {
-        exec.closer.close();
     }
     let mut lines = 0;
-    for line in BufReader::new(exec.reader).lines() {
+    let mut check = String::new();
+    for line in BufReader::new(stdout).lines() {
         if stop.load(Ordering::Relaxed) {
             break;
         }
         let Ok(line) = line else { break };
-        let Ok(r) = serde_json::from_str::<Response>(&line) else { continue };
+        let Ok(r) = serde_json::from_str::<Response>(&line) else {
+            if let Some(shim) = HostInfo::parse(&line).shim
+                && let Ok(mut s) = snapshot.lock()
+            {
+                s.shim = Some(shim);
+            }
+            check.push_str(&line);
+            check.push('\n');
+            continue;
+        };
         lines += 1;
         apply_response(snapshot, r);
         wake();
     }
-    if let Ok(mut c) = closer.lock() {
-        *c = None;
-    }
-    // Ended on the host too, however the read ended (nothing happens if it already has).
-    exec.closer.close();
-    lines
+    (lines, check, slot.lock().unwrap_or_else(|e| e.into_inner()).take())
 }
 
 /// The watch, on a host the window is connected to itself. An `sh` script (`exec`, `$HOME`):
-/// it runs with `Client::exec_sh`.
+/// it runs under `sh` like every script (see `Client::exec_sh`).
 const DIRECT_WATCH: &str = "exec \"$HOME/.nex/bin/nex-host\" watch";
 
 /// Sleep `d`, waking early when told to stop.
@@ -582,6 +528,10 @@ fn sleep(stop: &AtomicBool, d: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::remote::ssh::Exec;
+    use crate::remote::transport::Process;
+    #[cfg(unix)]
+    use std::process::Stdio;
 
     #[test]
     fn a_watch_line_from_an_older_daemon_says_so() {
@@ -647,13 +597,19 @@ mod tests {
         .unwrap()
     }
 
-    /// The direct watch's read, on a thread as `watch_direct` runs it; the receiver hears
-    /// how many lines it read once it has ended.
+    /// The watch's read of a command on nex's own connection, on a thread as `watch` runs
+    /// it; the receiver hears how many lines it read once it has ended.
     fn reading(w: &Watch, exec: Exec) -> std::sync::mpsc::Receiver<usize> {
-        let (snapshot, stop, closer) = (w.snapshot.clone(), w.stop.clone(), w.closer.clone());
+        let (snapshot, stop, slot) = (w.snapshot.clone(), w.stop.clone(), w.running.clone());
         let (tx, ended) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(read_direct(exec, &snapshot, &stop, &closer, &|| {}));
+            let p = Process::nex(exec, false, ());
+            let (lines, _, running) = read(p.stdout, p.running, &snapshot, &stop, &slot, &|| {});
+            // Ended on the host too, as `watch` does.
+            if let Some(r) = running {
+                r.exit("");
+            }
+            let _ = tx.send(lines);
         });
         ended
     }
@@ -673,10 +629,10 @@ mod tests {
         assert_eq!(w.with_snapshot(|s| (s.sessions.len(), s.home.clone())), (1, Some("/home/me".into())));
         // Quiet from here on: the read is waiting, and stays so while the watch lives.
         assert!(ended.recv_timeout(Duration::from_millis(200)).is_err(), "still watching");
-        let closer = w.closer.clone();
+        let slot = w.running.clone();
         drop(w);
         assert_eq!(ended.recv_timeout(Duration::from_secs(5)).expect("the read ended with the watch"), 1);
-        assert!(closer.lock().unwrap().is_none(), "nothing kept of the ended command");
+        assert!(slot.lock().unwrap().is_none(), "nothing kept of the ended command");
     }
 
     /// A watch dropped while its thread was still connecting: the command that then starts
@@ -828,7 +784,7 @@ mod tests {
             }
         };
         wait("the watch", &|s| s.state == State::Live);
-        let id = run(&t, &format!("{REMOTE_BIN_SH} launch --name demo -- sh -c 'sleep 30'"), None).unwrap().trim().to_string();
+        let id = run(&Transport::Ssh(t.clone()), &format!("{REMOTE_BIN_SH} launch --name demo -- sh -c 'sleep 30'"), None).unwrap().trim().to_string();
         wait("the agent", &|s| s.sessions.iter().any(|a| a.id == id && a.name == "demo"));
         assert_eq!(w.snapshot().home.as_deref(), Some(home.to_str().unwrap()));
         kill(&t, &id).unwrap();

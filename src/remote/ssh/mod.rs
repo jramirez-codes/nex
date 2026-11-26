@@ -18,7 +18,7 @@
 //!
 //! A command is run by the user's login shell on the host, which needn't be a POSIX one (fish,
 //! csh). Anything written in `sh` goes through [`Client::run_sh`] / [`Client::exec_sh`], which
-//! hand it to `sh` as one quoted word; [`Client::run`] / [`Client::exec`] are for a plain
+//! hand it to `sh` as one quoted word; [`Client::exec`] is for a plain
 //! program and its arguments.
 //!
 //! Host keys are trusted on first use, but only with the user's say: a host nex hasn't
@@ -389,13 +389,8 @@ impl Client {
         self.exec(&sh_command(script))
     }
 
-    /// Run `command`, feeding it `stdin`, and wait for it to end: its exit status and what it
-    /// printed to stdout.
-    pub fn run(&self, command: &str, stdin: &[u8]) -> io::Result<(u32, Vec<u8>)> {
-        Self::finish(self.exec(command)?, stdin)
-    }
-
-    /// [`Self::run`] for a `script` written in `sh`, run under `sh` (see [`sh_command`]).
+    /// Run `script` under `sh` (see [`sh_command`]), feeding it `stdin`, and wait for it to
+    /// end: its exit status and what it printed to stdout.
     pub fn run_sh(&self, script: &str, stdin: &[u8]) -> io::Result<(u32, Vec<u8>)> {
         Self::finish(self.exec_sh(script)?, stdin)
     }

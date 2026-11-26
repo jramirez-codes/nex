@@ -25,13 +25,12 @@
 //! plugin doesn't wait for a full read: what the FIFO lacks it fills with silence. So `dd`
 //! writes whole [`BLOCK`]s, `arecord`'s own read size, which ALSA gets in one read.
 //!
-//! Each script runs over one of two connections ([`Via`]): the system `ssh` with the pane's
-//! options, or, for the host the window connects to itself (Android, which has no `ssh`),
-//! a channel of nex's own client (`remote::ssh`).
+//! Each script runs over one of two connections ([`Transport`]): the system `ssh` with the
+//! pane's options, or, for the host the window connects to itself (Android, which has no
+//! `ssh`), a channel of nex's own client (`remote::ssh`).
 
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -41,8 +40,8 @@ use std::time::{Duration, Instant};
 use crate::remote::audio::{self, Capture, CaptureError};
 use crate::remote::error::{last_line, needs_login};
 use crate::remote::ssh::host::RemoteHost;
-use crate::remote::ssh::{Client, ExecCloser};
-use crate::remote::{RemoteError, SshTarget, posix_quote};
+use crate::remote::transport::{Process, Running, Transport};
+use crate::remote::{RemoteError, SshTarget};
 
 /// The first line of nex's block in `~/.asoundrc`, and the last.
 const MARK: &str = "# Added by nex: microphone";
@@ -257,55 +256,14 @@ dd obs={BLOCK} 2>/dev/null >&3"#
     )
 }
 
-/// How the scripts reach the host.
-pub enum Via {
-    /// The system `ssh`, as a pane runs it.
-    Ssh(SshTarget),
-    /// nex's own connection to the host the window is connected to.
-    Direct(Arc<RemoteHost>),
-}
-
-impl Via {
-    /// nex's own connection, logged in again if it dropped.
-    fn client(host: &RemoteHost) -> Result<Arc<Client>, MicError> {
-        host.client().map_err(|e| RemoteError::Other(format!("not connected to {}: {e}", host.server.host)).into())
-    }
-}
-
-/// The command that runs `script` over nex's own connection: it goes through the user's login
-/// shell, so it's handed to `sh` whatever that is.
-fn direct_command(script: &str) -> String {
-    format!("sh -c {}", posix_quote(script))
-}
-
 /// Runs a short script on the host and returns its output.
-fn run(via: &Via, script: &str) -> Result<String, MicError> {
-    let target = match via {
-        Via::Ssh(target) => target,
-        Via::Direct(host) => {
-            let (status, out) = Via::client(host)?.run(&direct_command(script), b"").map_err(|e| RemoteError::Other(e.to_string()))?;
-            if status != 0 {
-                return Err(RemoteError::Other(format!("the host's script exited with {status}")).into());
-            }
-            return Ok(String::from_utf8_lossy(&out).into_owned());
-        }
-    };
-    let out = target
-        .batch_command(script)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| RemoteError::Other(format!("couldn't run ssh: {e}")))?;
-    if let Some(failure) = target.batch_failure(&out) {
-        return Err(failure.into());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+fn run(transport: &Transport, script: &str) -> Result<String, MicError> {
+    Ok(String::from_utf8_lossy(&transport.output(script, None)?).into_owned())
 }
 
 /// Check the host and get it ready. Blocks: run it on a worker thread.
-fn setup(via: &Via) -> Result<Mode, MicError> {
-    parse_setup(&run(via, &setup_script())?)
+fn setup(transport: &Transport) -> Result<Mode, MicError> {
+    parse_setup(&run(transport, &setup_script())?)
 }
 
 fn parse_setup(out: &str) -> Result<Mode, MicError> {
@@ -319,8 +277,8 @@ fn parse_setup(out: &str) -> Result<Mode, MicError> {
 }
 
 /// Take nex's block back out of the host's `~/.asoundrc`. Blocks: run it on a worker thread.
-pub fn remove(via: &Via) -> Result<(), MicError> {
-    run(via, &remove_script()).map(|_| ())
+pub fn remove(transport: &Transport) -> Result<(), MicError> {
+    run(transport, &remove_script()).map(|_| ())
 }
 
 /// Follows `pw-link -m -l -o`: is any program linked to (recording from) nex's node?
@@ -372,25 +330,6 @@ pub enum Event {
     Failed(MicError),
 }
 
-/// A session running now, as it is ended.
-enum Running {
-    /// An `ssh` process.
-    Child(Child),
-    /// A command on nex's own connection.
-    Exec(ExecCloser),
-}
-
-impl Running {
-    fn end(&mut self) {
-        match self {
-            Running::Child(child) => {
-                let _ = child.kill();
-            }
-            Running::Exec(closer) => closer.close(),
-        }
-    }
-}
-
 /// The sessions running now (each with its [`Session::key`]), to end when stopping.
 type Sessions = Arc<Mutex<Vec<(u64, Running)>>>;
 
@@ -409,20 +348,20 @@ impl Share {
     /// Set up `target` and start waiting for programs there to open the mic. `wake` is called
     /// after each event, to repaint the window.
     pub fn start(target: SshTarget, wake: impl Fn() + Send + 'static) -> Self {
-        Self::start_via(Via::Ssh(target), wake)
+        Self::start_via(Transport::Ssh(target), wake)
     }
 
     /// Like [`start`](Self::start), for the host the window is connected to itself, over
     /// nex's own connection to it.
     pub fn start_direct(host: Arc<RemoteHost>, wake: impl Fn() + Send + 'static) -> Self {
-        Self::start_via(Via::Direct(host), wake)
+        Self::start_via(Transport::Nex(host), wake)
     }
 
-    fn start_via(via: Via, wake: impl Fn() + Send + 'static) -> Self {
+    fn start_via(transport: Transport, wake: impl Fn() + Send + 'static) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let sessions = Sessions::default();
         let (tx, events) = mpsc::channel();
-        let worker = Worker { via, stop: stop.clone(), sessions: sessions.clone(), tx, wake: Box::new(wake) };
+        let worker = Worker { transport, stop: stop.clone(), sessions: sessions.clone(), tx, wake: Box::new(wake) };
         match std::thread::Builder::new().name("nex-mic-share".into()).spawn(move || worker.run()) {
             Ok(thread) => Self { stop, sessions, events, thread: Some(thread) },
             Err(e) => {
@@ -467,8 +406,6 @@ struct Session {
     /// Everything it writes to stderr, once it has ended (`ssh` only: a command on nex's own
     /// connection has none).
     stderr: Option<Receiver<String>>,
-    /// The connection a command on nex's own connection runs on, kept up while it runs.
-    _client: Option<Arc<Client>>,
 }
 
 impl Session {
@@ -478,13 +415,8 @@ impl Session {
             let at = s.iter().position(|(k, _)| *k == self.key)?;
             Some(s.swap_remove(at).1)
         });
-        match running {
-            Some(Running::Child(mut child)) => {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            Some(mut running) => running.end(),
-            None => {}
+        if let Some(running) = running {
+            running.stop();
         }
     }
 
@@ -551,7 +483,7 @@ fn silence(d: Duration) -> Vec<u8> {
 }
 
 struct Worker {
-    via: Via,
+    transport: Transport,
     stop: Arc<AtomicBool>,
     sessions: Sessions,
     tx: Sender<Event>,
@@ -572,7 +504,7 @@ impl Worker {
     }
 
     fn run(self) {
-        let mode = match setup(&self.via) {
+        let mode = match setup(&self.transport) {
             Ok(mode) => mode,
             Err(e) => {
                 if !self.stopped() {
@@ -607,28 +539,14 @@ impl Worker {
             }
         }
         drop(next);
-        let _ = remove(&self.via);
+        let _ = remove(&self.transport);
     }
 
     /// Start `script` on the host, with its stdin and stdout for us and its stderr collected.
     fn spawn(&self, script: &str) -> Result<Session, MicError> {
         let key = NEXT_KEY.fetch_add(1, Ordering::Relaxed);
-        let (session, running) = match &self.via {
-            Via::Ssh(target) => self.spawn_ssh(target, script, key)?,
-            Via::Direct(host) => {
-                let client = Via::client(host)?;
-                let exec = client.exec(&direct_command(script)).map_err(|e| RemoteError::Other(e.to_string()))?;
-                let session = Session {
-                    key,
-                    sessions: self.sessions.clone(),
-                    stdin: Some(Box::new(exec.writer)),
-                    stdout: Some(Box::new(exec.reader)),
-                    stderr: None,
-                    _client: Some(client),
-                };
-                (session, Running::Exec(exec.closer))
-            }
-        };
+        let Process { stdin, stdout, stderr, running } = self.transport.spawn(script, true)?;
+        let session = Session { key, sessions: self.sessions.clone(), stdin, stdout: Some(stdout), stderr };
         if let Ok(mut s) = self.sessions.lock() {
             s.push((key, running));
         }
@@ -642,36 +560,6 @@ impl Worker {
             return Err(RemoteError::from("couldn't talk to ssh").into());
         }
         Ok(session)
-    }
-
-    /// Start `script` through the system `ssh`.
-    fn spawn_ssh(&self, target: &SshTarget, script: &str, key: u64) -> Result<(Session, Running), MicError> {
-        let mut child = target
-            .batch_command(script)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| RemoteError::Other(format!("couldn't run ssh: {e}")))?;
-        let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
-        let stderr = stderr.map(|mut e| {
-            let (tx, rx) = mpsc::channel();
-            std::thread::spawn(move || {
-                let mut s = String::new();
-                let _ = e.read_to_string(&mut s);
-                let _ = tx.send(s);
-            });
-            rx
-        });
-        let session = Session {
-            key,
-            sessions: self.sessions.clone(),
-            stdin: stdin.map(|s| Box::new(s) as Box<dyn Write + Send>),
-            stdout: stdout.map(|s| Box::new(s) as Box<dyn Read + Send>),
-            stderr,
-            _client: None,
-        };
-        Ok((session, Running::Child(child)))
     }
 
     /// One PipeWire session: the source stays up, and the mic records while something
@@ -813,6 +701,8 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+    #[cfg(target_os = "linux")]
+    use std::process::{Child, Stdio};
 
     fn home(name: &str) -> PathBuf {
         let h = std::env::temp_dir().join(format!("nex-mic-test-{name}-{}", std::process::id()));
@@ -985,7 +875,7 @@ mod tests {
         let h = home("direct");
         let script = wait_script();
         // The login shell (here `sh`) hands the script, quotes and all, to the `sh` it runs.
-        let echo = direct_command(&format!("cat <<'NEX_EOF'\n{script}\nNEX_EOF"));
+        let echo = crate::remote::ssh::sh_command(&format!("cat <<'NEX_EOF'\n{script}\nNEX_EOF"));
         assert_eq!(sh(&h, &echo).trim_end(), script);
         std::fs::remove_dir_all(&h).unwrap();
     }

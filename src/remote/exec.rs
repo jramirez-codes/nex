@@ -2,46 +2,27 @@
 //! without a shell of their own: a Files pane or a Changes pane opened from a terminal in an
 //! `ssh` session (or on the host the window is connected to itself).
 //!
-//! Two ways there, one interface: [`Transport::Ssh`] rides the pane's own `ssh` options and
-//! nex's shared connection (see `mux`), and [`Transport::Nex`] opens a channel on the
-//! connection nex's own client keeps to the host (`ssh/`). Scripts run under `sh` and only
+//! Two ways there, one interface ([`Transport`], in `transport.rs`): [`Transport::Ssh`] rides
+//! the pane's own `ssh` options and nex's shared connection (see `mux`), and
+//! [`Transport::Nex`] opens a channel on the connection nex's own client keeps to the host
+//! (`ssh/`). Scripts run under `sh` and only
 //! their stdout and exit status come back, so scripts that want to explain a failure print
 //! the reason to stdout.
 
 use std::io::Read;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::remote::error::last_line;
-use crate::remote::ssh::Exec;
-use crate::remote::ssh::host::RemoteHost;
-use crate::remote::{RemoteError, SshTarget, posix_quote};
+use crate::remote::transport::Process;
+use crate::remote::{RemoteError, posix_quote};
+
+pub use crate::remote::transport::Transport;
 
 /// How long a quick script (a listing, a `git status`) may take before it's given up on.
 pub const QUICK_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How a pane reaches its host.
-pub enum Transport {
-    /// With the `ssh` program, the way the terminal pane it came from is connected.
-    Ssh(SshTarget),
-    /// Over nex's own connection to the host the window is a client of.
-    Nex(Arc<RemoteHost>),
-}
-
-impl std::fmt::Debug for Transport {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Transport({})", self.key())
-    }
-}
-
-impl PartialEq for Transport {
-    fn eq(&self, other: &Self) -> bool {
-        self.key() == other.key()
-    }
-}
 
 /// Why a script didn't run to the end.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -103,26 +84,6 @@ struct Started {
 }
 
 impl Transport {
-    /// Identifies the host and the way there: two panes with the same key are on the same
-    /// host, and paths from one mean the same files in the other.
-    pub fn key(&self) -> String {
-        match self {
-            Transport::Ssh(t) => {
-                let t = t.normalized();
-                format!("ssh:{}:{}", t.opts.join(" "), t.destination)
-            }
-            Transport::Nex(h) => format!("nex:{}", h.server),
-        }
-    }
-
-    /// The host's name, for titles and messages.
-    pub fn label(&self) -> String {
-        match self {
-            Transport::Ssh(t) => t.host().to_string(),
-            Transport::Nex(h) => h.server.host.clone(),
-        }
-    }
-
     /// Run a quick `script` and wait for it (at most [`QUICK_TIMEOUT`]).
     pub fn run(&self, script: &str) -> Result<Output, ExecError> {
         let started = self.start(script)?;
@@ -174,64 +135,53 @@ impl Transport {
     }
 
     fn start(&self, script: &str) -> Result<Started, ExecError> {
-        match self {
-            Transport::Ssh(target) => start_ssh(target, script),
-            Transport::Nex(host) => start_nex(host, script),
-        }
+        Ok(follow(self.spawn(script, false)?))
     }
 }
 
-/// Run `script` with `ssh`, reading its output as it comes.
-fn start_ssh(target: &SshTarget, script: &str) -> Result<Started, ExecError> {
-    let mut child = target
-        .batch_command(script)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| RemoteError::Other(format!("ssh: {e}")))?;
+/// Read a started script to its end, on threads of its own: what it prints as it comes, then
+/// how it exited.
+fn follow(process: Process) -> Started {
+    let Process { stdout, stderr, running, .. } = process;
+    let ssh = running.over_ssh();
     let out = Arc::new(Mutex::new(Vec::new()));
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
     let reader = {
         let out = out.clone();
-        std::thread::spawn(move || {
-            if let Some(mut s) = stdout {
-                pump(&mut s, &out);
-            }
-        })
+        let mut stdout = stdout;
+        std::thread::spawn(move || pump(&mut stdout, &out))
     };
-    let errors = std::thread::spawn(move || {
-        let mut text = String::new();
-        if let Some(mut s) = stderr {
-            let _ = s.read_to_string(&mut text);
-        }
-        text
-    });
-    let child = Arc::new(Mutex::new(child));
+    let running = Arc::new(Mutex::new(Some(running)));
     let (tx, done) = mpsc::channel();
-    let waiter = child.clone();
-    let target = target.clone();
+    let waiter = running.clone();
     std::thread::spawn(move || {
-        let status = loop {
-            let polled = waiter.lock().unwrap_or_else(|e| e.into_inner()).try_wait();
+        loop {
+            let polled = waiter.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(|r| r.ended(reader.is_finished()));
             match polled {
-                Ok(Some(status)) => break status,
-                Ok(None) => std::thread::sleep(Duration::from_millis(5)),
-                Err(e) => {
+                Some(Ok(false)) => std::thread::sleep(Duration::from_millis(5)),
+                Some(Ok(true)) | None => break,
+                Some(Err(e)) => {
                     let _ = tx.send(Err(RemoteError::Other(e.to_string()).into()));
                     return;
                 }
             }
-        };
+        }
         let _ = reader.join();
-        let stderr = errors.join().unwrap_or_default();
-        let _ = tx.send(ssh_result(status.code().unwrap_or(255), target.batch_exit(status, &stderr), &stderr));
+        let stderr = stderr.and_then(|r| r.recv().ok()).unwrap_or_default();
+        let Some(running) = waiter.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+        // Let go of the connection (a command on nex's own) once the command is done with it.
+        let (code, failure) = running.exit(&stderr);
+        let code = code.unwrap_or(255);
+        let _ = tx.send(if ssh { ssh_result(code, failure, &stderr) } else { Ok(code) });
     });
+    // A command given up on (a timeout, a Cancel) is ended on the host: the `ssh` is killed,
+    // or its channel on nex's own connection closed, which also ends the threads above. Left
+    // alone it would run on, holding them for as long as it liked.
     let abort = Box::new(move || {
-        let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
+        if let Some(r) = running.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            r.end();
+        }
     });
-    Ok(Started { out, done, abort })
+    Started { out, done, abort }
 }
 
 /// What an `ssh` that exited with `code` comes to: the script's own status is the caller's
@@ -246,35 +196,6 @@ fn ssh_result(code: i32, failure: Option<RemoteError>, stderr: &str) -> Result<i
         _ => RemoteError::Other(last_line(stderr).unwrap_or_else(|| "ssh couldn't reach the host".into())),
     }
     .into())
-}
-
-/// Run `script` on a channel of nex's own connection to `host`.
-fn start_nex(host: &Arc<RemoteHost>, script: &str) -> Result<Started, ExecError> {
-    let client = host.client().map_err(|e| RemoteError::Other(format!("Not connected to {}: {e}", host.server.host)))?;
-    // The command goes through the user's login shell: hand the script to `sh` whatever that is.
-    let exec = client.exec_sh(script).map_err(|e| RemoteError::Other(e.to_string()))?;
-    // The connection stays up until the command is done with it.
-    Ok(follow(exec, client))
-}
-
-/// Read a command started on nex's own connection to its end. `keep` is held until then.
-fn follow(exec: Exec, keep: impl Send + 'static) -> Started {
-    let Exec { mut reader, writer, status, closer } = exec;
-    // Nothing to send: end its input.
-    drop(writer);
-    let out = Arc::new(Mutex::new(Vec::new()));
-    let (tx, done) = mpsc::channel();
-    let o = out.clone();
-    std::thread::spawn(move || {
-        pump(&mut reader, &o);
-        let code = status.lock().unwrap_or_else(|e| e.into_inner()).map_or(255, |c| c as i32);
-        let _ = tx.send(Ok(code));
-        drop(keep);
-    });
-    // A command given up on (a timeout, a Cancel) is ended on the host: its channel is
-    // closed, which also ends the thread above. Left alone it would run on, holding its
-    // channel and that thread for as long as it liked.
-    Started { out, done, abort: Box::new(move || closer.close()) }
 }
 
 /// Copy everything `from` gives into `to` as it arrives.
@@ -371,6 +292,7 @@ pub fn quote(path: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::remote::ssh::Exec;
 
     fn sh(script: &str) -> Vec<u8> {
         std::process::Command::new("sh").arg("-c").arg(script).output().unwrap().stdout
@@ -397,7 +319,7 @@ mod tests {
     /// A command on nex's own connection that never ends by itself, and when it has ended.
     fn hanging() -> (Started, mpsc::Receiver<()>) {
         let (tx, ended) = mpsc::channel();
-        (follow(Exec::hanging(b"so far\n"), Ended(tx)), ended)
+        (follow(Process::nex(Exec::hanging(b"so far\n"), false, Ended(tx))), ended)
     }
 
     #[test]
@@ -430,7 +352,7 @@ mod tests {
         let exec = Exec::hanging(b"done\n");
         exec.closer.close();
         let (tx, ended) = mpsc::channel();
-        let out = wait(follow(exec, Ended(tx)), Some(Duration::from_secs(5)), None, &mut |_| {}).unwrap();
+        let out = wait(follow(Process::nex(exec, false, Ended(tx))), Some(Duration::from_secs(5)), None, &mut |_| {}).unwrap();
         assert_eq!(out.out, b"done\n");
         ended.recv_timeout(Duration::from_secs(5)).unwrap();
     }
@@ -458,15 +380,5 @@ mod tests {
     fn exec_errors_read() {
         assert_eq!(ExecError::from(RemoteError::NeedsLogin).to_string(), "nex can't log in to the host without a password");
         assert_eq!(ExecError::from(RemoteError::from("No such directory")).to_string(), "No such directory");
-    }
-
-    #[test]
-    fn keys() {
-        let a = Transport::Ssh(SshTarget { opts: vec!["-p".into(), "2222".into()], destination: "me@box".into() });
-        let b = Transport::Ssh(SshTarget { opts: vec!["-p".into(), "2222".into(), "-o".into(), "RemoteCommand=none".into()], destination: "me@box".into() });
-        let c = Transport::Ssh(SshTarget { opts: vec![], destination: "me@box".into() });
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-        assert_eq!(a.label(), "box");
     }
 }
