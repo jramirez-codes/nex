@@ -16,12 +16,13 @@ use crate::terminal::GridSize;
 use crate::terminal::search::Search;
 use crate::ui::theme::{ERROR, HOVER, Theme, darken};
 use crate::ui::widgets::{HoverShape, IconButton, IconFn, pressed_in};
-use crate::ui::{icons, paint};
+use crate::ui::{glide, icons, paint};
 
 use crate::app::actions::Action;
 use crate::app::animation::handoff::{FocusedCard, HeaderLabel};
 use crate::app::animation::pane_motion::Ghost;
 use crate::app::animation::tab_switch::Shown;
+use crate::app::animation::title_roll::RollFrame;
 use crate::app::input::keymap;
 use crate::app::ssh::mic::MicState;
 use crate::app::workspace::metrics::cell_px;
@@ -93,6 +94,8 @@ impl App {
         let mut bufs = std::mem::take(&mut self.draw_bufs);
         self.panes_area_with(ui, area, theme, &mut bufs);
         self.draw_bufs = bufs;
+        let panes = &self.panes;
+        self.title_rolls.retain(|id| panes.get(id).is_some());
     }
 
     /// [`Self::panes_area`], with the frame's lists in `bufs`.
@@ -599,8 +602,26 @@ impl App {
 
         let font = if self.cfg.sidebar() { 15.0 } else { 13.5 };
         // Borrowed from the pane, so read here, once the buttons are done changing things.
+        let mut rolls = std::mem::take(&mut self.title_rolls);
         let (title, process) = self.pane_label(id);
-        header_label(painter, header, process, &title, title_color, bx - 4.0, font);
+        let (mark, text) = icons::title_mark(process, &title);
+        icons::header_glyph(painter, header_glyph_rect(header), process, mark, title_color);
+        // An agent's title rolls over when it changes (its spinner mark, above, doesn't).
+        let roll = if self.is_agent_pane(id) {
+            let now = ui.input(|i| i.time);
+            let roll = rolls.show(id, now, text, glide::animations(ui.ctx()));
+            if roll.moving(now) {
+                ui.ctx().request_repaint();
+            }
+            roll.frame(now)
+        } else {
+            rolls.forget(id);
+            None
+        };
+        match roll {
+            Some(frame) => header_title_rolling(painter, header, frame, title_color, bx - 4.0, font),
+            None => header_title(painter, header, text, title_color, bx - 4.0, font),
+        }
         // The connect handoff draws the same label on its card as it lands here: a copy it
         // keeps, made only while it plays.
         if self.handoff.is_some() && self.focused_card.as_ref().is_some_and(|f| pane.focused && f.rect == pane.target) {
@@ -618,6 +639,7 @@ impl App {
         if pressed_in(ui, header) {
             self.pending.push(Action::FocusPane(id));
         }
+        self.title_rolls = rolls;
     }
 }
 
@@ -645,6 +667,27 @@ pub(in crate::app) fn header_title(painter: &Painter, header: Rect, title: &str,
     let text_left = glyph.right() + 8.0;
     if right > text_left {
         paint::faded_text(painter, Pos2::new(text_left, glyph.center().y), title, paint::bold(font), color, right - text_left, 24.0);
+    }
+}
+
+/// A pane header's title mid-roll (see [`RollFrame`]): the words that stay, then the new
+/// ones rising in and the old ones rising out after them, all faded out before `right`.
+fn header_title_rolling(painter: &Painter, header: Rect, frame: RollFrame<'_>, color: Color32, right: f32, font: f32) {
+    let glyph = header_glyph_rect(header);
+    let left = glyph.right() + 8.0;
+    let (font, y) = (paint::bold(font), glyph.center().y);
+    let mut x = 0.0;
+    if !frame.still.is_empty() {
+        paint::faded_text(painter, Pos2::new(left, y), frame.still, font.clone(), color, right - left, 24.0);
+        let galley = painter.layout_no_wrap(frame.still.to_owned(), font.clone(), color);
+        x = galley.rows.first().and_then(|r| r.row.glyphs.last()).map_or(0.0, |g| g.pos.x + g.advance_width);
+    }
+    for layer in std::iter::once(frame.arriving).chain(frame.leaving) {
+        let max = right - left - x;
+        if max > 0.0 && !layer.text.is_empty() {
+            let at = Pos2::new(left + x, y + layer.dy);
+            paint::faded_text(painter, at, layer.text, font.clone(), color.gamma_multiply(layer.alpha), max, 24.0);
+        }
     }
 }
 
