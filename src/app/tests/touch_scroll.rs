@@ -11,7 +11,7 @@ use crate::layout::{PaneId, PaneKind};
 pub(super) struct Sim {
     pub(super) ctx: egui::Context,
     pub(super) app: App,
-    t: f64,
+    pub(super) t: f64,
 }
 
 impl Sim {

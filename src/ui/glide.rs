@@ -23,15 +23,21 @@ pub fn ease_in_out(t: f32) -> f32 {
     if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
 }
 
-/// The pause at each end of a [`marquee`], in seconds.
+/// How long a [`marquee`] waits before it first moves, in seconds: just long enough to see
+/// the line's start held, since the hold itself already took a moment to be recognized.
+const MARQUEE_LEAD: f64 = 0.05;
+/// The pause at each end of a [`marquee`] after that, in seconds: long enough to read the
+/// line's end (and, round again, its start).
 const MARQUEE_PAUSE: f64 = 0.6;
 /// How fast a [`marquee`] scrolls, in points a second.
 const MARQUEE_SPEED: f32 = 60.0;
 
 /// How far along to draw a line `overflow` points too long for its room, `held` seconds into
-/// a press and hold that reveals it: still for a moment, along to its end, still again, back,
-/// and round again. A line that fits (`overflow` 0 or less) stays put; with animations off
-/// (`animate`) the end shows. Shared by the Agents pane's held cards and held pane headers.
+/// a press and hold that reveals it: still for a blink, along to its end, still there for a
+/// moment, back, still again, and round again. The way out starts at full speed and slows
+/// into its end (a slow start was hard to see begin); the way back eases in and out. A line
+/// that fits (`overflow` 0 or less) stays put; with animations off (`animate`) the end
+/// shows. Shared by the Agents pane's held cards and held pane headers.
 pub fn marquee(held: f64, overflow: f32, animate: bool) -> f32 {
     if overflow <= 0.0 {
         return 0.0;
@@ -40,17 +46,22 @@ pub fn marquee(held: f64, overflow: f32, animate: bool) -> f32 {
         return overflow;
     }
     let travel = f64::from(overflow / MARQUEE_SPEED);
-    let t = held.max(0.0) % (2.0 * (MARQUEE_PAUSE + travel));
-    let along = if t < MARQUEE_PAUSE {
-        0.0
-    } else if t < MARQUEE_PAUSE + travel {
-        (t - MARQUEE_PAUSE) / travel
-    } else if t < 2.0 * MARQUEE_PAUSE + travel {
-        1.0
+    let t = held - MARQUEE_LEAD;
+    if t <= 0.0 {
+        return 0.0;
+    }
+    // Each round: out, a pause at the end, back, a pause at the start.
+    let t = t % (2.0 * (travel + MARQUEE_PAUSE));
+    if t < travel {
+        let along = (t / travel) as f32;
+        overflow * (1.0 - (1.0 - along).powi(2))
+    } else if t < travel + MARQUEE_PAUSE {
+        overflow
+    } else if t < 2.0 * travel + MARQUEE_PAUSE {
+        overflow * (1.0 - ease_in_out(((t - travel - MARQUEE_PAUSE) / travel) as f32))
     } else {
-        1.0 - (t - 2.0 * MARQUEE_PAUSE - travel) / travel
-    };
-    overflow * ease_in_out(along as f32)
+        0.0
+    }
 }
 
 /// Smoothstep: eases in and out, flat at both ends. For cross-fades.

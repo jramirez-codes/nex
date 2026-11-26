@@ -1094,14 +1094,19 @@ fn a_held_line_scrolls_to_its_end_and_back_and_one_that_fits_stays_put() {
         assert_eq!(offset(t, 0.0, true), 0.0, "fits, at {t}");
         assert_eq!(offset(t, -20.0, true), 0.0, "room to spare, at {t}");
     }
-    assert_eq!(offset(0.3, 120.0, true), 0.0, "a pause before it moves");
-    let mid = offset(1.6, 120.0, true);
+    assert_eq!(offset(0.02, 120.0, true), 0.0, "a blink before it moves");
+    // Then it's off at once: a few points along within a frame or two, not creeping.
+    assert!(offset(0.1, 120.0, true) > 4.0, "a slow start: {}", offset(0.1, 120.0, true));
+    let mid = offset(1.1, 120.0, true);
     assert!(mid > 0.0 && mid < 120.0, "on its way: {mid}");
-    // 120 points at 60 a second: at its end from 2.6 s, held there, then back.
-    assert_eq!(offset(2.8, 120.0, true), 120.0);
-    let back = offset(4.2, 120.0, true);
+    // 120 points at 60 a second: at its end from 2.1 s, held there (long enough to read),
+    // then back.
+    assert_eq!(offset(2.2, 120.0, true), 120.0);
+    assert_eq!(offset(2.6, 120.0, true), 120.0);
+    let back = offset(3.7, 120.0, true);
     assert!(back > 0.0 && back < 120.0, "on its way back: {back}");
-    assert_eq!(offset(5.3, 120.0, true), 0.0, "home, and round again");
+    assert_eq!(offset(5.0, 120.0, true), 0.0, "home, held a moment there");
+    assert!(offset(5.5, 120.0, true) > 0.0, "and round again");
     assert_eq!(offset(0.0, 120.0, false), 120.0, "animations off: its end, still");
 }
 
@@ -1156,10 +1161,18 @@ fn holding_a_card_scrolls_its_cut_off_task_until_the_finger_lifts() {
     let at = card_rect(&agents, &HashMap::new(), 1).left_center() + Vec2::new(80.0, 0.0);
 
     touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Start, at);
-    for _ in 0..20 {
+    let start = time;
+    // Moving within half a second of the first touch: held a third of a second, then off.
+    while time - start < 0.5 {
         touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Move, at);
     }
-    let r = pane.view.reveal.expect("a hold past the click time reveals");
+    let r = pane.view.reveal.expect("a half-second hold reveals");
+    assert!(r.shifted > 0.0, "still not moving half a second after the touch ({:.2} s held)", time - r.since);
+    for _ in 0..10 {
+        touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Move, at);
+    }
+    let r = pane.view.reveal.expect("still held");
+    assert!(r.since - start < 0.45, "the hold restarted at egui's long press: {}", r.since - start);
     assert_eq!((r.held, r.touch), (Held::Card(1), true));
     for _ in 0..30 {
         touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Move, at);
@@ -1187,6 +1200,16 @@ fn holding_a_card_scrolls_its_cut_off_task_until_the_finger_lifts() {
     touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::End, at2);
     frame(&ctx, &mut pane, &agents, &mut time, vec![]);
     assert!(pane.requests.is_empty() && pane.view.reveal.is_none());
+
+    // Let go after the hold took but before egui's own long press: still no tap.
+    touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Start, at);
+    for _ in 0..10 {
+        touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Move, at);
+    }
+    assert!(pane.view.reveal.is_some(), "held half a second");
+    touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::End, at);
+    frame(&ctx, &mut pane, &agents, &mut time, vec![]);
+    assert!(pane.requests.is_empty() && pane.view.reveal.is_none(), "a short hold opened the agent");
 
     // A tap still opens the agent.
     touch(&ctx, &mut pane, &agents, &mut time, egui::TouchPhase::Start, at);

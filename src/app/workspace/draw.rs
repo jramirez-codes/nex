@@ -499,7 +499,10 @@ impl App {
             if handle.hovered() && !handle.dragged() {
                 ui.ctx().set_cursor_icon(CursorIcon::Grab);
             }
+            // A finger holding the header to read its title doesn't pick the pane up as it
+            // slides (see below).
             if handle.drag_started_by(PointerButton::Primary)
+                && !self.title_scroll.held(id)
                 && let Some(at) = ui.input(|i| i.pointer.press_origin()).or(handle.interact_pointer_pos())
             {
                 self.start_pane_drag(id, at, pane.target);
@@ -619,14 +622,14 @@ impl App {
             rolls.forget(id);
             None
         };
-        // A long title scrolls sideways while the header is held, to be read whole: a long
-        // press on touch (which egui doesn't let start a drag or count as a click), or the
+        // A long title scrolls sideways while the header is held, to be read whole: a finger
+        // held still (`ui::hold`; once held, the header doesn't drag the pane, above), or the
         // secondary button held on desktop. One that fits ignores the hold.
         let now = ui.input(|i| i.time);
         let right = bx - 4.0;
         let overflow = || header_title_width(painter, text, title_color, font) - (right - title_left(header));
         let secondary = handle.is_pointer_button_down_on() && ui.input(|i| i.pointer.button_down(PointerButton::Secondary));
-        if (handle.long_touched() || secondary) && !scroll.held(id) && overflow() > 0.5 {
+        if (crate::ui::hold::held_still(&handle) || handle.long_touched() || secondary) && !scroll.held(id) && overflow() > 0.5 {
             scroll.hold(id, now);
         }
         if !ui.input(|i| i.pointer.any_down()) {
