@@ -78,6 +78,8 @@ pub(super) enum Command {
     /// A terminal in the folder at this index, or (`None`) in this folder.
     OpenTerminal(Option<usize>),
     Rename,
+    /// Download the file at this index to the phone (see `fs/download.rs`).
+    Download(usize),
     NewFolder,
     NewFile,
     /// Properties of the targets (`false`) or of the folder being shown (`true`).
@@ -432,6 +434,7 @@ impl FileExplorer {
                     ctx.request_repaint();
                 }
                 Command::Rename => self.start_rename(),
+                Command::Download(i) => self.download(ctx, i),
                 Command::NewFolder => self.create_item(true),
                 Command::NewFile => self.create_item(false),
                 Command::Properties(folder) => self.show_properties(folder),
