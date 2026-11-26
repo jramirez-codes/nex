@@ -27,6 +27,7 @@ use egui::epaint::{PathShape, PathStroke, Shadow};
 use egui::{Color32, Id, Key, LayerId, Modifiers, Order, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 
 use crate::app::App;
+use crate::app::input::press::{DOUBLE_TAP, FIRST_REPEAT, HOLD_TO_TALK};
 use crate::layout::{PaneId, PaneKind};
 use crate::platform::{self, Haptic};
 use crate::ui::glide::{Lerp, animations, ease_out};
@@ -41,11 +42,8 @@ const MARGIN: f32 = 12.0;
 const FADE_TIME: f32 = 0.15;
 /// How far a finger moves before a press becomes the joystick.
 const DEAD_ZONE: f32 = 10.0;
-/// The longest gap between the taps of a double-tap (and so how long a tap waits).
-pub(in crate::app) const DOUBLE_TAP: f64 = 0.3;
-/// Holding the joystick: the first repeat comes after this long...
-const FIRST_REPEAT: f64 = 0.35;
-/// ...then every this often, from just past the dead zone to pushed all the way.
+/// Holding the joystick: the first repeat comes after [`FIRST_REPEAT`], then every this
+/// often, from just past the dead zone to pushed all the way.
 const REPEAT_SLOW: f64 = 0.12;
 const REPEAT_FAST: f64 = 0.04;
 /// How far from the center the repeats are at their fastest.
@@ -57,8 +55,6 @@ const FREE_TRAVEL: f32 = 24.0;
 const MAX_TRAVEL: f32 = 34.0;
 /// How long the knob takes to spring back once let go.
 const SPRING_TIME: f64 = 0.45;
-/// A press held still this long talks (longer than [`DOUBLE_TAP`], so taps keep their meaning).
-const HOLD_TO_TALK: f64 = 0.45;
 /// While talking, a space goes to the terminal this often: faster than a held key repeats,
 /// which is what Claude Code listens for.
 const SPACE_REPEAT: f64 = 0.03;
@@ -320,7 +316,7 @@ impl App {
     /// What the keyboard and the button are for this frame: a focused terminal or Agents
     /// pane with nothing in the way (a drag, a dialog, a pinch).
     pub(in crate::app) fn keyboard_target(&self, ctx: &egui::Context) -> Option<Target> {
-        if !self.soft_keyboard || self.pane_drag.is_some() || self.mouse.pinching() || ctx.memory(|m| m.top_modal_layer()).is_some() {
+        if !self.chrome.soft_keyboard || self.input.pane_drag.is_some() || self.input.mouse.pinching() || ctx.memory(|m| m.top_modal_layer()).is_some() {
             return None;
         }
         match self.pane_kind(self.focused_pane()?)? {
@@ -333,7 +329,7 @@ impl App {
     /// Follow the keyboard when the system moves it: put away with the back gesture, nex
     /// keeps it down; brought back by Android (returning to the app), nex keeps it up.
     fn follow_system_keyboard(&mut self, target: Option<Target>) {
-        let kb = &mut self.keyboard_button;
+        let kb = &mut self.chrome.keyboard_button;
         let visible = platform::soft_keyboard_visible();
         if visible != kb.last_visible {
             kb.last_visible = visible;
@@ -349,10 +345,10 @@ impl App {
         let target = self.keyboard_target(ctx);
         self.follow_system_keyboard(target);
         let focus = self.focused_pane();
-        if focus != self.keyboard_button.last_focus {
-            self.keyboard_button.last_focus = focus;
-            self.keyboard_button.ctrl_armed = false;
-            self.keyboard_button.talk = None;
+        if focus != self.chrome.keyboard_button.last_focus {
+            self.chrome.keyboard_button.last_focus = focus;
+            self.chrome.keyboard_button.ctrl_armed = false;
+            self.chrome.keyboard_button.talk = None;
         }
         // It waits for the connect handoff to finish, then fades in as usual.
         let shown = target.is_some() && self.handoff.is_none();
@@ -364,7 +360,7 @@ impl App {
             0.0
         };
         let Some(target) = target else {
-            let kb = &mut self.keyboard_button;
+            let kb = &mut self.chrome.keyboard_button;
             kb.rect = None;
             kb.press = None;
             kb.pending_tap = None;
@@ -372,7 +368,7 @@ impl App {
             return;
         };
         let rect = button_rect(self.content_area);
-        self.keyboard_button.rect = Some(rect);
+        self.chrome.keyboard_button.rect = Some(rect);
         let now = ctx.input(|i| i.time);
 
         let events = ctx.input(|i| i.events.clone());
@@ -380,7 +376,7 @@ impl App {
             match event {
                 egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } => {
                     if rect.contains(pos) {
-                        let kb = &mut self.keyboard_button;
+                        let kb = &mut self.chrome.keyboard_button;
                         // Pressed again while the spaces trail off: go on talking.
                         let talking = match kb.talk.as_mut() {
                             Some(talk) => {
@@ -400,7 +396,7 @@ impl App {
                 _ => {}
             }
         }
-        if self.keyboard_button.press.is_some() && !ctx.input(|i| i.pointer.any_down()) {
+        if self.chrome.keyboard_button.press.is_some() && !ctx.input(|i| i.pointer.any_down()) {
             self.cancel_button_press(now);
         }
         if target == Target::Terminal {
@@ -408,11 +404,11 @@ impl App {
         }
         self.repeat_arrow(ctx, now, target);
         // A tap with no second one after it: it was a tap.
-        if let Some(at) = self.keyboard_button.pending_tap {
+        if let Some(at) = self.chrome.keyboard_button.pending_tap {
             if now - at >= DOUBLE_TAP {
-                self.keyboard_button.pending_tap = None;
-                let down = self.keyboard_button.down(target);
-                self.keyboard_button.set_down(target, !down);
+                self.chrome.keyboard_button.pending_tap = None;
+                let down = self.chrome.keyboard_button.down(target);
+                self.chrome.keyboard_button.set_down(target, !down);
             } else {
                 ctx.request_repaint_after(std::time::Duration::from_secs_f64(DOUBLE_TAP - (now - at)));
             }
@@ -422,14 +418,14 @@ impl App {
 
     /// A press held still turns to talking; while talking, spaces go to the terminal.
     fn hold_to_talk(&mut self, ctx: &egui::Context, now: f64) {
-        if let Some(press) = self.keyboard_button.press.as_mut()
+        if let Some(press) = self.chrome.keyboard_button.press.as_mut()
             && !press.talking
         {
             if hold_turns_to_talk(press.down_at, press.stick.is_none(), now) {
                 press.talking = true;
-                self.keyboard_button.pending_tap = None;
+                self.chrome.keyboard_button.pending_tap = None;
                 if self.share_mic_for_talk(ctx) {
-                    self.keyboard_button.talk = Some(Talk::new(now));
+                    self.chrome.keyboard_button.talk = Some(Talk::new(now));
                     platform::haptic(Haptic::Confirm);
                 }
             } else if press.stick.is_none() {
@@ -437,17 +433,17 @@ impl App {
                 ctx.request_repaint_after(std::time::Duration::from_secs_f64(HOLD_TO_TALK - (now - press.down_at)));
             }
         }
-        let Some(mut talk) = self.keyboard_button.talk else { return };
+        let Some(mut talk) = self.chrome.keyboard_button.talk else { return };
         // No share any more (it failed, or was stopped): nothing to talk through.
         let Some(ready) = self.mic_ready_for_talk() else {
-            self.keyboard_button.talk = None;
+            self.chrome.keyboard_button.talk = None;
             return;
         };
         let (send, wake) = talk.tick(now, ready);
         if send && let Some(t) = self.focused_terminal() {
             t.input(b" ".to_vec());
         }
-        self.keyboard_button.talk = wake.map(|_| talk);
+        self.chrome.keyboard_button.talk = wake.map(|_| talk);
         if let Some(at) = wake {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64((at - now).max(0.0)));
         }
@@ -456,7 +452,7 @@ impl App {
     /// The finger moved: past the dead zone the press is the joystick, sending the arrow it
     /// points to as soon as it points somewhere new. Not while talking.
     fn joystick_move(&mut self, pos: Pos2, now: f64, target: Target) {
-        let Some(press) = self.keyboard_button.press.as_mut() else { return };
+        let Some(press) = self.chrome.keyboard_button.press.as_mut() else { return };
         if press.talking {
             return;
         }
@@ -488,14 +484,14 @@ impl App {
         }
         if circle {
             self.key_to_pane(Key::Escape, Modifiers::NONE);
-            self.keyboard_button.tick_at = now;
+            self.chrome.keyboard_button.tick_at = now;
             platform::haptic(Haptic::Confirm);
         }
     }
 
     /// Repeat the joystick's arrow while it's held there.
     fn repeat_arrow(&mut self, ctx: &egui::Context, now: f64, target: Target) {
-        let Some(press) = self.keyboard_button.press.as_mut() else { return };
+        let Some(press) = self.chrome.keyboard_button.press.as_mut() else { return };
         let distance = press.offset.length();
         let Some(stick) = press.stick.as_mut() else { return };
         let Some(dir) = stick.dir.filter(|_| !stick.spin.spinning) else { return };
@@ -503,25 +499,25 @@ impl App {
             stick.next = now + repeat_interval(distance);
             self.send_arrow(dir, now, target);
         }
-        let next = self.keyboard_button.press.as_ref().and_then(|p| p.stick.as_ref()).map_or(now, |s| s.next);
+        let next = self.chrome.keyboard_button.press.as_ref().and_then(|p| p.stick.as_ref()).map_or(now, |s| s.next);
         ctx.request_repaint_after(std::time::Duration::from_secs_f64((next - now).max(0.0)));
     }
 
     /// One arrow from the joystick, with Ctrl if it's armed (in a terminal).
     fn send_arrow(&mut self, dir: Key, now: f64, target: Target) {
         let mut mods = Modifiers::NONE;
-        if target == Target::Terminal && std::mem::take(&mut self.keyboard_button.ctrl_armed) {
+        if target == Target::Terminal && std::mem::take(&mut self.chrome.keyboard_button.ctrl_armed) {
             mods = Modifiers::CTRL;
         }
         self.key_to_pane(dir, mods);
-        self.keyboard_button.tick_at = now;
+        self.chrome.keyboard_button.tick_at = now;
         platform::haptic(Haptic::Tick);
     }
 
     /// The finger lifted: a tap (or the second of a double-tap), the end of a drag, or of a
     /// hold to talk.
     fn release(&mut self, now: f64, target: Target) {
-        let kb = &mut self.keyboard_button;
+        let kb = &mut self.chrome.keyboard_button;
         let Some(press) = kb.press.take() else { return };
         match lift(press.stick.is_some(), press.talking, kb.pending_tap, now) {
             Lift::Stick => kb.spring = Some((knob_travel(press.offset), now)),
@@ -552,7 +548,7 @@ impl App {
     /// The touch ended without a release (the system took it): no tap, and talking stops at
     /// once.
     fn cancel_button_press(&mut self, now: f64) {
-        let kb = &mut self.keyboard_button;
+        let kb = &mut self.chrome.keyboard_button;
         kb.talk = None;
         if let Some(press) = kb.press.take()
             && press.stick.is_some()
@@ -563,7 +559,7 @@ impl App {
 
     fn paint_keyboard_button(&self, ctx: &egui::Context, rect: Rect, fade: f32, target: Target, now: f64) {
         let theme = Theme::from_config(&self.cfg);
-        let kb = &self.keyboard_button;
+        let kb = &self.chrome.keyboard_button;
         let anim = animations(ctx);
         let ease = |id: &str, on: bool, time: f32| {
             if anim {

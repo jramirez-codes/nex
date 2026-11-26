@@ -154,9 +154,9 @@ fn back_closes_the_search_first() {
     let mut s = Sim::new(2);
     let (a, b) = (s.uid(0), s.uid(1));
     s.act(Action::ToggleSearch);
-    assert!(s.app.search.is_some());
+    assert!(s.app.input.search.is_some());
     assert_eq!(s.back(), vec![Key::Escape, Key::Escape], "Back arrives as Escape");
-    assert!(s.app.search.is_none());
+    assert!(s.app.input.search.is_none());
     assert_eq!(s.place(), Some(b));
     s.back();
     assert_eq!(s.place(), Some(a));

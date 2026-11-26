@@ -95,7 +95,7 @@ impl App {
             LoginHelp::Offered => return,
             LoginHelp::None => format!("{host} needs a password, and nex's own connection can't type one."),
         };
-        self.toast = Some(crate::ui::toast::Toast::long(ctx, msg));
+        self.chrome.toast = Some(crate::ui::toast::Toast::long(ctx, msg));
     }
 
     /// The command line for another session on the host pane `id` is connected to with

@@ -2,13 +2,16 @@
 //! Each concern lives in its own submodule; this file holds the state and the frame loop:
 //! `input/` (keys, mouse, zoom), `chrome/` (title bar, sidebar, window), `workspace/` (tabs and
 //! panes), `animation/` (motion and tab switches), `ssh/` (remote hosts). `actions` is what
-//! the user can ask for, shared by input and chrome.
+//! the user can ask for, shared by input and chrome; `launch` is what the command line hands
+//! the first panes. `App`'s state is grouped the same way (`InputState`, `Chrome`,
+//! `LaunchState`, `Timers`).
 
 mod actions;
 mod animation;
 mod chrome;
 mod connect;
 mod input;
+mod launch;
 mod reload;
 pub mod restore;
 mod ssh;
@@ -29,16 +32,13 @@ use crate::render::fonts;
 use crate::render::glyphs::GlyphCache;
 use crate::layout::PaneId;
 use crate::render::CellMetrics;
-use crate::terminal::search::{Link, LinkFinder, Search};
 use crate::terminal::Terminal;
-use crate::ui::glide::Glide;
 use crate::ui::theme::{Theme, white_alpha};
 use crate::ui::toast::{self, Toast};
 use crate::ui::widgets::is_maximized;
 
 use actions::Action;
 use input::keymap::{Binding, keybindings};
-use input::mouse::MouseState;
 use workspace::panes::{Pane, PaneRequest, Panes};
 use workspace::tab::Tab;
 use animation::tab_switch::TabSwitch;
@@ -59,8 +59,6 @@ const TRIM_HEAP_DELAY: Duration = Duration::from_millis(500);
 
 pub struct App {
     cfg: Config,
-    /// Modification time of the config file when it was last read; a change triggers a reload.
-    config_mtime: Option<SystemTime>,
     /// Every pane (terminal, file explorer, Changes, Agents), in one id space and split tree
     /// (see `workspace/panes.rs`).
     panes: Panes,
@@ -71,17 +69,16 @@ pub struct App {
     next_id: PaneId,
     /// Per-pane font size overrides (zoom is per pane); panes not listed use the config size.
     pane_fonts: HashMap<PaneId, f32>,
-    /// The zoomed pane of the shown tab and its font size: scaled up from its own size so it
-    /// keeps its grid while filling the tab.
-    zoom_font: Option<(PaneId, f32)>,
     /// Cell metrics for every font size in use this frame, keyed by `f32::to_bits`.
     metrics: HashMap<u32, CellMetrics>,
-    mouse: MouseState,
-    /// A finger on a pane that may become a sideways swipe to the next or previous tab.
-    tab_swipe: Option<input::swipe::TabSwipe>,
-    /// Pinch zoom of a terminal not yet applied (font sizes change in whole points).
-    pinch_accum: f32,
     pending: Vec<Action>,
+    /// Pointer, touch, zoom and search state (see `input/`).
+    input: input::InputState,
+    /// The tab strip, keyboard button, toasts and window title (see `chrome/`).
+    chrome: chrome::Chrome,
+    /// What the command line and connect screen hand to the first panes (see `launch.rs`).
+    launch: launch::LaunchState,
+    timers: Timers,
     /// Terminal (content) rects from the current frame, used for mouse hit-testing.
     term_rects: Vec<(PaneId, Rect)>,
     /// Card rects (including header), used for directional focus.
@@ -94,22 +91,11 @@ pub struct App {
     /// The connect screen handing over to the panes, while it plays (`animation/handoff.rs`).
     handoff: Option<animation::handoff::Handoff>,
     hostname: String,
-    last_proc_poll: Instant,
-    /// When to hand memory freed during startup (font loading) back to the OS; `None` once done.
-    trim_heap_at: Option<Instant>,
-    window_title: String,
     bindings: Vec<Binding>,
     /// Area available for panes in the current window (used to size new terminals).
     content_area: Rect,
-    started: bool,
-    search: Option<Search>,
     /// Where each character's bitmap is in egui's font atlas (shared by all panes).
     glyphs: GlyphCache,
-    links: LinkFinder,
-    /// Link under the pointer while Ctrl is held.
-    hover_link: Option<(PaneId, Link)>,
-    /// A pane being dragged by its header, if any (it can be carried to another tab).
-    pane_drag: Option<workspace::pane_drag::PaneDrag>,
     /// The tab-switch transition (`tab-animation`): the old tab's panes giving way to the new.
     switch: TabSwitch,
     /// Every agent running in a pane and what it's doing, as of the last process poll; what
@@ -132,51 +118,31 @@ pub struct App {
     sticky: Option<PaneId>,
     /// Its card gliding from where the last tab had it to where this one does.
     sticky_glide: animation::sticky_glide::StickyGlide,
-    /// Last known pointer position (touch releases report the pointer as gone).
-    last_pointer: Option<Pos2>,
-    /// Flags passed on to the nex started by Ctrl+Shift+N (`--config`, `--app-id`).
-    new_window_args: Vec<String>,
-    /// `--explorer` (or a folder argument): show the Files tab once the first shell opens.
-    open_explorer: bool,
-    /// `--select`: the item to select in that Files tab.
-    select_at_start: Option<std::path::PathBuf>,
-    /// `-e` command, run by the first pane only; later panes start the shell.
-    first_command: Option<Vec<String>>,
-    /// The first shell, started before the window existed (see `Terminal::spawn_early`);
-    /// the first pane opened takes it.
-    early_terminal: Option<Terminal>,
     /// Drag and drop with other windows, where the platform needs nex to do it (Wayland).
     dnd: Option<crate::platform::Dnd>,
-    /// The "Copied …" / "Pasted …" message currently on screen.
-    toast: Option<Toast>,
-    /// Typing goes through an on-screen keyboard (`platform::SOFT_KEYBOARD`; tests turn it on).
-    soft_keyboard: bool,
-    /// The floating button that shows or hides the on-screen keyboard.
-    keyboard_button: chrome::keyboard_button::KeyboardButton,
-    /// A toast to show on the next frame, from code without the egui context.
-    notice: Option<String>,
     /// Uploads, the shared mic, watched agents and their dialogs (see `ssh/`).
     ssh: ssh::SshState,
     /// Restoring the last session and keeping the session file (see `restore.rs`).
     session: restore::SessionState,
-    /// Where the tabs were drawn and how they are animating (see `chrome/titlebar.rs`).
-    strip: chrome::titlebar::TabStrip,
     /// The host every pane works on, where this window is a thin client (Android,
     /// `--remote`), and the connect screen shown until a pane is open (see `connect.rs`).
     connect: connect::Connect,
-    /// Shells already on that host that the next panes opened attach to, instead of starting
-    /// new ones (the ones this device left open there).
-    adopt: Vec<String>,
-    /// The agent session the next remote pane attaches to (picked in the Agents pane).
-    attach_next: Option<String>,
-    /// What the next remote pane runs instead of a shell (a sub-agent's tab).
-    launch_next: Option<Vec<String>>,
     /// The pane showing each sub-agent opened from the Agents pane, by its card's key (see
     /// `workspace/agents.rs`).
     sub_views: std::collections::HashMap<crate::layout::PaneId, crate::layout::PaneId>,
     /// The folder on the host the next pane opened there starts in, when it isn't the
     /// focused pane's (a Files pane's "Open Terminal Here").
     next_remote_cwd: Option<String>,
+}
+
+/// When the frame loop's periodic work is next due.
+struct Timers {
+    /// When process names, working directories and file listings were last refreshed.
+    last_proc_poll: Instant,
+    /// When to hand memory freed during startup (font loading) back to the OS; `None` once done.
+    trim_heap_at: Option<Instant>,
+    /// Modification time of the config file when it was last read; a change triggers a reload.
+    config_mtime: Option<SystemTime>,
 }
 
 impl App {
@@ -200,38 +166,34 @@ impl App {
         let save_session = args.restores_session() && session_lock.is_some();
         let remote_window = !crate::platform::LOCAL_SHELLS || args.remote.is_some();
         let remote_arg = args.remote.clone();
+        let launch = launch::LaunchState::new(args, early_terminal);
         Self {
             cfg,
-            config_mtime: config::modified(),
             panes: Panes::default(),
             pane_requests: Vec::new(),
             tabs: Vec::new(),
             active: 0,
             next_id: 1,
             pane_fonts: HashMap::new(),
-            zoom_font: None,
             metrics: HashMap::new(),
-            mouse: MouseState::default(),
-            tab_swipe: None,
-            pinch_accum: 1.0,
             pending: Vec::new(),
+            input: input::InputState::default(),
+            chrome: chrome::Chrome::default(),
+            launch,
+            timers: Timers {
+                last_proc_poll: Instant::now(),
+                trim_heap_at: Some(Instant::now() + TRIM_HEAP_DELAY),
+                config_mtime: config::modified(),
+            },
             term_rects: Vec::new(),
             card_rects: Vec::new(),
             draw_bufs: Default::default(),
             focused_card: None,
             handoff: None,
             hostname,
-            last_proc_poll: Instant::now(),
-            trim_heap_at: Some(Instant::now() + TRIM_HEAP_DELAY),
-            window_title: String::new(),
             bindings: keybindings(),
             content_area: Rect::NOTHING,
-            started: false,
-            search: None,
             glyphs: GlyphCache::default(),
-            links: LinkFinder::new(),
-            hover_link: None,
-            pane_drag: None,
             switch: TabSwitch::default(),
             agent_tracker: agents::model::Tracker::default(),
             agent_notifier: agents::notify::Notifier::default(),
@@ -241,18 +203,7 @@ impl App {
             system_back: crate::platform::SYSTEM_BACK,
             sticky: None,
             sticky_glide: Default::default(),
-            last_pointer: None,
-            new_window_args: args.for_new_window(),
-            open_explorer: args.explorer,
-            select_at_start: args.select.clone(),
-            // An early terminal already runs the `-e` command.
-            first_command: if early_terminal.is_some() { None } else { args.command },
-            early_terminal,
             dnd: crate::platform::Dnd::new(cc),
-            toast: None,
-            soft_keyboard: crate::platform::SOFT_KEYBOARD,
-            keyboard_button: Default::default(),
-            notice: None,
             ssh: ssh::SshState {
                 uploads: Default::default(),
                 sharing_prompt: None,
@@ -273,23 +224,7 @@ impl App {
                 last_user_input: None,
                 saved_session: None,
             },
-            strip: chrome::titlebar::TabStrip {
-                pill_glide: Glide::new(0.2),
-                tab_rects: HashMap::new(),
-                tab_ghosts: Vec::new(),
-                files_rect: None,
-                dog_wake: None,
-                dog_was_active: false,
-                dog_rect: None,
-                tab_hits: Vec::new(),
-                strip_rect: None,
-                scroll: chrome::titlebar::TabScroll::new(crate::platform::WINDOW.scroll_tabs),
-                badge: None,
-            },
             connect: connect::Connect::new(remote_window, remote_arg.as_deref()),
-            adopt: Vec::new(),
-            attach_next: None,
-            launch_next: None,
             sub_views: std::collections::HashMap::new(),
             next_remote_cwd: None,
         }
@@ -368,18 +303,18 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.update_metrics(ctx);
         self.update_content_area(ctx);
-        if !self.started && !self.connect.active {
+        if !self.launch.started && !self.connect.active {
             // The first shell is spawned on the first frame, once the window size is known.
-            self.started = true;
+            self.launch.started = true;
             let restored = self.session.restore_at_start.take().is_some_and(|s| self.restore_session(ctx, s));
             if !restored {
                 let cwd = std::env::current_dir().ok();
                 self.new_tab(ctx, cwd, None);
             }
-            if self.open_explorer {
+            if self.launch.open_explorer {
                 // Opened as a file manager: the Files tab, at the first shell's folder.
                 self.toggle_explorer(ctx);
-                if let Some(item) = self.select_at_start.take() {
+                if let Some(item) = self.launch.select_at_start.take() {
                     self.select_in_explorer(&item);
                 }
             }
@@ -404,8 +339,8 @@ impl eframe::App for App {
         self.poll_mics(ctx);
         self.ssh.remote_hosts.set_ctx(ctx);
         self.poll_agent_jobs(ctx);
-        if let Some(n) = self.notice.take() {
-            self.toast = Some(Toast::new(ctx, n));
+        if let Some(n) = self.chrome.notice.take() {
+            self.chrome.toast = Some(Toast::new(ctx, n));
         }
         if self.close_if_empty(ctx) {
             return;
@@ -440,7 +375,7 @@ impl eframe::App for App {
         self.keyboard_button(ctx);
         self.handle_tab_swipe(ctx);
         self.handle_mouse(ctx);
-        if self.soft_keyboard {
+        if self.chrome.soft_keyboard {
             self.ask_for_keyboard(ctx);
         }
         crate::platform::mirror_copies(ctx);
@@ -465,9 +400,9 @@ impl App {
     fn connect_screen(&mut self, ctx: &egui::Context) {
         if let Some(shells) = self.connect.poll() {
             let tabs = shells.len().max(1);
-            self.adopt = shells;
+            self.launch.adopt = shells;
             // Oldest first, as they were opened.
-            self.adopt.reverse();
+            self.launch.adopt.reverse();
             for _ in 0..tabs {
                 self.new_tab(ctx, None, None);
             }
@@ -494,7 +429,7 @@ impl App {
     fn ask_for_keyboard(&self, ctx: &egui::Context) {
         let Some(target) = self.keyboard_target(ctx) else { return };
         // Put away with the keyboard button: it stays down until the button brings it back.
-        if self.keyboard_button.down(target) {
+        if self.chrome.keyboard_button.down(target) {
             return;
         }
         let Some(id) = self.focused_pane() else { return };
@@ -609,8 +544,8 @@ impl App {
 
     /// Once startup (or a font change) is over, give the memory it freed back to the OS.
     fn trim_heap_when_due(&mut self) {
-        if self.trim_heap_at.is_some_and(|at| Instant::now() >= at) {
-            self.trim_heap_at = None;
+        if self.timers.trim_heap_at.is_some_and(|at| Instant::now() >= at) {
+            self.timers.trim_heap_at = None;
             crate::platform::trim_heap();
         }
     }
@@ -618,11 +553,11 @@ impl App {
     /// Every so often: refresh process names / cwds, re-read stale file listings, and reload
     /// the config if its file changed.
     fn poll_background(&mut self) {
-        if self.last_proc_poll.elapsed() <= PROCESS_POLL_INTERVAL {
+        if self.timers.last_proc_poll.elapsed() <= PROCESS_POLL_INTERVAL {
             return;
         }
-        self.last_proc_poll = Instant::now();
-        if config::modified() != self.config_mtime {
+        self.timers.last_proc_poll = Instant::now();
+        if config::modified() != self.timers.config_mtime {
             self.pending.push(Action::ReloadConfig);
         }
         for (_, t) in self.panes.terminals_mut() {
@@ -683,15 +618,15 @@ impl App {
         self.window_resize_edges(&ctx, full);
         self.sharing_dialog(&ctx, &theme);
         self.agent_dialog(&ctx, &theme);
-        if self.toast.as_ref().is_some_and(|t| !t.paint(&ctx, area, &theme)) {
-            self.toast = None;
+        if self.chrome.toast.as_ref().is_some_and(|t| !t.paint(&ctx, area, &theme)) {
+            self.chrome.toast = None;
         }
     }
 
     /// Confirm a terminal copy or paste with a toast (unless turned off in the config).
     fn clipboard_toast(&mut self, ctx: &egui::Context, verb: &str, text: &str) {
         if self.cfg.clipboard_toasts && !text.is_empty() {
-            self.toast = Some(Toast::new(ctx, toast::describe(verb, text)));
+            self.chrome.toast = Some(Toast::new(ctx, toast::describe(verb, text)));
         }
     }
 
@@ -700,9 +635,9 @@ impl App {
     /// nex's title bar (see `platform::set_window_title`).
     fn sync_window_title(&mut self, ctx: &egui::Context, frame: &eframe::Frame, buttons_height: Option<f32>) {
         let Some(title) = self.focused_pane().map(|id| self.pane_label(id).0).filter(|t| !t.is_empty()) else { return };
-        if title != self.window_title {
+        if title != self.chrome.window_title {
             crate::platform::set_window_title(ctx, frame, &format!("{title} — nex"), buttons_height);
-            self.window_title = title.into_owned();
+            self.chrome.window_title = title.into_owned();
         }
     }
 }

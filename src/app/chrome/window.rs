@@ -28,8 +28,8 @@ impl App {
             let pos = file_explorer::release_pos(i).or(i.pointer.interact_pos());
             (pos, i.pointer.any_released(), dropped)
         });
-        let pos = pos.or(self.last_pointer);
-        self.last_pointer = pos;
+        let pos = pos.or(self.input.last_pointer);
+        self.input.last_pointer = pos;
 
         // An explorer drag leaving the window goes to the compositor, so another window
         // (another nex, a file manager, a browser) can take the drop.

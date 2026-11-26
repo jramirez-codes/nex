@@ -27,7 +27,7 @@ impl App {
     /// starting with the background drag area.
     pub(in crate::app) fn sidebar(&mut self, ui: &mut Ui, rect: Rect, theme: &Theme) {
         let ctx = ui.ctx().clone();
-        self.strip.strip_rect = Some(rect);
+        self.chrome.strip.strip_rect = Some(rect);
         let drag = ui.interact(rect, Id::new("sidebar"), Sense::click_and_drag());
         if drag.drag_started_by(PointerButton::Primary) {
             ctx.send_viewport_cmd(ViewportCommand::StartDrag);
@@ -78,7 +78,7 @@ impl App {
 
     /// The Files tab as a tile: tap toggles it, like the title bar's directory label.
     fn files_tile(&mut self, ui: &Ui, r: Rect, theme: &Theme) {
-        self.strip.files_rect = Some(r);
+        self.chrome.strip.files_rect = Some(r);
         let painter = ui.painter();
         let active = self.home_active;
         let resp = ui.interact(r, Id::new("workspace-label"), Sense::click());

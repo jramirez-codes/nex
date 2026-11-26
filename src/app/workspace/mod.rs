@@ -60,14 +60,14 @@ impl App {
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);
         let cell_px = cell_px(ctx, m);
-        let spawned = match self.early_terminal.take() {
+        let spawned = match self.launch.early_terminal.take() {
             Some(mut t) => {
                 t.resize(size, cell_px);
                 t.attach(ctx);
                 Ok(t)
             }
             None => {
-                let command = command.or_else(|| self.first_command.take());
+                let command = command.or_else(|| self.launch.first_command.take());
                 Terminal::spawn(id, &self.cfg, command, cwd, size, cell_px, ctx)
             }
         };
@@ -91,15 +91,15 @@ impl App {
         let cwd = self.next_remote_cwd.take().or_else(|| self.focused_pane().and_then(|id| self.pane_remote_cwd(id)));
         // An agent picked in the Agents pane stays running when its pane closes; a shell
         // doesn't.
-        let (session, keep) = match self.attach_next.clone() {
+        let (session, keep) = match self.launch.attach_next.clone() {
             Some(agent) => (Some(agent), true),
-            None => (self.adopt.pop(), false),
+            None => (self.launch.adopt.pop(), false),
         };
         let session = std::sync::Arc::new(std::sync::Mutex::new(session));
         let id = self.alloc_pane_id();
         let m = self.metrics_for(ctx, font_size.unwrap_or(self.cfg.font_size));
         let size = self.grid_for(card, ctx.pixels_per_point(), m);
-        let remote = crate::terminal::RemotePane { host, session, keep, command: self.launch_next.take() };
+        let remote = crate::terminal::RemotePane { host, session, keep, command: self.launch.launch_next.take() };
         match Terminal::spawn_remote(&self.cfg, remote, cwd, size, cell_px(ctx, m), ctx) {
             Ok(t) => {
                 self.insert_pane(id, Pane::Terminal(t), font_size);
@@ -536,7 +536,7 @@ impl App {
     /// Put a pane being dragged by its header back where it was, showing its tab again if
     /// the drag had opened another.
     pub(in crate::app) fn cancel_pane_drag(&mut self, ctx: &egui::Context) {
-        let Some(d) = self.pane_drag.take() else { return };
+        let Some(d) = self.input.pane_drag.take() else { return };
         if let Some(tab) = self.cur_tab_mut() {
             tab.motion.kick_reflow(ctx);
         }
@@ -556,7 +556,7 @@ impl App {
 
     fn close_unpinned(&mut self, ctx: &egui::Context, id: PaneId) {
         if let Some(n) = self.detach_notice(id) {
-            self.notice = Some(n);
+            self.chrome.notice = Some(n);
         }
         let (title, process) = self.pane_label_owned(id);
         let shapes = self.panes.terminal_mut(id).map(|t| t.take_shapes()).unwrap_or_default();
@@ -590,11 +590,11 @@ impl App {
             return;
         }
         if let Some(n) = self.tabs[index].root.iter().find_map(|id| self.detach_notice(id)) {
-            self.notice = Some(n);
+            self.chrome.notice = Some(n);
         }
         let tab = self.take_tab(index);
-        if let Some(&drawn) = self.strip.tab_rects.get(&tab.uid) {
-            for g in self.strip.tab_ghosts.iter_mut().filter(|g| g.index > index) {
+        if let Some(&drawn) = self.chrome.strip.tab_rects.get(&tab.uid) {
+            for g in self.chrome.strip.tab_ghosts.iter_mut().filter(|g| g.index > index) {
                 g.index -= 1;
             }
             let (title, mut process) = label.unwrap_or_else(|| self.pane_label_owned(self.tab_header_pane(&tab)));
@@ -605,7 +605,7 @@ impl App {
                 (process, mark) = (icons::PIPELINE_PROCESS.to_string(), None);
             }
             let drawn = TabDrawn { active: drawn.active && !self.home_active, ..drawn };
-            self.strip.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
+            self.chrome.strip.tab_ghosts.push(TabGhost { drawn, index, start: None, title, process, mark });
         }
         self.forget_tab_panes(&tab);
         self.forget_sticky_if_alone();

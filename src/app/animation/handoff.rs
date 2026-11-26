@@ -184,7 +184,7 @@ impl App {
         h.painted = h.painted.saturating_add(1);
         let elapsed = h.elapsed(now);
         if elapsed >= END || !crate::ui::glide::animations(ctx) {
-            self.strip.dog_wake = Some(h.dog_wake());
+            self.chrome.strip.dog_wake = Some(h.dog_wake());
             self.handoff = None;
             ctx.request_repaint();
             return;
@@ -248,7 +248,7 @@ impl App {
         paint::card_edge(&over, card, PANE_RADIUS, morph_focus(ring, ph.morph), None);
 
         // The dog stays opaque on the tile once it's there; without a tile it fades with the cover.
-        let (to, dog_painter) = match self.strip.dog_rect {
+        let (to, dog_painter) = match self.chrome.strip.dog_rect {
             Some(r) => (r, painter.clone()),
             None => (h.drawn.dog, cover),
         };

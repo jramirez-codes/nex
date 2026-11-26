@@ -240,7 +240,7 @@ impl Sim {
         self.frame(vec![Event::PointerMoved(from)]);
         self.frame(vec![btn(from, true)]);
         self.move_to(from, to);
-        assert!(self.app.pane_drag.is_some(), "header drag never started");
+        assert!(self.app.input.pane_drag.is_some(), "header drag never started");
     }
     /// Move the held mouse from `from` to `to`.
     fn move_to(&mut self, from: Pos2, to: Pos2) {
@@ -271,7 +271,7 @@ impl Sim {
     }
     /// Where tab `uid` is drawn in the title bar.
     fn tab_at(&self, uid: u64) -> Pos2 {
-        self.app.strip.tab_hits.iter().find(|(u, _)| *u == uid).expect("tab not drawn").1.center()
+        self.app.chrome.strip.tab_hits.iter().find(|(u, _)| *u == uid).expect("tab not drawn").1.center()
     }
     fn shown_uid(&self) -> u64 {
         self.app.cur_tab().unwrap().uid
@@ -330,12 +330,12 @@ fn drag_header_onto_own_slot_or_escape_cancels() {
     let home = s.card(left).center();
     s.mouse_drag(from, home);
     assert_eq!(s.order(), vec![left, right]);
-    assert!(s.app.pane_drag.is_none());
+    assert!(s.app.input.pane_drag.is_none());
 
     let to = s.card(right).center();
     s.grab(from, to);
     s.escape();
-    assert!(s.app.pane_drag.is_none());
+    assert!(s.app.input.pane_drag.is_none());
     s.release(to);
     assert_eq!(s.order(), vec![left, right]);
 }
@@ -361,7 +361,7 @@ fn a_lone_pane_has_nowhere_new_to_go() {
     s.frame(vec![Event::PointerMoved(from)]);
     s.frame(vec![btn(from, true)]);
     s.move_to(from, Pos2::new(600.0, 10.0));
-    assert!(s.app.pane_drag.is_none(), "a tab's only pane, with no other tab, can't be dragged");
+    assert!(s.app.input.pane_drag.is_none(), "a tab's only pane, with no other tab, can't be dragged");
     s.release(Pos2::new(600.0, 10.0));
     assert_eq!(s.app.tabs.len(), 1);
 }

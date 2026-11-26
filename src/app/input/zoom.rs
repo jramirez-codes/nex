@@ -21,7 +21,7 @@ impl App {
         });
         if delta == 1.0 {
             if !pinching {
-                self.pinch_accum = 1.0;
+                self.input.pinch_accum = 1.0;
             }
             return;
         }
@@ -43,12 +43,12 @@ impl App {
 
     /// Collect the pinch until it adds up to at least a point of font size, then apply it.
     fn pinch_terminal(&mut self, ctx: &egui::Context, id: PaneId, delta: f32) {
-        self.pinch_accum *= delta;
+        self.input.pinch_accum *= delta;
         let size = self.pane_font(id);
-        let target = (size * self.pinch_accum).round();
+        let target = (size * self.input.pinch_accum).round();
         if (target - size).abs() >= 1.0 {
             self.set_pane_font(ctx, id, Some(target));
-            self.pinch_accum = 1.0;
+            self.input.pinch_accum = 1.0;
         }
     }
 

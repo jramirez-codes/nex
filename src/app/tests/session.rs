@@ -167,7 +167,7 @@ fn staggered_shell_deaths_never_shrink_the_session() {
     assert_eq!(ids.len(), 2);
     shell_exits(&ctx, &mut app, ids[0], false);
     // Polls go by: the smaller layout is never written.
-    app.last_proc_poll = std::time::Instant::now() - std::time::Duration::from_secs(2);
+    app.timers.last_proc_poll = std::time::Instant::now() - std::time::Duration::from_secs(2);
     frames(&ctx, &mut app, 3);
     assert_eq!(file_policy(&mut app), (false, false));
     shell_exits(&ctx, &mut app, ids[1], false);

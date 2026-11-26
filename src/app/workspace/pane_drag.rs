@@ -82,7 +82,7 @@ impl App {
         let Some(home) = self.cur_tab().map(|t| t.uid) else { return };
         // The sticky pane is in every tab already: it can only move within one.
         let roams = !self.home_active && !self.is_sticky(pane);
-        self.pane_drag = Some(PaneDrag { pane, home, grab: at - slot.min, at, slot, over: None, hover: None, roams });
+        self.input.pane_drag = Some(PaneDrag { pane, home, grab: at - slot.min, at, slot, over: None, hover: None, roams });
     }
 
     /// Follow a pane being dragged by its header: track the pointer, preview the drop, open
@@ -90,7 +90,7 @@ impl App {
     /// tab's layout in `area`.
     pub(in crate::app) fn track_pane_drag(&mut self, ctx: &egui::Context, area: Rect, rects: &[(PaneId, Rect)]) -> DragFrame {
         let none = DragFrame::default();
-        let Some((pane, home, roams)) = self.pane_drag.as_ref().map(|d| (d.pane, d.home, d.roams)) else { return none };
+        let Some((pane, home, roams)) = self.input.pane_drag.as_ref().map(|d| (d.pane, d.home, d.roams)) else { return none };
         let Some((shown, zoomed)) = self.cur_tab().map(|t| (t.uid, t.zoomed)) else { return none };
         let at_home = shown == home;
         let owner = self.tabs.iter().chain(self.home_tab.iter()).find(|t| t.uid == home && t.contains(pane)).map(|t| t.uid);
@@ -99,7 +99,7 @@ impl App {
         let stuck = rects.len() < 2 && !(roams && self.tabs.len() > 1);
         if owner != Some(home) || (at_home && (zoomed || slot.is_none() || stuck)) {
             // The pane closed or moved, or its tab was zoomed.
-            self.pane_drag = None;
+            self.input.pane_drag = None;
             self.kick_shown(ctx);
             return none;
         }
@@ -114,7 +114,7 @@ impl App {
             (released, i.pointer.latest_pos(), i.pointer.primary_down(), i.time)
         });
         let at = {
-            let d = self.pane_drag.as_mut().expect("drag checked above");
+            let d = self.input.pane_drag.as_mut().expect("drag checked above");
             if let Some(p) = released.or(latest) {
                 d.at = p;
             }
@@ -143,7 +143,7 @@ impl App {
         // Held over another tab: open it once the delay is up.
         let mut spring = None;
         {
-            let d = self.pane_drag.as_mut().expect("drag checked above");
+            let d = self.input.pane_drag.as_mut().expect("drag checked above");
             match over {
                 Some(DropTarget::Tab(uid)) if uid != shown => {
                     let since = match d.hover {
@@ -164,13 +164,13 @@ impl App {
             }
         }
         let over = if spring.is_some() { None } else { over };
-        let changed = self.pane_drag.as_mut().is_some_and(|d| std::mem::replace(&mut d.over, over) != over);
+        let changed = self.input.pane_drag.as_mut().is_some_and(|d| std::mem::replace(&mut d.over, over) != over);
         if changed {
             self.kick_shown(ctx);
         }
 
         if released.is_some() || !down {
-            let d = self.pane_drag.take().expect("drag checked above");
+            let d = self.input.pane_drag.take().expect("drag checked above");
             let dropped = match d.over {
                 Some(DropTarget::Swap(t)) => Some(Action::SwapPanes(pane, t)),
                 Some(DropTarget::Edge(t, dir)) => Some(Action::MovePane(pane, t, dir)),
@@ -189,7 +189,7 @@ impl App {
             self.show_tab_uid(uid);
         }
 
-        let d = self.pane_drag.as_ref().expect("drag checked above");
+        let d = self.input.pane_drag.as_ref().expect("drag checked above");
         let mini = !area.contains(d.at);
         let s = if mini { (MINI.x / d.slot.width()).min(MINI.y / d.slot.height()).min(1.0) } else { 1.0 };
         let held = Rect::from_min_size(d.at - d.grab * s, d.slot.size() * s);
@@ -200,20 +200,20 @@ impl App {
     /// The drop target in the title bar (or sidebar) at `at`: a tab, or the empty strip
     /// for a new tab (if the pane has company to leave behind).
     fn strip_target(&self, at: Pos2, shown: u64, home: u64) -> Option<DropTarget> {
-        if let Some(&(uid, _)) = self.strip.tab_hits.iter().find(|(_, r)| r.contains(at)) {
+        if let Some(&(uid, _)) = self.chrome.strip.tab_hits.iter().find(|(_, r)| r.contains(at)) {
             // The tab already showing is only a target for a pane from another tab.
             return (uid != shown || uid != home).then_some(DropTarget::Tab(uid));
         }
-        if self.strip.files_rect.is_some_and(|r| r.contains(at)) {
+        if self.chrome.strip.files_rect.is_some_and(|r| r.contains(at)) {
             return None;
         }
         let company = self.tabs.iter().find(|t| t.uid == home).is_some_and(|t| t.root.len() > 1);
-        (company && self.strip.strip_rect.is_some_and(|r| r.contains(at))).then_some(DropTarget::NewTab)
+        (company && self.chrome.strip.strip_rect.is_some_and(|r| r.contains(at))).then_some(DropTarget::NewTab)
     }
 
     /// Where the shown tab's cards would go if the dragged pane were dropped now.
     fn drop_preview(&self, area: Rect, at_home: bool) -> HashMap<PaneId, Rect> {
-        let (Some(d), Some(tab)) = (self.pane_drag.as_ref(), self.cur_tab()) else { return HashMap::new() };
+        let (Some(d), Some(tab)) = (self.input.pane_drag.as_ref(), self.cur_tab()) else { return HashMap::new() };
         let mut tree = tab.root.clone();
         let changed = match d.over {
             // The other pane slides into the dragged one's slot.

@@ -53,7 +53,7 @@ fn ctrl_shift_a_toggles_an_agents_pane_that_draws_jumps_and_restores() {
         run(&mut app, &ctx, width);
     }
     // Hold off the process poll, which would find no agents in these shells.
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let agents = vec![probe(shell, Some(0), AgentKind::CLAUDE, "busy"), probe(other, Some(1), AgentKind::CODEX, "waiting")];
     app.agent_tracker.update(agents, Instant::now());
     for width in [1400.0, 900.0, 700.0, 420.0, 260.0] {
@@ -131,7 +131,7 @@ fn an_agent_on_an_ssh_host_opens_in_a_new_tab_attached_to_it() {
     app.pending.push(Action::ToggleAgents);
     run(&mut app, &ctx, 1400.0);
     let id = app.panes.ids(PaneKind::Agents).next().unwrap();
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
 
     // A detached agent on a host no pane is connected to. Its ssh never gets anywhere (a
     // proxy that just waits), so the tab it opens stays open for the test.
@@ -168,7 +168,7 @@ fn delete_on_a_running_agent_on_an_ssh_host_asks_before_stopping_it() {
     let ctx = egui::Context::default();
     let mut app = new_app(&ctx, Config::default());
     run(&mut app, &ctx, 1400.0);
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let target = crate::remote::SshTarget { opts: vec![], destination: "nex-test.invalid".into() };
     let key = remote_key("nex-test.invalid", "3fa91c0e");
     let remote = |status| Probe {
@@ -242,7 +242,7 @@ fn the_agents_on_screen_are_marked_viewing_both_halves_of_a_split_and_where_a_ca
     run(&mut app, &ctx, 1400.0);
     let other = app.focused_pane().unwrap();
 
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     // Pretend the three shells run agents (opening the Agents tab polls, finding none).
     let pretend = |app: &mut crate::app::App| {
         let agents = vec![probe(left, Some(0), AgentKind::CLAUDE, "busy"), probe(right, Some(0), AgentKind::CODEX, "busy"), probe(other, Some(1), AgentKind::CLAUDE, "idle")];
@@ -309,7 +309,7 @@ fn from_the_agents_tab_a_pinned_agent_is_not_marked_viewing_either() {
     app.pending.push(Action::ToggleSticky(pinned));
     run(&mut app, &ctx, 1400.0);
 
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let pretend = |app: &mut crate::app::App| {
         let agents = vec![probe(left, Some(0), AgentKind::CLAUDE, "busy"), probe(pinned, Some(0), AgentKind::CODEX, "busy")];
         app.agent_tracker.update(agents, Instant::now());
@@ -360,7 +360,7 @@ fn switching_to_the_agents_tab_clears_every_viewing_mark() {
     run(&mut app, &ctx, 1400.0);
     let right = app.focused_pane().unwrap();
 
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let pretend = |app: &mut crate::app::App| {
         let agents = vec![probe(left, Some(0), AgentKind::CLAUDE, "busy"), probe(right, Some(0), AgentKind::CODEX, "busy")];
         app.agent_tracker.update(agents, Instant::now());
@@ -402,7 +402,7 @@ fn a_card_jumped_to_from_the_agents_tab_is_not_left_highlighted() {
     app.show_tab(0);
     run(&mut app, &ctx, 1400.0);
 
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let pretend = |app: &mut crate::app::App| {
         let agents = vec![probe(first, Some(0), AgentKind::CLAUDE, "busy"), probe(second, Some(1), AgentKind::CODEX, "busy")];
         app.agent_tracker.update(agents, Instant::now());
@@ -468,7 +468,7 @@ fn on_the_agents_tab_a_terminal_opened_there_marks_its_ssh_agent_viewing_and_onl
 
     // In it, Claude on an ssh host (shown by that pane); agents in the terminal tab's shell and
     // the pinned pane too.
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
     let target = crate::remote::SshTarget { opts: vec![], destination: "nex-test.invalid".into() };
     let key = remote_key("nex-test.invalid", "3fa91c0e");
     let pretend = |app: &mut crate::app::App| {
@@ -524,7 +524,7 @@ fn a_sub_agent_opens_in_a_tab_of_its_own_and_a_second_click_focuses_it() {
     app.pending.push(Action::ToggleAgentsTab);
     run(&mut app, &ctx, 1400.0);
     let id = app.home_tab.as_ref().unwrap().root.iter().find(|p| app.panes.agents(*p).is_some()).unwrap();
-    app.last_proc_poll = Instant::now() + Duration::from_secs(3600);
+    app.timers.last_proc_poll = Instant::now() + Duration::from_secs(3600);
 
     // A sub-agent of `lead` (the card it's under), as the poll makes them: shown in the
     // pane `app` has following it, if any.

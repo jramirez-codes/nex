@@ -20,7 +20,7 @@ impl Sim {
     fn with(tabs: usize, scroll: bool) -> Self {
         let ctx = egui::Context::default();
         let mut app = super::new_app(&ctx, crate::config::Config::default());
-        app.strip.scroll = crate::app::chrome::titlebar::TabScroll::new(scroll);
+        app.chrome.strip.scroll = crate::app::chrome::titlebar::TabScroll::new(scroll);
         let mut s = Sim { ctx, app, t: 0.0, width: 420.0 };
         s.settle();
         let c = s.ctx.clone();
@@ -51,12 +51,12 @@ impl Sim {
     }
     /// Where each tab was drawn, in tab order.
     fn rects(&self) -> Vec<Rect> {
-        self.app.tabs.iter().map(|t| self.app.strip.tab_rects[&t.uid].rect).collect()
+        self.app.tabs.iter().map(|t| self.app.chrome.strip.tab_rects[&t.uid].rect).collect()
     }
     fn track(&self) -> Rect {
         let r = self.rects();
         // The first tab sits flush with the track's left edge when unscrolled.
-        Rect::from_min_max(Pos2::new(r[0].left() + self.app.strip.scroll.offset, r[0].top()), r[0].max)
+        Rect::from_min_max(Pos2::new(r[0].left() + self.app.chrome.strip.scroll.offset, r[0].top()), r[0].max)
     }
     /// Press at `from`, move to `to` over `steps` frames and lift.
     fn drag(&mut self, from: Pos2, to: Pos2, steps: usize, hold: usize) {
@@ -90,7 +90,7 @@ fn tabs_keep_one_width_two_and_a_half_to_the_track() {
         assert!((r.width() - two).abs() < 0.01, "tabs don't shrink as more open: {} vs {two}", r.width());
     }
     // The newest tab (shown) was scrolled into view at the end of the track.
-    let offset = s.app.strip.scroll.offset;
+    let offset = s.app.chrome.strip.scroll.offset;
     assert!((offset - two * 3.5).abs() < 0.5, "scrolled so the last tab ends the track: {offset}");
     let track = s.track();
     let right = track.left() + 2.5 * two;
@@ -100,21 +100,21 @@ fn tabs_keep_one_width_two_and_a_half_to_the_track() {
 #[test]
 fn swipe_scrolls_and_tap_still_switches() {
     let mut s = Sim::new(6);
-    let before = s.app.strip.scroll.offset;
+    let before = s.app.chrome.strip.scroll.offset;
     assert!(before > 0.0);
     let shown = s.app.active;
     let at = s.rects()[shown].center();
     // Swipe right: back toward the first tabs, without switching or reordering.
     let order: Vec<u64> = s.app.tabs.iter().map(|t| t.uid).collect();
     s.drag(at, at + Vec2::new(120.0, 0.0), 10, 0);
-    let after = s.app.strip.scroll.offset;
+    let after = s.app.chrome.strip.scroll.offset;
     assert!(after < before - 100.0, "swipe moved the strip: {before} -> {after}");
     assert_eq!(s.app.active, shown);
     assert_eq!(order, s.app.tabs.iter().map(|t| t.uid).collect::<Vec<_>>());
     // It stops at the first tab.
     s.drag(at, at + Vec2::new(400.0, 0.0), 10, 0);
     s.settle();
-    assert_eq!(s.app.strip.scroll.offset, 0.0);
+    assert_eq!(s.app.chrome.strip.scroll.offset, 0.0);
     // A tap on the (now visible) first tab shows it.
     let first = s.rects()[0].center();
     s.frame(vec![Event::PointerMoved(first), btn(first, true)]);
@@ -128,7 +128,7 @@ fn active_tab_comes_into_view_once_the_window_has_its_size() {
     let mut s = Sim::new(4);
     // As at launch: the active tab was revealed while the window was still tiny, then the
     // window grew.
-    s.app.strip.scroll.offset = 0.0;
+    s.app.chrome.strip.scroll.offset = 0.0;
     s.width = 200.0;
     s.settle();
     s.width = 420.0;
@@ -152,7 +152,7 @@ fn long_press_then_drag_reorders() {
 /// Taps the × spot on the active tab and reports whether its close button was there.
 fn tap_close_spot(s: &mut Sim) -> bool {
     let uid = s.app.tabs[s.app.active].uid;
-    let at = s.app.strip.tab_rects[&uid].close.center();
+    let at = s.app.chrome.strip.tab_rects[&uid].close.center();
     s.frame(vec![Event::PointerMoved(at)]);
     s.frame(vec![]);
     let registered = s.ctx.read_response(egui::Id::new(("tab-close", uid))).is_some();

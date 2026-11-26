@@ -190,7 +190,7 @@ impl App {
     fn new_window(&self) {
         if let Ok(exe) = std::env::current_exe() {
             let mut cmd = std::process::Command::new(exe);
-            cmd.args(&self.new_window_args);
+            cmd.args(&self.launch.new_window_args);
             if let Some(cwd) = self.focused_cwd() {
                 cmd.current_dir(cwd);
             }
@@ -304,7 +304,7 @@ impl App {
     fn toggle_search(&mut self) {
         // Nothing to search in a file explorer.
         let focused = self.focused_pane().filter(|&id| self.panes.is_terminal(id));
-        self.search = match (self.search.take(), focused) {
+        self.input.search = match (self.input.search.take(), focused) {
             (Some(s), Some(id)) if s.pane != id => Some(Search::new(id)),
             (Some(_), _) => None,
             (None, Some(id)) => Some(Search::new(id)),
