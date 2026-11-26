@@ -13,7 +13,14 @@ fn repo(name: &str) -> Option<PathBuf> {
     let dir = std::env::temp_dir().join(format!("nex-diff-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let git = |args: &[&str]| Command::new("git").arg("-C").arg(&dir).args(["-c", "user.name=nex", "-c", "user.email=nex@example.com", "-c", "commit.gpgsign=false"]).args(args).output();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["-c", "user.name=nex", "-c", "user.email=nex@example.com", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+    };
     // No git on this machine: nothing to test against.
     git(&["init", "-q", "-b", "main"]).ok().filter(|o| o.status.success())?;
     std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
@@ -46,7 +53,11 @@ fn loads_a_real_repository() {
     let unstaged: Vec<_> = s.unstaged.iter().map(|f| (f.path.as_str(), f.change, f.counts)).collect();
     assert_eq!(
         unstaged,
-        vec![("a.txt", Change::Modified, Some((2, 1))), ("gone.txt", Change::Deleted, Some((0, 1))), ("sub/new.txt", Change::Untracked, Some((3, 0)))]
+        vec![
+            ("a.txt", Change::Modified, Some((2, 1))),
+            ("gone.txt", Change::Deleted, Some((0, 1))),
+            ("sub/new.txt", Change::Untracked, Some((3, 0)))
+        ]
     );
 
     let d = load_diff(&s.root, &s.unstaged[0]).unwrap();

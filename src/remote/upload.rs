@@ -34,8 +34,8 @@ const SCAN_MAX: usize = 5000;
 
 /// Extensions of files that are compressed already: gzip would only spend time on them.
 const COMPRESSED: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "avif", "zip", "gz", "tgz", "xz", "zst", "bz2", "7z", "rar", "jar", "mp4",
-    "mov", "mkv", "webm", "mp3", "m4a", "aac", "ogg", "opus", "flac", "pdf", "docx", "xlsx", "pptx", "woff", "woff2", "dmg", "deb",
+    "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "avif", "zip", "gz", "tgz", "xz", "zst", "bz2", "7z", "rar", "jar", "mp4", "mov", "mkv",
+    "webm", "mp3", "m4a", "aac", "ogg", "opus", "flac", "pdf", "docx", "xlsx", "pptx", "woff", "woff2", "dmg", "deb",
 ];
 
 /// Whether `paths` (files or folders) are worth gzipping on the way: at least [`GZIP_MIN`]
@@ -82,12 +82,7 @@ pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, Remo
     if names.is_empty() {
         return Err("nothing to upload".into());
     }
-    let mut tar = tar
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("couldn't run tar: {e}"))?;
+    let mut tar = tar.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("couldn't run tar: {e}"))?;
     let mut stream = tar.stdout.take().ok_or("couldn't run tar")?;
     let gzip = worth_gzipping(paths);
     let mut ssh = target.batch_command(&remote_script(gzip));
@@ -126,7 +121,6 @@ pub fn upload(target: &SshTarget, paths: &[PathBuf]) -> Result<Vec<String>, Remo
     let dir = dir.ok_or("the remote host didn't say where it put the files")?;
     Ok(names.iter().map(|n| posix_quote(&format!("{dir}/{n}"))).collect())
 }
-
 
 /// Save clipboard image bytes to a local temp file, named like a screenshot, to upload.
 /// The caller removes its folder once the upload is done.
@@ -196,7 +190,8 @@ mod tests {
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         gz.write_all(&tar.stdout).unwrap();
         let packed = gz.finish().unwrap();
-        let mut sh = Command::new("sh").args(["-c", &remote_script(true)]).env("TMPDIR", &tmp).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut sh =
+            Command::new("sh").args(["-c", &remote_script(true)]).env("TMPDIR", &tmp).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         sh.stdin.take().unwrap().write_all(&packed).unwrap();
         let out = sh.wait_with_output().unwrap();
         assert!(out.status.success());
@@ -213,12 +208,7 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(src.join("a b.txt"), "hello").unwrap();
         let mut tar = Command::new("tar").args(["-chf", "-", "-C"]).arg(&src).arg("a b.txt").stdout(Stdio::piped()).spawn().unwrap();
-        let out = Command::new("sh")
-            .args(["-c", REMOTE_SCRIPT])
-            .env("TMPDIR", &tmp)
-            .stdin(tar.stdout.take().unwrap())
-            .output()
-            .unwrap();
+        let out = Command::new("sh").args(["-c", REMOTE_SCRIPT]).env("TMPDIR", &tmp).stdin(tar.stdout.take().unwrap()).output().unwrap();
         assert!(tar.wait().unwrap().success());
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         let dir = String::from_utf8(out.stdout).unwrap();

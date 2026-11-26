@@ -66,11 +66,7 @@ impl TabHistory {
 impl App {
     /// Where the window is (`None` on the connect screen, with nothing open).
     pub(in crate::app) fn place(&self) -> Option<Place> {
-        if self.home_active && self.home_tab.is_some() {
-            Some(Place::Home)
-        } else {
-            self.tabs.get(self.active).map(|t| Place::Tab(t.uid))
-        }
+        if self.home_active && self.home_tab.is_some() { Some(Place::Home) } else { self.tabs.get(self.active).map(|t| Place::Tab(t.uid)) }
     }
 
     /// Note where the window is, once a frame after everything that can switch tabs.

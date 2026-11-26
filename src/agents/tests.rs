@@ -214,7 +214,8 @@ fn space_opens_and_closes_a_team_and_keys_go_through_its_helpers() {
     assert_eq!(a.expanded.get(&1), Some(&false), "open");
     assert!(a.requests.is_empty(), "Space on a team opens it rather than jumping");
     // Drawn open: its rows are targets after it.
-    a.targets = vec![(1, at(0.0, 0.0, 620.0, 74.0)), (2, at(12.0, 76.0, 596.0, 46.0)), (3, at(12.0, 122.0, 596.0, 46.0)), (9, at(0.0, 200.0, 300.0, 74.0))];
+    a.targets =
+        vec![(1, at(0.0, 0.0, 620.0, 74.0)), (2, at(12.0, 76.0, 596.0, 46.0)), (3, at(12.0, 122.0, 596.0, 46.0)), (9, at(0.0, 200.0, 300.0, 74.0))];
     assert!(a.key(Key::ArrowDown, Modifiers::NONE));
     assert_eq!(a.selected, Some(2));
     assert!(a.key(Key::ArrowDown, Modifiers::NONE));
@@ -497,7 +498,10 @@ fn viewing_marks_the_agents_in_the_tabs_panes_the_focused_one_first() {
     if let Source::Remote { pane, .. } = &mut detached.source {
         *pane = None;
     }
-    t.update(vec![probe(1, 0, AgentKind::CLAUDE, now), probe(2, 0, AgentKind::CODEX, now), probe(3, 1, AgentKind::CLAUDE, now), detached, attached, sub], now);
+    t.update(
+        vec![probe(1, 0, AgentKind::CLAUDE, now), probe(2, 0, AgentKind::CODEX, now), probe(3, 1, AgentKind::CLAUDE, now), detached, attached, sub],
+        now,
+    );
     let seen = |v: &Viewing, key: u64| v.of(t.agents().iter().find(|a| a.pane == key).unwrap());
 
     // A split of two: the focused one is the primary, its neighbour shares the tab.

@@ -97,7 +97,9 @@ pub struct Filter {
 
 impl Filter {
     pub fn matches(&self, m: &Message) -> bool {
-        self.from.as_ref().is_none_or(|f| *f == m.from) && self.reply_to.as_ref().is_none_or(|r| m.payload.reply_to.as_ref() == Some(r)) && self.kind.is_none_or(|k| k == m.kind)
+        self.from.as_ref().is_none_or(|f| *f == m.from)
+            && self.reply_to.as_ref().is_none_or(|r| m.payload.reply_to.as_ref() == Some(r))
+            && self.kind.is_none_or(|k| k == m.kind)
     }
 }
 

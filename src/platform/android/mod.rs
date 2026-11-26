@@ -10,15 +10,15 @@ mod log;
 use std::path::Path;
 use std::sync::OnceLock;
 
-pub use clipboard::{clipboard_text, mirror_copies};
-pub use keyboard::{ask_mic, haptic, mic_allowed, soft_keyboard_visible, sync_soft_keyboard, typed_text};
 pub use super::fontdb::{find_font, nerd_mono_families};
 pub use super::no_dnd::Dnd;
 pub use super::no_watch::{DirWatch, on_dir_change};
 pub use super::unix::{
-    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options,
-    pty_pid, shell_quote, symlink,
+    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options, pty_pid, shell_quote,
+    symlink,
 };
+pub use clipboard::{clipboard_text, mirror_copies};
+pub use keyboard::{ask_mic, haptic, mic_allowed, soft_keyboard_visible, sync_soft_keyboard, typed_text};
 
 use super::{ProcInfo, ShortcutStyle, WindowDefaults};
 
@@ -37,14 +37,8 @@ pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
 /// Full screen: no OS decorations, no window buttons, any size the screen is, and tabs
 /// two and a half to a screen that swipe sideways.
-pub const WINDOW: WindowDefaults = WindowDefaults {
-    decorations: false,
-    controls: false,
-    titlebar_inset: 0.0,
-    min_size: [0.0, 0.0],
-    transparent: false,
-    scroll_tabs: true,
-};
+pub const WINDOW: WindowDefaults =
+    WindowDefaults { decorations: false, controls: false, titlebar_inset: 0.0, min_size: [0.0, 0.0], transparent: false, scroll_tabs: true };
 
 /// Android's own fonts cover symbols, emoji and CJK.
 pub const FALLBACK_FAMILIES: &[&str] = &["Droid Sans Mono", "Noto Sans Symbols", "Noto Sans Symbols 2", "Noto Color Emoji", "Noto Sans CJK JP"];

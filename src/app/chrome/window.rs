@@ -10,8 +10,8 @@ use crate::ui::theme::{ACCENT, Theme};
 use crate::ui::widgets::is_maximized;
 
 use crate::app::App;
-use crate::app::workspace::draw::PANE_RADIUS;
 use crate::app::actions::Action;
+use crate::app::workspace::draw::PANE_RADIUS;
 
 const RESIZE_BORDER: f32 = 6.0;
 
@@ -37,39 +37,42 @@ impl App {
             && !released && !ctx.content_rect().contains(p)
                 && let Some(drag) = egui::DragAndDrop::payload::<file_explorer::ExplorerDrag>(ctx)
                 // Files on an ssh host aren't files other apps here can open.
-                && drag.origin.is_none() {
-                    crate::platform::dnd_log(format_args!("explorer drag left the window at {p:?} (window {:?})", ctx.content_rect()));
-                    // The compositor draws the icon from here on (nex can't draw outside its window).
-                    if dnd.start_drag(&drag.paths, p, file_explorer::drag_image(ctx, theme, &drag)) {
-                        egui::DragAndDrop::clear_payload(ctx);
-                        ctx.request_repaint();
-                    }
-                }
+                && drag.origin.is_none()
+        {
+            crate::platform::dnd_log(format_args!("explorer drag left the window at {p:?} (window {:?})", ctx.content_rect()));
+            // The compositor draws the icon from here on (nex can't draw outside its window).
+            if dnd.start_drag(&drag.paths, p, file_explorer::drag_image(ctx, theme, &drag)) {
+                egui::DragAndDrop::clear_payload(ctx);
+                ctx.request_repaint();
+            }
+        }
 
         // Files dragged in from another window, over a terminal.
         if ctx.input(|i| !i.raw.hovered_files.is_empty())
-            && let Some((_, card)) = pos.and_then(|p| self.terminal_card_at(p)) {
-                paint_terminal_drop(ctx, card);
-            }
+            && let Some((_, card)) = pos.and_then(|p| self.terminal_card_at(p))
+        {
+            paint_terminal_drop(ctx, card);
+        }
 
         // Explorer → terminal, anywhere on the terminal's card (header included, which helps
         // fingers). Explorer → explorer drops are handled by the explorers.
         if egui::DragAndDrop::has_payload_of_type::<file_explorer::ExplorerDrag>(ctx)
-            && let Some((id, card)) = pos.and_then(|p| self.terminal_card_at(p)) {
-                if released {
-                    if let Some(drag) = egui::DragAndDrop::take_payload::<file_explorer::ExplorerDrag>(ctx) {
-                        if drag.origin.is_some() {
-                            // Already on a host: their paths are only typed in.
-                            self.insert_paths(id, &drag.paths);
-                        } else {
-                            self.insert_or_upload(ctx, id, drag.paths.clone());
-                        }
-                        self.pending.push(Action::FocusPane(id));
+            && let Some((id, card)) = pos.and_then(|p| self.terminal_card_at(p))
+        {
+            if released {
+                if let Some(drag) = egui::DragAndDrop::take_payload::<file_explorer::ExplorerDrag>(ctx) {
+                    if drag.origin.is_some() {
+                        // Already on a host: their paths are only typed in.
+                        self.insert_paths(id, &drag.paths);
+                    } else {
+                        self.insert_or_upload(ctx, id, drag.paths.clone());
                     }
-                } else {
-                    paint_terminal_drop(ctx, card);
+                    self.pending.push(Action::FocusPane(id));
                 }
+            } else {
+                paint_terminal_drop(ctx, card);
             }
+        }
 
         if dropped.is_empty() {
             return;

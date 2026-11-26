@@ -718,10 +718,11 @@ impl State {
             // itself and drop that file, so a terminal types its path as for any file.
             if paths.is_empty()
                 && let Some((mime, ext)) = image
-                    && let Some(path) = receive_image(&conn, &offer, &mime, &ext) {
-                        text = file_uri(&path);
-                        paths = vec![path];
-                    }
+                && let Some(path) = receive_image(&conn, &offer, &mime, &ext)
+            {
+                text = file_uri(&path);
+                paths = vec![path];
+            }
             if offer.version() >= 3 {
                 offer.finish();
             }
@@ -872,7 +873,14 @@ impl Dispatch<WlDataDevice, ()> for State {
                     } else {
                         state.relay_target(at).map(|(pid, at)| Dest::Relay(pid, at))
                     };
-                    trace!("dropping to {}", match &dest { Some(Dest::Here(_)) => "this window".to_string(), Some(Dest::Relay(pid, _)) => format!("nex {pid}"), None => "nowhere".to_string() });
+                    trace!(
+                        "dropping to {}",
+                        match &dest {
+                            Some(Dest::Here(_)) => "this window".to_string(),
+                            Some(Dest::Relay(pid, _)) => format!("nex {pid}"),
+                            None => "nowhere".to_string(),
+                        }
+                    );
                     match dest {
                         Some(dest) => state.receive_drop(offer, dest),
                         // Off the window and not over another nex: nothing takes it.

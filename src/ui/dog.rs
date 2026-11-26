@@ -394,9 +394,9 @@ impl<const N: usize> Track<N> {
 // The SVG's keyframes, plus a head wiggle during the blep (see `TILT`).
 const HEAD_SCALE: Track<1> = Track { delay: 0.35, duration: 0.6, ease: Ease(0.3, 1.5, 0.5, 1.0), keys: &[(0.0, [0.12]), (100.0, [1.0])] };
 const HEAD_OP: Track<1> = Track { keys: &[(0.0, [0.0]), (30.0, [1.0]), (100.0, [1.0])], ..HEAD_SCALE };
-const EAR_L: Track<2> =
-    Track { delay: 0.75, duration: 0.55, ease: Ease(0.3, 1.6, 0.5, 1.0), keys: &[(0.0, [-40.0, 0.4]), (100.0, [0.0, 1.0])] };
-const EAR_L_OP: Track<1> = Track { delay: 0.75, duration: 0.55, ease: Ease(0.3, 1.6, 0.5, 1.0), keys: &[(0.0, [0.0]), (40.0, [1.0]), (100.0, [1.0])] };
+const EAR_L: Track<2> = Track { delay: 0.75, duration: 0.55, ease: Ease(0.3, 1.6, 0.5, 1.0), keys: &[(0.0, [-40.0, 0.4]), (100.0, [0.0, 1.0])] };
+const EAR_L_OP: Track<1> =
+    Track { delay: 0.75, duration: 0.55, ease: Ease(0.3, 1.6, 0.5, 1.0), keys: &[(0.0, [0.0]), (40.0, [1.0]), (100.0, [1.0])] };
 const EAR_R: Track<3> = Track {
     delay: 0.85,
     duration: 0.9,
@@ -454,7 +454,6 @@ const EYES: Track<2> = Track {
         (95.83, [0.0, 0.55]),
         (100.0, [0.0, 1.0]),
     ],
-
 };
 /// translate x, y, scale x, y
 const NOSE: Track<4> = Track {
@@ -480,7 +479,6 @@ const NOSE: Track<4> = Track {
         (95.83, [0.0, -0.6, 1.06, 1.0]),
         (100.0, [0.0, 0.0, 1.0, 1.0]),
     ],
-
 };
 /// scaleY, opacity
 const BLEP: Track<2> = Track {
@@ -498,7 +496,6 @@ const BLEP: Track<2> = Track {
         (98.61, [0.01, 0.0]),
         (100.0, [0.01, 0.0]),
     ],
-
 };
 
 /// Every animated value at one moment.
@@ -622,9 +619,8 @@ mod tests {
         let area = |pts: &[Pos2], tris: &[[u32; 3]]| -> f32 {
             tris.iter().map(|t| cross(pts[t[0] as usize], pts[t[1] as usize], pts[t[2] as usize]).abs() / 2.0).sum()
         };
-        let polygon_area = |pts: &[Pos2]| -> f32 {
-            (0..pts.len()).map(|i| cross(Pos2::ZERO, pts[i], pts[(i + 1) % pts.len()])).sum::<f32>().abs() / 2.0
-        };
+        let polygon_area =
+            |pts: &[Pos2]| -> f32 { (0..pts.len()).map(|i| cross(Pos2::ZERO, pts[i], pts[(i + 1) % pts.len()])).sum::<f32>().abs() / 2.0 };
         let head = head_outline();
         assert!(close(area(&head, &triangulate(&head)) / polygon_area(&head), 1.0));
         let blaze = clip_convex(&blaze_outline(), &convex_hull(&head));

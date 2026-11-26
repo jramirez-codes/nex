@@ -73,7 +73,8 @@ mod tests {
 
     fn long_result() -> String {
         let text: Vec<String> = (1..=10).map(|i| format!("line {i}")).collect();
-        serde_json::json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":text.join("\n")}]}}).to_string()
+        serde_json::json!({"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":text.join("\n")}]}})
+            .to_string()
     }
 
     #[test]
@@ -83,10 +84,10 @@ mod tests {
         assert!(r.line(REMINDER).is_empty(), "harness reminders aren't the task");
         assert_eq!(strip(&r.line(TEXT)), ["", "\u{25cf} Looking at view.rs first."], "thinking isn't shown");
         assert_eq!(strip(&r.line(CALL)), ["\u{25cf} Bash(grep -n fn src/agents/view.rs)"], "one line: the command's first");
-        let read = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/w/src/lib.rs","limit":20}}]}}"#;
+        let read =
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/w/src/lib.rs","limit":20}}]}}"#;
         assert_eq!(strip(&r.line(read)), ["\u{25cf} Read(/w/src/lib.rs)"]);
     }
-
 
     #[test]
     fn a_long_tool_result_is_cut_to_a_few_lines() {
@@ -100,11 +101,18 @@ mod tests {
         assert!(got[0].chars().count() < 220 && got[0].ends_with('\u{2026}'));
     }
 
-
     #[test]
     fn malformed_and_unknown_lines_print_nothing() {
         let mut r = Renderer::new(CLAUDE);
-        for junk in ["not json", "{\"type\":", "[]", "{}", r#"{"type":"attachment","attachment":{}}"#, r#"{"type":"assistant","message":{"content":"odd"}}"#, r#"{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}"#] {
+        for junk in [
+            "not json",
+            "{\"type\":",
+            "[]",
+            "{}",
+            r#"{"type":"attachment","attachment":{}}"#,
+            r#"{"type":"assistant","message":{"content":"odd"}}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}"#,
+        ] {
             let out = r.line(junk);
             assert!(out.iter().all(|l| !l.contains("panic")), "{junk}");
         }
@@ -113,7 +121,6 @@ mod tests {
         // A tool call with no input still reads.
         assert_eq!(strip(&r.line(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Glob"}]}}"#)), ["\u{25cf} Glob"]);
     }
-
 
     #[test]
     fn the_meta_file_sits_beside_the_transcript() {

@@ -145,7 +145,15 @@ pub struct TileMotion {
 
 impl Default for TileMotion {
     fn default() -> Self {
-        TileMotion { ring: Tween::new(0.0, MOVE, ease_in_out), badge: None, opacity: Tween::new(0.0, VIEW, ease_in_out), popped: f64::NEG_INFINITY, looked: false, animate: true, fresh: true }
+        TileMotion {
+            ring: Tween::new(0.0, MOVE, ease_in_out),
+            badge: None,
+            opacity: Tween::new(0.0, VIEW, ease_in_out),
+            popped: f64::NEG_INFINITY,
+            looked: false,
+            animate: true,
+            fresh: true,
+        }
     }
 }
 
@@ -289,7 +297,15 @@ impl CardMotion {
 
     /// Whether anything about it is still changing.
     pub fn busy(&self, now: f64) -> bool {
-        self.pulse_t(now).is_some() || self.rect.moving(now) || self.border.moving(now) || self.border_width.moving(now) || self.tint.moving(now) || self.opacity.moving(now) || self.seen.busy(now) || self.ring.busy(now) || self.tile.busy(now)
+        self.pulse_t(now).is_some()
+            || self.rect.moving(now)
+            || self.border.moving(now)
+            || self.border_width.moving(now)
+            || self.tint.moving(now)
+            || self.opacity.moving(now)
+            || self.seen.busy(now)
+            || self.ring.busy(now)
+            || self.tile.busy(now)
     }
 }
 
@@ -863,7 +879,8 @@ mod tests {
     fn rows_jump_with_animations_off_on_a_resize_and_when_the_list_opens() {
         let was = [member(1, Status::Working), member(2, Status::Working)];
         let now = [member(2, Status::Done), member(1, Status::Working)];
-        let settled = |t: &TeamMotion, at: f64| !t.busy(at) && t.rows[&2].y.get(at) == 0.0 && t.rows[&1].y.get(at) == ROW && !t.rows[&2].status_change;
+        let settled =
+            |t: &TeamMotion, at: f64| !t.busy(at) && t.rows[&2].y.get(at) == 0.0 && t.rows[&1].y.get(at) == ROW && !t.rows[&2].status_change;
 
         let mut t = TeamMotion::default();
         t.update_rows(0.0, false, &slots(&was));

@@ -8,9 +8,9 @@ use crate::layout::{self, Axis, Direction, PaneId};
 use crate::terminal::search::Search;
 
 use crate::app::App;
-use crate::app::workspace::panes::Pane;
-use crate::app::ssh::follow::Place;
 use crate::app::input::zoom::EXPLORER_ZOOM_STEP;
+use crate::app::ssh::follow::Place;
+use crate::app::workspace::panes::Pane;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Action {
@@ -117,9 +117,10 @@ impl App {
             }
             Action::Swap(dir) => {
                 if let Some(id) = focused
-                    && let Some(next) = layout::neighbor(&self.card_rects, id, dir) {
-                        self.swap_panes(ctx, id, next);
-                    }
+                    && let Some(next) = layout::neighbor(&self.card_rects, id, dir)
+                {
+                    self.swap_panes(ctx, id, next);
+                }
             }
             Action::SwapPanes(a, b) => self.swap_panes(ctx, a, b),
             Action::MovePane(pane, target, dir) => self.move_pane(ctx, pane, target, dir),
@@ -148,9 +149,7 @@ impl App {
             Action::FontBigger | Action::FontSmaller | Action::FontReset => self.change_font(ctx, action),
             Action::ReloadConfig => self.reload_config(ctx),
             Action::Quit => ctx.send_viewport_cmd(ViewportCommand::Close),
-            Action::ScrollPageUp | Action::ScrollPageDown | Action::ScrollTop | Action::ScrollBottom => {
-                self.scroll_focused(action)
-            }
+            Action::ScrollPageUp | Action::ScrollPageDown | Action::ScrollTop | Action::ScrollBottom => self.scroll_focused(action),
             Action::ToggleExplorer => self.toggle_explorer(ctx),
             Action::ToggleGitDiff => self.toggle_git_diff(ctx),
             Action::ToggleAgents => self.toggle_agents(ctx),
@@ -269,13 +268,11 @@ impl App {
     fn change_font(&mut self, ctx: &egui::Context, action: Action) {
         let Some(id) = self.focused_pane() else { return };
         match self.panes.get_mut(id) {
-            Some(Pane::Explorer(explorer)) => {
-                match action {
-                    Action::FontBigger => explorer.zoom_by(EXPLORER_ZOOM_STEP, None),
-                    Action::FontSmaller => explorer.zoom_by(1.0 / EXPLORER_ZOOM_STEP, None),
-                    _ => explorer.reset_zoom(),
-                }
-            }
+            Some(Pane::Explorer(explorer)) => match action {
+                Action::FontBigger => explorer.zoom_by(EXPLORER_ZOOM_STEP, None),
+                Action::FontSmaller => explorer.zoom_by(1.0 / EXPLORER_ZOOM_STEP, None),
+                _ => explorer.reset_zoom(),
+            },
             Some(Pane::Agents(_)) => {}
             Some(Pane::Terminal(_) | Pane::Diff(_)) | None => {
                 let size = self.pane_font(id);

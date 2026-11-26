@@ -122,10 +122,7 @@ pub(in crate::file_explorer) fn unique_target(dest: &Path, name: &OsStr) -> Path
     let name = Path::new(name);
     let stem = name.file_stem().unwrap_or(name.as_os_str()).to_string_lossy();
     let ext = name.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-    (2..)
-        .map(|n| dest.join(format!("{stem} ({n}){ext}")))
-        .find(|p| std::fs::symlink_metadata(p).is_err())
-        .unwrap_or(first)
+    (2..).map(|n| dest.join(format!("{stem} ({n}){ext}"))).find(|p| std::fs::symlink_metadata(p).is_err()).unwrap_or(first)
 }
 
 pub(in crate::file_explorer) fn copy_recursive(src: &Path, dst: &Path, progress: &Progress) -> std::io::Result<()> {
@@ -221,11 +218,8 @@ pub(in crate::file_explorer) fn rename_path(path: &Path, new_name: &str) -> Resu
 /// `dest`. Returns its path.
 pub(in crate::file_explorer) fn create_new(dest: &Path, folder: bool) -> Result<PathBuf, String> {
     let target = unique_target(dest, OsStr::new(if folder { "New Folder" } else { "Untitled" }));
-    let result = if folder {
-        std::fs::create_dir(&target)
-    } else {
-        std::fs::OpenOptions::new().write(true).create_new(true).open(&target).map(|_| ())
-    };
+    let result =
+        if folder { std::fs::create_dir(&target) } else { std::fs::OpenOptions::new().write(true).create_new(true).open(&target).map(|_| ()) };
     result.map(|_| target).map_err(|e| format!("Can't create it here: {e}"))
 }
 
@@ -295,12 +289,14 @@ pub fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len()
-            && let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
-                out.push(b);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            out.push(b);
+            i += 3;
+            continue;
+        }
         out.push(bytes[i]);
         i += 1;
     }
@@ -344,7 +340,13 @@ pub(in crate::file_explorer) fn human_size(bytes: u64) -> String {
         v /= 1024.0;
         unit += 1;
     }
-    if unit == 0 { format!("{bytes} B") } else if v < 10.0 { format!("{v:.1} {}", UNITS[unit]) } else { format!("{v:.0} {}", UNITS[unit]) }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else if v < 10.0 {
+        format!("{v:.1} {}", UNITS[unit])
+    } else {
+        format!("{v:.0} {}", UNITS[unit])
+    }
 }
 
 /// `1234567` → `1,234,567`.
@@ -373,11 +375,29 @@ mod tests {
     /// names whatever their case, ties as they came).
     #[test]
     fn sort_entries_orders_folders_first_then_by_name_ignoring_case() {
-        let entry = |name: &str, is_dir: bool| Entry { name: name.into(), path: PathBuf::from(name), is_dir, size: None, is_symlink: false, executable: false };
-        let listing: Vec<Entry> = [("zeta", false), ("Beta", true), ("apple", false), ("alpha", true), ("Apple", false), ("Ärger", false), ("beta", true), ("APPLE", false), ("10", false), ("9", true)]
-            .into_iter()
-            .map(|(n, d)| entry(n, d))
-            .collect();
+        let entry = |name: &str, is_dir: bool| Entry {
+            name: name.into(),
+            path: PathBuf::from(name),
+            is_dir,
+            size: None,
+            is_symlink: false,
+            executable: false,
+        };
+        let listing: Vec<Entry> = [
+            ("zeta", false),
+            ("Beta", true),
+            ("apple", false),
+            ("alpha", true),
+            ("Apple", false),
+            ("Ärger", false),
+            ("beta", true),
+            ("APPLE", false),
+            ("10", false),
+            ("9", true),
+        ]
+        .into_iter()
+        .map(|(n, d)| entry(n, d))
+        .collect();
         let mut old = listing.clone();
         old.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
         let mut new = listing;

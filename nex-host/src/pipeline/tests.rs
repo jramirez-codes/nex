@@ -113,7 +113,10 @@ fn an_each_stage_comes_last() {
 #[test]
 fn each_tasks_get_the_report() {
     let o = Outcome { files: vec!["a.rs".into()], pr: Some("7".into()), ..Outcome::text(" added --version \n") };
-    assert_eq!(fill_each("PR {pr} from {from}: {report} [{files}] after {merged} {x}", "build-a", &o, "PR 5"), "PR 7 from build-a: added --version [a.rs] after PR 5 {x}");
+    assert_eq!(
+        fill_each("PR {pr} from {from}: {report} [{files}] after {merged} {x}", "build-a", &o, "PR 5"),
+        "PR 7 from build-a: added --version [a.rs] after PR 5 {x}"
+    );
 }
 
 #[test]
@@ -132,9 +135,20 @@ fn bad_pipelines_say_why() {
 #[test]
 fn tasks_are_filled_from_reports() {
     let mut r = HashMap::new();
-    r.insert("plan".to_string(), Outcome { verdict: Some(Verdict::Approved), files: vec!["a.rs".into(), "b.rs".into()], pr: Some("42".into()), ..Outcome::text(" the plan \n") });
+    r.insert(
+        "plan".to_string(),
+        Outcome {
+            verdict: Some(Verdict::Approved),
+            files: vec!["a.rs".into(), "b.rs".into()],
+            pr: Some("42".into()),
+            ..Outcome::text(" the plan \n")
+        },
+    );
     r.insert("docs".to_string(), done("d", None));
-    assert_eq!(fill("Do {task}. Plan: {plan} ({plan.verdict}; {plan.files}; PR {plan.pr})", "X", &r), "Do X. Plan: the plan (approved; a.rs, b.rs; PR 42)");
+    assert_eq!(
+        fill("Do {task}. Plan: {plan} ({plan.verdict}; {plan.files}; PR {plan.pr})", "X", &r),
+        "Do X. Plan: the plan (approved; a.rs, b.rs; PR 42)"
+    );
     assert_eq!(fill("{docs.pr}", "X", &r), "none");
     assert_eq!(fill("fn f() { {review} } {plan.bogus} {", "X", &r), "fn f() { {review} } {plan.bogus} {", "anything else is left alone");
 }
@@ -198,7 +212,8 @@ fn durations() {
 #[test]
 fn every_example_pipeline_parses() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut files: Vec<PathBuf> = std::fs::read_dir(root.join("examples")).unwrap().map(|e| e.unwrap().path().join("pipeline.toml")).filter(|p| p.exists()).collect();
+    let mut files: Vec<PathBuf> =
+        std::fs::read_dir(root.join("examples")).unwrap().map(|e| e.unwrap().path().join("pipeline.toml")).filter(|p| p.exists()).collect();
     files.sort();
     let names: Vec<_> = files.iter().filter_map(|p| p.parent()?.file_name()?.to_str()).collect();
     assert!(names.contains(&"feature") && names.contains(&"pr-team") && names.contains(&"mockups"), "examples went missing: {names:?}");

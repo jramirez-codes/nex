@@ -91,7 +91,12 @@ impl Transport {
                     let _ = child.kill();
                     return Err(RemoteError::from("couldn't talk to ssh"));
                 };
-                Ok(Process { stdin: input, stdout: Box::new(stdout), stderr: Some(drain(stderr)), running: Running::Ssh { child, target: target.clone() } })
+                Ok(Process {
+                    stdin: input,
+                    stdout: Box::new(stdout),
+                    stderr: Some(drain(stderr)),
+                    running: Running::Ssh { child, target: target.clone() },
+                })
             }
             Transport::Nex(host) => {
                 let client = connect(host)?;
@@ -226,7 +231,10 @@ mod tests {
     #[test]
     fn keys() {
         let a = Transport::Ssh(SshTarget { opts: vec!["-p".into(), "2222".into()], destination: "me@box".into() });
-        let b = Transport::Ssh(SshTarget { opts: vec!["-p".into(), "2222".into(), "-o".into(), "RemoteCommand=none".into()], destination: "me@box".into() });
+        let b = Transport::Ssh(SshTarget {
+            opts: vec!["-p".into(), "2222".into(), "-o".into(), "RemoteCommand=none".into()],
+            destination: "me@box".into(),
+        });
         let c = Transport::Ssh(SshTarget { opts: vec![], destination: "me@box".into() });
         assert_eq!(a, b);
         assert_ne!(a, c);

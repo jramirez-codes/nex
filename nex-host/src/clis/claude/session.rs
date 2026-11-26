@@ -26,19 +26,8 @@ pub fn parse(text: &str, pid: u32, start: Option<&str>) -> Option<Claude> {
             return None;
         }
     }
-    let text = |key: &str| {
-        v.get(key)
-            .and_then(|s| s.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && s.len() <= 200)
-            .map(str::to_string)
-    };
-    Some(Claude {
-        session_id: text("sessionId").filter(|id| valid_id(id)),
-        name: text("name"),
-        status: text("status"),
-        cwd: text("cwd"),
-    })
+    let text = |key: &str| v.get(key).and_then(|s| s.as_str()).map(str::trim).filter(|s| !s.is_empty() && s.len() <= 200).map(str::to_string);
+    Some(Claude { session_id: text("sessionId").filter(|id| valid_id(id)), name: text("name"), status: text("status"), cwd: text("cwd") })
 }
 
 /// A conversation id is a UUID; anything else is ignored.

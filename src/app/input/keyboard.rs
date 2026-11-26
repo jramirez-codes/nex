@@ -5,8 +5,8 @@ use egui::{Event, Key, Modifiers};
 use crate::file_explorer::FileExplorer;
 use crate::layout::PaneKind;
 use crate::platform;
-use crate::terminal::input;
 use crate::terminal::Terminal;
+use crate::terminal::input;
 
 use crate::app::App;
 use crate::app::actions::Action;
@@ -238,9 +238,10 @@ impl App {
     fn search_step(&mut self, up: bool) {
         let Some(s) = self.input.search.as_mut() else { return };
         if let Some(p) = s.step(up)
-            && let Some(t) = self.panes.terminal(s.pane) {
-                t.term.lock().scroll_to_point(p);
-            }
+            && let Some(t) = self.panes.terminal(s.pane)
+        {
+            t.term.lock().scroll_to_point(p);
+        }
     }
 
     /// Typed text: into a file explorer (its text fields, or type-to-find), the search field or

@@ -40,9 +40,9 @@ mod upload;
 
 pub use error::RemoteError;
 pub use target::{SshTarget, subagent_script};
-pub use upload::{remove_saved, save_png, upload};
 #[cfg(target_os = "linux")]
 pub use upload::save_image;
+pub use upload::{remove_saved, save_png, upload};
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -201,5 +201,4 @@ mod tests {
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
-
 }

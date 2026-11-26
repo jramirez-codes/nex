@@ -131,7 +131,8 @@ pub fn load_status(dir: &Path) -> Status {
     };
     let mut snap = parse_status(&String::from_utf8_lossy(&out));
     snap.root = root.clone();
-    let numstat = |args: &[&str]| run(&root, args).ok().filter(|(ok, _)| *ok).map(|(_, out)| parse_numstat(&String::from_utf8_lossy(&out))).unwrap_or_default();
+    let numstat =
+        |args: &[&str]| run(&root, args).ok().filter(|(ok, _)| *ok).map(|(_, out)| parse_numstat(&String::from_utf8_lossy(&out))).unwrap_or_default();
     let (staged, unstaged) = (numstat(&NUMSTAT_STAGED_ARGS), numstat(&NUMSTAT_ARGS));
     attach_counts(&mut snap, staged, unstaged, |path| count_lines(&root.join(path)));
     Status::Ready(snap)
@@ -274,7 +275,7 @@ fn is_binary(bytes: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
-    
+
     use super::*;
 
     #[test]
@@ -300,7 +301,15 @@ mod tests {
         assert_eq!(s.branch, "main");
         assert_eq!((s.ahead, s.behind), (2, 1));
         let staged: Vec<(&str, Change)> = s.staged.iter().map(|f| (f.path.as_str(), f.change)).collect();
-        assert_eq!(staged, vec![("Cargo.toml", Change::Modified), ("both.rs", Change::Modified), ("new file.rs", Change::Added), ("src/renamed.rs", Change::Renamed)]);
+        assert_eq!(
+            staged,
+            vec![
+                ("Cargo.toml", Change::Modified),
+                ("both.rs", Change::Modified),
+                ("new file.rs", Change::Added),
+                ("src/renamed.rs", Change::Renamed)
+            ]
+        );
         assert_eq!(s.staged[3].orig.as_deref(), Some("src/old.rs"));
         let unstaged: Vec<(&str, Change)> = s.unstaged.iter().map(|f| (f.path.as_str(), f.change)).collect();
         assert_eq!(
@@ -326,7 +335,7 @@ mod tests {
 
     #[test]
     fn numstat_counts_binaries_and_renames() {
-        let out = "3\t1\tsrc/a.rs\0-\t-\timg.png\0" .to_string() + "5\t0\t\0old.rs\0new.rs\0";
+        let out = "3\t1\tsrc/a.rs\0-\t-\timg.png\0".to_string() + "5\t0\t\0old.rs\0new.rs\0";
         let n = parse_numstat(&out);
         assert_eq!(n, vec![("src/a.rs".into(), Some((3, 1))), ("img.png".into(), None), ("new.rs".into(), Some((5, 0)))]);
     }
@@ -339,7 +348,11 @@ mod tests {
     fn counts_attach_by_path_and_side() {
         let mut snap = Snapshot {
             staged: vec![file("a.rs", Change::Modified, true), file("img.png", Change::Added, true), file("gone.rs", Change::Deleted, true)],
-            unstaged: vec![file("a.rs", Change::Modified, false), file("new.txt", Change::Untracked, false), file("big.bin", Change::Untracked, false)],
+            unstaged: vec![
+                file("a.rs", Change::Modified, false),
+                file("new.txt", Change::Untracked, false),
+                file("big.bin", Change::Untracked, false),
+            ],
             ..Snapshot::default()
         };
         let staged = vec![("img.png".to_string(), None), ("a.rs".to_string(), Some((3, 1))), ("a.rs".to_string(), Some((9, 9)))];

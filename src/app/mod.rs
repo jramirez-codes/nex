@@ -15,33 +15,33 @@ mod launch;
 mod reload;
 pub mod restore;
 mod ssh;
-mod workspace;
 #[cfg(test)]
 mod tests;
+mod workspace;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 
 use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, Vec2, ViewportCommand};
 
+use crate::agents;
 use crate::config::{self, Config};
 use crate::file_explorer;
-use crate::agents;
 use crate::git_diff;
-use crate::render::fonts;
-use crate::render::glyphs::GlyphCache;
 use crate::layout::PaneId;
 use crate::render::CellMetrics;
+use crate::render::fonts;
+use crate::render::glyphs::GlyphCache;
 use crate::terminal::Terminal;
 use crate::ui::theme::{Theme, white_alpha};
 use crate::ui::toast::{self, Toast};
 use crate::ui::widgets::is_maximized;
 
 use actions::Action;
+use animation::tab_switch::TabSwitch;
 use input::keymap::{Binding, keybindings};
 use workspace::panes::{Pane, PaneRequest, Panes};
 use workspace::tab::Tab;
-use animation::tab_switch::TabSwitch;
 
 const TITLEBAR_HEIGHT: f32 = 46.0;
 const HEADER_HEIGHT: f32 = 34.0;
@@ -146,7 +146,14 @@ struct Timers {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, cfg: Config, args: crate::cli::Args, early_terminal: Option<Terminal>, session: Option<crate::session::Session>, session_lock: Option<crate::session::Lock>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        cfg: Config,
+        args: crate::cli::Args,
+        early_terminal: Option<Terminal>,
+        session: Option<crate::session::Session>,
+        session_lock: Option<crate::session::Lock>,
+    ) -> Self {
         let ctx = &cc.egui_ctx;
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_visuals(egui::Visuals::dark());
@@ -180,11 +187,7 @@ impl App {
             input: input::InputState::default(),
             chrome: chrome::Chrome::default(),
             launch,
-            timers: Timers {
-                last_proc_poll: Instant::now(),
-                trim_heap_at: Some(Instant::now() + TRIM_HEAP_DELAY),
-                config_mtime: config::modified(),
-            },
+            timers: Timers { last_proc_poll: Instant::now(), trim_heap_at: Some(Instant::now() + TRIM_HEAP_DELAY), config_mtime: config::modified() },
             term_rects: Vec::new(),
             card_rects: Vec::new(),
             draw_bufs: Default::default(),
@@ -282,7 +285,13 @@ impl eframe::App for App {
                     crate::platform::Typed::Text { delete, text } => {
                         for pressed in std::iter::repeat_n([true, false], delete).flatten() {
                             let modifiers = egui::Modifiers::NONE;
-                            raw_input.events.push(egui::Event::Key { key: egui::Key::Backspace, physical_key: None, pressed, repeat: false, modifiers });
+                            raw_input.events.push(egui::Event::Key {
+                                key: egui::Key::Backspace,
+                                physical_key: None,
+                                pressed,
+                                repeat: false,
+                                modifiers,
+                            });
                         }
                         text
                     }
@@ -385,8 +394,8 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         self.note_place();
-        let buttons_height = (self.cfg.window_decorations && crate::platform::WINDOW.overlays_titlebar())
-            .then(|| TITLEBAR_HEIGHT * ctx.zoom_factor());
+        let buttons_height =
+            (self.cfg.window_decorations && crate::platform::WINDOW.overlays_titlebar()).then(|| TITLEBAR_HEIGHT * ctx.zoom_factor());
         self.sync_window_title(ctx, frame, buttons_height);
         if let Some(height) = buttons_height {
             crate::platform::align_window_buttons(frame, height);
@@ -406,7 +415,9 @@ impl App {
             for _ in 0..tabs {
                 self.new_tab(ctx, None, None);
             }
-            if crate::ui::glide::animations(ctx) && let Some(drawn) = self.connect.last_card() {
+            if crate::ui::glide::animations(ctx)
+                && let Some(drawn) = self.connect.last_card()
+            {
                 let start = ctx.input(|i| i.time);
                 let drawn = drawn.clone();
                 self.handoff = Some(animation::handoff::Handoff { start, drawn, sidebar: self.cfg.sidebar(), painted: 0 });

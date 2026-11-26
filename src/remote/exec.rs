@@ -95,9 +95,7 @@ impl Transport {
     pub fn run_job(&self, script: &str, cancel: &AtomicBool, progress: &mut dyn FnMut(&[u8])) -> Result<Output, ExecError> {
         // The script runs in the background of a shell that prints its pid first, so a
         // Cancel can end it (and everything it started) from a second connection.
-        let wrapped = format!(
-            "printf '%s\\n' \"$$\"\ntrap 'trap - TERM; kill 0 2>/dev/null; exit 143' TERM\n( {script}\n) &\nwait $!\n"
-        );
+        let wrapped = format!("printf '%s\\n' \"$$\"\ntrap 'trap - TERM; kill 0 2>/dev/null; exit 143' TERM\n( {script}\n) &\nwait $!\n");
         let started = self.start(&wrapped)?;
         let out = started.out.clone();
         let pid = || {

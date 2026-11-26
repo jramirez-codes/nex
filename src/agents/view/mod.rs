@@ -48,26 +48,31 @@ use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-use crate::layout::PaneId;
-use crate::ui::glide::animations;
-use crate::ui::touch_pan::TouchPan;
-use crate::ui::theme::{ACCENT, Theme, lighten, white_alpha};
-use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
-use crate::ui;
 use crate::agents::AgentsPane;
 use crate::agents::group::{Group, Member, Step, groups};
 use crate::agents::model::{Agent, AgentKind, Agents, Status, Viewing};
 use crate::agents::motion::{Motion, TeamMotion};
+use crate::agents::view::layout::{
+    Layout, capsule_layout, chevron_hit, layout, list_rect, row_depth, row_rect, row_text_x, shown_members, team_height,
+};
+use crate::agents::view::paint::{
+    Look, TileLook, agent_header, border_for, branch_lines, card_body, empty_state, helper_row, host_notes, member_glyph, needs_you_tint,
+    pipeline_state, section_header, team_breathes, tile_look,
+};
 use crate::agents::view::text::{member_tags, member_word};
-use crate::agents::view::layout::{Layout, capsule_layout, chevron_hit, layout, list_rect, row_depth, row_rect, row_text_x, shown_members, team_height};
-use crate::agents::view::paint::{Look, TileLook, agent_header, border_for, branch_lines, card_body, empty_state, helper_row, host_notes, member_glyph, needs_you_tint, pipeline_state, section_header, team_breathes, tile_look};
+use crate::layout::PaneId;
+use crate::ui;
+use crate::ui::glide::animations;
+use crate::ui::theme::{ACCENT, Theme, lighten, white_alpha};
+use crate::ui::touch_pan::TouchPan;
+use crate::ui::widgets::{ScrollSpan, overlay_scrollbar};
 
 mod layout;
 mod paint;
-mod text;
-mod viewing;
 #[cfg(test)]
 mod tests;
+mod text;
+mod viewing;
 
 const SIDE: f32 = 18.0;
 const CARD_H: f32 = 74.0;
@@ -123,7 +128,17 @@ pub(super) struct ViewState {
 
 impl ViewState {
     pub(super) fn new() -> ViewState {
-        ViewState { reveal_selection: false, jumped: false, scroll_active: -10.0, pan: TouchPan::default(), motion: Motion::new(), shown_tab: None, teams: HashMap::new(), grouped: None, viewing: Viewing::default() }
+        ViewState {
+            reveal_selection: false,
+            jumped: false,
+            scroll_active: -10.0,
+            pan: TouchPan::default(),
+            motion: Motion::new(),
+            shown_tab: None,
+            teams: HashMap::new(),
+            grouped: None,
+            viewing: Viewing::default(),
+        }
     }
 
     /// `agents` as teams: the ones made last time, unless the list changed since.
@@ -400,19 +415,31 @@ impl AgentsPane {
             let ring = if selected && f.focused { None } else { seen };
             let (border, border_width) = border_for(card.agent.status, selected, f.focused, hovered, f.c);
             card.set_colors(now, border, border_width, status_color(card.agent.status, f.c), seen, ring, f.animate);
-            let (border, border_width) = viewing::ring_over((card.border.get(now), card.border_width.get(now)), card.ring.shown(now), card.ring.primary(now));
+            let (border, border_width) =
+                viewing::ring_over((card.border.get(now), card.border_width.get(now)), card.ring.shown(now), card.ring.primary(now));
             let (shown, primary) = (card.seen.shown(now), card.seen.primary(now));
             // A pipeline's tile: a ring for how far its stages are, a badge for how it stands.
             let tile = match &team {
-                Some(g) if g.is_pipeline() => pipeline_state(&g.direct().filter(|m| !m.agent.team.sub).map(|m| &*m.agent).collect::<Vec<_>>()).map(|(progress, _, working)| {
-                    card.tile.update(now, progress, g.lead.status, seen.is_some(), f.animate);
-                    busy |= card.tile.busy(now);
-                    breathing |= card.tile.breathing();
-                    tile_look(f, &card.tile, working)
-                }),
+                Some(g) if g.is_pipeline() => {
+                    pipeline_state(&g.direct().filter(|m| !m.agent.team.sub).map(|m| &*m.agent).collect::<Vec<_>>()).map(|(progress, _, working)| {
+                        card.tile.update(now, progress, g.lead.status, seen.is_some(), f.animate);
+                        busy |= card.tile.busy(now);
+                        breathing |= card.tile.breathing();
+                        tile_look(f, &card.tile, working)
+                    })
+                }
                 _ => None,
             };
-            let look = Look { hover, lift, border, border_width, tint: card.tint.get(now), glow: viewing::glow_strength(shown, primary), seen: (shown, primary), tile };
+            let look = Look {
+                hover,
+                lift,
+                border,
+                border_width,
+                tint: card.tint.get(now),
+                glow: viewing::glow_strength(shown, primary),
+                seen: (shown, primary),
+                tile,
+            };
             let mut p = bp.clone();
             p.multiply_opacity(opacity);
             match team {
@@ -465,7 +492,10 @@ impl AgentsPane {
             hit.on_hover_cursor(egui::CursorIcon::PointingHand);
         }
         let toggle_area = Rect::from_min_max(Pos2::new(r.left(), head.bottom()), Pos2::new(r.right(), head.bottom() + STRIP_H)).intersect(r);
-        if !leaving && t < 0.01 && let Some(hit) = f.interact(toggle_area, ("strip", key)) {
+        if !leaving
+            && t < 0.01
+            && let Some(hit) = f.interact(toggle_area, ("strip", key))
+        {
             if hit.clicked() {
                 self.selected = Some(key);
                 self.toggle_team(key);
@@ -477,13 +507,19 @@ impl AgentsPane {
         let sep_alpha = 1.0 - t;
         if sep_alpha > 0.01 {
             let y = head.bottom();
-            p.line_segment([Pos2::new(r.left() + 14.0, y), Pos2::new(r.right() - 14.0, y)], Stroke::new(1.0_f32, white_alpha((12.0 * sep_alpha) as u8)));
+            p.line_segment(
+                [Pos2::new(r.left() + 14.0, y), Pos2::new(r.right() - 14.0, y)],
+                Stroke::new(1.0_f32, white_alpha((12.0 * sep_alpha) as u8)),
+            );
             let mut sp = p.clone();
             sp.multiply_opacity(sep_alpha);
             let subs = capsules(f, &sp, Rect::from_min_size(Pos2::new(r.left() + 14.0, y), Vec2::new(r.width() - 28.0, STRIP_H)), g, inside, slide);
             // Over the strip's click (the later one takes it).
             for (pane, cap) in subs {
-                if !leaving && t < 0.01 && let Some(hit) = f.interact(cap, ("capsule", pane)) {
+                if !leaving
+                    && t < 0.01
+                    && let Some(hit) = f.interact(cap, ("capsule", pane))
+                {
                     if hit.clicked() {
                         self.jump(pane);
                     }
@@ -537,7 +573,10 @@ impl AgentsPane {
         for (i, m) in rows.iter().enumerate() {
             if i + 1 < rows.len() || g.members.len() > rows.len() {
                 let y = list.top() + (i + 1) as f32 * ROW_H;
-                p.line_segment([Pos2::new(row_text_x(list.left(), row_depth(g, m)), y), Pos2::new(list.right(), y)], Stroke::new(1.0_f32, white_alpha(10)));
+                p.line_segment(
+                    [Pos2::new(row_text_x(list.left(), row_depth(g, m)), y), Pos2::new(list.right(), y)],
+                    Stroke::new(1.0_f32, white_alpha(10)),
+                );
             }
         }
         branch_lines(p, list, g, rows.len());

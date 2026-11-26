@@ -2,10 +2,13 @@
 //! through egui to check what's drawn, where clicks go and how things move.
 
 use super::*;
-use crate::agents::view::text::{card_detail, header_text, member_detail, member_tag, member_tags, member_task, member_word, numbered};
-use crate::agents::view::layout::{CapsuleLayout, Layout, branch_slots, capsule_layout, chevron_center, chevron_hit, layout, pill_rect, row_depth, row_indent, row_rect, row_text_x, shown_members};
-use crate::agents::view::paint::{border_for, pipeline_state, team_breathes};
 use crate::agents::model::{AgentKind, Source, Team};
+use crate::agents::view::layout::{
+    CapsuleLayout, Layout, branch_slots, capsule_layout, chevron_center, chevron_hit, layout, pill_rect, row_depth, row_indent, row_rect, row_text_x,
+    shown_members,
+};
+use crate::agents::view::paint::{border_for, pipeline_state, team_breathes};
+use crate::agents::view::text::{card_detail, header_text, member_detail, member_tag, member_tags, member_task, member_word, numbered};
 use crate::ui::icons;
 
 fn agent(pane: PaneId, parent: Option<PaneId>) -> Agent {
@@ -202,7 +205,12 @@ fn frame(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut
 fn frame_viewing(ctx: &egui::Context, pane: &mut AgentsPane, agents: &Agents, time: &mut f64, events: Vec<egui::Event>, viewing: &Viewing) {
     *time += 0.05;
     let theme = Theme::from_config(&crate::config::Config::default());
-    let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), time: Some(*time), events, ..Default::default() };
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
+        time: Some(*time),
+        events,
+        ..Default::default()
+    };
     let _ = ctx.run(input, |ctx| {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             let rect = ui.max_rect();
@@ -282,7 +290,8 @@ fn a_viewed_stage_takes_the_ring_and_glow_off_its_pipelines_card() {
         let c = &pane.view.motion.cards[&1];
         (c.seen.shown(time), c.ring.shown(time))
     };
-    let row = |pane: &AgentsPane, id, time| pane.view.motion.teams[&1].rows.get(&id).map_or((0.0, 0.0), |r| (r.seen.shown(time), r.seen.primary(time)));
+    let row =
+        |pane: &AgentsPane, id, time| pane.view.motion.teams[&1].rows.get(&id).map_or((0.0, 0.0), |r| (r.seen.shown(time), r.seen.primary(time)));
 
     let child = Viewing { panes: vec![2], primary: Some(2) };
     for _ in 0..3 {
@@ -482,7 +491,8 @@ fn a_pipelines_tile_rings_its_finished_stages_and_a_finished_stage_draws_its_tic
     crate::render::fonts::install(&ctx, &crate::config::Config::default());
     crate::ui::glide::set_animations(&ctx, true);
     let stage = |pane, status| Agent { status, ..agent(pane, Some(1)) };
-    let mut agents = vec![Agent { kind: AgentKind::Pipeline, ..agent(1, None) }, stage(2, Status::Idle), stage(3, Status::Working), stage(4, Status::Working)];
+    let mut agents =
+        vec![Agent { kind: AgentKind::Pipeline, ..agent(1, None) }, stage(2, Status::Idle), stage(3, Status::Working), stage(4, Status::Working)];
     let mut pane = AgentsPane::new();
     let mut time = 0.0;
     for _ in 0..2 {
@@ -617,7 +627,13 @@ fn capsules_are_laid_along_the_strip_with_a_count_for_the_rest() {
 
 #[test]
 fn a_reorder_leaves_the_helpers_tags_as_they_were() {
-    let mut agents = vec![agent(1, None), helper(2, "anna", Some("build"), 10), helper(3, "ben", Some("build"), 20), helper(4, "cy", Some("build"), 30), helper(5, "merge", Some("merge"), 40)];
+    let mut agents = vec![
+        agent(1, None),
+        helper(2, "anna", Some("build"), 10),
+        helper(3, "ben", Some("build"), 20),
+        helper(4, "cy", Some("build"), 30),
+        helper(5, "merge", Some("merge"), 40),
+    ];
     let tags = |agents: &[Agent]| {
         let g = &groups(&Agents::new(agents.to_vec()))[0];
         g.members.iter().zip(member_tags(g)).map(|(m, tag)| (m.agent.pane, tag)).collect::<Vec<_>>()
@@ -795,7 +811,10 @@ fn a_pipelines_header_says_how_its_run_stands() {
     assert_eq!(text(&a), ("feature".into(), None, "nex · 2 stages".into()));
 
     a.task = Some("2 building · 1 in review · 3 merged — ✓ build (PR 7) approved: merged".into());
-    assert_eq!(text(&a), ("Feature".into(), Some("2 building · 1 in review · 3 merged".into()), "✓ build (PR 7) approved: merged · nex · 2 stages".into()));
+    assert_eq!(
+        text(&a),
+        ("Feature".into(), Some("2 building · 1 in review · 3 merged".into()), "✓ build (PR 7) approved: merged · nex · 2 stages".into())
+    );
     a.task = Some("stage 2 of 3: review".into());
     assert_eq!(text(&a), ("Feature".into(), Some("stage 2 of 3: review".into()), "nex · 2 stages".into()), "nothing has happened yet");
     a.task = Some(" — ✗ stopped: no plan".into());

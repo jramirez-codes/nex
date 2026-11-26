@@ -12,8 +12,8 @@ pub mod snapshot;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -25,8 +25,8 @@ use alacritty_terminal::term::{self, Term};
 use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle as AnsiCursorStyle, Rgb};
 
-use crate::platform;
 use crate::config::{Config, CursorStyle};
+use crate::platform;
 use crate::render::{self, FrameKey};
 use crate::terminal::snapshot::Snapshot;
 
@@ -49,9 +49,10 @@ impl EventListener for EventProxy {
         // Everything but plain output (titles, bells, replies the program waits on, exit)
         // is handled promptly even when hidden.
         if (!wakeup || self.visible.load(Ordering::Relaxed))
-            && let Some(ctx) = self.ctx.get() {
-                ctx.request_repaint();
-            }
+            && let Some(ctx) = self.ctx.get()
+        {
+            ctx.request_repaint();
+        }
     }
 }
 
@@ -228,9 +229,7 @@ impl Terminal {
         cell_px: (u16, u16),
     ) -> std::io::Result<Self> {
         // `-e` (a program and its arguments), else `command` from the config, else the shell.
-        let command = command.or_else(|| {
-            cfg.command.as_ref().map(|cmd| cmd.split_whitespace().map(str::to_string).collect())
-        });
+        let command = command.or_else(|| cfg.command.as_ref().map(|cmd| cmd.split_whitespace().map(str::to_string).collect()));
         let shell = command.filter(|p| !p.is_empty()).map(|mut parts| {
             let program = parts.remove(0);
             tty::Shell::new(program, parts)
@@ -271,7 +270,15 @@ impl Terminal {
         ctx: &egui::Context,
     ) -> std::io::Result<Self> {
         let scan = Scan::default();
-        let start = remote::Start { host: remote.host.clone(), session: remote.session.clone(), keep: remote.keep, command: remote.command.clone(), cwd, cols: size.cols as u16, rows: size.lines as u16 };
+        let start = remote::Start {
+            host: remote.host.clone(),
+            session: remote.session.clone(),
+            keep: remote.keep,
+            command: remote.command.clone(),
+            cwd,
+            cols: size.cols as u16,
+            rows: size.lines as u16,
+        };
         let pty = remote::open(start, scan.osc7.clone(), scan.alert.clone(), scan.agent_tag.clone())?;
         let mut t = Self::start(cfg, pty, scan, 0, size, cell_px, None, Some(remote))?;
         t.process = "shell".into();
@@ -282,7 +289,16 @@ impl Terminal {
 
     /// The terminal around `pty`, reading it on a thread of its own from now on.
     #[allow(clippy::too_many_arguments)]
-    fn start<P>(cfg: &Config, pty: P, scan: Scan, pid: u32, size: GridSize, cell_px: (u16, u16), cwd: Option<PathBuf>, remote: Option<RemotePane>) -> std::io::Result<Self>
+    fn start<P>(
+        cfg: &Config,
+        pty: P,
+        scan: Scan,
+        pid: u32,
+        size: GridSize,
+        cell_px: (u16, u16),
+        cwd: Option<PathBuf>,
+        remote: Option<RemotePane>,
+    ) -> std::io::Result<Self>
     where
         P: tty::EventedPty + OnResize + Send + 'static,
     {
@@ -449,11 +465,7 @@ impl Terminal {
     }
 
     pub fn paste(&mut self, text: &str) {
-        let bracketed = self
-            .term
-            .lock()
-            .mode()
-            .contains(term::TermMode::BRACKETED_PASTE);
+        let bracketed = self.term.lock().mode().contains(term::TermMode::BRACKETED_PASTE);
         let text = text.replace("\r\n", "\n").replace('\n', "\r");
         let bytes = if bracketed {
             // Strip any embedded end-of-paste markers so pasted text can't escape the bracket.
@@ -484,10 +496,7 @@ impl Terminal {
     }
 
     pub fn selection_text(&self) -> Option<String> {
-        self.term
-            .lock()
-            .selection_to_string()
-            .filter(|s| !s.is_empty())
+        self.term.lock().selection_to_string().filter(|s| !s.is_empty())
     }
 
     /// Update `process` and `cwd` from the shell's foreground process, so running `node`
@@ -685,9 +694,10 @@ impl Terminal {
 /// that set it (`osc_title_owner`) is still the foreground one, else `Process ~/dir`.
 fn compose_title(osc_title: Option<&str>, osc_title_owner: &str, process: &str, cwd: Option<&std::path::Path>) -> String {
     if let Some(t) = osc_title.filter(|t| !t.trim().is_empty())
-        && osc_title_owner == process {
-            return t.to_string();
-        }
+        && osc_title_owner == process
+    {
+        return t.to_string();
+    }
     let mut name = process.to_string();
     if let Some(first) = name.get_mut(0..1) {
         first.make_ascii_uppercase();
@@ -706,23 +716,15 @@ impl Drop for Terminal {
 }
 
 fn window_size(size: GridSize, cell_px: (u16, u16)) -> WindowSize {
-    WindowSize {
-        num_lines: size.lines as u16,
-        num_cols: size.cols as u16,
-        cell_width: cell_px.0,
-        cell_height: cell_px.1,
-    }
+    WindowSize { num_lines: size.lines as u16, num_cols: size.cols as u16, cell_width: cell_px.0, cell_height: cell_px.1 }
 }
 
 pub fn tilde(path: &std::path::Path) -> String {
     if let Some(home) = platform::home_dir()
-        && let Ok(rest) = path.strip_prefix(&home) {
-            return if rest.as_os_str().is_empty() {
-                "~".into()
-            } else {
-                format!("~/{}", rest.display())
-            };
-        }
+        && let Ok(rest) = path.strip_prefix(&home)
+    {
+        return if rest.as_os_str().is_empty() { "~".into() } else { format!("~/{}", rest.display()) };
+    }
     path.display().to_string()
 }
 
@@ -876,11 +878,8 @@ mod tests {
         // Stands in for `ssh`: the process is called that, and its output is what a remote
         // shell's prompt and then a program it runs would send.
         let ssh = dir.join("ssh");
-        std::fs::write(
-            &ssh,
-            "#!/bin/sh\nprintf '\\033]0;me@devbox: ~/src/nex\\007'\nprintf '\\033]0;\\342\\234\\263 Claude Code\\007'\nsleep 30\n",
-        )
-        .unwrap();
+        std::fs::write(&ssh, "#!/bin/sh\nprintf '\\033]0;me@devbox: ~/src/nex\\007'\nprintf '\\033]0;\\342\\234\\263 Claude Code\\007'\nsleep 30\n")
+            .unwrap();
         std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let cfg = crate::config::Config::default();

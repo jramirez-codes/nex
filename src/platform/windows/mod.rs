@@ -25,7 +25,8 @@ pub const SYSTEM_BACK: bool = false;
 
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true, scroll_tabs: false };
+pub const WINDOW: WindowDefaults =
+    WindowDefaults { decorations: false, controls: true, titlebar_inset: 0.0, min_size: [420.0, 260.0], transparent: true, scroll_tabs: false };
 
 pub const FALLBACK_FAMILIES: &[&str] = &["Consolas", "Segoe UI Symbol", "Cambria Math", "Microsoft YaHei"];
 
@@ -84,11 +85,7 @@ pub fn hostname() -> String {
 }
 
 pub fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
-    if target.is_dir() {
-        std::os::windows::fs::symlink_dir(target, link)
-    } else {
-        std::os::windows::fs::symlink_file(target, link)
-    }
+    if target.is_dir() { std::os::windows::fs::symlink_dir(target, link) } else { std::os::windows::fs::symlink_file(target, link) }
 }
 
 /// Double quotes when needed (cmd and PowerShell both accept them for plain paths).

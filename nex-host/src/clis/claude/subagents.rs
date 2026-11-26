@@ -128,7 +128,9 @@ mod tests {
     /// As Claude Code v2.1.330 writes them.
     fn meta(desc: &str, finished: bool) -> String {
         let fin = if finished { r#","finished":true"# } else { "" };
-        format!(r#"{{"agentType":"Explore","isBuiltIn":true,"description":"{desc}","toolUseId":"toolu_01","spawnDepth":1,"requestShape":"background","model":"haiku"{fin}}}"#)
+        format!(
+            r#"{{"agentType":"Explore","isBuiltIn":true,"description":"{desc}","toolUseId":"toolu_01","spawnDepth":1,"requestShape":"background","model":"haiku"{fin}}}"#
+        )
     }
 
     fn session(cwd: &str) -> Claude {

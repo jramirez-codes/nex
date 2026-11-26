@@ -13,8 +13,8 @@ pub use super::fontdb::{find_font, nerd_mono_families};
 pub use super::no_dnd::Dnd;
 pub use super::no_watch::{DirWatch, on_dir_change};
 pub use super::unix::{
-    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options,
-    pty_pid, shell_quote, symlink,
+    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options, pty_pid, shell_quote,
+    symlink,
 };
 pub use apps::{apps_for, mime_type, open_with};
 pub use clipboard::clipboard_files;
@@ -37,7 +37,8 @@ pub const SYSTEM_BACK: bool = false;
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Cmd;
 
 /// The system's own traffic lights, drawn over nex's title bar (see `main.rs`).
-pub const WINDOW: WindowDefaults = WindowDefaults { decorations: true, controls: false, titlebar_inset: 72.0, min_size: [420.0, 260.0], transparent: true, scroll_tabs: false };
+pub const WINDOW: WindowDefaults =
+    WindowDefaults { decorations: true, controls: false, titlebar_inset: 72.0, min_size: [420.0, 260.0], transparent: true, scroll_tabs: false };
 
 /// An empty icon: eframe then leaves the Dock icon alone, so nex.app keeps its own `nex.icns`
 /// (with no icon set, eframe swaps in the egui logo once the app is running).

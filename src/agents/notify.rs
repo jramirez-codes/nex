@@ -218,7 +218,8 @@ mod tests {
     #[test]
     fn what_was_so_at_the_start_is_not_news() {
         let mut n = Notifier::default();
-        let notes = run(&mut n, &[vec![claude(1, Status::NeedsYou), pipeline(2, "stage 1 of 1: build — ✓ finished. build said: ok")]], Looking::default());
+        let notes =
+            run(&mut n, &[vec![claude(1, Status::NeedsYou), pipeline(2, "stage 1 of 1: build — ✓ finished. build said: ok")]], Looking::default());
         assert_eq!(notes, [vec![]]);
     }
 

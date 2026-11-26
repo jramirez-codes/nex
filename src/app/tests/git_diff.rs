@@ -15,7 +15,14 @@ fn repo() -> Option<std::path::PathBuf> {
     let dir = std::env::temp_dir().join(format!("nex-app-diff-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let git = |args: &[&str]| Command::new("git").arg("-C").arg(&dir).args(["-c", "user.name=nex", "-c", "user.email=nex@example.com", "-c", "commit.gpgsign=false"]).args(args).output();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["-c", "user.name=nex", "-c", "user.email=nex@example.com", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+    };
     git(&["init", "-q"]).ok().filter(|o| o.status.success())?;
     std::fs::write(dir.join("main.rs"), "fn main() {\n    let x = 1;\n}\n").unwrap();
     git(&["add", "."]).unwrap();

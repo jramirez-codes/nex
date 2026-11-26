@@ -11,10 +11,10 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use crate::config::SshMic;
 use crate::layout::PaneId;
 use crate::platform;
 use crate::remote::audio::CaptureError;
-use crate::config::SshMic;
 use crate::remote::mic::{Event, MicError, Share};
 use crate::remote::{self, RemoteError, SshTarget};
 use crate::terminal::Terminal;

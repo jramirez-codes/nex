@@ -51,10 +51,7 @@ impl GlideSwitch {
     fn at(&self, now: f64) -> Frame {
         let t = (((now - self.start) / GLIDE_ANIM) as f32).clamp(0.0, 1.0);
         let e = ease_out(t);
-        Frame {
-            old: (self.drift * e, 1.0 - smoothstep(t / OUT_BY)),
-            new: (-self.drift * (1.0 - e), smoothstep((t - IN_FROM) / (1.0 - IN_FROM))),
-        }
+        Frame { old: (self.drift * e, 1.0 - smoothstep(t / OUT_BY)), new: (-self.drift * (1.0 - e), smoothstep((t - IN_FROM) / (1.0 - IN_FROM))) }
     }
 }
 

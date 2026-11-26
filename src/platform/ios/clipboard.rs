@@ -14,9 +14,8 @@ pub fn clipboard_text() -> Option<String> {
 
 /// Mirror what nex copied this frame (egui's copy commands) to the system clipboard.
 pub fn mirror_copies(ctx: &egui::Context) {
-    let copied: Option<String> = ctx.output(|o| {
-        o.commands.iter().rev().find_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None })
-    });
+    let copied: Option<String> =
+        ctx.output(|o| o.commands.iter().rev().find_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }));
     if let Some(text) = copied {
         // SAFETY: setting the general pasteboard's string is safe from any thread.
         unsafe { UIPasteboard::generalPasteboard().setString(Some(&NSString::from_str(&text))) };

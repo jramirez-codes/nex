@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::agents::{AgentsPane, local};
 use crate::agents::model::{AgentKind, Probe, Source, Status, Team, Viewing, is_remote_key, remote_key, sub_key};
+use crate::agents::{AgentsPane, local};
 use crate::layout::{Axis, PaneId, PaneKind};
 use crate::remote::SshTarget;
 use crate::ui::icons;
@@ -165,9 +165,7 @@ impl App {
     /// are gone: it has a terminal or a file explorer (an Agents pane alone has nothing
     /// left to watch).
     pub(in crate::app) fn home_keeps_window(&self) -> bool {
-        self.home_tab
-            .as_ref()
-            .is_some_and(|t| t.root.iter().any(|id| matches!(self.pane_kind(id), Some(PaneKind::Terminal | PaneKind::Explorer))))
+        self.home_tab.as_ref().is_some_and(|t| t.root.iter().any(|id| matches!(self.pane_kind(id), Some(PaneKind::Terminal | PaneKind::Explorer))))
     }
 
     /// What the Agents pane `id` marks "Viewing": the terminals of the tab on screen (only
@@ -324,7 +322,9 @@ impl App {
     /// can't be found: the tab says so).
     fn local_follower(&self, lead: PaneId, id: &str) -> Option<Vec<String>> {
         let t = self.panes.terminal(lead)?;
-        let path = t.foreground_job().and_then(|(pid, argv)| local::subagent_transcript(AgentKind::detect(&t.process, argv)?.cli()?, pid, t.cwd.as_deref(), id));
+        let path = t
+            .foreground_job()
+            .and_then(|(pid, argv)| local::subagent_transcript(AgentKind::detect(&t.process, argv)?.cli()?, pid, t.cwd.as_deref(), id));
         follower_command(&path.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
     }
 

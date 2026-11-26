@@ -7,7 +7,9 @@ pub(super) mod properties;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use egui::{Align2, Color32, DragAndDrop, FontId, Id, Key, Painter, PointerButton, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{
+    Align2, Color32, DragAndDrop, FontId, Id, Key, Painter, PointerButton, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
+};
 
 use crate::layout::PaneId;
 use crate::platform::SHORTCUTS;
@@ -17,9 +19,9 @@ use crate::ui::widgets::IconButton;
 use crate::ui::{icons, paint};
 
 use crate::file_explorer::fs::ops::count;
+use crate::file_explorer::fs::transfer::{Clip, JobSummary, Op, clipboard};
 use crate::file_explorer::input::{Command, ExplorerDrag, PointerInput};
 use crate::file_explorer::view::items::{ItemState, Layout, Sizes, name_rect, paint_row, paint_tile, sizes};
-use crate::file_explorer::fs::transfer::{Clip, JobSummary, Op, clipboard};
 use crate::file_explorer::{FileExplorer, View};
 
 /// How long a finished operation's message stays in the action bar.
@@ -305,7 +307,13 @@ impl FileExplorer {
             } else if current {
                 painter.rect_filled(r, 6, white_alpha(9));
             }
-            let col = if current { c.text_bright } else if resp.hovered() { c.text } else { c.text_dim };
+            let col = if current {
+                c.text_bright
+            } else if resp.hovered() {
+                c.text
+            } else {
+                c.text_dim
+            };
             paint::faded_text(painter, Pos2::new(r.left() + pad, r.center().y), label, font.clone(), col, r.width() - pad * 2.0, 14.0);
             let resp = resp.on_hover_text(self.shown_path(path));
             if resp.clicked() && !current {
@@ -322,7 +330,8 @@ impl FileExplorer {
         let rest = Rect::from_min_max(Pos2::new(x + 2.0, area.top()), area.max);
         if rest.width() > 4.0 {
             let tip = format!("Type a location  ({}+L)", SHORTCUTS.primary_key_name());
-            let resp = ui.interact(rest, Id::new(("files-location", pane)), Sense::click()).on_hover_cursor(egui::CursorIcon::Text).on_hover_text(tip);
+            let resp =
+                ui.interact(rest, Id::new(("files-location", pane)), Sense::click()).on_hover_cursor(egui::CursorIcon::Text).on_hover_text(tip);
             if resp.clicked() {
                 f.commands.push(Command::EditLocation);
             }
@@ -366,10 +375,12 @@ impl FileExplorer {
             // this machine's files).
             if let [one] = self.targets().as_slice()
                 && !self.backend.is_remote()
-                && self.menu_on_item && !one.is_dir() {
-                    let one = one.clone();
-                    self.load_open_with(f.ui.ctx(), one);
-                }
+                && self.menu_on_item
+                && !one.is_dir()
+            {
+                let one = one.clone();
+                self.load_open_with(f.ui.ctx(), one);
+            }
         }
         self.update_scroll(f.ui, &layout, list, f.input.mods.command);
 
@@ -525,7 +536,12 @@ impl FileExplorer {
         let r = Rect::from_min_size(Pos2::new(list.right() - w - 10.0, list.bottom() - h - 10.0), Vec2::new(w, h));
         painter.rect_filled(r.translate(Vec2::new(0.0, 2.0)), h / 2.0, Color32::from_black_alpha(60));
         painter.rect_filled(r, h / 2.0, c.card.gamma_multiply(2.0).to_opaque());
-        painter.rect_stroke(r, h / 2.0, Stroke::new(1.0_f32, if find.missed { ERROR.gamma_multiply(0.6) } else { ACCENT.gamma_multiply(0.7) }), StrokeKind::Inside);
+        painter.rect_stroke(
+            r,
+            h / 2.0,
+            Stroke::new(1.0_f32, if find.missed { ERROR.gamma_multiply(0.6) } else { ACCENT.gamma_multiply(0.7) }),
+            StrokeKind::Inside,
+        );
         paint_glyph(painter, Pos2::new(r.left() + h * 0.55, r.center().y), h * 0.5, FIND_GLYPH, c.text_dim);
         let left = r.left() + h;
         painter.with_clip_rect(r.shrink(4.0)).galley(Pos2::new(left, r.center().y - galley.size().y / 2.0), galley, col);
@@ -573,7 +589,11 @@ impl FileExplorer {
                             }
                             Some(list) => {
                                 for (k, app) in list.iter().enumerate() {
-                                    let label = if app.default { RichText::new(format!("{}  (default)", app.name)).strong() } else { app.name.as_str().into() };
+                                    let label = if app.default {
+                                        RichText::new(format!("{}  (default)", app.name)).strong()
+                                    } else {
+                                        app.name.as_str().into()
+                                    };
                                     item(ui, label, Command::OpenWith(k), &mut picked);
                                 }
                             }

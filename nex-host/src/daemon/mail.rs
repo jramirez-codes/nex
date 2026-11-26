@@ -10,8 +10,8 @@ use nex_host::proto::{self, Message, MessageKind, Payload, Status, USER};
 
 use crate::daemon::agent::Agent;
 use crate::daemon::broker::{self, Posted};
-use crate::daemon::state::State;
 use crate::daemon::deliver;
+use crate::daemon::state::State;
 use crate::util::{first_line, now_ms};
 
 /// How often messages waiting to be typed in are looked at.
@@ -97,7 +97,9 @@ pub(super) fn post(state: &Arc<State>, d: Draft, force: bool) -> Result<(Vec<Str
         if force || can_take(&agent) {
             agent.type_in(rendered);
         } else {
-            notes.push(format!("{to_name} is waiting for the user to answer something: it gets this as soon as it's free (--force to type it in now)."));
+            notes.push(format!(
+                "{to_name} is waiting for the user to answer something: it gets this as soon as it's free (--force to type it in now)."
+            ));
             state.queue(&agent.id, rendered);
         }
     }
@@ -191,7 +193,8 @@ mod tests {
         let first = letter(&state, USER, USER, "a1", "dev", MessageKind::Note, Payload::text("\n  the question\nmore"));
         let first_id = first.id.clone();
         state.broker().post(first);
-        let reply = letter(&state, "a1", "dev", USER, USER, MessageKind::Note, Payload { reply_to: Some(first_id.clone()), ..Payload::text("an answer") });
+        let reply =
+            letter(&state, "a1", "dev", USER, USER, MessageKind::Note, Payload { reply_to: Some(first_id.clone()), ..Payload::text("an answer") });
         assert_ne!(reply.id, first_id);
         assert_eq!(reply.re.as_deref(), Some("the question"));
         assert_eq!((reply.more, reply.more_lines), (None, None), "a short body is sent whole");

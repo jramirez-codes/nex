@@ -12,21 +12,21 @@ use egui::{Color32, CursorIcon, FontId, Id, Painter, PointerButton, Pos2, Rect, 
 
 use crate::layout::{Axis, Divider, PaneId, PaneKind};
 use crate::render::{self, FrameKey, PaintOptions};
-use crate::terminal::search::Search;
 use crate::terminal::GridSize;
+use crate::terminal::search::Search;
 use crate::ui::theme::{ERROR, HOVER, Theme, darken};
 use crate::ui::widgets::{HoverShape, IconButton, IconFn, pressed_in};
 use crate::ui::{icons, paint};
 
 use crate::app::actions::Action;
-use crate::app::input::keymap;
-use crate::app::workspace::metrics::cell_px;
-use crate::app::ssh::mic::MicState;
+use crate::app::animation::handoff::{FocusedCard, HeaderLabel};
 use crate::app::animation::pane_motion::Ghost;
+use crate::app::animation::tab_switch::Shown;
+use crate::app::input::keymap;
+use crate::app::ssh::mic::MicState;
+use crate::app::workspace::metrics::cell_px;
 use crate::app::workspace::pane_drag::DragFrame;
 use crate::app::workspace::panes::PaneRequest;
-use crate::app::animation::handoff::{FocusedCard, HeaderLabel};
-use crate::app::animation::tab_switch::Shown;
 use crate::app::{App, PANE_GAP};
 
 pub(in crate::app) const PANE_RADIUS: u8 = 12;
@@ -174,11 +174,8 @@ impl App {
         };
         // Where the connect screen's card lands (`animation/handoff.rs`): the layout's rect,
         // not where the card is drawn mid-animation.
-        self.focused_card = views.iter().find(|v| v.focused).map(|v| FocusedCard {
-            rect: v.target,
-            ring: if v.multi { v.focus } else { 0.0 },
-            label: None,
-        });
+        self.focused_card =
+            views.iter().find(|v| v.focused).map(|v| FocusedCard { rect: v.target, ring: if v.multi { v.focus } else { 0.0 }, label: None });
         // Whether anything drawn blinks, and so needs the next frame on time.
         let mut blinks = false;
         for pane in views.iter() {
@@ -233,18 +230,8 @@ impl App {
     /// its slot back home, and it takes no part in this tab's hit-testing.
     fn visiting_pane(&mut self, ui: &mut Ui, id: PaneId, card: Rect, mini: bool, theme: &Theme, blink_on: bool) {
         let Some(slot) = self.input.pane_drag.as_ref().map(|d| d.slot) else { return };
-        let pane = PaneView {
-            id,
-            card,
-            target: slot,
-            focused: false,
-            focus: 1.0,
-            multi: true,
-            lifted: true,
-            alpha: 1.0,
-            on_top: true,
-            scale_content: mini,
-        };
+        let pane =
+            PaneView { id, card, target: slot, focused: false, focus: 1.0, multi: true, lifted: true, alpha: 1.0, on_top: true, scale_content: mini };
         let Some(kind) = self.pane_kind(id) else { return };
         self.draw_content(ui, kind, &pane, theme, blink_on);
         // It takes no part in this tab's mouse hit-testing.
@@ -477,7 +464,15 @@ impl App {
             let viewing = app.viewing(id);
             if let Some(a) = app.panes.agents_mut(id) {
                 let shown_tab = (!app.home_active).then_some(app.active);
-                let args = crate::agents::PaintArgs { pane: id, focused, c: theme, agents: app.agent_tracker.agents(), notes: &app.ssh.agent_notes, shown_tab, viewing: &viewing };
+                let args = crate::agents::PaintArgs {
+                    pane: id,
+                    focused,
+                    c: theme,
+                    agents: app.agent_tracker.agents(),
+                    notes: &app.ssh.agent_notes,
+                    shown_tab,
+                    viewing: &viewing,
+                };
                 a.paint(ui, painter, content, args);
                 app.pane_requests.extend(a.requests.drain(..).map(|r| (id, PaneRequest::Agents(r))));
             }
@@ -523,7 +518,13 @@ impl App {
         let armed = pane.focused && self.chrome.keyboard_button.ctrl_armed;
         let shift = ui.input(|i| i.modifiers.shift) || armed;
         // The pinned pane's pin shows even when its other buttons are hidden.
-        let shown = if show_buttons { 4 } else if pinned { 1 } else { 0 };
+        let shown = if show_buttons {
+            4
+        } else if pinned {
+            1
+        } else {
+            0
+        };
         if shown > 0 {
             let close: (&str, Action, Action, &IconFn<'_>) = match (pinned, shift) {
                 (true, false) => ("Unpin from other tabs  (Shift: close)", Action::ToggleSticky(0), Action::ToggleSticky(id), &icons::icon_pin),
@@ -534,8 +535,12 @@ impl App {
             let buttons: [(&str, Action, Action, &IconFn<'_>); 4] = [
                 close,
                 ("Zoom", Action::ToggleZoom, Action::ToggleZoomPane(id), &|p, r, c| icons::icon_zoom(p, r, c, zoomed)),
-                ("Split down", Action::Split(Axis::Vertical), Action::SplitPane(id, Axis::Vertical), &|p, r, c| icons::icon_split(p, r, c, Axis::Vertical)),
-                ("Split right", Action::Split(Axis::Horizontal), Action::SplitPane(id, Axis::Horizontal), &|p, r, c| icons::icon_split(p, r, c, Axis::Horizontal)),
+                ("Split down", Action::Split(Axis::Vertical), Action::SplitPane(id, Axis::Vertical), &|p, r, c| {
+                    icons::icon_split(p, r, c, Axis::Vertical)
+                }),
+                ("Split right", Action::Split(Axis::Horizontal), Action::SplitPane(id, Axis::Horizontal), &|p, r, c| {
+                    icons::icon_split(p, r, c, Axis::Horizontal)
+                }),
             ];
             for (i, (label, shortcut, action, draw)) in buttons.into_iter().enumerate().take(shown) {
                 let tip = match keymap::shortcut_label(&self.bindings, shortcut) {
@@ -599,7 +604,13 @@ impl App {
         // The connect handoff draws the same label on its card as it lands here: a copy it
         // keeps, made only while it plays.
         if self.handoff.is_some() && self.focused_card.as_ref().is_some_and(|f| pane.focused && f.rect == pane.target) {
-            let label = HeaderLabel { process: process.to_string(), title: title.into_owned(), color: title_color, right_inset: header.right() - (bx - 4.0), font };
+            let label = HeaderLabel {
+                process: process.to_string(),
+                title: title.into_owned(),
+                color: title_color,
+                right_inset: header.right() - (bx - 4.0),
+                font,
+            };
             if let Some(f) = self.focused_card.as_mut() {
                 f.label = Some(label);
             }
@@ -706,10 +717,7 @@ fn search_bar(painter: &Painter, card: Rect, top: f32, s: &Search, theme: &Theme
     let caret_x = if s.query.is_empty() { text_rect.left() } else { tx + galley.size().x + 1.0 };
     clip.galley(Pos2::new(tx, r.center().y - galley.size().y / 2.0), galley, color);
     if caret_on {
-        clip.line_segment(
-            [Pos2::new(caret_x, r.center().y - 7.0), Pos2::new(caret_x, r.center().y + 7.0)],
-            Stroke::new(1.2_f32, theme.text),
-        );
+        clip.line_segment([Pos2::new(caret_x, r.center().y - 7.0), Pos2::new(caret_x, r.center().y + 7.0)], Stroke::new(1.2_f32, theme.text));
     }
 }
 

@@ -4,10 +4,10 @@
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
 
-use crate::layout::PaneKind;
 use crate::app::App;
-use crate::app::input::press::DOUBLE_TAP;
 use crate::app::input::keymap;
+use crate::app::input::press::DOUBLE_TAP;
+use crate::layout::PaneKind;
 use crate::platform::ShortcutStyle;
 
 const STEP: f64 = 0.016;
@@ -15,12 +15,8 @@ const STEP: f64 = 0.016;
 /// One frame with `events`; whether it asked for the on-screen keyboard (IME output).
 fn frame(app: &mut App, ctx: &egui::Context, t: &mut f64, events: Vec<Event>) -> bool {
     *t += STEP;
-    let input = RawInput {
-        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 800.0))),
-        time: Some(*t),
-        events,
-        ..Default::default()
-    };
+    let input =
+        RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 800.0))), time: Some(*t), events, ..Default::default() };
     let out = ctx.run(input, |ctx| {
         let mut frame = eframe::Frame::_new_kittest();
         eframe::App::update(app, ctx, &mut frame);

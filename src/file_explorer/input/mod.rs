@@ -10,9 +10,9 @@ use std::time::Duration;
 
 use egui::{DragAndDrop, Key, Modifiers, Pos2, Rect, Ui, Vec2};
 
-use crate::file_explorer::view::items::{self, Layout};
-use crate::file_explorer::input::line_edit::EditKey;
 use crate::file_explorer::fs::transfer::set_clipboard;
+use crate::file_explorer::input::line_edit::EditKey;
+use crate::file_explorer::view::items::{self, Layout};
 use crate::file_explorer::{Entry, FileExplorer, Request, View};
 
 /// Holding a touch this long (without moving) starts selecting.
@@ -193,9 +193,10 @@ impl FileExplorer {
         }
         if input.released
             && let Some(press) = self.press.take()
-                && press.gesture == Gesture::Pending {
-                    self.click(press.item, press.touch, input.mods, input.now);
-                }
+            && press.gesture == Gesture::Pending
+        {
+            self.click(press.item, press.touch, input.mods, input.now);
+        }
     }
 
     /// While the button is held: decide what the press is, or keep doing it.

@@ -35,13 +35,20 @@ const DROPPED: &str = "LRDNTtfnMve";
 /// config file.
 pub(super) const BATCH_OPTS: &[&str] = &[
     "-T",
-    "-o", "BatchMode=yes",
-    "-o", "ConnectTimeout=8",
-    "-o", "ClearAllForwardings=yes",
-    "-o", "RemoteCommand=none",
-    "-o", "RequestTTY=no",
-    "-o", "PermitLocalCommand=no",
-    "-o", "ForwardX11=no",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=8",
+    "-o",
+    "ClearAllForwardings=yes",
+    "-o",
+    "RemoteCommand=none",
+    "-o",
+    "RequestTTY=no",
+    "-o",
+    "PermitLocalCommand=no",
+    "-o",
+    "ForwardX11=no",
 ];
 
 /// The host a pane's `ssh` is connected to, as the options needed to connect again.
@@ -264,10 +271,7 @@ mod tests {
         assert_eq!(session(&t, None), r#"ssh -t -o RemoteCommand=none -- host 'exec "$SHELL" -l'"#);
         assert_eq!(session(&t, Some("~")), r#"ssh -t -o RemoteCommand=none -- host 'exec "$SHELL" -l'"#);
         assert_eq!(session(&t, Some("/var/log")), r#"ssh -t -o RemoteCommand=none -- host 'cd /var/log; exec "$SHELL" -l'"#);
-        assert_eq!(
-            session(&t, Some("~/my dir")),
-            r#"ssh -t -o RemoteCommand=none -- host 'cd ~/'\''my dir'\''; exec "$SHELL" -l'"#
-        );
+        assert_eq!(session(&t, Some("~/my dir")), r#"ssh -t -o RemoteCommand=none -- host 'cd ~/'\''my dir'\''; exec "$SHELL" -l'"#);
         let t = target(&["-p", "2222", "-J", "jump"], "me@host").unwrap();
         assert_eq!(session(&t, Some("/srv")), r#"ssh -t -o RemoteCommand=none -p 2222 -J jump -- me@host 'cd /srv; exec "$SHELL" -l'"#);
     }
@@ -352,7 +356,11 @@ mod tests {
         assert_eq!(SshTarget::from_argv(&argv).map(|t| t.normalized()), Some(t));
         // Run as sh would: the old nex-host fails, and the tab says why.
         #[cfg(unix)]
-        let out = std::process::Command::new("sh").args(["-c", &script.replace("\"$HOME/.nex/bin/nex-host\"", "false")]).stdin(std::process::Stdio::null()).output().unwrap();
+        let out = std::process::Command::new("sh")
+            .args(["-c", &script.replace("\"$HOME/.nex/bin/nex-host\"", "false")])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
         #[cfg(unix)]
         assert!(String::from_utf8_lossy(&out.stdout).contains("can't show sub-agents yet"));
     }

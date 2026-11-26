@@ -96,19 +96,12 @@ pub fn install(ctx: &egui::Context, cfg: &Config) {
     // back by over 100 ms.
     let (grid, symbol_data, sans, sans_bold) = std::thread::scope(|s| {
         let grid = s.spawn(|| grid_faces(cfg));
-        let symbols: Vec<_> = platform::FALLBACK_FAMILIES
-            .iter()
-            .map(|&extra| s.spawn(move || (extra, load(Family::Named(extra), Weight::Regular, false))))
-            .collect();
+        let symbols: Vec<_> =
+            platform::FALLBACK_FAMILIES.iter().map(|&extra| s.spawn(move || (extra, load(Family::Named(extra), Weight::Regular, false)))).collect();
         let sans = s.spawn(|| load(Family::SansSerif, Weight::Regular, false));
         let sans_bold = s.spawn(|| load(Family::SansSerif, Weight::Semibold, false));
         let join = |h: std::thread::ScopedJoinHandle<'_, Option<FontData>>| h.join().ok().flatten();
-        (
-            grid.join().ok().flatten(),
-            symbols.into_iter().filter_map(|h| h.join().ok()).collect::<Vec<_>>(),
-            join(sans),
-            join(sans_bold),
-        )
+        (grid.join().ok().flatten(), symbols.into_iter().filter_map(|h| h.join().ok()).collect::<Vec<_>>(), join(sans), join(sans_bold))
     });
 
     let mut defs = FontDefinitions::default();

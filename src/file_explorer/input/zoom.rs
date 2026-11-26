@@ -69,9 +69,9 @@ fn anchor(layout: &Layout, scroll: f32, at: Option<Pos2>) -> Anchor {
 mod tests {
     use egui::{Rect, Vec2};
 
-    use crate::file_explorer::view::items::sizes;
-    use crate::file_explorer::tests::fixture;
     use super::*;
+    use crate::file_explorer::tests::fixture;
+    use crate::file_explorer::view::items::sizes;
 
     fn list_layout(row: f32) -> Layout {
         let list = Rect::from_min_size(Pos2::new(0.0, 100.0), Vec2::new(400.0, 300.0));

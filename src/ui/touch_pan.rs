@@ -225,9 +225,17 @@ mod tests {
         s.swipe(p, p - Vec2::new(0.0, 200.0), 10);
         // A mouse drag (no touches) is the pane's own business (text selection, nothing).
         let q = Pos2::new(200.0, 300.0);
-        s.frame(vec![Event::PointerMoved(q), Event::PointerButton { pos: q, button: PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        s.frame(vec![
+            Event::PointerMoved(q),
+            Event::PointerButton { pos: q, button: PointerButton::Primary, pressed: true, modifiers: Default::default() },
+        ]);
         s.frame(vec![Event::PointerMoved(q - Vec2::new(0.0, 200.0))]);
-        s.frame(vec![Event::PointerButton { pos: q - Vec2::new(0.0, 200.0), button: PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        s.frame(vec![Event::PointerButton {
+            pos: q - Vec2::new(0.0, 200.0),
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
         s.settle();
         assert_eq!(s.scrolled, 0.0);
     }

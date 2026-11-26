@@ -24,14 +24,14 @@ impl GitDiff {
         // Refresh, at the far right; it spins while git runs.
         let r = Rect::from_center_size(Pos2::new(bar.right() - 24.0, cy), Vec2::splat(28.0));
         let loading = self.loading();
-        if IconButton::new(r, f.id("refresh"), c.text_dim, c.text_bright)
-            .hover(HoverShape::Rounded(8), HOVER)
-            .tooltip("Refresh  (R)")
-            .show(f.ui, p, |p, r, col| {
+        if IconButton::new(r, f.id("refresh"), c.text_dim, c.text_bright).hover(HoverShape::Rounded(8), HOVER).tooltip("Refresh  (R)").show(
+            f.ui,
+            p,
+            |p, r, col| {
                 let turn = if loading { ctx.input(|i| i.time) as f32 * 5.0 } else { 0.0 };
                 refresh_icon(p, r.shrink(7.0), col, turn, loading);
-            })
-        {
+            },
+        ) {
             self.refresh();
         }
         if loading {
@@ -44,7 +44,8 @@ impl GitDiff {
         if let Some((unstaged, staged)) = counts
             && bar.width() >= 420.0
         {
-            let labels = [(Filter::All, "All".to_string()), (Filter::Unstaged, format!("Changes {unstaged}")), (Filter::Staged, format!("Staged {staged}"))];
+            let labels =
+                [(Filter::All, "All".to_string()), (Filter::Unstaged, format!("Changes {unstaged}")), (Filter::Staged, format!("Staged {staged}"))];
             let font = FontId::proportional(12.0);
             let widths: Vec<f32> = labels.iter().map(|(_, l)| p.layout_no_wrap(l.clone(), font.clone(), c.text).size().x + 22.0).collect();
             let total: f32 = widths.iter().sum::<f32>() + 4.0;
@@ -72,7 +73,13 @@ impl GitDiff {
             for (k, ((filter, label), slot)) in labels.iter().zip(&slots).enumerate() {
                 let resp = f.interact(*slot, ("segment", k));
                 let hovered = resp.as_ref().is_some_and(|r| r.hovered());
-                let color = if k == on { c.text_bright } else if hovered { c.text } else { c.text_dim };
+                let color = if k == on {
+                    c.text_bright
+                } else if hovered {
+                    c.text
+                } else {
+                    c.text_dim
+                };
                 p.text(slot.center(), Align2::CENTER_CENTER, label, font.clone(), color);
                 if resp.is_some_and(|r| r.clicked()) {
                     self.set_filter(*filter);

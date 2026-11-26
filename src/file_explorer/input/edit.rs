@@ -8,10 +8,10 @@ use std::time::{Duration, Instant};
 
 use crate::platform::AppChoice;
 
-use crate::file_explorer::{After, FileExplorer};
 use crate::file_explorer::fs::ops::{complete_location, expand_location, invalid_name};
-use crate::file_explorer::input::line_edit::LineEdit;
 use crate::file_explorer::fs::transfer::{FS_GENERATION, clipboard, set_clipboard};
+use crate::file_explorer::input::line_edit::LineEdit;
+use crate::file_explorer::{After, FileExplorer};
 
 /// Type-to-find forgets what was typed after this long without a key.
 pub(in crate::file_explorer) const FIND_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -202,9 +202,10 @@ impl FileExplorer {
         }
         let dir = self.dir.clone();
         if let Some(field) = self.location.as_mut()
-            && let Some(text) = complete_location(&field.text, &dir) {
-                field.set_text(text);
-            }
+            && let Some(text) = complete_location(&field.text, &dir)
+        {
+            field.set_text(text);
+        }
     }
 
     /// Tab completion on an ssh host: a name in the folder being shown, from its listing

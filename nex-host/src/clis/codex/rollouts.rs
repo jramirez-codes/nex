@@ -29,13 +29,16 @@ pub fn rollout(home: &Path, id: &str) -> Option<PathBuf> {
     if !valid_sub_id(id) {
         return None;
     }
-    let mut rollouts: Vec<PathBuf> = days(home).into_iter().flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path())).filter(|p| is_rollout(p)).collect();
+    let mut rollouts: Vec<PathBuf> = days(home)
+        .into_iter()
+        .flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path()))
+        .filter(|p| is_rollout(p))
+        .collect();
     rollouts.sort();
     rollouts.reverse();
     let named = rollouts.iter().find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(&format!("-{id}.jsonl"))));
     named.cloned().or_else(|| rollouts.into_iter().find(|p| first_line(p).and_then(|l| parse_head(&l)).is_some_and(|h| h.id == id)))
 }
-
 
 /// What a rollout's first line (`session_meta`) says.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -180,7 +183,8 @@ mod tests {
             None => r#""cli""#.into(),
         };
         let role = role.map(|r| format!(r#","agent_role":"{r}""#)).unwrap_or_default();
-        format!(r#"{{"timestamp":"2026-11-23T10:00:00Z","type":"session_meta","payload":{{"id":"{id}","cwd":"{cwd}","source":{source}{role}}}}}"#) + "\n"
+        format!(r#"{{"timestamp":"2026-11-23T10:00:00Z","type":"session_meta","payload":{{"id":"{id}","cwd":"{cwd}","source":{source}{role}}}}}"#)
+            + "\n"
     }
 
     #[test]

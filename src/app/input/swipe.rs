@@ -45,10 +45,8 @@ impl App {
     pub(in crate::app) fn handle_tab_swipe(&mut self, ctx: &egui::Context) {
         let (events, touching, pinching, now, velocity) =
             ctx.input(|i| (i.events.clone(), i.any_touches(), i.multi_touch().is_some(), i.time, i.pointer.velocity()));
-        let busy = pinching
-            || self.input.pane_drag.is_some()
-            || egui::DragAndDrop::has_any_payload(ctx)
-            || ctx.memory(|m| m.top_modal_layer()).is_some();
+        let busy =
+            pinching || self.input.pane_drag.is_some() || egui::DragAndDrop::has_any_payload(ctx) || ctx.memory(|m| m.top_modal_layer()).is_some();
         if let Some(s) = self.input.tab_swipe.as_mut() {
             if busy || (s.phase == Phase::Pending && now - s.at >= LONG_PRESS) {
                 s.phase = Phase::Dead;
@@ -57,8 +55,12 @@ impl App {
         for event in events {
             match event {
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, .. } => {
-                    self.input.tab_swipe = (touching && !busy && self.swipe_starts_at(ctx, pos))
-                        .then_some(TabSwipe { origin: pos, at: now, velocity: Vec2::ZERO, phase: Phase::Pending });
+                    self.input.tab_swipe = (touching && !busy && self.swipe_starts_at(ctx, pos)).then_some(TabSwipe {
+                        origin: pos,
+                        at: now,
+                        velocity: Vec2::ZERO,
+                        phase: Phase::Pending,
+                    });
                 }
                 Event::PointerMoved(pos) => {
                     let Some(s) = self.input.tab_swipe.as_mut() else { continue };

@@ -97,10 +97,13 @@ impl Alert<'_> {
 /// A recessed panel across the available width (an alert's steps, the connect screen's key
 /// fingerprint), holding what `add` puts in it.
 pub fn recessed(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    egui::Frame::new().fill(Color32::from_black_alpha(46)).stroke(Stroke::new(1.0_f32, white_alpha(10))).corner_radius(10).inner_margin(12).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        add(ui);
-    });
+    egui::Frame::new().fill(Color32::from_black_alpha(46)).stroke(Stroke::new(1.0_f32, white_alpha(10))).corner_radius(10).inner_margin(12).show(
+        ui,
+        |ui| {
+            ui.set_width(ui.available_width());
+            add(ui);
+        },
+    );
 }
 
 /// Numbered steps in a recessed panel.
@@ -126,12 +129,7 @@ fn steps(ui: &mut Ui, steps: &[String], scale: f32, theme: &Theme) {
 fn step_text(step: &str, scale: f32, theme: &Theme) -> LayoutJob {
     let size = BODY_SIZE * scale;
     let plain = TextFormat { font_id: FontId::proportional(size), color: theme.text_bright.gamma_multiply(0.86), ..Default::default() };
-    let code = TextFormat {
-        font_id: FontId::monospace(size * 0.95),
-        color: theme.text_bright,
-        background: white_alpha(22),
-        ..Default::default()
-    };
+    let code = TextFormat { font_id: FontId::monospace(size * 0.95), color: theme.text_bright, background: white_alpha(22), ..Default::default() };
     let mut job = LayoutJob::default();
     for (i, part) in step.split('`').enumerate() {
         if part.is_empty() {

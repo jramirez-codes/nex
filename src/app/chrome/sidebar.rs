@@ -87,11 +87,7 @@ impl App {
         }
         let files = self.home_is_files();
         let project = self.home_label(files);
-        let tip = if files {
-            format!("Files: {project} on {}", self.hostname)
-        } else {
-            format!("Agents: {}", self.agent_tracker.summary())
-        };
+        let tip = if files { format!("Files: {project} on {}", self.hostname) } else { format!("Agents: {}", self.agent_tracker.summary()) };
         let resp = resp.on_hover_text(tip);
         if resp.clicked_by(PointerButton::Middle) {
             self.pending.push(Action::CloseExplorer);

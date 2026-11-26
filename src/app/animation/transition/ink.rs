@@ -29,11 +29,7 @@ pub(super) struct InkSwitch {
 
 impl InkSwitch {
     pub(super) fn new(s: Switch) -> Self {
-        let old = s
-            .old
-            .into_iter()
-            .map(|cs| OldShape { clip: cs.clip_rect, bounds: bounds(&cs), shape: cs.shape, meshes: None })
-            .collect();
+        let old = s.old.into_iter().map(|cs| OldShape { clip: cs.clip_rect, bounds: bounds(&cs), shape: cs.shape, meshes: None }).collect();
         Self { bleed: Bleed::new(s.origin, s.area, s.start), old }
     }
 }

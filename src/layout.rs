@@ -258,9 +258,7 @@ impl Node {
     fn count_along(&self, along: Axis) -> usize {
         match self {
             Node::Leaf(_) => 1,
-            Node::Split { axis, a, b, .. } if *axis == along => {
-                a.count_along(along) + b.count_along(along)
-            }
+            Node::Split { axis, a, b, .. } if *axis == along => a.count_along(along) + b.count_along(along),
             Node::Split { a, b, .. } => a.count_along(along).max(b.count_along(along)),
         }
     }
@@ -299,13 +297,14 @@ impl Node {
             Direction::Up | Direction::Down => Axis::Vertical,
         };
         if let Some((path, _)) = self.enclosing_split(target, axis)
-            && let Some(r) = self.ratio_mut(&path) {
-                let delta = match dir {
-                    Direction::Right | Direction::Down => amount,
-                    Direction::Left | Direction::Up => -amount,
-                };
-                *r = (*r + delta).clamp(0.1, 0.9);
-            }
+            && let Some(r) = self.ratio_mut(&path)
+        {
+            let delta = match dir {
+                Direction::Right | Direction::Down => amount,
+                Direction::Left | Direction::Up => -amount,
+            };
+            *r = (*r + delta).clamp(0.1, 0.9);
+        }
     }
 
     /// Lay out panes in `rect`, leaving `gap` between siblings.
@@ -313,14 +312,7 @@ impl Node {
         self.layout_inner(rect, gap, &mut Vec::new(), panes, dividers);
     }
 
-    fn layout_inner(
-        &self,
-        rect: Rect,
-        gap: f32,
-        path: &mut Vec<bool>,
-        panes: &mut Vec<(PaneId, Rect)>,
-        dividers: &mut Vec<Divider>,
-    ) {
+    fn layout_inner(&self, rect: Rect, gap: f32, path: &mut Vec<bool>, panes: &mut Vec<(PaneId, Rect)>, dividers: &mut Vec<Divider>) {
         match self {
             Node::Leaf(id) => panes.push((*id, rect)),
             Node::Split { axis, ratio, a, b } => {
@@ -403,9 +395,7 @@ pub fn neighbor(rects: &[(PaneId, Rect)], from: PaneId, dir: Direction) -> Optio
             let score = |r: &Rect| {
                 let d: Vec2 = r.center() - c;
                 let (along, across, overlaps) = match dir {
-                    Direction::Left | Direction::Right => {
-                        (d.x.abs(), d.y.abs(), r.top() < src.bottom() && r.bottom() > src.top())
-                    }
+                    Direction::Left | Direction::Right => (d.x.abs(), d.y.abs(), r.top() < src.bottom() && r.bottom() > src.top()),
                     _ => (d.y.abs(), d.x.abs(), r.left() < src.right() && r.right() > src.left()),
                 };
                 along + across * if overlaps { 0.25 } else { 4.0 }

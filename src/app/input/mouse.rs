@@ -10,9 +10,9 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
 use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, Vec2};
 
-use crate::terminal::input::{self, MouseAction, MouseButton};
 use crate::layout::PaneId;
 use crate::render;
+use crate::terminal::input::{self, MouseAction, MouseButton};
 
 use crate::app::App;
 use crate::app::actions::Action;
@@ -176,12 +176,14 @@ impl App {
             self.input.mouse.touch = Some(TouchPress { id, rect, origin: pos, last: pos, at, velocity: Vec2::ZERO, gesture: TouchGesture::Pending });
             return;
         }
-        if modifiers.command && button == PointerButton::Primary
+        if modifiers.command
+            && button == PointerButton::Primary
             && let Some((link_pane, link)) = &self.input.hover_link
-                && *link_pane == id {
-                    crate::platform::open_uri(link.uri.as_ref());
-                    return;
-                }
+            && *link_pane == id
+        {
+            crate::platform::open_uri(link.uri.as_ref());
+            return;
+        }
         self.pending.push(Action::FocusPane(id));
         let m = self.pane_metrics(id);
         let Some(t) = self.panes.terminal_mut(id) else { return };
@@ -292,10 +294,11 @@ impl App {
     /// A button release: finish reporting, or finish (and maybe copy) the selection.
     fn on_release(&mut self, ctx: &egui::Context, pos: Pos2, button: PointerButton, modifiers: Modifiers) {
         if let Some(press) = self.input.mouse.touch.take()
-            && press.gesture != TouchGesture::Selecting {
-                self.on_touch_release(ctx, press, pos);
-                return;
-            }
+            && press.gesture != TouchGesture::Selecting
+        {
+            self.on_touch_release(ctx, press, pos);
+            return;
+        }
         let Some((id, rect)) = self.input.mouse.capture.take() else { return };
         let m = self.pane_metrics(id);
         let Some(t) = self.panes.terminal_mut(id) else { return };
@@ -310,10 +313,11 @@ impl App {
                 // A plain click (no drag) clears the selection.
                 t.term.lock().selection = None;
             } else if self.cfg.copy_on_select
-                && let Some(text) = t.selection_text() {
-                    self.clipboard_toast(ctx, "Copied", &text);
-                    ctx.copy_text(text);
-                }
+                && let Some(text) = t.selection_text()
+            {
+                self.clipboard_toast(ctx, "Copied", &text);
+                ctx.copy_text(text);
+            }
         }
     }
 
@@ -375,16 +379,17 @@ impl App {
     fn tick_touch(&mut self, ctx: &egui::Context) {
         let (now, dt) = ctx.input(|i| (i.time, i.stable_dt.min(0.1)));
         if let Some(press) = self.input.mouse.touch.as_mut()
-            && press.gesture == TouchGesture::Pending {
-                let left = LONG_PRESS - (now - press.at);
-                if left > 0.0 {
-                    ctx.request_repaint_after(Duration::from_secs_f64(left));
-                } else {
-                    press.gesture = TouchGesture::Selecting;
-                    let (id, rect, origin) = (press.id, press.rect, press.origin);
-                    self.start_touch_selection(id, rect, origin);
-                }
+            && press.gesture == TouchGesture::Pending
+        {
+            let left = LONG_PRESS - (now - press.at);
+            if left > 0.0 {
+                ctx.request_repaint_after(Duration::from_secs_f64(left));
+            } else {
+                press.gesture = TouchGesture::Selecting;
+                let (id, rect, origin) = (press.id, press.rect, press.origin);
+                self.start_touch_selection(id, rect, origin);
             }
+        }
         if let Some(f) = self.input.mouse.fling.as_mut() {
             let (id, rect, pos, dy) = (f.id, f.rect, f.pos, f.velocity * dt);
             f.velocity *= (-dt * FLING_DECAY).exp();
@@ -471,14 +476,15 @@ impl App {
         let previous = self.input.hover_link.as_ref().map(|(id, l)| (*id, l.range.clone()));
         self.input.hover_link = None;
         if let (true, Some(pos), None) = (ctrl, hover, self.input.mouse.capture)
-            && let Some((id, rect)) = self.terminal_at(pos) {
-                let m = self.pane_metrics(id);
-                if let Some(t) = self.panes.terminal(id) {
-                    let (point, ..) = render::point_at(pos, rect, m, t);
-                    let term = t.term.lock();
-                    self.input.hover_link = self.input.links.link_at(&term, point).map(|l| (id, l));
-                }
+            && let Some((id, rect)) = self.terminal_at(pos)
+        {
+            let m = self.pane_metrics(id);
+            if let Some(t) = self.panes.terminal(id) {
+                let (point, ..) = render::point_at(pos, rect, m, t);
+                let term = t.term.lock();
+                self.input.hover_link = self.input.links.link_at(&term, point).map(|l| (id, l));
             }
+        }
         if self.input.hover_link.is_some() {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
         }

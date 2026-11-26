@@ -27,11 +27,8 @@ impl Sim {
     fn frames(&mut self, n: usize) {
         for _ in 0..n {
             self.t += 0.016;
-            let input = RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 700.0))),
-                time: Some(self.t),
-                ..Default::default()
-            };
+            let input =
+                RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 700.0))), time: Some(self.t), ..Default::default() };
             let app = &mut self.app;
             let _ = self.ctx.run(input, |ctx| eframe::App::update(app, ctx, &mut eframe::Frame::_new_kittest()));
         }

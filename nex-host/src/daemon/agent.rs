@@ -143,9 +143,11 @@ impl Agent {
         };
         let kind = spec.kind.clone().unwrap_or_else(|| detect_kind(&spec.argv).unwrap_or(&base).to_string());
         let cwd = if spec.cwd.is_dir() { spec.cwd.clone() } else { PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into())) };
-        let name = spec.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
-            cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| kind.clone())
-        });
+        let name = spec
+            .name
+            .clone()
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| kind.clone()));
         let (cols, rows) = (spec.cols.max(2), spec.rows.max(1));
 
         let (master, child) = pty::spawn_in_pty(&spec.argv, spec.env.as_deref(), &cwd, cols, rows, pty::agent_env(&id, &name))?;

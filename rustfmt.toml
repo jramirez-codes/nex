@@ -1,0 +1,3 @@
+# Matches the existing wide style, so formatting the tree changes as little as possible.
+max_width = 150
+use_small_heuristics = "Max"

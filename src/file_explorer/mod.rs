@@ -47,16 +47,16 @@ use crate::remote::exec::{ExecError, Transport};
 use crate::terminal::tilde;
 
 use fs::backend::{Answer, FsBackend};
-use input::edit::{Find, OpenWith, Rename};
-use input::Press;
-use view::items::Layout;
-use input::line_edit::LineEdit;
-use view::properties::Properties;
 use fs::transfer::{Done, FS_GENERATION, Transfer};
+use input::Press;
+use input::edit::{Find, OpenWith, Rename};
+use input::line_edit::LineEdit;
+use view::items::Layout;
+use view::properties::Properties;
 
+pub use fs::transfer::{Op, files_changed};
 pub use input::{ExplorerDrag, release_pos};
 pub use view::items::{drag_image, paint_drag_ghost};
-pub use fs::transfer::{Op, files_changed};
 
 /// How many folders Back remembers.
 const HISTORY: usize = 100;

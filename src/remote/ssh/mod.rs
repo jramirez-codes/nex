@@ -110,12 +110,7 @@ impl std::fmt::Display for ConnectError {
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("ssh")
-            .enable_all()
-            .build()
-            .expect("starting the ssh runtime")
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_name("ssh").enable_all().build().expect("starting the ssh runtime")
     })
 }
 
@@ -323,12 +318,8 @@ impl Client {
     pub fn connect(server: &Server, login: Login<'_>, trust: Option<&str>) -> Result<Client, ConnectError> {
         let found = Arc::new(Mutex::new(KeyCheck::NotYet));
         let checker = Checker { server: server.clone(), trust: trust.map(String::from), found: found.clone() };
-        let config = Arc::new(client::Config {
-            keepalive_interval: Some(KEEPALIVE),
-            keepalive_max: KEEPALIVE_MAX,
-            nodelay: true,
-            ..Default::default()
-        });
+        let config =
+            Arc::new(client::Config { keepalive_interval: Some(KEEPALIVE), keepalive_max: KEEPALIVE_MAX, nodelay: true, ..Default::default() });
         let user = server.user.clone();
         let result = runtime().block_on(async move {
             let connecting = async {
@@ -415,9 +406,7 @@ impl Drop for Live {
             return;
         }
         let handle = &self.handle;
-        let _ = runtime().block_on(async {
-            tokio::time::timeout(WAKE_PING, handle.disconnect(russh::Disconnect::ByApplication, "", "en")).await
-        });
+        let _ = runtime().block_on(async { tokio::time::timeout(WAKE_PING, handle.disconnect(russh::Disconnect::ByApplication, "", "en")).await });
     }
 }
 
@@ -519,7 +508,12 @@ impl Exec {
             // Dropping `out_tx` ends the reader, as the closed channel does.
             drop(out_tx);
         });
-        Exec { reader: ExecReader { rx: out_rx, pending: Vec::new(), at: 0 }, writer: ExecWriter { tx: in_tx }, status: Arc::default(), closer: ExecCloser { close } }
+        Exec {
+            reader: ExecReader { rx: out_rx, pending: Vec::new(), at: 0 },
+            writer: ExecWriter { tx: in_tx },
+            status: Arc::default(),
+            closer: ExecCloser { close },
+        }
     }
 }
 

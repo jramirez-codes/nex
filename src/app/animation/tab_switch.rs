@@ -88,7 +88,13 @@ impl TabSwitch {
 /// to the next tab) a horizontal strip goes the other way, following the finger: the next
 /// tab comes in from the right and the old one leaves to the left.
 fn travel(vertical: bool, forward: bool, follow_swipe: bool) -> Vec2 {
-    let axis = if vertical { Vec2::Y } else if follow_swipe { -Vec2::X } else { Vec2::X };
+    let axis = if vertical {
+        Vec2::Y
+    } else if follow_swipe {
+        -Vec2::X
+    } else {
+        Vec2::X
+    };
     if forward { axis } else { -axis }
 }
 

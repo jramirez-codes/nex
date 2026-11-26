@@ -24,11 +24,11 @@ use crate::remote::exec::Transport;
 use crate::terminal::Terminal;
 use crate::ui::icons;
 
-use crate::app::ssh::follow::Place;
-use crate::app::workspace::panes::Pane;
-use crate::app::workspace::metrics::cell_px;
-use crate::app::workspace::tab::Tab;
 use crate::app::animation::tab_close::{TabDrawn, TabGhost};
+use crate::app::ssh::follow::Place;
+use crate::app::workspace::metrics::cell_px;
+use crate::app::workspace::panes::Pane;
+use crate::app::workspace::tab::Tab;
 use crate::app::{App, PANE_GAP};
 
 /// Where a pane works: a folder here, or one on an ssh host.
@@ -52,7 +52,14 @@ impl App {
     /// (on the connected host, where the window is a thin client).
     /// `font_size` is the new pane's own zoom level (`None` = config default). `command` runs
     /// instead of the shell.
-    pub(in crate::app) fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>, command: Option<Vec<String>>, card: Rect, font_size: Option<f32>) -> Option<PaneId> {
+    pub(in crate::app) fn spawn_pane(
+        &mut self,
+        ctx: &egui::Context,
+        cwd: Option<PathBuf>,
+        command: Option<Vec<String>>,
+        card: Rect,
+        font_size: Option<f32>,
+    ) -> Option<PaneId> {
         if self.connect.active {
             return self.spawn_remote_pane(ctx, card, font_size);
         }
@@ -135,10 +142,7 @@ impl App {
     /// pane is in every tab).
     pub(in crate::app) fn tab_with(&mut self, pane: PaneId) -> Option<&mut Tab> {
         let shown = self.cur_tab().filter(|t| t.contains(pane)).map(|t| t.uid);
-        self.home_tab
-            .iter_mut()
-            .chain(self.tabs.iter_mut())
-            .find(|t| shown.map_or_else(|| t.contains(pane), |uid| t.uid == uid))
+        self.home_tab.iter_mut().chain(self.tabs.iter_mut()).find(|t| shown.map_or_else(|| t.contains(pane), |uid| t.uid == uid))
     }
 
     pub(in crate::app) fn show_tab(&mut self, index: usize) {
@@ -180,18 +184,14 @@ impl App {
         }
         match self.panes.get(id)? {
             Pane::Terminal(t) => t.cwd.clone().map(Location::Local),
-            Pane::Explorer(b) => {
-                Some(match b.transport() {
-                    Some(t) => Location::Remote(t.clone(), b.dir.clone()),
-                    None => Location::Local(b.dir.clone()),
-                })
-            }
-            Pane::Diff(d) => {
-                Some(match d.transport() {
-                    Some(t) => Location::Remote(t.clone(), d.dir.clone()),
-                    None => Location::Local(d.dir.clone()),
-                })
-            }
+            Pane::Explorer(b) => Some(match b.transport() {
+                Some(t) => Location::Remote(t.clone(), b.dir.clone()),
+                None => Location::Local(b.dir.clone()),
+            }),
+            Pane::Diff(d) => Some(match d.transport() {
+                Some(t) => Location::Remote(t.clone(), d.dir.clone()),
+                None => Location::Local(d.dir.clone()),
+            }),
             Pane::Agents(_) => None,
         }
     }
@@ -211,8 +211,7 @@ impl App {
 
     /// [`pane_location`](Self::pane_location), else this machine's home folder.
     fn pane_location_or_home(&mut self, id: PaneId) -> Location {
-        self.pane_location(id, true)
-            .unwrap_or_else(|| Location::Local(crate::platform::home_dir().unwrap_or_else(|| PathBuf::from("/"))))
+        self.pane_location(id, true).unwrap_or_else(|| Location::Local(crate::platform::home_dir().unwrap_or_else(|| PathBuf::from("/"))))
     }
 
     /// `(title, process)` for a pane's tab and header, read every frame: a terminal's are

@@ -68,8 +68,15 @@ mod tests {
 
     #[test]
     fn children_sit_under_their_parent() {
-        let t = tree(&[s("a", "lead", None), s("b", "other", None), s("c", "build", Some("a")), s("d", "tests", Some("c")), s("e", "orphan", Some("gone"))]);
-        let order: Vec<bool> = ["  lead  ", "  └ build  ", "    └ tests  ", "  other  ", "  orphan  "].iter().zip(&t).map(|(want, line)| line.contains(want)).collect();
+        let t = tree(&[
+            s("a", "lead", None),
+            s("b", "other", None),
+            s("c", "build", Some("a")),
+            s("d", "tests", Some("c")),
+            s("e", "orphan", Some("gone")),
+        ]);
+        let order: Vec<bool> =
+            ["  lead  ", "  └ build  ", "    └ tests  ", "  other  ", "  orphan  "].iter().zip(&t).map(|(want, line)| line.contains(want)).collect();
         assert_eq!(order, [true; 5], "{t:#?}");
     }
 }

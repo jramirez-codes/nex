@@ -316,7 +316,11 @@ impl App {
     /// What the keyboard and the button are for this frame: a focused terminal or Agents
     /// pane with nothing in the way (a drag, a dialog, a pinch).
     pub(in crate::app) fn keyboard_target(&self, ctx: &egui::Context) -> Option<Target> {
-        if !self.chrome.soft_keyboard || self.input.pane_drag.is_some() || self.input.mouse.pinching() || ctx.memory(|m| m.top_modal_layer()).is_some() {
+        if !self.chrome.soft_keyboard
+            || self.input.pane_drag.is_some()
+            || self.input.mouse.pinching()
+            || ctx.memory(|m| m.top_modal_layer()).is_some()
+        {
             return None;
         }
         match self.pane_kind(self.focused_pane()?)? {

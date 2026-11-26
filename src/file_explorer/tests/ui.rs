@@ -29,7 +29,8 @@ impl Harness {
         ctx.enable_accesskit();
         crate::render::fonts::install(&ctx, &crate::config::Config::default());
         let theme = Theme::from_config(&crate::config::Config::default());
-        let mut h = Self { ctx, b: FileExplorer::new(dir), theme, nodes: Vec::new(), seen: Default::default(), time: 0.0, pass: 0, mods: Modifiers::NONE };
+        let mut h =
+            Self { ctx, b: FileExplorer::new(dir), theme, nodes: Vec::new(), seen: Default::default(), time: 0.0, pass: 0, mods: Modifiers::NONE };
         h.frame(vec![]);
         h.frame(vec![]);
         h
@@ -257,7 +258,16 @@ fn drag_shows_the_items_icon_at_its_size() {
         assert!(opaque > img.pixels.len() / 4, "{opaque} of {} pixels drawn", img.pixels.len());
         if std::env::var_os("NEX_DUMP_GHOST").is_some() {
             for row in img.pixels.chunks(img.size[0]) {
-                eprintln!("{}", row.iter().map(|p| match p[3] { 0..=40 => ' ', 41..=200 => '+', _ => '#' }).collect::<String>());
+                eprintln!(
+                    "{}",
+                    row.iter()
+                        .map(|p| match p[3] {
+                            0..=40 => ' ',
+                            41..=200 => '+',
+                            _ => '#',
+                        })
+                        .collect::<String>()
+                );
             }
         }
         egui::DragAndDrop::clear_payload(&h.ctx);

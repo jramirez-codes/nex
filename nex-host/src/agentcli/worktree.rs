@@ -23,7 +23,8 @@ pub fn worktree(dir: &Path, name: &str) -> io::Result<PathBuf> {
     // The second it's made in, plus `-2`, `-3`… when another was made that second (two
     // features joining a run at once): no two share a branch or a folder.
     let stamp = crate::util::now_ms() / 1000;
-    let taken = |b: &str, p: &Path| p.exists() || git(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{b}")]).is_ok_and(|o| o.status.success());
+    let taken =
+        |b: &str, p: &Path| p.exists() || git(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{b}")]).is_ok_and(|o| o.status.success());
     let (branch, path) = (1..)
         .map(|n| if n == 1 { format!("{name}-{stamp}") } else { format!("{name}-{stamp}-{n}") })
         .map(|s| (format!("nex/{s}"), trees.join(format!("{repo}-{s}"))))
@@ -102,14 +103,17 @@ fn trees() -> Vec<Tree> {
 fn base_branch(common: &Path) -> Option<String> {
     let ok = |args: &[&str]| git_dir(common, args).ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
     ok(&["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
-        .or_else(|| ["main", "master"].into_iter().find(|b| ok(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{b}")]).is_some()).map(Into::into))
+        .or_else(|| {
+            ["main", "master"].into_iter().find(|b| ok(&["rev-parse", "--verify", "--quiet", &format!("refs/heads/{b}")]).is_some()).map(Into::into)
+        })
         .or_else(|| common.parent().and_then(|top| git_in(top, &["symbolic-ref", "--short", "HEAD"])))
 }
 
 /// Its branch has nothing that isn't on the base branch, or its upstream was deleted.
 fn branch_done(t: &Tree) -> bool {
     let (Some(common), Some(branch)) = (&t.common, &t.branch) else { return false };
-    let merged = base_branch(common).is_some_and(|base| git_dir(common, &["merge-base", "--is-ancestor", branch, &base]).is_ok_and(|o| o.status.success()));
+    let merged =
+        base_branch(common).is_some_and(|base| git_dir(common, &["merge-base", "--is-ancestor", branch, &base]).is_ok_and(|o| o.status.success()));
     let gone = git_dir(common, &["for-each-ref", "--format=%(upstream:track)", &format!("refs/heads/{branch}")])
         .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "[gone]");
     merged || gone
@@ -117,7 +121,14 @@ fn branch_done(t: &Tree) -> bool {
 
 /// Folders live agents are working in.
 fn busy_dirs() -> Vec<PathBuf> {
-    client::request(&Request::List, false).ok().and_then(|r| r.sessions).unwrap_or_default().into_iter().filter(|s| s.exit.is_none()).map(|s| PathBuf::from(s.cwd)).collect()
+    client::request(&Request::List, false)
+        .ok()
+        .and_then(|r| r.sessions)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| s.exit.is_none())
+        .map(|s| PathBuf::from(s.cwd))
+        .collect()
 }
 
 /// `worktree ls`: the worktrees `--worktree` made. `worktree prune [--all] [--dry-run]`:

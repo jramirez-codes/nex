@@ -69,9 +69,8 @@ pub fn set_clipboard_text(text: &str) {
 
 /// Mirror what nex copied this frame (egui's copy commands) to the system clipboard.
 pub fn mirror_copies(ctx: &egui::Context) {
-    let copied: Vec<String> = ctx.output(|o| {
-        o.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect()
-    });
+    let copied: Vec<String> =
+        ctx.output(|o| o.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect());
     if let Some(text) = copied.last() {
         set_clipboard_text(text);
     }

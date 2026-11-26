@@ -2,10 +2,10 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use alacritty_terminal::Term;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Boundary, Column, Direction, Point};
 use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
-use alacritty_terminal::Term;
 
 use crate::layout::PaneId;
 
@@ -119,9 +119,7 @@ fn find_all<T>(term: &Term<T>, query: &str) -> Vec<Match> {
     let Ok(mut regex) = RegexSearch::new(&escape(query)) else { return Vec::new() };
     let start = Point::new(term.topmost_line(), Column(0));
     let end = Point::new(term.bottommost_line(), term.last_column());
-    RegexIter::new(start, end, Direction::Right, term, &mut regex)
-        .take(MAX_MATCHES)
-        .collect()
+    RegexIter::new(start, end, Direction::Right, term, &mut regex).take(MAX_MATCHES).collect()
 }
 
 pub struct Link {
@@ -188,8 +186,8 @@ mod tests {
     use super::*;
     use alacritty_terminal::event::VoidListener;
     use alacritty_terminal::index::Line;
-    use alacritty_terminal::term::test::TermSize;
     use alacritty_terminal::term::Config;
+    use alacritty_terminal::term::test::TermSize;
     use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
     fn term_with(text: &str) -> Term<VoidListener> {

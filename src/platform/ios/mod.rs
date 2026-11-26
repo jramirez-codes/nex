@@ -19,13 +19,13 @@ pub use super::fontdb::{find_font, nerd_mono_families};
 pub use super::no_dnd::Dnd;
 pub use super::no_watch::{DirWatch, on_dir_change};
 pub use super::unix::{
-    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options,
-    pty_pid, shell_quote, symlink,
+    FileLock, config_dir, file_mode, format_local_time, home_dir, hostname, is_executable, lock_file, owner_names, pty_options, pty_pid, shell_quote,
+    symlink,
 };
 pub use clipboard::{clipboard_text, mirror_copies};
 pub use haptics::haptic;
-pub use mic::{ask_mic, mic_allowed, prepare_mic};
 pub use keyboard::{sync_soft_keyboard, typed_text};
+pub use mic::{ask_mic, mic_allowed, prepare_mic};
 pub use screen::{content_rect_px, soft_keyboard_visible};
 
 use super::{ProcInfo, ShortcutStyle, WindowDefaults};
@@ -42,14 +42,8 @@ pub const SYSTEM_BACK: bool = false;
 pub const SHORTCUTS: ShortcutStyle = ShortcutStyle::Ctrl;
 
 /// Full screen, as on Android: no decorations or window buttons, and title-bar tabs that swipe.
-pub const WINDOW: WindowDefaults = WindowDefaults {
-    decorations: false,
-    controls: false,
-    titlebar_inset: 0.0,
-    min_size: [0.0, 0.0],
-    transparent: false,
-    scroll_tabs: true,
-};
+pub const WINDOW: WindowDefaults =
+    WindowDefaults { decorations: false, controls: false, titlebar_inset: 0.0, min_size: [0.0, 0.0], transparent: false, scroll_tabs: true };
 
 /// iOS's own fonts cover symbols, emoji and CJK.
 pub const FALLBACK_FAMILIES: &[&str] = &["Menlo", "Apple Symbols", "Apple Color Emoji", "PingFang SC", "Hiragino Sans"];

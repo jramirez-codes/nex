@@ -7,15 +7,15 @@
 use egui::epaint::Shadow;
 use egui::{Align2, Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
-use crate::ui::theme::{ACCENT, Theme, white_alpha};
-use crate::ui::{icons, paint};
 use crate::agents::group::{Group, Member};
 use crate::agents::model::{Agent, Status, elapsed};
 use crate::agents::motion::{Badge, TileMotion, breath, stage_progress};
+use crate::agents::view::layout::{branch_slots, chevron_center, pill_rect, row_indent, row_text_x};
+use crate::agents::view::text::{HeaderText, header_text, member_detail, member_task};
 use crate::agents::view::viewing;
 use crate::agents::view::{CARD_H, CARD_RADIUS, DETAIL_Y, Frame, SIDE, TAG_H, TILE, TITLE_Y, status_color, ui_font};
-use crate::agents::view::text::{HeaderText, header_text, member_detail, member_task};
-use crate::agents::view::layout::{branch_slots, chevron_center, pill_rect, row_indent, row_text_x};
+use crate::ui::theme::{ACCENT, Theme, white_alpha};
+use crate::ui::{icons, paint};
 
 /// A group's caption: "NEEDS YOU  1", small and quiet, like a grouped list's section header.
 pub(super) fn section_header(p: &Painter, r: Rect, status: Status, n: usize, c: &Theme) {
@@ -142,10 +142,7 @@ pub(super) fn card_body(p: &Painter, r: Rect, look: &Look) {
     p.rect_filled(r, CARD_RADIUS, white_alpha((8.0 + 7.0 * hover.max(lift)) as u8));
     // The glass edge along the top, as on the pane cards.
     let inset = CARD_RADIUS as f32 + 2.0;
-    p.line_segment(
-        [Pos2::new(r.left() + inset, r.top() + 1.0), Pos2::new(r.right() - inset, r.top() + 1.0)],
-        Stroke::new(1.0_f32, white_alpha(14)),
-    );
+    p.line_segment([Pos2::new(r.left() + inset, r.top() + 1.0), Pos2::new(r.right() - inset, r.top() + 1.0)], Stroke::new(1.0_f32, white_alpha(14)));
     p.rect_stroke(r, CARD_RADIUS, Stroke::new(border_width, border), StrokeKind::Inside);
 }
 
@@ -237,7 +234,16 @@ pub(super) fn branch_lines(p: &Painter, list: Rect, g: &Group, shown: usize) {
 /// in a small capsule and the task it's on (see [`member_task`]) over the folder it works
 /// in, and its status with how long it has been in it.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn helper_row(f: &Frame, p: &Painter, row: Rect, m: &Member, depth: usize, tag: &str, seen: (f32, f32), (tick, tile_look): (f32, Option<TileLook>)) {
+pub(super) fn helper_row(
+    f: &Frame,
+    p: &Painter,
+    row: Rect,
+    m: &Member,
+    depth: usize,
+    tag: &str,
+    seen: (f32, f32),
+    (tick, tile_look): (f32, Option<TileLook>),
+) {
     let c = f.c;
     let a = &m.agent;
     let tile = Rect::from_center_size(Pos2::new(row.left() + 12.0 + row_indent(depth) + 13.0, row.center().y), Vec2::splat(26.0));
@@ -306,7 +312,8 @@ pub(super) fn needs_you_tint(f: &Frame) -> Color32 {
 /// tint, or a running pipeline's tile among its helpers. A member at work counts even when
 /// the lead's status doesn't say so (a pipeline's Done stage outranks its Working one).
 pub(super) fn team_breathes(g: &Group) -> bool {
-    g.lead.status == Status::Working || g.members.iter().any(|m| matches!(m.agent.status, Status::Working | Status::NeedsYou) || m.agent.tile_animates())
+    g.lead.status == Status::Working
+        || g.members.iter().any(|m| matches!(m.agent.status, Status::Working | Status::NeedsYou) || m.agent.tile_animates())
 }
 
 /// The status dot. While working it breathes, and a soft ring keeps rippling out of it.
@@ -344,5 +351,11 @@ pub(super) fn empty_state(f: &Frame, p: &Painter, area: Rect) {
     icons::sparkle(p, g, 15.0, c.text_dim);
     p.text(center + Vec2::new(0.0, 6.0), Align2::CENTER_CENTER, "No Agents Running", paint::bold(15.0), c.text_bright);
     let detail = "Start claude or codex in any pane to see it here.";
-    paint::caption(p, Rect::from_center_size(center + Vec2::new(0.0, 28.0), Vec2::new((area.width() - 40.0).max(0.0), 18.0)), detail, ui_font(12.5), c.text_dim);
+    paint::caption(
+        p,
+        Rect::from_center_size(center + Vec2::new(0.0, 28.0), Vec2::new((area.width() - 40.0).max(0.0), 18.0)),
+        detail,
+        ui_font(12.5),
+        c.text_dim,
+    );
 }

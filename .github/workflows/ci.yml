@@ -97,6 +97,9 @@ jobs:
           --exclude nex-ios --exclude nex-android
           ${{ needs.changes.outputs.host != 'true' && '--exclude nex-host' || '' }}
 
+      - name: Format
+        run: cargo fmt --all --check
+
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 

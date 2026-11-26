@@ -36,7 +36,11 @@ pub(super) fn team_seen(viewing: &Viewing, g: &Group) -> Option<Seen> {
 /// stage), unless the pane showing it is the one showing the agent that started it, which is
 /// marked instead, so one look never marks two items.
 pub(super) fn member_seen(viewing: &Viewing, g: &Group, m: &Member) -> Option<Seen> {
-    let parent = m.agent.team.parent.and_then(|p| if p == g.lead.pane { Some(&*g.lead) } else { g.members.iter().find(|o| o.agent.pane == p).map(|o| &*o.agent) });
+    let parent = m
+        .agent
+        .team
+        .parent
+        .and_then(|p| if p == g.lead.pane { Some(&*g.lead) } else { g.members.iter().find(|o| o.agent.pane == p).map(|o| &*o.agent) });
     let shown = m.agent.shown_pane();
     if parent.is_some_and(|p| p.shown_pane() == shown) {
         return None;

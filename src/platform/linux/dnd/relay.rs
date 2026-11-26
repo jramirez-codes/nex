@@ -127,10 +127,7 @@ impl Layout {
     /// its surface.
     pub(super) fn target(&self, at: (f64, f64)) -> Option<(u32, (f64, f64))> {
         let (gx, gy) = (self.origin.0 + at.0, self.origin.1 + at.1);
-        self.others
-            .iter()
-            .find(|w| gx >= w.x && gx < w.x + w.w && gy >= w.y && gy < w.y + w.h)
-            .map(|w| (w.pid, (gx - w.x, gy - w.y)))
+        self.others.iter().find(|w| gx >= w.x && gx < w.x + w.w && gy >= w.y && gy < w.y + w.h).map(|w| (w.pid, (gx - w.x, gy - w.y)))
     }
 }
 
@@ -168,9 +165,11 @@ fn sway_tree() -> Option<Value> {
 fn sway_request(kind: u32, payload: &[u8]) -> Option<Value> {
     let sock = std::env::var_os("SWAYSOCK").map(PathBuf::from).filter(|p| p.exists()).or_else(|| {
         let dir = std::env::var_os("XDG_RUNTIME_DIR")?;
-        std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| {
-            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("sway-ipc.") && n.ends_with(".sock"))
-        })
+        std::fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("sway-ipc.") && n.ends_with(".sock")))
     })?;
     let mut stream = UnixStream::connect(sock).ok()?;
     stream.set_read_timeout(Some(Duration::from_secs(1))).ok()?;

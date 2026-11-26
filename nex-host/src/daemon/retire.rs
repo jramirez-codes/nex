@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 
 use nex_host::{paths, proto};
 
-use crate::daemon::state::State;
 use crate::daemon::log;
+use crate::daemon::state::State;
 use crate::util::Locked;
 
 /// How long a retiring daemon lingers after it stops listening, so a request that reached it
@@ -112,7 +112,8 @@ mod tests {
     fn nothing_starts_once_retiring() {
         let state = Arc::new(State::in_memory());
         state.set_retiring();
-        let spec = Spec { argv: vec!["true".into()], kind: None, name: None, cwd: "/".into(), cols: 80, rows: 24, env: None, parent: None, role: None };
+        let spec =
+            Spec { argv: vec!["true".into()], kind: None, name: None, cwd: "/".into(), cols: 80, rows: 24, env: None, parent: None, role: None };
         let e = launch(&state, "a1".into(), spec).unwrap_err();
         assert_eq!(e.to_string(), proto::RESTARTING);
         assert!(!state.has_agents());

@@ -106,7 +106,15 @@ fn changed_ranges(spans: &[Range<usize>], keep: &[bool]) -> Vec<Range<usize>> {
 fn tokens(s: &str) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     let mut start: Option<(usize, u8)> = None;
-    let class = |c: char| if c.is_alphanumeric() || c == '_' { 1 } else if c.is_whitespace() { 2 } else { 0 };
+    let class = |c: char| {
+        if c.is_alphanumeric() || c == '_' {
+            1
+        } else if c.is_whitespace() {
+            2
+        } else {
+            0
+        }
+    };
     for (i, c) in s.char_indices() {
         let k = class(c);
         match start {

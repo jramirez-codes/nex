@@ -65,7 +65,13 @@ pub fn recv(args: &[String]) -> io::Result<i32> {
         None => std::time::Duration::from_millis(proto::RECV_DEFAULT_MS),
     };
     let r = client::request(
-        &Request::Recv { me: me(), from: a.value("--from").map(Into::into), reply_to: a.value("--reply-to").map(Into::into), kind, timeout_ms: Some(timeout.as_millis() as u64) },
+        &Request::Recv {
+            me: me(),
+            from: a.value("--from").map(Into::into),
+            reply_to: a.value("--reply-to").map(Into::into),
+            kind,
+            timeout_ms: Some(timeout.as_millis() as u64),
+        },
         true,
     );
     let m = match r {

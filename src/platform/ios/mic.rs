@@ -33,9 +33,7 @@ pub fn mic_allowed() -> bool {
 pub fn ask_mic() {
     let answered = RcBlock::new(|_granted: Bool| {});
     // SAFETY: the shared session is a singleton; the block is copied by the call.
-    unsafe {
-        AVAudioSession::sharedInstance().requestRecordPermission(&answered)
-    };
+    unsafe { AVAudioSession::sharedInstance().requestRecordPermission(&answered) };
 }
 
 /// Get the audio session ready to record, just before the mic is opened.

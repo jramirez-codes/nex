@@ -105,7 +105,13 @@ impl PaneMotion {
     /// and content scale between the two. Zooming in, the `others` (id, title, process, last
     /// frame) stay where they are and fade out under it; zooming out, they fade back in
     /// under it.
-    pub(in crate::app) fn kick_zoom(&mut self, ctx: &egui::Context, pane: PaneId, zooming_in: bool, others: Vec<(PaneId, String, String, Vec<Shape>)>) {
+    pub(in crate::app) fn kick_zoom(
+        &mut self,
+        ctx: &egui::Context,
+        pane: PaneId,
+        zooming_in: bool,
+        others: Vec<(PaneId, String, String, Vec<Shape>)>,
+    ) {
         if !glide::animations(ctx) {
             return;
         }

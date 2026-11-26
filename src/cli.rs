@@ -262,7 +262,8 @@ mod tests {
         let a = parse(&["--no-restore"]).unwrap();
         assert!(a.no_restore);
         assert!(!a.restores_session());
-        for args in [&["-e", "top"][..], &["--working-directory=/tmp"], &["/tmp"], &["--explorer"], &["--select=/tmp/x"], &["--file-manager-service"]] {
+        for args in [&["-e", "top"][..], &["--working-directory=/tmp"], &["/tmp"], &["--explorer"], &["--select=/tmp/x"], &["--file-manager-service"]]
+        {
             assert!(!parse(args).unwrap().restores_session(), "{args:?}");
         }
         // A new window's flags parse back to a window that doesn't restore.

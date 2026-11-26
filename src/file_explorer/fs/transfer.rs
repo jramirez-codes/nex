@@ -8,9 +8,8 @@ use std::time::{Duration, Instant};
 
 use egui::Pos2;
 
-
-use crate::file_explorer::{After, FileExplorer};
 use crate::file_explorer::fs::ops::{count, human_size, parse_paths};
+use crate::file_explorer::{After, FileExplorer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {

@@ -10,7 +10,9 @@ use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec
 use crate::git_diff::git::diff::{FileDiff, Hunk, Line, LineKind};
 use crate::git_diff::git::status::Snapshot;
 use crate::git_diff::syntax::Token;
-use crate::git_diff::view::{FILE_HEADER_H, Frame, Glyph, HUNK_CAPTION_H, HUNK_GAP, HUNK_PAD_BOTTOM, HUNK_RADIUS, SIDE, change_color, counts_text, message, mono, opaque};
+use crate::git_diff::view::{
+    FILE_HEADER_H, Frame, Glyph, HUNK_CAPTION_H, HUNK_GAP, HUNK_PAD_BOTTOM, HUNK_RADIUS, SIDE, change_color, counts_text, message, mono, opaque,
+};
 use crate::git_diff::{Column, GitDiff, Sel};
 use crate::ui::file_icons::{file_glyph, paint_glyph};
 use crate::ui::theme::{HAIRLINE, HOVER, Theme, white_alpha};
@@ -147,7 +149,13 @@ impl GitDiff {
         }
         if d.truncated {
             let y = l.origin + l.content_h - 30.0;
-            p.text(Pos2::new(view.center().x, y), Align2::CENTER_CENTER, format!("Diff cut off after {} lines", d.line_count()), FontId::proportional(12.0), c.text_dim);
+            p.text(
+                Pos2::new(view.center().x, y),
+                Align2::CENTER_CENTER,
+                format!("Diff cut off after {} lines", d.line_count()),
+                FontId::proportional(12.0),
+                c.text_dim,
+            );
         }
         let span = ScrollSpan { offset: self.diff_scroll.pos, content: l.content_h, view: view.height() };
         if let Some(to) = overlay_scrollbar(ui, &p, view, f.id("diff-bar"), span, &mut self.view.diff_active) {
@@ -176,7 +184,20 @@ impl GitDiff {
         let card_x1 = view.right() - SIDE;
         let gutter = 6.0 + col_w * 2.0;
         let code_x = card_x0 + gutter + 12.0;
-        let mut l = DiffLayout { code, small, line_h, col_w, gutter, card_x0, card_x1, code_x, tops: Vec::with_capacity(d.hunks.len()), content_h: 0.0, origin: 0.0, sx: 0.0 };
+        let mut l = DiffLayout {
+            code,
+            small,
+            line_h,
+            col_w,
+            gutter,
+            card_x0,
+            card_x1,
+            code_x,
+            tops: Vec::with_capacity(d.hunks.len()),
+            content_h: 0.0,
+            origin: 0.0,
+            sx: 0.0,
+        };
 
         // Positions of every hunk card, in content coordinates.
         let mut y = 0.0;
@@ -266,7 +287,9 @@ fn hunk_lines(p: &Painter, view: Rect, card: Rect, h: &Hunk, l: &DiffLayout, c: 
     let lines_top = card.top() + HUNK_CAPTION_H;
     let first = (((view.top() - lines_top) / l.line_h).floor().max(0.0)) as usize;
     let last = ((((view.bottom() - lines_top) / l.line_h).ceil()) as usize).min(h.lines.len());
-    let code_clip = inner.with_clip_rect(Rect::from_min_max(Pos2::new(l.card_x0 + l.gutter + 4.0, view.top()), Pos2::new(l.card_x1 - 1.0, view.bottom())).intersect(card));
+    let code_clip = inner.with_clip_rect(
+        Rect::from_min_max(Pos2::new(l.card_x0 + l.gutter + 4.0, view.top()), Pos2::new(l.card_x1 - 1.0, view.bottom())).intersect(card),
+    );
     let plain_numbers = c.text_dim.gamma_multiply(0.65);
     for (k, line) in h.lines.iter().enumerate().take(last).skip(first) {
         let ly = lines_top + k as f32 * l.line_h;
@@ -299,7 +322,13 @@ fn hunk_lines(p: &Painter, view: Rect, card: Rect, h: &Hunk, l: &DiffLayout, c: 
         let end_x = l.code_x - l.sx + galley.size().x;
         code_clip.galley(Pos2::new(l.code_x - l.sx, gy), galley, c.text);
         if line.no_newline {
-            code_clip.text(Pos2::new(end_x + 10.0, cy), Align2::LEFT_CENTER, "No newline at end of file", FontId::proportional(10.5), c.text_dim.gamma_multiply(0.7));
+            code_clip.text(
+                Pos2::new(end_x + 10.0, cy),
+                Align2::LEFT_CENTER,
+                "No newline at end of file",
+                FontId::proportional(10.5),
+                c.text_dim.gamma_multiply(0.7),
+            );
         }
     }
 }
@@ -419,7 +448,19 @@ mod tests {
 
     fn theme() -> Theme {
         let k = |v: u8| Color32::from_rgb(v, v, v);
-        Theme { window: k(0), card: k(10), text: k(200), text_bright: k(250), text_dim: k(120), green: k(1), red: k(2), yellow: k(3), blue: k(4), magenta: k(5), cyan: k(6) }
+        Theme {
+            window: k(0),
+            card: k(10),
+            text: k(200),
+            text_bright: k(250),
+            text_dim: k(120),
+            green: k(1),
+            red: k(2),
+            yellow: k(3),
+            blue: k(4),
+            magenta: k(5),
+            cyan: k(6),
+        }
     }
 
     #[test]
@@ -438,11 +479,8 @@ mod tests {
         };
         let c = theme();
         let job = code_job(&line, &mono(12.0), &c, Some(c.green), false);
-        let parts: Vec<(&str, Color32, bool)> = job
-            .sections
-            .iter()
-            .map(|s| (&job.text[s.byte_range.clone()], s.format.color, s.format.background != Color32::TRANSPARENT))
-            .collect();
+        let parts: Vec<(&str, Color32, bool)> =
+            job.sections.iter().map(|s| (&job.text[s.byte_range.clone()], s.format.color, s.format.background != Color32::TRANSPARENT)).collect();
         assert_eq!(
             parts,
             vec![

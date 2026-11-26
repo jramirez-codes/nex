@@ -166,10 +166,7 @@ pub fn app_tile(p: &Painter, r: Rect, process: &str, mark: Option<&str>, phase: 
             let s = r.width();
             let o = r.left_top();
             let stroke = Stroke::new((s * 0.09).max(1.3), Color32::from_rgb(0x6e, 0xe0, 0x8a));
-            p.add(Shape::line(
-                vec![o + Vec2::new(s * 0.24, s * 0.32), o + Vec2::new(s * 0.44, s * 0.5), o + Vec2::new(s * 0.24, s * 0.68)],
-                stroke,
-            ));
+            p.add(Shape::line(vec![o + Vec2::new(s * 0.24, s * 0.32), o + Vec2::new(s * 0.44, s * 0.5), o + Vec2::new(s * 0.24, s * 0.68)], stroke));
             p.line_segment(
                 [o + Vec2::new(s * 0.5, s * 0.7), o + Vec2::new(s * 0.76, s * 0.7)],
                 Stroke::new((s * 0.09).max(1.3), Color32::from_white_alpha(230)),
@@ -248,7 +245,9 @@ pub fn tile_ring(p: &Painter, tile: Rect, progress: f32, color: Color32, glow: f
     if progress > 0.001 && arc.len() > 1 {
         p.add(PathShape::line(arc.clone(), Stroke::new(width, color)));
     }
-    if glow > 0.01 && let Some(&end) = arc.last() {
+    if glow > 0.01
+        && let Some(&end) = arc.last()
+    {
         for (r, a) in [(width * 3.2, 0.10), (width * 2.0, 0.22), (width * 1.0, 0.6)] {
             p.circle_filled(end, r, color.gamma_multiply(a * glow));
         }
@@ -390,10 +389,7 @@ pub fn header_glyph(p: &Painter, r: Rect, process: &str, mark: Option<&str>, col
             let o = rr.left_top();
             let bg = Color32::from_rgb(0x24, 0x20, 0x24);
             let stroke = Stroke::new(1.4_f32, bg);
-            p.add(Shape::line(
-                vec![o + Vec2::new(s * 0.22, s * 0.22), o + Vec2::new(s * 0.4, s * 0.4), o + Vec2::new(s * 0.22, s * 0.58)],
-                stroke,
-            ));
+            p.add(Shape::line(vec![o + Vec2::new(s * 0.22, s * 0.22), o + Vec2::new(s * 0.4, s * 0.4), o + Vec2::new(s * 0.22, s * 0.58)], stroke));
             p.line_segment([o + Vec2::new(s * 0.48, s * 0.6), o + Vec2::new(s * 0.75, s * 0.6)], stroke);
         }
         Kind::Other => {
@@ -584,13 +580,7 @@ pub fn icon_file(p: &Painter, r: Rect, c: Color32) {
     let r = Rect::from_center_size(r.center(), Vec2::new(w, r.height()));
     let fold = w * 0.35;
     let s = Stroke::new(1.2_f32, c);
-    let pts = vec![
-        r.left_top(),
-        Pos2::new(r.right() - fold, r.top()),
-        Pos2::new(r.right(), r.top() + fold),
-        r.right_bottom(),
-        r.left_bottom(),
-    ];
+    let pts = vec![r.left_top(), Pos2::new(r.right() - fold, r.top()), Pos2::new(r.right(), r.top() + fold), r.right_bottom(), r.left_bottom()];
     p.add(Shape::closed_line(pts, s));
     p.add(Shape::line(
         vec![Pos2::new(r.right() - fold, r.top()), Pos2::new(r.right() - fold, r.top() + fold), Pos2::new(r.right(), r.top() + fold)],
@@ -866,7 +856,10 @@ mod tests {
                     assert!((height - (target * ppp).round() / ppp).abs() <= 0.5, "{what}: ink {height} tall, for {target}");
                     heights.push(height);
                     let drawn = galley.mesh_bounds.translate(origin.to_vec2());
-                    assert!(drawn.height() >= height - 0.5 && drawn.height() <= height + 1.0 / ppp + 0.5, "{what}: drawn {drawn:?}, ink {height} tall");
+                    assert!(
+                        drawn.height() >= height - 0.5 && drawn.height() <= height + 1.0 / ppp + 0.5,
+                        "{what}: drawn {drawn:?}, ink {height} tall"
+                    );
                     assert!((drawn.center() - r.center()).length() <= 0.5 * 2f32.sqrt(), "{what}: drawn {drawn:?}, centered on {:?}", r.center());
                     // On the pixel grid.
                     for v in [drawn.min.x, drawn.min.y] {

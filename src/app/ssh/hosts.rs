@@ -16,9 +16,9 @@ use serde_json::{Value, json};
 
 use crate::app::ssh::sharing::SharingPrompt;
 use crate::config::AgentShim;
-use crate::remote::{self, RemoteError, SshTarget};
 use crate::remote::host::{self, HostError, Snapshot, State, Watch};
 use crate::remote::ssh::host::RemoteHost;
+use crate::remote::{self, RemoteError, SshTarget};
 use crate::ui::alert::{Alert, AlertChoice, AlertIcon};
 use crate::ui::theme::Theme;
 use crate::ui::toast::Toast;
@@ -174,7 +174,10 @@ impl Hosts {
 
     /// A host a pane is on that nex can't log into without a password.
     fn needs_login(&self, panes: &HashSet<SshTarget>) -> Option<&SshTarget> {
-        self.watches.iter().find(|(t, w)| panes.contains(*t) && w.with_snapshot(|s| s.state == State::Failed(HostError::Remote(RemoteError::NeedsLogin)))).map(|(t, _)| t)
+        self.watches
+            .iter()
+            .find(|(t, w)| panes.contains(*t) && w.with_snapshot(|s| s.state == State::Failed(HostError::Remote(RemoteError::NeedsLogin))))
+            .map(|(t, _)| t)
     }
 
     fn decline(&mut self, target: SshTarget) {
@@ -233,7 +236,12 @@ impl App {
     /// sharing (once a run), which lets nex ride the login typed into that pane. The prompt
     /// then says to log in once more, since the pane's session started before sharing did.
     pub(in crate::app) fn offer_sharing(&mut self, panes: &HashSet<SshTarget>) {
-        if !remote::SHARING_SUPPORTED || self.ssh.remote_hosts.sharing_offered || self.ssh.sharing_declined || self.ssh.sharing_prompt.is_some() || self.ssh.agent_prompt.is_some() {
+        if !remote::SHARING_SUPPORTED
+            || self.ssh.remote_hosts.sharing_offered
+            || self.ssh.sharing_declined
+            || self.ssh.sharing_prompt.is_some()
+            || self.ssh.agent_prompt.is_some()
+        {
             return;
         }
         let Some(host) = self.ssh.remote_hosts.needs_login(panes).map(|t| t.host().to_string()) else { return };
@@ -295,7 +303,8 @@ impl App {
             ),
             AgentPrompt::Failed(title, e) => (AlertIcon::Warning, title.clone(), e.clone(), "OK", None),
         };
-        let alert = Alert { id: Id::new("nex-agents-alert"), icon, title: &title, body: &body, steps: &[], primary, secondary, touch: self.cfg.sidebar() };
+        let alert =
+            Alert { id: Id::new("nex-agents-alert"), icon, title: &title, body: &body, steps: &[], primary, secondary, touch: self.cfg.sidebar() };
         let Some(choice) = alert.show(ctx, theme) else { return };
         self.ssh.agent_prompt = None;
         match (prompt, choice) {
@@ -320,7 +329,8 @@ impl App {
     pub(in crate::app) fn host_notes(&self) -> Vec<String> {
         let snapshots = self.ssh.remote_hosts.snapshots();
         // Read only when it matters: a host wants a password.
-        let sharing = snapshots.iter().any(|(_, s)| s.state == State::Failed(HostError::Remote(RemoteError::NeedsLogin))) && remote::sharing_enabled();
+        let sharing =
+            snapshots.iter().any(|(_, s)| s.state == State::Failed(HostError::Remote(RemoteError::NeedsLogin))) && remote::sharing_enabled();
         snapshots
             .into_iter()
             .filter_map(|(t, s)| match s.state {
@@ -328,11 +338,15 @@ impl App {
                 State::Failed(HostError::Remote(RemoteError::NeedsLogin)) if sharing => {
                     Some(format!("{} needs a password: log out of it (exit) and ssh back in, and nex shares that login", t.host()))
                 }
-                State::Failed(HostError::Remote(RemoteError::NeedsLogin)) => Some(format!("{} needs a password, so nex can't see its agents", t.host())),
+                State::Failed(HostError::Remote(RemoteError::NeedsLogin)) => {
+                    Some(format!("{} needs a password, so nex can't see its agents", t.host()))
+                }
                 State::Failed(HostError::Unsupported(system)) => Some(format!("{}: nex has no helper for {system}", t.host())),
                 State::Failed(HostError::Remote(RemoteError::Other(e))) => Some(format!("{}: can't connect ({e}), retrying", t.host())),
                 // An older nex-host still holds agents there; it hands over once they finish.
-                State::Live if s.daemon_version.is_some() => Some(format!("{}: nex-host update pending (it switches over when its agents finish)", t.host())),
+                State::Live if s.daemon_version.is_some() => {
+                    Some(format!("{}: nex-host update pending (it switches over when its agents finish)", t.host()))
+                }
                 State::Connecting | State::Live => None,
             })
             .collect()
@@ -432,7 +446,10 @@ mod tests {
         }))
         .unwrap();
         let mut hosts = Hosts::default();
-        hosts.watches.insert(devbox.clone(), Watch::fake(Snapshot { state: State::Live, sessions: vec![agent], home: Some("/home/me".into()), ..Default::default() }));
+        hosts.watches.insert(
+            devbox.clone(),
+            Watch::fake(Snapshot { state: State::Live, sessions: vec![agent], home: Some("/home/me".into()), ..Default::default() }),
+        );
         let showing = |id: &str| Some((devbox.clone(), id.to_string()));
 
         assert_eq!(hosts.pane_dir(Some("/srv".into()), || showing("a1")), Some("/srv".into()), "OSC 7 first");
