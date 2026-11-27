@@ -8,6 +8,14 @@ All notable changes to nex are documented here. The format follows
 
 ### Changed
 
+- The example `feature` pipeline's reviewer audits each PR before merging it, instead of
+  reading the diff and merging. It checks the PR against the request word for word (each
+  builder now puts it in the PR), runs the build and tests on the PR merged with the base,
+  checks the new tests fail without the change, waits for every CI check (it used to merge
+  while checks were pending), gets a second review from `/code-review`, and posts its review
+  on the PR. PRs that are large or touch dependencies, CI, release files, formats, auth or
+  UI it couldn't see are approved with a `needs-human` label and left for you to merge.
+
 - Holding a long pane title or an Agents pane card to read it starts scrolling sooner: the
   hold takes after a third of a second (it waited out egui's 0.8 s long press before), and
   the line sets off at once instead of pausing and creeping first. It still pauses at the

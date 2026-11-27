@@ -208,7 +208,11 @@ task = "Review PR {pr} from {from}: {report}. Merged before it: {merged}. Merge 
   only when you press Enter in it.
 - `examples/pr-team/` is a full run of this with real Claude agents and GitHub PRs.
 - `examples/feature/pipeline.toml` is a general one for any GitHub repository: build a
-  feature in a worktree, open a PR, review and merge it, with its agents in full auto.
+  feature in a worktree, open a PR, review and merge it, with its agents in full auto. Its
+  reviewer checks each PR against the request as asked, runs the build and tests on it
+  merged with the base, waits for CI, gets a second review from `/code-review`, and posts
+  what it found on the PR. Risky PRs it approves with a `needs-human` label and leaves for
+  you to merge.
 - `examples/mockups/pipeline.toml` is for design ideas, not code: three designers (`calm`,
   `bold`, `dense`) each write a self-contained `mockups/<slug>-<direction>/index.html` at
   once, with screenshots when Playwright or Chromium is installed, and a `critic` ranks
