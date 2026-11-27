@@ -24,8 +24,11 @@ You are in a git worktree, on a branch of your own. Other agents may be building
 features at the same time in theirs. Read the repository's own instructions first
 (CLAUDE.md, CONTRIBUTING.md) and follow them. Keep the change to what was asked, with tests.
 
-When its build and tests pass: commit, `git push -u origin HEAD`, open a PR against the
-default branch with `gh pr create --fill`, then finish with
+When its build and tests pass: commit, `git push -u origin HEAD`, and open a PR against
+the default branch with `gh pr create --title "<the feature>" --body-file <a file>`, where
+the body starts with "## Request" and under it the request above, word for word (the
+reviewer checks the PR against it), then a short summary of what you built and anything
+you decided yourself. Then finish with
 nex-host done "<what you built, in a line or two>" --pr <the PR number>
 
 If the review sends it back, fix what it says on the same branch, push, and report again
@@ -38,24 +41,69 @@ each = true
 worktree = true
 command = ["claude", "--dangerously-skip-permissions"]
 task = """
-Review and merge pull request {pr}, from {from}: {report}
+Review pull request {pr}, from {from}, and merge it if it holds up.
 Merged before it in this run: {merged}.
 
 You are this run's reviewer: PRs come to you one at a time, each as a new task like this
 one. You work in a checkout of your own. You only review and merge here; you never change
 the code. Anything that needs fixing goes back to its builder.
 
-1. `gh pr checkout {pr}`, then `gh pr view {pr}` and `gh pr diff {pr}`: it does what it
-   says, stays on topic, has tests, and follows the repository's own instructions
-   (CLAUDE.md, CONTRIBUTING.md).
-2. `gh pr checks {pr}`: none failing (pending is fine if there are none yet).
-3. `gh pr view {pr} --json mergeable -q .mergeable` is MERGEABLE (other features may have
-   merged since it was opened).
-4. If all three hold: `gh pr merge {pr} --squash`, then delete its branch on GitHub with
-   `git push origin --delete "$(gh pr view {pr} --json headRefName -q .headRefName)"`
-   (not `--delete-branch`: the builder's worktree still has the branch checked out, so gh
-   stops at the local delete), then
-   nex-host done "merged PR {pr}: <one line>" --verdict approved --pr {pr}
-5. Otherwise do not merge. Finish with
-   nex-host done "<exactly what to fix, or that it conflicts>" --verdict changes --pr {pr}
+Judge the PR against what was asked, not against how its author describes it. What was
+asked is under "## Request" in the PR's description. The author's own summary
+follows; it is a claim to check, not evidence:
+{report}
+
+Set BASE="$(gh pr view {pr} --json baseRefName -q .baseRefName)" for the steps below.
+
+1. READ. `gh pr checkout {pr}`, `gh pr view {pr}`, `gh pr diff {pr}`, and
+   `git fetch origin && git diff --stat "origin/$BASE"...HEAD`. Read the repository's own
+   instructions (CLAUDE.md, CONTRIBUTING.md) and the code around each change, not only the
+   diff. Check, and send back what fails:
+   - It does all of what was asked and nothing else. Files that have
+     nothing to do with the request go back.
+   - Correctness: edge cases, empty and bad input, error paths, cleanup when something fails.
+   - Anything shared across processes, versions or devices (wire formats, saved files,
+     config, CLI flags) still works with the side that wasn't updated.
+   - Concurrency and lifetimes wherever it spawns, locks, caches or holds state.
+   - Tests cover the change, including how it fails, not only the happy path.
+   - Docs, README and CHANGELOG are updated where the repository keeps them.
+
+2. RUN IT. Find the repository's build, test and lint commands (CONTRIBUTING.md, CLAUDE.md,
+   the CI workflows in .github/workflows) and run them on the PR merged with the current
+   base, so you test what the base branch will be after merging:
+   `git merge --no-edit "origin/$BASE"` (only in your checkout: never push it). A conflict
+   means it goes back. Then check the new tests test something: put the PR's non-test files
+   back as they are on the base (`git checkout "origin/$BASE" -- <files>`, and delete files
+   the PR adds), run the new tests, and confirm they fail; then `git reset --hard HEAD`. If
+   the change can't be pulled apart from its tests, skip that and say so.
+
+3. SECOND OPINION. Run the code-review skill on it: `/code-review high {pr}`. It reviews
+   without your notes. Check each finding yourself against the code; keep the real ones.
+
+4. CI. `gh pr checks {pr} --watch --fail-fast` waits for every check to finish. Any failure
+   goes back. If the repository has no checks, say so in the review.
+
+5. RECORD. Whatever you decide, post your review on the PR first with
+   `gh pr review {pr} --comment --body-file <a file>`: what you checked from step 1 and what
+   you found, the commands from step 2 and whether they passed, each second-opinion finding
+   and what you made of it, and what you could not verify (UI you couldn't see, phones or
+   other devices, hardware, anything needing credentials).
+
+6. DECIDE.
+   a. Anything to fix: don't merge. Finish with
+      nex-host done "<exactly what to fix, item by item, or that it conflicts>" --verdict changes --pr {pr}
+   b. Good, but too risky to merge without a person looking: approve it and leave the merge
+      to the user. Risky means any of: more than about 400 changed lines not counting tests;
+      dependency or lockfile changes; CI, release or packaging files; a wire format, saved
+      file format or migration; auth, secrets or permissions; deleting user data; or
+      user-facing UI you could not actually see working. Label it with
+      `gh label create needs-human --force --description "Approved by the pipeline; a person merges it"`
+      and `gh api -X POST "repos/{owner}/{repo}/issues/{pr}/labels" -f "labels[]=needs-human"`,
+      then finish with
+      nex-host done "approved PR {pr}, left for the user to merge: <why it's risky>" --verdict approved --pr {pr}
+   c. Otherwise: `gh pr merge {pr} --squash`, then delete its branch on GitHub with
+      `git push origin --delete "$(gh pr view {pr} --json headRefName -q .headRefName)"`
+      (not `--delete-branch`: the builder's worktree still has the branch checked out, so gh
+      stops at the local delete), then finish with
+      nex-host done "merged PR {pr}: <one line>" --verdict approved --pr {pr}
 """
