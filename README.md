@@ -912,6 +912,7 @@ How the code is laid out, the rules it follows, and where to start for common ch
 - [ ] Inline images (kitty graphics protocol)
 - [ ] Drag files out to Finder
 - [ ] Windows support
+- [ ] Hear an ssh session's audio: the host's default speaker plays on your machine, the reverse of the shared mic
 
 ## Acknowledgments
 
