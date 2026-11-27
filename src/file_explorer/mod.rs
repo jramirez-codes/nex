@@ -124,7 +124,8 @@ pub struct FileExplorer {
     pub view: View,
     pub show_hidden: bool,
     pub error: Option<String>,
-    /// The last press came from a touch screen: use larger hit targets.
+    /// The last press came from a touch screen: use larger hit targets. Panes made on a phone
+    /// start with it set (see `App::explorer_at`), so they're touch-sized before any input.
     pub touch: bool,
     scroll: f32,
     /// Zoom level of this pane (1.0 = normal); see `input/zoom.rs`.

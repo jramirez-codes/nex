@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
+use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, TouchDeviceId, TouchId, TouchPhase, Vec2};
 
 use crate::file_explorer::FileExplorer;
 use crate::file_explorer::tests::fixture;
@@ -27,21 +27,16 @@ pub(in crate::file_explorer) struct Harness {
 
 impl Harness {
     pub(in crate::file_explorer) fn new(dir: PathBuf) -> Self {
+        Self::with(FileExplorer::new(dir), 800.0)
+    }
+
+    /// A harness around `b` in a pane `width` wide, after its first two frames (no input).
+    pub(in crate::file_explorer) fn with(b: FileExplorer, width: f32) -> Self {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         crate::render::fonts::install(&ctx, &crate::config::Config::default());
         let theme = Theme::from_config(&crate::config::Config::default());
-        let mut h = Self {
-            ctx,
-            b: FileExplorer::new(dir),
-            theme,
-            nodes: Vec::new(),
-            seen: Default::default(),
-            time: 0.0,
-            pass: 0,
-            mods: Modifiers::NONE,
-            width: 800.0,
-        };
+        let mut h = Self { ctx, b, theme, nodes: Vec::new(), seen: Default::default(), time: 0.0, pass: 0, mods: Modifiers::NONE, width };
         h.frame(vec![]);
         h.frame(vec![]);
         h
@@ -106,6 +101,60 @@ impl Harness {
     pub(in crate::file_explorer) fn row(&self, i: usize) -> Pos2 {
         Pos2::new(200.0, 30.0 + 4.0 + 24.0 * i as f32 + 12.0)
     }
+}
+
+/// The listing's layout as last painted: its rect, columns and item size.
+fn layout_of(h: &Harness) -> (Rect, usize, Vec2) {
+    let l = h.b.layout.expect("the first frames lay the listing out");
+    (l.list, l.cols, l.item)
+}
+
+#[test]
+fn a_new_phone_explorer_is_sized_for_its_pane_before_any_input() {
+    use crate::file_explorer::View;
+    use crate::file_explorer::view::items::sizes;
+    let dir = fixture("ui-first-size");
+    for view in [View::List, View::Grid] {
+        // As `App::explorer_at` makes it on a phone.
+        let mut b = FileExplorer::new(dir.clone());
+        b.view = view;
+        b.touch = true;
+        let mut h = Harness::with(b, 360.0);
+        let s = sizes(true, 1.0);
+        let (list, cols, item) = layout_of(&h);
+        // The listing fills the pane's width, under a touch-sized path bar.
+        assert_eq!((list.left(), list.right()), (0.0, 360.0), "{view:?}: {list:?}");
+        assert_eq!(list.top(), s.bar + 4.0, "{view:?}: {list:?}");
+        match view {
+            View::List => assert_eq!((cols, item), (1, Vec2::new(360.0, s.row))),
+            View::Grid => {
+                let cols_fit = (360.0 / s.tile.x).floor() as usize;
+                assert_eq!((cols, item), (cols_fit, Vec2::new(360.0 / cols_fit as f32, s.tile.y)), "{view:?}");
+            }
+        }
+        // A tap (on empty space below the items) changes nothing about the size.
+        let below = Pos2::new(180.0, list.bottom() - 10.0);
+        let touch = |phase, extra: Vec<Event>| {
+            let mut ev = vec![Event::Touch { device_id: TouchDeviceId(1), id: TouchId(0), phase, pos: below, force: None }];
+            ev.extend(extra);
+            ev
+        };
+        h.frame(touch(
+            TouchPhase::Start,
+            vec![
+                Event::PointerMoved(below),
+                Event::PointerButton { pos: below, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE },
+            ],
+        ));
+        h.frame(touch(
+            TouchPhase::End,
+            vec![Event::PointerButton { pos: below, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }, Event::PointerGone],
+        ));
+        h.frame(vec![]);
+        assert!(h.b.touch, "{view:?}: the tap came from a touch screen");
+        assert_eq!(layout_of(&h), (list, cols, item), "{view:?}: the tap resized the explorer");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

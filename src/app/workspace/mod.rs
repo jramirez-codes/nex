@@ -279,13 +279,15 @@ impl App {
     }
 
     /// A file explorer at `at` (which may be on an ssh host), in the configured layout
-    /// (`explorer-view`).
+    /// (`explorer-view`). On a phone (`tab-bar = sidebar`) it starts touch-sized, so its first
+    /// frame already has the rows and bars a tap would otherwise switch it to.
     pub(in crate::app) fn explorer_at(&self, ctx: &egui::Context, at: Location) -> FileExplorer {
         let mut b = match at {
             Location::Local(dir) => FileExplorer::new(dir),
             Location::Remote(t, dir) => FileExplorer::new_remote(ctx, t, dir),
         };
         b.view = self.cfg.explorer_view;
+        b.touch = self.cfg.sidebar();
         b
     }
 
