@@ -13,6 +13,12 @@ All notable changes to nex are documented here. The format follows
   the line sets off at once instead of pausing and creeping first. It still pauses at the
   end so the end can be read.
 
+### Fixed
+
+- On the phone, a newly opened file explorer is touch-sized from its first frame. It used to
+  draw at the desktop size and only grow to the phone's larger rows and bars after the first
+  tap.
+
 ## [0.17.0] - 2026-11-26
 
 ### Added
